@@ -1,0 +1,141 @@
+name: business_manager
+description: A comprehensive business management app for multiple industries
+publish_to: 'none'
+version: 1.0.15+15
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  provider: ^6.1.1
+
+  # Firebase
+  firebase_core: ^4.2.1
+  firebase_auth: ^6.1.2
+  cloud_firestore: ^6.1.0
+  firebase_storage: ^13.0.4
+  firebase_messaging: ^16.0.4
+  firebase_analytics: ^12.0.4
+
+  # Local Storage
+  sqflite: ^2.4.2
+  sqflite_common_ffi: ^2.3.0
+  shared_preferences: ^2.5.3
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.5
+
+  # Networking & Connectivity
+  connectivity_plus: ^7.0.0
+  http: ^1.6.0
+  dio: ^5.9.0
+
+  # UI Components
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.3.2
+  flutter_svg: ^2.2.3
+  cached_network_image: ^3.4.1
+  shimmer: ^3.0.0
+  lottie: ^3.3.2
+  flutter_staggered_grid_view: ^0.7.0
+
+  # Charts & Graphs
+  fl_chart: ^1.1.1
+  syncfusion_flutter_charts: ^31.2.15
+
+  # Date & Time
+  intl: ^0.20.2
+  timeago: ^3.7.1
+  table_calendar: ^3.2.0
+  flutter_local_notifications: ^19.5.0
+  timezone: ^0.10.1
+
+  # Payments
+  flutterwave_standard: ^1.1.0
+  flutterwave_standard_smart: ^1.0.4
+
+  # Barcode & QR
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.1.3
+  barcode_widget: ^2.0.4
+
+  # PDF & Documents
+  pdf: ^3.11.3
+  printing: ^5.14.2
+  open_filex: ^4.7.0
+
+  # Image Handling
+  image_picker: ^1.2.1
+  image_cropper: ^11.0.0
+  flutter_image_compress: ^2.4.0
+  file_picker: ^10.3.7
+
+  # Permissions
+  permission_handler: ^12.0.1
+
+  # Bluetooth Thermal Printer
+  print_bluetooth_thermal: ^1.1.7
+
+  # Utils
+  uuid: ^4.5.2
+  path: ^1.9.1
+  url_launcher: ^6.3.2
+  share_plus: ^12.0.1
+  package_info_plus: ^9.0.0
+  device_info_plus: ^12.3.0
+  crypto: ^3.0.2
+
+  # Forms & Validation
+  form_field_validator: ^1.1.0
+
+  # Animations
+  flutter_animate: ^4.5.2
+
+  # Location
+  geolocator: ^10.1.1
+  geocoding: ^4.0.0
+
+
+  flutter_cache_manager: any
+  http_parser: any
+  mockito: ^5.4.4
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  build_runner: ^2.4.7
+  hive_generator: ^2.0.1
+  flutter_native_splash: ^2.3.11
+  fake_cloud_firestore: ^4.0.1
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/images/business_types/
+    - assets/icons/
+    - assets/lottie/
+    - assets/
+    - assets/fonts/NotoSans-Regular.ttf
+
+  # fonts:
+  #   - family: CustomFont
+  #     fonts:
+  #       - asset: assets/fonts/CustomFont-Regular.ttf
+  #       - asset: assets/fonts/CustomFont-Bold.ttf
+  #         weight: 700
+
+flutter_native_splash:
+  color: "#000000"
+  image: assets/images/splash/logo.png
+  background_image: assets/images/splash/background.png
+  android: true
+  ios: true
+  web: false
+  android_gravity: center
+  ios_content_mode: center

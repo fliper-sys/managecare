@@ -1,0 +1,10 @@
+{
+  "businessesCollection": "businesses",
+  "usersCollection": "users",
+  "ownerFieldNames": ["owners", "owner", "ownerId", "ownerIds"],
+  "ownersArrayFieldNames": ["owners", "ownerIds"],
+  "memberSubcollections": ["members", "workers", "staff"],
+  "memberUserIdFields": ["userId", "uid", "id", "workerId", "user", "owner"],
+  "userEmailFieldNames": ["email", "emailAddress"],
+  "createMissingDefault": false
+}

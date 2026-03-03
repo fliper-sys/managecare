@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Care Email Templates</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f3f4f6;
+            padding: 20px;
+        }
+        
+        .template-selector {
+            max-width: 600px;
+            margin: 0 auto 30px;
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .template-selector h2 {
+            margin-bottom: 15px;
+            color: #1a202c;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .template-btn {
+            padding: 12px 24px;
+            border: 2px solid #0ea5e9;
+            background: white;
+            color: #0ea5e9;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .template-btn:hover {
+            background: #0ea5e9;
+            color: white;
+        }
+        
+        .template-btn.active {
+            background: #0ea5e9;
+            color: white;
+        }
+        
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            display: none;
+        }
+        
+        .email-container.active {
+            display: block;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+            padding: 40px 30px;
+            text-align: center;
+            position: relative;
+        }
+        
+        .logo {
+            font-size: 32px;
+            font-weight: 800;
+            color: #ffffff;
+            margin-bottom: 10px;
+            letter-spacing: -0.5px;
+        }
+        
+        .content-section {
+            padding: 40px 30px;
+        }
+        
+        .welcome-icon {
+            text-align: center;
+            font-size: 80px;
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            font-size: 32px;
+            font-weight: 700;
+            color: #1a202c;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            font-size: 18px;
+            color: #4a5568;
+            text-align: center;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        
+        .cta-button {
+            display: inline-block;
+            background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+            color: #ffffff;
+            padding: 16px 40px;
+            border-radius: 50px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 16px;
+            box-shadow: 0 10px 30px rgba(14, 165, 233, 0.4);
+            transition: all 0.3s ease;
+            text-align: center;
+            margin: 20px auto;
+            display: block;
+            width: fit-content;
+        }
+        
+        .cta-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 40px rgba(14, 165, 233, 0.5);
+        }
+        
+        .steps-container {
+            margin: 30px 0;
+        }
+        
+        .step {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 25px;
+            align-items: flex-start;
+        }
+        
+        .step-number {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        
+        .step-content h3 {
+            font-size: 18px;
+            color: #1a202c;
+            margin-bottom: 5px;
+        }
+        
+        .step-content p {
+            color: #4a5568;
+            line-height: 1.6;
+        }
+        
+        .payment-details {
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 25px;
+            margin: 30px 0;
+        }
+        
+        .payment-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .payment-row:last-child {
+            border-bottom: none;
+            font-weight: 700;
+            font-size: 18px;
+            padding-top: 15px;
+            margin-top: 10px;
+            border-top: 2px solid #0ea5e9;
+        }
+        
+        .payment-label {
+            color: #4a5568;
+        }
+        
+        .payment-value {
+            color: #1a202c;
+            font-weight: 600;
+        }
+        
+        .success-badge {
+            display: inline-block;
+            background: #10b981;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin: 30px 0;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #ecfeff 0%, #ffffff 100%);
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-3px);
+            border-color: #0ea5e9;
+        }
+        
+        .stat-icon {
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+        
+        .stat-number {
+            font-size: 32px;
+            font-weight: 700;
+            color: #0ea5e9;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            color: #4a5568;
+            font-size: 14px;
+        }
+        
+        .stat-change {
+            font-size: 12px;
+            color: #10b981;
+            font-weight: 600;
+            margin-top: 5px;
+        }
+        
+        .stat-change.negative {
+            color: #ef4444;
+        }
+        
+        .insights-section {
+            background: #f8fafc;
+            border-left: 4px solid #0ea5e9;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 25px 0;
+        }
+        
+        .insights-section h3 {
+            color: #1a202c;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        
+        .insights-section ul {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .insights-section li {
+            color: #4a5568;
+            padding: 8px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+        
+        .insights-section li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #0ea5e9;
+            font-weight: 700;
+        }
+        
+        .footer {
+            background: #1a202c;
+            padding: 30px;
+            text-align: center;
+            color: #a0aec0;
+        }
+        
+        .footer-text {
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+        
+        .footer a {
+            color: #0ea5e9;
+            text-decoration: none;
+        }
+        
+        .divider {
+            height: 1px;
+            background: linear-gradient(to right, transparent, #e2e8f0, transparent);
+            margin: 30px 0;
+        }
+        
+        @media (max-width: 600px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .template-btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Template Selector -->
+    <div class="template-selector">
+        <h2>📧 Select Email Template</h2>
+        <div class="button-group">
+            <button class="template-btn active" onclick="showTemplate('welcome')">Welcome Email</button>
+            <button class="template-btn" onclick="showTemplate('payment')">Payment Confirmation</button>
+            <button class="template-btn" onclick="showTemplate('analytics')">Weekly Analytics</button>
+            <button class="template-btn" onclick="showTemplate('lowstock')">Low Stock Alert</button>
+            <button class="template-btn" onclick="showTemplate('expiry')">Expiry Warning</button>
+        </div>
+    </div>
+
+    <!-- Order Success Email Template -->
+    <div class="email-container" id="order-email">
+        <div class="header" style="background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%); padding: 20px; color: #fff; text-align: center;">
+            <div class="logo" style="font-size:28px; font-weight:800; color:#fff;">Manage Care</div>
+        </div>
+
+        <div class="content-section">
+            <div style="text-align: center;">
+                <div class="success-badge" style="background:#10b981; color:white; padding:8px 20px; border-radius:20px;">✅ Order Confirmed</div>
+            </div>
+            <h1 style="font-size:22px; font-weight:700; color:#1a202c; margin-bottom:10px;">Order {{order_id}} - Confirmation</h1>
+            <p class="subtitle">
+                Thank you — your order has been processed successfully. Below are the order details.
+            </p>
+
+            <div class="payment-details">
+                <div class="payment-row">
+                    <span class="payment-label">Order ID</span>
+                    <span class="payment-value">{{order_id}}</span>
+                </div>
+                <div class="payment-row">
+                    <span class="payment-label">Items</span>
+                    <span class="payment-value">{{itemsCount}}</span>
+                </div>
+                <div class="payment-row">
+                    <span class="payment-label">Total</span>
+                    <span class="payment-value">{{total}}</span>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <h2 style="font-size: 20px; color: #1a202c; margin-bottom: 10px;">Order Items</h2>
+            <div style="background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 20px;">
+                {{#items}}
+                <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #e2e8f0;">
+                    <div style="font-weight:600">{{name}}</div>
+                    <div style="color:#4a5568">x{{quantity}} • {{price}}</div>
+                </div>
+                {{/items}}
+            </div>
+
+            <a href="#" class="cta-button">View Order</a>
+        </div>
+
+        <div class="footer">
+            <p class="footer-text">Questions? Reply to this email or contact us at <a href="#">support@managecare.com</a></p>
+            <p class="footer-text">© 2025 Manage Care. All rights reserved.</p>
+        </div>
+    </div>
+
+    <!-- Payment Reminder / Upcoming Payment Email Template -->
+    <div class="email-container" id="payment-reminder-email">
+        <div class="header">
+            <div class="logo">Manage Care</div>
+        </div>
+
+        <div class="content-section">
+            <div style="text-align: center;">
+                <div class="alert-badge">💳 Upcoming Payment</div>
+            </div>
+            <h1>Upcoming Payment Reminder</h1>
+            <p class="subtitle">
+                This is a friendly reminder that a payment is due soon for your subscription or invoice.
+            </p>
+
+            <div class="payment-details">
+                <div class="payment-row">
+                    <span class="payment-label">Invoice / Subscription</span>
+                    <span class="payment-value">{{invoice_id}}</span>
+                </div>
+                <div class="payment-row">
+                    <span class="payment-label">Due Date</span>
+                    <span class="payment-value">{{due_date}}</span>
+                </div>
+                <div class="payment-row">
+                    <span class="payment-label">Amount Due</span>
+                    <span class="payment-value">{{amount}}</span>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+            <p style="color:#4a5568;">If you'd like help updating your payment method, please visit your billing settings or contact billing@managecare.com.</p>
+            <a href="#" class="cta-button">Update Payment Method</a>
+        </div>
+
+        <div class="footer">
+            <p class="footer-text">Questions about payments? Contact us at <a href="#">billing@managecare.com</a></p>
+            <p class="footer-text">© 2025 Manage Care. All rights reserved.</p>
+        </div>
+    </div>
+
+    <!-- Welcome Email Template -->
+    <div class="email-container active" id="welcome-email">
+        <div class="header">
+            <div class="logo">Manage Care</div>
+        </div>
+        
+        <div class="content-section">
+            <div class="welcome-icon">👋</div>
+            <h1>Welcome to Manage Care!</h1>
+            <p class="subtitle">
+                We're thrilled to have you on board. You're now part of a community of thousands of businesses transforming the way they manage operations and inventory.
+            </p>
+            
+            <a href="#" class="cta-button">Complete Your Profile</a>
+            
+            <div class="divider"></div>
+            
+            <h2 style="font-size: 24px; color: #1a202c; margin-bottom: 25px;">Get Started in 3 Easy Steps</h2>
+            
+            <div class="steps-container">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Set Up Your Business Profile</h3>
+                        <p>Add your business details, locations, and team members to get started.</p>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Import Your Inventory</h3>
+                        <p>Upload your existing inventory or add items manually. We support CSV imports for quick setup.</p>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Customize Your Dashboard</h3>
+                        <p>Configure alerts, reports, and preferences to match your business needs.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <div style="background: #ecfeff; padding: 25px; border-radius: 12px; text-align: center;">
+                <h3 style="color: #1a202c; margin-bottom: 10px;">Need Help Getting Started?</h3>
+                <p style="color: #4a5568; margin-bottom: 15px;">Our support team is here to help you every step of the way.</p>
+                <a href="#" style="color: #0ea5e9; text-decoration: none; font-weight: 600;">Visit Help Center →</a>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p class="footer-text">Questions? Reply to this email or contact us at <a href="#">support@managecare.com</a></p>
+            <p class="footer-text">© 2025 Manage Care. All rights reserved.</p>
+            <p style="font-size: 12px; color: #718096; margin-top: 15px;">
+                <a href="#">Unsubscribe</a> | <a href="#">Preferences</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Payment Confirmation Email Template -->
+    <div class="email-container" id="payment-email">
+        <div class="header">
+            <div class="logo">Manage Care</div>
+        </div>
+        
+        <div class="content-section">
+            <div style="text-align: center;">
+                <div class="success-badge">✓ Payment Successful</div>
+            </div>
+            <h1>Thank You for Your Payment!</h1>
+            <p class="subtitle">
+                Your subscription has been successfully renewed. Here are the details of your transaction.
+            </p>
+            
+            <div class="payment-details">
+                <div class="payment-row">
+                    <span class="payment-label">Transaction ID</span>
+                    <span class="payment-value">#TXN-2025-11-29-4782</span>
+                </div>
+                <div class="payment-row">
+                    <span class="payment-label">Date</span>
+                    <span class="payment-value">November 29, 2025</span>
+                </div>
+                <div class="payment-row">
+                    <span class="payment-label">Plan</span>
+                    <span class="payment-value">Professional Plan</span>
+                </div>
+                <div class="payment-row">
+                    <span class="payment-label">Billing Period</span>
+                    <span class="payment-value">Monthly</span>
+                </div>
+                <div class="payment-row">
+                    <span class="payment-label">Next Billing Date</span>
+                    <span class="payment-value">December 29, 2025</span>
+                </div>
+                <div class="payment-row">
+                    <span class="payment-label">Payment Method</span>
+                    <span class="payment-value">•••• •••• •••• 4242</span>
+                </div>
+                <div class="payment-row">
+                    <span class="payment-label">Amount Paid</span>
+                    <span class="payment-value" style="color: #0ea5e9;">$49.99</span>
+                </div>
+            </div>
+            
+            <a href="#" class="cta-button">View Invoice</a>
+            
+            <div class="divider"></div>
+            
+            <h2 style="font-size: 24px; color: #1a202c; margin-bottom: 15px; text-align: center;">Your Plan Includes</h2>
+            
+            <div style="background: #f8fafc; padding: 25px; border-radius: 12px;">
+                <ul style="list-style: none; padding: 0;">
+                    <li style="padding: 10px 0; padding-left: 30px; position: relative; color: #4a5568;">
+                        <span style="position: absolute; left: 0; color: #10b981; font-weight: 700;">✓</span>
+                        Unlimited inventory items
+                    </li>
+                    <li style="padding: 10px 0; padding-left: 30px; position: relative; color: #4a5568;">
+                        <span style="position: absolute; left: 0; color: #10b981; font-weight: 700;">✓</span>
+                        Advanced analytics and reporting
+                    </li>
+                    <li style="padding: 10px 0; padding-left: 30px; position: relative; color: #4a5568;">
+                        <span style="position: absolute; left: 0; color: #10b981; font-weight: 700;">✓</span>
+                        Priority customer support
+                    </li>
+                    <li style="padding: 10px 0; padding-left: 30px; position: relative; color: #4a5568;">
+                        <span style="position: absolute; left: 0; color: #10b981; font-weight: 700;">✓</span>
+                        Multi-location management
+                    </li>
+                    <li style="padding: 10px 0; padding-left: 30px; position: relative; color: #4a5568;">
+                        <span style="position: absolute; left: 0; color: #10b981; font-weight: 700;">✓</span>
+                        Mobile app access
+                    </li>
+                </ul>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <div style="text-align: center; padding: 20px; background: #ecfeff; border-radius: 12px;">
+                <p style="color: #4a5568; margin-bottom: 10px;">Need to update your billing information?</p>
+                <a href="#" style="color: #0ea5e9; text-decoration: none; font-weight: 600;">Manage Subscription →</a>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p class="footer-text">Questions about your payment? Contact us at <a href="#">billing@managecare.com</a></p>
+            <p class="footer-text">© 2025 Manage Care. All rights reserved.</p>
+            <p style="font-size: 12px; color: #718096; margin-top: 15px;">
+                <a href="#">Unsubscribe</a> | <a href="#">Preferences</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Weekly Analytics Email Template -->
+    <div class="email-container" id="analytics-email">
+        <div class="header">
+            <div class="logo">Manage Care</div>
+        </div>
+        
+        <div class="content-section">
+            <h1>Your Weekly Report</h1>
+            <p class="subtitle">
+                Here's how your business performed this week. November 22 - November 29, 2025
+            </p>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">📦</div>
+                    <div class="stat-number">1,247</div>
+                    <div class="stat-label">Orders Processed</div>
+                    <div class="stat-change">↑ 12% from last week</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">💰</div>
+                    <div class="stat-number">$28,450</div>
+                    <div class="stat-label">Total Revenue</div>
+                    <div class="stat-change">↑ 8% from last week</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-number">347</div>
+                    <div class="stat-label">Items Sold</div>
+                    <div class="stat-change">↑ 15% from last week</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">⚠️</div>
+                    <div class="stat-number">12</div>
+                    <div class="stat-label">Low Stock Alerts</div>
+                    <div class="stat-change negative">↑ 3 from last week</div>
+                </div>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <div class="insights-section">
+                <h3>📈 Key Insights</h3>
+                <ul>
+                    <li>Your top-selling product this week was "Premium Widget Pro" with 89 units sold</li>
+                    <li>Peak order time was Tuesday at 2 PM - consider staffing accordingly</li>
+                    <li>Average order value increased by $4.50 compared to last week</li>
+                    <li>You have 12 items running low on stock that need attention</li>
+                </ul>
+            </div>
+            
+            <div class="insights-section" style="border-left-color: #f59e0b; background: #fffbeb;">
+                <h3>⚡ Recommended Actions</h3>
+                <ul>
+                    <li>Reorder inventory for 12 items that are below minimum threshold</li>
+                    <li>Review pricing for products with declining sales trends</li>
+                    <li>Consider promoting slow-moving items to clear inventory space</li>
+                </ul>
+            </div>
+            
+            <a href="#" class="cta-button">View Full Dashboard</a>
+            
+            <div class="divider"></div>
+            
+            <div style="text-align: center; padding: 20px; background: #f8fafc; border-radius: 12px;">
+                <h3 style="color: #1a202c; margin-bottom: 10px;">Want more detailed insights?</h3>
+                <p style="color: #4a5568; margin-bottom: 15px;">Upgrade to our Advanced Analytics package for deeper insights and custom reports.</p>
+                <a href="#" style="color: #0ea5e9; text-decoration: none; font-weight: 600;">Learn More →</a>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p class="footer-text">Want to adjust your report frequency? <a href="#">Update preferences</a></p>
+            <p class="footer-text">© 2025 Manage Care. All rights reserved.</p>
+            <p style="font-size: 12px; color: #718096; margin-top: 15px;">
+                <a href="#">Unsubscribe</a> | <a href="#">Preferences</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Low Stock Alert Email Template -->
+    <div class="email-container" id="lowstock-email">
+        <div class="header">
+            <div class="logo">Manage Care</div>
+        </div>
+        
+        <div class="content-section">
+            <div style="text-align: center;">
+                <div class="alert-badge warning">⚠️ Inventory Alert</div>
+            </div>
+            <h1>Low Stock Warning</h1>
+            <p class="subtitle">
+                Some of your inventory items are running low and need immediate attention to avoid stockouts.
+            </p>
+            
+            <table class="item-table">
+                <thead>
+                    <tr>
+                        <th>Product Name</th>
+                        <th>SKU</th>
+                        <th>Current Stock</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Premium Widget Pro</strong></td>
+                        <td>PWP-001</td>
+                        <td>3 units</td>
+                        <td><span class="status-badge critical">Critical</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Standard Connector</strong></td>
+                        <td>SC-245</td>
+                        <td>8 units</td>
+                        <td><span class="status-badge critical">Critical</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Deluxe Adapter Kit</strong></td>
+                        <td>DAK-102</td>
+                        <td>15 units</td>
+                        <td><span class="status-badge warning">Low</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Basic Power Supply</strong></td>
+                        <td>BPS-500</td>
+                        <td>12 units</td>
+                        <td><span class="status-badge warning">Low</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Universal Cable</strong></td>
+                        <td>UC-789</td>
+                        <td>18 units</td>
+                        <td><span class="status-badge low">Moderate</span></td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="action-box">
+                <h3>🎯 Recommended Actions</h3>
+                <p>Based on your sales velocity, we recommend reordering the following quantities:</p>
+                <ul style="list-style: none; padding: 0; margin-bottom: 20px;">
+                    <li style="padding: 8px 0; color: #4a5568;">• Premium Widget Pro: <strong>50 units</strong> (avg. 25 units/week)</li>
+                    <li style="padding: 8px 0; color: #4a5568;">• Standard Connector: <strong>100 units</strong> (avg. 40 units/week)</li>
+                    <li style="padding: 8px 0; color: #4a5568;">• Deluxe Adapter Kit: <strong>30 units</strong> (avg. 12 units/week)</li>
+                </ul>
+                <div class="quick-actions">
+                    <a href="#" class="quick-action-btn primary">Create Purchase Order</a>
+                    <a href="#" class="quick-action-btn secondary">View Suppliers</a>
+                </div>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <div style="background: #ecfeff; padding: 25px; border-radius: 12px;">
+                <h3 style="color: #1a202c; margin-bottom: 10px;">💡 Pro Tip</h3>
+                <p style="color: #4a5568; line-height: 1.6; margin-bottom: 15px;">
+                    Enable automatic reorder notifications to get alerts before items reach critical levels. You can also set up automatic purchase orders with your preferred suppliers.
+                </p>
+                <a href="#" style="color: #0ea5e9; text-decoration: none; font-weight: 600;">Configure Auto-Reorder →</a>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p class="footer-text">Adjust your stock alert thresholds in <a href="#">Inventory Settings</a></p>
+            <p class="footer-text">© 2025 Manage Care. All rights reserved.</p>
+            <p style="font-size: 12px; color: #718096; margin-top: 15px;">
+                <a href="#">Unsubscribe</a> | <a href="#">Preferences</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Expiry Warning Email Template -->
+    <div class="email-container" id="expiry-email">
+        <div class="header">
+            <div class="logo">Manage Care</div>
+        </div>
+        
+        <div class="content-section">
+            <div style="text-align: center;">
+                <div class="alert-badge urgent">🚨 Urgent: Expiring Items</div>
+            </div>
+            <h1>Product Expiry Alert</h1>
+            <p class="subtitle">
+                You have items that are expiring soon or have already expired. Take immediate action to minimize losses.
+            </p>
+            
+            <div class="action-box urgent">
+                <h3>⚡ Immediate Action Required</h3>
+                <p><strong>7 items</strong> are expiring within the next 7 days. Review the list below and take appropriate action.</p>
+            </div>
+            
+            <table class="item-table">
+                <thead>
+                    <tr>
+                        <th>Product Name</th>
+                        <th>Batch/LOT</th>
+                        <th>Quantity</th>
+                        <th>Expiry Date</th>
+                        <th>Days Left</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="background: #fee2e2;">
+                        <td><strong>Organic Milk 1L</strong></td>
+                        <td>LOT-2024-11A</td>
+                        <td>24 units</td>
+                        <td>Nov 27, 2025</td>
+                        <td><span class="status-badge critical">Expired</span></td>
+                    </tr>
+                    <tr style="background: #fef3c7;">
+                        <td><strong>Fresh Eggs (Dozen)</strong></td>
+                        <td>LOT-2024-12B</td>
+                        <td>36 units</td>
+                        <td>Nov 30, 2025</td>
+                        <td><span class="status-badge critical">1 day</span></td>
+                    </tr>
+                    <tr style="background: #fef3c7;">
+                        <td><strong>Yogurt Strawberry</strong></td>
+                        <td>LOT-2024-11C</td>
+                        <td>48 units</td>
+                        <td>Dec 2, 2025</td>
+                        <td><span class="status-badge warning">3 days</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Cheese Slices</strong></td>
+                        <td>LOT-2024-12D</td>
+                        <td>15 units</td>
+                        <td>Dec 5, 2025</td>
+                        <td><span class="status-badge warning">6 days</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Orange Juice 2L</strong></td>
+                        <td>LOT-2024-11E</td>
+                        <td>20 units</td>
+                        <td>Dec 6, 2025</td>
+                        <td><span class="status-badge warning">7 days</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Fresh Bread</strong></td>
+                        <td>LOT-2024-12F</td>
+                        <td>30 units</td>
+                        <td>Dec 8, 2025</td>
+                        <td>9 days</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Butter Salted</strong></td>
+                        <td>LOT-2024-11G</td>
+                        <td>12 units</td>
+                        <td>Dec 10, 2025</td>
+                        <td>11 days</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="action-box">
+                <h3>📋 Suggested Actions</h3>
+                <div style="margin: 15px 0;">
+                    <div style="padding: 15px; background: white; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #ef4444;">
+                        <strong style="color: #1a202c;">Expired Items (1)</strong>
+                        <p style="color: #4a5568; margin: 5px 0 10px 0; font-size: 14px;">Remove from inventory immediately and document for waste tracking.</p>
+                        <a href="#" class="quick-action-btn primary" style="display: inline-block; font-size: 13px; padding: 8px 16px;">Mark as Disposed</a>
+                    </div>
+                    
+                    <div style="padding: 15px; background: white; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #f59e0b;">
+                        <strong style="color: #1a202c;">Expiring Soon (3 items, 1-7 days)</strong>
+                        <p style="color: #4a5568; margin: 5px 0 10px 0; font-size: 14px;">Consider promotional discounts or bundle offers to move inventory quickly.</p>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <a href="#" class="quick-action-btn primary" style="display: inline-block; font-size: 13px; padding: 8px 16px;">Create Promotion</a>
+                            <a href="#" class="quick-action-btn secondary" style="display: inline-block; font-size: 13px; padding: 8px 16px;">Notify Sales Team</a>
+                        </div>
+                    </div>
+                    
+                    <div style="padding: 15px; background: white; border-radius: 8px; border-left: 4px solid #0ea5e9;">
+                        <strong style="color: #1a202c;">Expiring Later (3 items, 8-14 days)</strong>
+                        <p style="color: #4a5568; margin: 5px 0 10px 0; font-size: 14px;">Monitor closely and prioritize in fulfillment to ensure FIFO rotation.</p>
+                        <a href="#" class="quick-action-btn secondary" style="display: inline-block; font-size: 13px; padding: 8px 16px;">Set Priority</a>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <div style="background: #ecfeff; padding: 25px; border-radius: 12px;">
+                <h3 style="color: #1a202c; margin-bottom: 10px;">📊 Expiry Analytics</h3>
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-top: 15px;">
+                    <div>
+                        <div style="font-size: 24px; font-weight: 700; color: #0ea5e9;">$1,240</div>
+                        <div style="color: #4a5568; font-size: 14px;">Potential Loss Value</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 24px; font-weight: 700; color: #0ea5e9;">185</div>
+                        <div style="color: #4a5568; font-size: 14px;">Total Units at Risk</div>
+                    </div>
+                </div>
+                <p style="color: #4a5568; margin-top: 15px; font-size: 14px;">
+                    Last month, you successfully moved 89% of expiring items through promotions, saving $2,890.
+                </p>
+            </div>
+            
+            <div style="margin-top: 25px; padding: 20px; background: #f8fafc; border-radius: 12px; text-align: center;">
+                <h4 style="color: #1a202c; margin-bottom: 8px;">Enable Proactive Expiry Tracking</h4>
+                <p style="color: #4a5568; margin-bottom: 15px; font-size: 14px;">Get alerts 30 days before expiry to give you more time to act.</p>
+                <a href="#" style="color: #0ea5e9; text-decoration: none; font-weight: 600;">Update Alert Settings →</a>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p class="footer-text">Need help managing expiring inventory? <a href="#">Contact Support</a></p>
+            <p class="footer-text">© 2025 Manage Care. All rights reserved.</p>
+            <p style="font-size: 12px; color: #718096; margin-top: 15px;">
+                <a href="#">Unsubscribe</a> | <a href="#">Preferences</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        function showTemplate(templateName) {
+            // Hide all templates
+            document.querySelectorAll('.email-container').forEach(container => {
+                container.classList.remove('active');
+            });
+            
+            // Remove active state from all buttons
+            document.querySelectorAll('.template-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected template
+            document.getElementById(templateName + '-email').classList.add('active');
+            
+            // Add active state to clicked button
+            event.target.classList.add('active');
+        }
+    </script>
+</body>
+</html>

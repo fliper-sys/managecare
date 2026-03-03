@@ -1,0 +1,373 @@
+<!-- 
+  Manage Care Receipt Email Template Container
+  This file serves as a container for all receipt-related email templates
+  Used by email_api.php and receipt_email_listener.php
+  
+  Each template is wrapped in a div with id '{template-name}-email'
+  Templates use {{variable}} syntax for placeholder substitution
+-->
+
+<!-- Receipt Email Template (Simple) -->
+<div id="receipt-simple-email" style="font-family: Arial, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background: #f9f9f9;">
+    <tr>
+      <td align="center" style="padding: 20px;">
+        <table width="600" cellpadding="0" cellspacing="0" style="background: white; border-radius: 5px;">
+          <!-- Header -->
+          <tr>
+            <td style="background: #1e3a8a; color: white; padding: 30px; text-align: center;">
+              <h1 style="margin: 0 0 10px 0; font-size: 24px;">{{businessName}}</h1>
+              <p style="margin: 0; opacity: 0.9;">Receipt Confirmation</p>
+            </td>
+          </tr>
+          
+          <!-- Content -->
+          <tr>
+            <td style="padding: 30px;">
+              <p>Dear {{customerName|defaultValue: Valued Customer}},</p>
+              <p>Thank you for your purchase! Here is your receipt:</p>
+              
+              <div style="background: #f5f5f5; padding: 15px; font-family: monospace; font-size: 12px; white-space: pre-wrap; overflow-x: auto; border-left: 3px solid #1e3a8a;">
+{{receiptText}}
+              </div>
+              
+              <p style="margin-top: 20px; font-size: 12px; color: #666;">
+                Receipt Date: {{date|defaultValue: Today}}<br>
+                Receipt ID: {{orderId|defaultValue: N/A}}
+              </p>
+              
+              {{#businessEmail}}
+              <p style="margin-top: 15px; font-size: 12px;">
+                For inquiries: <a href="mailto:{{businessEmail}}" style="color: #0066cc;">{{businessEmail}}</a>
+              </p>
+              {{/businessEmail}}
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="background: #f5f5f5; padding: 20px; text-align: center; font-size: 11px; color: #999;">
+              <p style="margin: 0;">This is an automated email. Please do not reply directly.</p>
+              <p style="margin: 10px 0 0 0;">© Manage Care - Your Business Management Solution</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</div>
+
+<!-- Receipt Email Template (Detailed with Itemization) -->
+<div id="receipt-detailed-email" style="font-family: Arial, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background: #f9f9f9;">
+    <tr>
+      <td align="center" style="padding: 20px;">
+        <table width="600" cellpadding="0" cellspacing="0" style="background: white; border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+          <!-- Header -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%); color: white; padding: 30px; text-align: center;">
+              {{#logoUrl}}
+              <div style="margin-bottom: 15px;">
+                <img src="{{logoUrl}}" alt="Logo" style="max-height: 80px; max-width: 200px;">
+              </div>
+              {{/logoUrl}}
+              <h1 style="margin: 0 0 5px 0; font-size: 28px;">{{businessName}}</h1>
+              <p style="margin: 5px 0; opacity: 0.9;">Receipt Confirmation</p>
+            </td>
+          </tr>
+          
+          <!-- Content -->
+          <tr>
+            <td style="padding: 30px;">
+              <p style="margin: 0 0 15px 0;">Dear {{customerName|defaultValue: Valued Customer}},</p>
+              <p style="margin: 0 0 20px 0; color: #666;">Thank you for your business! Here are the details of your transaction:</p>
+              
+              <!-- Items Table -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 20px; border-collapse: collapse;">
+                <thead>
+                  <tr style="background: #f5f5f5; border-bottom: 2px solid #ddd;">
+                    <th style="padding: 10px; text-align: left; font-weight: bold;">Item</th>
+                    <th style="padding: 10px; text-align: center; font-weight: bold;">Qty</th>
+                    <th style="padding: 10px; text-align: right; font-weight: bold;">Price</th>
+                    <th style="padding: 10px; text-align: right; font-weight: bold;">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {{#items}}
+                  <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 8px; text-align: left;">{{name}}</td>
+                    <td style="padding: 8px; text-align: center;">{{quantity}}</td>
+                    <td style="padding: 8px; text-align: right;">{{price}}</td>
+                    <td style="padding: 8px; text-align: right; font-weight: bold;">{{amount}}</td>
+                  </tr>
+                  {{/items}}
+                </tbody>
+              </table>
+              
+              <!-- Summary -->
+              <div style="margin: 20px 0; padding: 15px; background: #f9f9f9; border-radius: 3px;">
+                <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 5px 0;">Subtotal:</td>
+                    <td style="padding: 5px 0; text-align: right;">{{subtotal}}</td>
+                  </tr>
+                  {{#tax}}
+                  <tr>
+                    <td style="padding: 5px 0;">Tax:</td>
+                    <td style="padding: 5px 0; text-align: right;">+{{tax}}</td>
+                  </tr>
+                  {{/tax}}
+                  {{#discount}}
+                  <tr>
+                    <td style="padding: 5px 0;">Discount:</td>
+                    <td style="padding: 5px 0; text-align: right;">-{{discount}}</td>
+                  </tr>
+                  {{/discount}}
+                  <tr style="border-top: 2px solid #ddd;">
+                    <td style="padding: 10px 0; font-weight: bold; font-size: 16px;">Total:</td>
+                    <td style="padding: 10px 0; text-align: right; font-weight: bold; font-size: 16px;">{{total}}</td>
+                  </tr>
+                </table>
+                
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 12px;">
+                  <strong>Payment Method:</strong> {{paymentMethod}}<br>
+                  {{#date}}<strong>Date:</strong> {{date}}<br>{{/date}}
+                  {{#orderId}}<strong>Order ID:</strong> {{orderId}}{{/orderId}}
+                </div>
+              </div>
+              
+              {{#businessEmail}}
+              <div style="margin: 20px 0; padding: 15px; background: #f0f4ff; border-left: 3px solid #0066cc; border-radius: 3px;">
+                <p style="margin: 0; font-size: 12px;">
+                  <strong>Questions?</strong> Contact us at <a href="mailto:{{businessEmail}}" style="color: #0066cc;">{{businessEmail}}</a>
+                  {{#businessPhone}}or call {{businessPhone}}{{/businessPhone}}
+                </p>
+              </div>
+              {{/businessEmail}}
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="background: #f5f5f5; padding: 20px; text-align: center; font-size: 11px; color: #999; border-radius: 0 0 5px 5px;">
+              <p style="margin: 0;">This receipt was automatically generated by Manage Care.</p>
+              <p style="margin: 5px 0; font-size: 10px;">Please retain this email as proof of purchase.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</div>
+
+<!-- Invoice Template (for larger orders/subscriptions) -->
+<div id="receipt-invoice-email" style="font-family: Arial, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background: #f9f9f9;">
+    <tr>
+      <td align="center" style="padding: 20px;">
+        <table width="600" cellpadding="0" cellspacing="0" style="background: white; border-radius: 5px;">
+          <!-- Header -->
+          <tr>
+            <td style="padding: 30px; border-bottom: 3px solid #1e3a8a;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td>
+                    {{#logoUrl}}
+                    <div style="margin-bottom: 10px;">
+                      <img src="{{logoUrl}}" alt="Logo" style="max-height: 60px;">
+                    </div>
+                    {{/logoUrl}}
+                    <h2 style="margin: 0; color: #1e3a8a;">INVOICE</h2>
+                    <p style="margin: 5px 0 0 0; color: #666; font-size: 12px;">{{businessName}}</p>
+                  </td>
+                  <td align="right" style="text-align: right;">
+                    <p style="margin: 0; font-size: 12px; color: #666;">
+                      Invoice #: {{invoiceNumber}}<br>
+                      Date: {{date}}<br>
+                      Due: {{dueDate}}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Bill To -->
+          <tr>
+            <td style="padding: 20px 30px; background: #f9f9f9; border-bottom: 1px solid #ddd;">
+              <p style="margin: 0; font-weight: bold; color: #333;">Bill To:</p>
+              <p style="margin: 5px 0 0 0; color: #666; font-size: 12px;">
+                {{customerName}}<br>
+                {{customerEmail}}<br>
+                {{customerPhone}}
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Items -->
+          <tr>
+            <td style="padding: 20px 30px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 20px; border-collapse: collapse;">
+                <thead>
+                  <tr style="background: #1e3a8a; color: white;">
+                    <th style="padding: 10px; text-align: left; font-weight: bold;">Description</th>
+                    <th style="padding: 10px; text-align: center; font-weight: bold;">Qty</th>
+                    <th style="padding: 10px; text-align: right; font-weight: bold;">Unit Price</th>
+                    <th style="padding: 10px; text-align: right; font-weight: bold;">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {{#items}}
+                  <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 10px; text-align: left;">{{name}}</td>
+                    <td style="padding: 10px; text-align: center;">{{quantity}}</td>
+                    <td style="padding: 10px; text-align: right;">{{price}}</td>
+                    <td style="padding: 10px; text-align: right;">{{amount}}</td>
+                  </tr>
+                  {{/items}}
+                </tbody>
+              </table>
+              
+              <!-- Totals -->
+              <div style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 3px;">
+                <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 8px 0; text-align: right;">Subtotal:</td>
+                    <td style="padding: 8px 0; text-align: right; width: 100px;">{{subtotal}}</td>
+                  </tr>
+                  {{#tax}}
+                  <tr>
+                    <td style="padding: 8px 0; text-align: right;">Tax:</td>
+                    <td style="padding: 8px 0; text-align: right;">{{tax}}</td>
+                  </tr>
+                  {{/tax}}
+                  {{#discount}}
+                  <tr>
+                    <td style="padding: 8px 0; text-align: right;">Discount:</td>
+                    <td style="padding: 8px 0; text-align: right;">-{{discount}}</td>
+                  </tr>
+                  {{/discount}}
+                  <tr style="border-top: 2px solid #ddd;">
+                    <td style="padding: 12px 0; text-align: right; font-weight: bold; font-size: 16px;">Total Due:</td>
+                    <td style="padding: 12px 0; text-align: right; font-weight: bold; font-size: 16px;">{{total}}</td>
+                  </tr>
+                </table>
+              </div>
+              
+              <!-- Payment Terms -->
+              {{#notes}}
+              <div style="margin: 20px 0; padding: 15px; background: #fef3c7; border-left: 3px solid #f59e0b; border-radius: 3px;">
+                <p style="margin: 0; font-weight: bold; color: #92400e;">Payment Terms:</p>
+                <p style="margin: 5px 0 0 0; color: #78350f; font-size: 12px;">{{notes}}</p>
+              </div>
+              {{/notes}}
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="background: #1e3a8a; color: white; padding: 20px 30px; text-align: center; border-radius: 0 0 5px 5px; font-size: 11px;">
+              <p style="margin: 0;">Thank you for your business!</p>
+              {{#businessPhone}}<p style="margin: 5px 0 0 0;">Phone: {{businessPhone}}</p>{{/businessPhone}}
+              {{#businessEmail}}<p style="margin: 5px 0 0 0;">Email: <a href="mailto:{{businessEmail}}" style="color: white; text-decoration: none;">{{businessEmail}}</a></p>{{/businessEmail}}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</div>
+
+<!-- Subscription Receipt Template -->
+<div id="receipt-subscription-email" style="font-family: Arial, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background: #f9f9f9;">
+    <tr>
+      <td align="center" style="padding: 20px;">
+        <table width="600" cellpadding="0" cellspacing="0" style="background: white; border-radius: 5px;">
+          <!-- Header with Subscription Badge -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); color: white; padding: 30px; text-align: center;">
+              {{#logoUrl}}
+              <div style="margin-bottom: 15px;">
+                <img src="{{logoUrl}}" alt="Logo" style="max-height: 80px; max-width: 200px; filter: brightness(0) invert(1);">
+              </div>
+              {{/logoUrl}}
+              <div style="display: inline-block; background: rgba(255,255,255,0.2); color: white; padding: 5px 15px; border-radius: 20px; font-size: 11px; font-weight: bold; margin-bottom: 15px;">
+                ✓ SUBSCRIPTION RECEIPT
+              </div>
+              <h1 style="margin: 10px 0 5px 0; font-size: 24px;">{{businessName}}</h1>
+              <p style="margin: 5px 0; opacity: 0.9;">Subscription Confirmation</p>
+            </td>
+          </tr>
+          
+          <!-- Content -->
+          <tr>
+            <td style="padding: 30px;">
+              <p style="margin: 0 0 15px 0;">Dear {{customerName|defaultValue: Valued Customer}},</p>
+              <p style="margin: 0 0 20px 0; color: #666;">Your subscription has been activated! Here are your subscription details:</p>
+              
+              <!-- Subscription Info -->
+              <div style="margin: 20px 0; padding: 15px; background: #f3e8ff; border-left: 3px solid #7c3aed; border-radius: 3px;">
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="padding: 5px 0; font-weight: bold;">Plan:</td>
+                    <td style="padding: 5px 0; text-align: right;">{{planName}}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 5px 0; font-weight: bold;">Billing Cycle:</td>
+                    <td style="padding: 5px 0; text-align: right;">{{billingCycle}}</td>
+                  </tr>
+                  <tr style="border-top: 1px solid #ddd;">
+                    <td style="padding: 8px 0; font-weight: bold; font-size: 14px;">Amount:</td>
+                    <td style="padding: 8px 0; text-align: right; font-weight: bold; font-size: 14px;">{{total}}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 5px 0; font-size: 12px; color: #666;">Next Billing Date:</td>
+                    <td style="padding: 5px 0; text-align: right; font-size: 12px; color: #666;">{{nextBillingDate}}</td>
+                  </tr>
+                </table>
+              </div>
+              
+              <!-- Features -->
+              {{#features}}
+              <div style="margin: 20px 0;">
+                <p style="margin: 0 0 10px 0; font-weight: bold;">Your Plan Includes:</p>
+                <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: #666;">
+                  {{#each features}}
+                  <li>{{this}}</li>
+                  {{/each}}
+                </ul>
+              </div>
+              {{/features}}
+              
+              <!-- Management -->
+              <div style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 3px; font-size: 12px;">
+                <p style="margin: 0; font-weight: bold; margin-bottom: 8px;">Manage Your Subscription:</p>
+                <p style="margin: 3px 0;">• Update payment method anytime in your account</p>
+                <p style="margin: 3px 0;">• Upgrade or downgrade your plan</p>
+                <p style="margin: 3px 0;">• Cancel anytime (no lock-in period)</p>
+              </div>
+              
+              {{#businessEmail}}
+              <div style="margin: 20px 0; padding: 15px; background: #f0f4ff; border-left: 3px solid #0066cc; border-radius: 3px;">
+                <p style="margin: 0; font-size: 12px;">
+                  <strong>Need Help?</strong> Contact support at <a href="mailto:{{businessEmail}}" style="color: #0066cc;">{{businessEmail}}</a>
+                </p>
+              </div>
+              {{/businessEmail}}
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="background: #f5f5f5; padding: 20px; text-align: center; font-size: 11px; color: #999; border-radius: 0 0 5px 5px;">
+              <p style="margin: 0;">Subscription managed by Manage Care</p>
+              <p style="margin: 5px 0 0 0;">This is an automated email. Please do not reply.</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</div>
+

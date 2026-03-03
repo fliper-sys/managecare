@@ -1,0 +1,182 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(businessId) {
+      return get(/databases/$(database)/documents/businesses/$(businessId)).data.ownerId == request.auth.uid;
+    }
+
+    function isWorker(businessId) {
+      return get(/databases/$(database)/documents/businesses/$(businessId)/workers/$(request.auth.uid)).exists;
+    }
+
+    function canManageBusiness(businessId) {
+      return isSignedIn() && (isOwner(businessId) || isWorker(businessId));
+    }
+
+    // User documents
+    match /users/{userId} {
+      allow read: if request.auth.uid == userId;
+      allow write: if request.auth.uid == userId;
+    }
+
+    // Business documents
+    match /businesses/{businessId} {
+      allow read: if isSignedIn() && canManageBusiness(businessId);
+      allow write: if isSignedIn() && isOwner(businessId);
+
+      // Products collection
+      match /products/{productId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && isOwner(businessId);
+        allow update: if isSignedIn() && isOwner(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Suppliers collection
+      match /suppliers/{supplierId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && isOwner(businessId);
+        allow update: if isSignedIn() && isOwner(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Stores collection
+      match /stores/{storeId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && isOwner(businessId);
+        allow update: if isSignedIn() && isOwner(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Promotions collection
+      match /promotions/{promotionId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && isOwner(businessId);
+        allow update: if isSignedIn() && isOwner(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Sales collection
+      match /sales/{saleId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && canManageBusiness(businessId);
+        allow update: if isSignedIn() && isOwner(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Workers collection
+      match /workers/{workerId} {
+        allow read: if isSignedIn() && isOwner(businessId);
+        allow create: if isSignedIn() && isOwner(businessId);
+        allow update: if isSignedIn() && isOwner(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Product Categories collection
+      match /product_categories/{categoryId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && isOwner(businessId);
+        allow update: if isSignedIn() && isOwner(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Inventory Logs (for audit trail)
+      match /inventory_logs/{logId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && canManageBusiness(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Real Estate - Properties
+      match /properties/{propertyId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && isOwner(businessId) && 
+          request.resource.data.title != null && request.resource.data.title != '' &&
+          request.resource.data.location != null && request.resource.data.location != '' &&
+          request.resource.data.price != null && request.resource.data.price > 0 &&
+          request.resource.data.createdAt != null;
+        allow update: if isSignedIn() && isOwner(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Real Estate - Tenants
+      match /tenants/{tenantId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && canManageBusiness(businessId) && 
+          request.resource.data.name != null && request.resource.data.name != '' &&
+          request.resource.data.email != null && request.resource.data.email != '' &&
+          request.resource.data.phone != null && request.resource.data.phone != '';
+        allow update: if isSignedIn() && canManageBusiness(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Real Estate - Leases
+      match /leases/{leaseId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && isOwner(businessId) && 
+          request.resource.data.propertyId != null &&
+          request.resource.data.tenantId != null &&
+          request.resource.data.startDate != null &&
+          request.resource.data.endDate != null &&
+          request.resource.data.monthlyRent != null && request.resource.data.monthlyRent > 0;
+        allow update: if isSignedIn() && isOwner(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Real Estate - Rent Payments
+      match /rent_payments/{paymentId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && canManageBusiness(businessId) && 
+          request.resource.data.leaseId != null &&
+          request.resource.data.tenantId != null &&
+          request.resource.data.amount != null && request.resource.data.amount > 0 &&
+          request.resource.data.dueDate != null &&
+          request.resource.data.status in ['pending', 'paid', 'overdue'];
+        allow update: if isSignedIn() && canManageBusiness(businessId);
+        allow delete: if isSignedIn() && isOwner(businessId);
+      }
+
+      // Real Estate - Bookings (viewings, inspections)
+      match /bookings/{bookingId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && canManageBusiness(businessId) && 
+          request.resource.data.title != null &&
+          request.resource.data.propertyId != null &&
+          request.resource.data.startAt != null;
+        allow update: if isSignedIn() && canManageBusiness(businessId);
+        allow delete: if isSignedIn() && canManageBusiness(businessId);
+      }
+
+      // Real Estate - Documents
+      match /documents/{documentId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && canManageBusiness(businessId) && 
+          request.resource.data.name != null;
+        allow update: if isSignedIn() && canManageBusiness(businessId);
+        allow delete: if isSignedIn() && canManageBusiness(businessId);
+      }
+
+      // Real Estate - Inventory
+      match /inventory/{inventoryId} {
+        allow read: if isSignedIn() && canManageBusiness(businessId);
+        allow create: if isSignedIn() && canManageBusiness(businessId) && 
+          request.resource.data.name != null &&
+          request.resource.data.qty != null && request.resource.data.qty >= 0;
+        allow update: if isSignedIn() && canManageBusiness(businessId);
+        allow delete: if isSignedIn() && canManageBusiness(businessId);
+      }
+
+      // Real Estate - Notification Logs
+      match /notificationLogs/{logId} {
+        allow read: if isSignedIn() && isOwner(businessId);
+        allow create: if isSignedIn() && canManageBusiness(businessId);
+      }
+    }
+  }
+}

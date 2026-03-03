@@ -1,0 +1,1570 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ManageCare – Transform Your Business Operations</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #ffffff;
+      overflow-x: hidden;
+      line-height: 1.6;
+    }
+
+    /* Animated Background */
+    .bg-animated {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .gradient-blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.3;
+      animation: float 20s infinite ease-in-out;
+    }
+
+    .blob-1 {
+      width: 500px;
+      height: 500px;
+      background: #06b6d4;
+      top: -10%;
+      left: -10%;
+      animation-delay: 0s;
+    }
+
+    .blob-2 {
+      width: 400px;
+      height: 400px;
+      background: #6366f1;
+      top: 50%;
+      right: -10%;
+      animation-delay: 3s;
+    }
+
+    .blob-3 {
+      width: 600px;
+      height: 600px;
+      background: #f43f5e;
+      bottom: -20%;
+      left: 30%;
+      animation-delay: 6s;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(50px, -50px) scale(1.1); }
+      66% { transform: translate(-30px, 30px) scale(0.9); }
+    }
+
+    /* Header */
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.3s ease;
+    }
+
+    header.scrolled {
+      background: rgba(15, 23, 42, 0.95);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    nav {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 1.5rem 3rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo {
+      font-size: 1.8rem;
+      font-weight: 900;
+      background: linear-gradient(135deg, #06b6d4 0%, #6366f1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.5px;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 2.5rem;
+      align-items: center;
+    }
+
+    .nav-links a {
+      color: rgba(255, 255, 255, 0.8);
+      text-decoration: none;
+      font-weight: 500;
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    .nav-links a:hover {
+      color: #06b6d4;
+    }
+
+    /* Brand image */
+    .brand-img{height:36px;display:block}
+
+    /* Mobile burger */
+    .burger{display:none;border:none;background:transparent;width:44px;height:44px;align-items:center;justify-content:center;border-radius:8px;cursor:pointer;margin-left:12px}
+    .burger .burger-inner{width:20px;height:2px;background:currentColor;display:block;position:relative;transition:transform .2s ease}
+    .burger .burger-inner::before,.burger .burger-inner::after{content:'';position:absolute;left:0;width:20px;height:2px;background:currentColor;transition:transform .2s ease,top .2s ease,opacity .12s ease}
+    .burger .burger-inner::before{top:-6px}
+    .burger .burger-inner::after{top:6px}
+    .burger[aria-expanded='true'] .burger-inner{transform:rotate(45deg)}
+    .burger[aria-expanded='true'] .burger-inner::before{transform:rotate(-90deg) translateX(-6px);opacity:0}
+    .burger[aria-expanded='true'] .burger-inner::after{transform:rotate(-90deg) translateX(-6px);opacity:0}
+
+    @media (max-width: 768px){
+      .burger{display:inline-flex;color:inherit}
+      .nav-links{position:absolute;top:calc(100% + 12px);right:16px;left:16px;display:none;flex-direction:column;gap:8px;background:rgba(15,23,42,0.98);padding:12px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,0.45)}
+      header.nav-open .nav-links{display:flex}
+      .nav-links a{display:block;padding:10px 12px;border-radius:8px}
+      .nav-links a:not(.btn){display:block}
+      .nav-links .btn{width:100%;text-align:center}
+    }
+
+    /* Buttons */
+    :root{
+      --btn-radius: 14px;
+      --btn-padding-y: 0.75rem;
+      --btn-padding-x: 1.6rem;
+      --accent-1: #06b6d4;
+      --accent-2: #6366f1;
+      --accent-grad: linear-gradient(135deg,var(--accent-1) 0%, var(--accent-2) 100%);
+      --glass: rgba(255,255,255,0.06);
+      --glass-border: rgba(255,255,255,0.12);
+      --text: #ffffff;
+      --focus-ring: rgba(99,102,241,0.18);
+    }
+
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      gap:0.5rem;
+      padding: var(--btn-padding-y) var(--btn-padding-x);
+      border-radius: var(--btn-radius);
+      font-weight:700;
+      text-decoration:none;
+      transition: transform .16s ease, box-shadow .16s ease, opacity .12s ease;
+      cursor:pointer;
+      border: none;
+      font-size: 1rem;
+      color: var(--text);
+      box-shadow: 0 6px 20px rgba(6, 182, 212, 0.10);
+      will-change: transform, box-shadow;
+    }
+
+    .btn:active{ transform: translateY(0); }
+
+    .btn-primary{
+      background: var(--accent-grad);
+      color: white;
+      box-shadow: 0 14px 36px rgba(99,102,241,0.14);
+    }
+    .btn-primary:hover{ transform: translateY(-3px); box-shadow: 0 20px 50px rgba(99,102,241,0.18); }
+    .btn-primary:focus-visible{ outline: 3px solid var(--focus-ring); outline-offset: 3px; border-radius: calc(var(--btn-radius) + 2px); }
+
+    .btn-secondary{
+      background: var(--glass);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--glass-border);
+      color: var(--text);
+    }
+    .btn-secondary:hover{ transform: translateY(-2px); background: rgba(255,255,255,0.09); }
+    .btn-secondary:focus-visible{ box-shadow: 0 0 0 6px rgba(6,182,212,0.06); }
+
+    .btn-outline{
+      background: transparent;
+      color: white;
+      border: 1px solid rgba(255,255,255,0.18);
+    }
+    .btn-ghost{
+      background: transparent;
+      color: rgba(255,255,255,0.95);
+      border: none;
+      opacity: 0.95;
+    }
+    .btn-icon{
+      padding: 0.6rem;
+      display:inline-grid;
+      place-items:center;
+      border-radius:10px;
+      background: rgba(255,255,255,0.04);
+    }
+
+    .btn svg{ width:1.05em; height:1.05em; transition: transform .18s ease; }
+    .btn-primary:hover svg{ transform: translateX(4px) scale(1.02); }
+
+    .btn:disabled{ opacity: 0.5; cursor:not-allowed; transform:none; box-shadow:none; }
+
+    /* Pricing / toggle pills */
+    .pricing-toggle{display:inline-flex;gap:8px;justify-content:center;margin-bottom:8px}
+    .toggle-btn{padding:8px 14px;border-radius:999px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);color:inherit;cursor:pointer;font-weight:700;min-width:96px;text-align:center;transition:transform .12s ease,background .12s ease,color .12s ease,box-shadow .12s ease}
+    .toggle-btn:hover{transform:translateY(-2px);background:rgba(255,255,255,0.04)}
+    .toggle-btn.active{background:linear-gradient(90deg,var(--accent-1),var(--accent-2));color:#fff;border-color:transparent;box-shadow:0 14px 36px rgba(99,102,241,.12)}
+    .toggle-btn.active::after{content:'';display:inline-block;margin-left:8px;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.95);box-shadow:0 2px 6px rgba(0,0,0,.12);vertical-align:middle}
+    .toggle-btn:focus-visible{outline:3px solid rgba(99,102,241,.14);outline-offset:2px;border-radius:999px}
+    .toggle-btn[aria-pressed="true"]{transform:translateY(-2px) scale(1.01)}
+
+    /* modal */
+    .modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2000;pointer-events:none}
+    .modal-backdrop{position:absolute;inset:0;background:rgba(2,6,23,.6);backdrop-filter:blur(6px);opacity:0;transition:opacity .25s}
+    .modal-panel{position:relative;max-width:560px;width:100%;background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.03));border-radius:12px;padding:20px;transform:translateY(12px) scale(.98);opacity:0;pointer-events:auto}
+    .modal.open{pointer-events:auto}
+    .modal.open .modal-backdrop{opacity:1}
+    .modal.open .modal-panel{opacity:1;transform:none}
+    .modal-close{position:absolute;right:12px;top:12px;border:none;background:rgba(255,255,255,0.03);padding:6px;border-radius:8px;font-size:18px;display:inline-grid;place-items:center;transition:transform .12s ease, background .12s ease}
+    .modal-close:hover{transform:translateY(-2px);background:rgba(255,255,255,0.06)}
+    .modal-close:focus-visible{outline:3px solid rgba(99,102,241,0.16);outline-offset:3px;border-radius:10px}
+    .modal-form input{width:100%;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.06);background:transparent;color:inherit;margin-top:10px}
+
+    /* FAQ styles */
+    .faq-grid .faq-item{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);padding:12px;border-radius:12px;transition:box-shadow .18s ease,transform .14s ease}
+    .faq-grid .faq-item:hover{box-shadow:0 10px 30px rgba(6,182,212,0.06);transform:translateY(-4px)}
+    .faq-question{background:transparent;border:none;color:inherit;font-weight:700;text-align:left;width:100%;padding:12px 10px;display:flex;align-items:center;justify-content:space-between;font-size:1rem;cursor:pointer}
+    .faq-question:focus-visible{outline:3px solid rgba(99,102,241,0.12);outline-offset:3px;border-radius:8px}
+    .faq-question::after{content:'▾';margin-left:12px;transition:transform .18s ease;opacity:.9}
+    .faq-question[aria-expanded='true']::after{transform:rotate(180deg)}
+    .faq-answer{padding:8px 10px 0 10px;color:rgba(255,255,255,.78);overflow:hidden;max-height:0;transition:max-height .28s ease}
+
+    /* Testimonials styling */
+    .testimonials{max-width:900px;margin:0 auto;text-align:center;position:relative;padding:8px}
+    .testimonial{opacity:0;transform:translateY(6px);transition:opacity .44s ease,transform .44s ease;padding:1.5rem 2rem;border-radius:12px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.03);max-width:760px;margin:0 auto}
+    .testimonial.active{opacity:1;transform:none}
+    .testimonial p{font-style:italic;margin-bottom:0.6rem;font-size:1.02rem}
+    .testimonial strong{display:block;text-align:right;color:rgba(255,255,255,.85);margin-top:8px}
+    .test-dots{display:flex;gap:8px;justify-content:center;margin-top:12px}
+    .test-dots button{width:10px;height:10px;border-radius:50%;border:none;background:rgba(255,255,255,0.18);cursor:pointer}
+    .test-dots button.active{background:linear-gradient(90deg,var(--accent-1),var(--accent-2));box-shadow:0 6px 18px rgba(99,102,241,.12)}
+
+    /* Hero Section */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      padding: 8rem 3rem 4rem;
+      z-index: 1;
+    }
+
+    .hero-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 4rem;
+      align-items: center;
+    }
+
+    .hero-content h1 {
+      font-size: 4.5rem;
+      font-weight: 900;
+      line-height: 1.1;
+      margin-bottom: 1.5rem;
+      animation: fadeInUp 0.8s ease;
+    }
+
+    .subtitle {
+      font-size: 1.4rem;
+      color: rgba(255, 255, 255, 0.7);
+      margin-bottom: 2.5rem;
+      line-height: 1.8;
+      animation: fadeInUp 0.8s ease 0.2s both;
+    }
+
+    .hero-buttons {
+      display: flex;
+      gap: 1.5rem;
+      margin-bottom: 3rem;
+      animation: fadeInUp 0.8s ease 0.4s both;
+    }
+
+    .hero-stats {
+      display: flex;
+      gap: 3rem;
+      animation: fadeInUp 0.8s ease 0.6s both;
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-number {
+      font-size: 2.5rem;
+      font-weight: 900;
+      background: linear-gradient(135deg, #06b6d4 0%, #6366f1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      display: block;
+    }
+
+    .stat-label {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+    }
+
+    /* Hero Visual */
+    .hero-visual {
+      animation: fadeInRight 1s ease;
+    }
+
+    .glass-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 24px;
+      padding: 2.5rem;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+
+    .dashboard-preview {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .preview-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+    }
+
+    .preview-item {
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 1.5rem;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      transition: all 0.3s ease;
+    }
+
+    .preview-item:hover {
+      transform: translateY(-5px);
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .preview-icon {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .preview-label {
+      font-size: 0.85rem;
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .preview-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: white;
+      margin-top: 0.25rem;
+    }
+
+    /* Features Section */
+    .features {
+      padding: 6rem 3rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    .section-header {
+      text-align: center;
+      max-width: 800px;
+      margin: 0 auto 4rem;
+    }
+
+    .section-header h2 {
+      font-size: 3.5rem;
+      font-weight: 900;
+      margin-bottom: 1.5rem;
+    }
+
+    .section-header p {
+      font-size: 1.2rem;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .features-grid {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 2rem;
+    }
+
+    .feature-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 2.5rem;
+      transition: all 0.4s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(135deg, #06b6d4 0%, #6366f1 100%);
+      transform: scaleX(0);
+      transition: transform 0.4s ease;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-10px);
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.2);
+      box-shadow: 0 20px 60px rgba(6, 182, 212, 0.2);
+    }
+
+    .feature-card:hover::before {
+      transform: scaleX(1);
+    }
+
+    .feature-icon {
+      font-size: 3rem;
+      margin-bottom: 1.5rem;
+      display: block;
+    }
+
+    .feature-card h3 {
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+      color: white;
+    }
+
+    .feature-card p {
+      color: rgba(255, 255, 255, 0.7);
+      line-height: 1.8;
+    }
+
+    /* Industries Section */
+    .industries {
+      padding: 6rem 3rem;
+      position: relative;
+      z-index: 1;
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    .industries-grid {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .industry-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 2rem;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+
+    .industry-card:hover {
+      transform: translateY(-5px);
+      background: rgba(255, 255, 255, 0.08);
+      border-color: #06b6d4;
+      box-shadow: 0 15px 40px rgba(6, 182, 212, 0.15);
+    }
+
+    .industry-icon {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+      display: block;
+    }
+
+    .industry-card h3 {
+      font-size: 1.3rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .industry-card p {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 0.95rem;
+    }
+
+    /* CTA Section */
+    .cta {
+      padding: 8rem 3rem;
+      position: relative;
+      z-index: 1;
+      text-align: center;
+    }
+
+    .cta-content {
+      max-width: 800px;
+      margin: 0 auto;
+      background: linear-gradient(135deg, rgba(6, 182, 212, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 32px;
+      padding: 4rem;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.3);
+    }
+
+    .cta-content h2 {
+      font-size: 3rem;
+      font-weight: 900;
+      margin-bottom: 1.5rem;
+    }
+
+    .cta-content p {
+      font-size: 1.2rem;
+      color: rgba(255, 255, 255, 0.8);
+      margin-bottom: 2.5rem;
+    }
+
+    .cta-buttons {
+      display: flex;
+      gap: 1.5rem;
+      justify-content: center;
+    }
+
+    /* Footer */
+    footer {
+      padding: 3rem;
+      text-align: center;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.5);
+      position: relative;
+      z-index: 1;
+    }
+
+    footer a {
+      color: inherit;
+      text-decoration: none;
+      margin: 0 1rem;
+      transition: color 0.3s;
+    }
+
+    footer a:hover {
+      color: #06b6d4;
+    }
+
+    /* Animations */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes fadeInRight {
+      from {
+        opacity: 0;
+        transform: translateX(50px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .hero-container {
+        grid-template-columns: 1fr;
+        text-align: center;
+      }
+
+      .hero-content h1 {
+        font-size: 3.5rem;
+      }
+
+      .hero-buttons {
+        justify-content: center;
+      }
+
+      .hero-stats {
+        justify-content: center;
+      }
+    }
+
+    @media (max-width: 768px) {
+      nav {
+        padding: 1rem 1.5rem;
+      }
+
+      .nav-links a:not(.btn) {
+        display: none;
+      }
+
+      .hero {
+        padding: 6rem 1.5rem 2rem;
+      }
+
+      .hero-content h1 {
+        font-size: 2.5rem;
+      }
+
+      .subtitle {
+        font-size: 1.1rem;
+      }
+
+      .hero-buttons {
+        flex-direction: column;
+      }
+
+      .hero-stats {
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+
+      .section-header h2 {
+        font-size: 2.5rem;
+      }
+
+      .features, .industries, .cta {
+        padding: 4rem 1.5rem;
+      }
+
+      .cta-content {
+        padding: 2.5rem 1.5rem;
+      }
+
+      .cta-content h2 {
+        font-size: 2rem;
+      }
+
+      .cta-buttons {
+        flex-direction: column;
+      }
+
+      .preview-row {
+        grid-template-columns: 1fr;
+      }
+
+      /* Comparison card styles */
+      .compare-card{
+        background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+        border-radius: 12px;
+        padding: 18px;
+        border: 1px solid rgba(255,255,255,0.06);
+        box-shadow: 0 10px 30px rgba(2,6,23,0.55);
+        margin-top: 8px;
+      }
+      .compare-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+      .compare-card-header h3{margin:0;font-size:1.08rem}
+      .compare-caption{color:rgba(255,255,255,0.78);font-size:0.95rem;margin-top:6px}
+      .compare-body{margin-top:12px}
+      .compare-table{width:100%;border-collapse:collapse;font-size:0.95rem}
+      .compare-table th{text-align:left;padding:10px 12px;color:rgba(255,255,255,0.95);font-weight:700}
+      .compare-table td{padding:10px 12px;border-top:1px solid rgba(255,255,255,0.03);color:rgba(255,255,255,0.92)}
+      .compare-table .check{text-align:center;color:#34d399;font-weight:800}
+      .compare-table .cross{text-align:center;color:#fb7185}
+      .compare-cta{display:flex;gap:10px;justify-content:flex-end;margin-top:12px}
+      @media (max-width:720px){
+        .compare-card{padding:12px}
+        .compare-card-header{flex-direction:column;align-items:flex-start}
+        .compare-cta{flex-direction:column;align-items:stretch}
+        .compare-table thead{display:none}
+        .compare-table tbody tr{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03)}
+        .compare-table tbody tr td:nth-child(1){grid-column:1/-1;font-weight:700}
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Animated Background -->
+  <div class="bg-animated">
+    <div class="gradient-blob blob-1"></div>
+    <div class="gradient-blob blob-2"></div>
+    <div class="gradient-blob blob-3"></div>
+  </div>
+
+  <!-- Header -->
+  <header id="header">
+    <nav>
+      <div class="logo">
+        <a href="#" aria-label="ManageCare home"><img src="logo.png" alt="ManageCare" class="brand-img" /></a>
+      </div>
+      <button class="burger" id="nav-burger" aria-label="Toggle navigation" aria-expanded="false" aria-controls="mobile-nav">
+        <span class="burger-inner"></span>
+      </button>
+      <div class="nav-links" id="mobile-nav">
+        <a href="#features">Features</a>
+        <a href="#industries">Industries</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#cta" class="btn btn-primary">Start Free Trial</a>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-container">
+      <div class="hero-content">
+        <h1>Business Management That Actually Works</h1>
+        <p class="subtitle">
+          The most powerful offline-first platform for managing retail, pharmacy, hospitality, and 9+ industries. 
+          One beautiful interface. Unlimited possibilities.
+        </p>
+        <div class="hero-buttons">
+          <a href="#cta" class="btn btn-primary">Get Started Free →</a>
+          <a href="#features" class="btn btn-secondary">Explore Features</a>
+        </div>
+        <div class="hero-stats">
+          <div class="stat">
+            <span class="stat-number">2,000+</span>
+            <span class="stat-label">Active Businesses</span>
+          </div>
+          <div class="stat">
+            <span class="stat-number">99.9%</span>
+            <span class="stat-label">Uptime</span>
+          </div>
+          <div class="stat">
+            <span class="stat-number">9+</span>
+            <span class="stat-label">Industries</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-visual">
+        <div class="glass-card">
+          <div class="dashboard-preview">
+            <div class="preview-row">
+              <div class="preview-item">
+                <div class="preview-icon">💰</div>
+                <div class="preview-label">Revenue</div>
+                <div class="preview-value">₦248K</div>
+              </div>
+              <div class="preview-item">
+                <div class="preview-icon">📊</div>
+                <div class="preview-label">Orders</div>
+                <div class="preview-value">1,847</div>
+              </div>
+              <div class="preview-item">
+                <div class="preview-icon">👥</div>
+                <div class="preview-label">Customers</div>
+                <div class="preview-value">892</div>
+              </div>
+            </div>
+            <div class="preview-row">
+              <div class="preview-item">
+                <div class="preview-icon">📦</div>
+                <div class="preview-label">Inventory</div>
+                <div class="preview-value">3,421</div>
+              </div>
+              <div class="preview-item">
+                <div class="preview-icon">⚡</div>
+                <div class="preview-label">Offline Ready</div>
+                <div class="preview-value">100%</div>
+              </div>
+              <div class="preview-item">
+                <div class="preview-icon">🔄</div>
+                <div class="preview-label">Synced</div>
+                <div class="preview-value">Live</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section id="features" class="features">
+    <div class="section-header">
+      <h2>Everything You Need to Succeed</h2>
+      <p>Powerful features designed to help your business thrive in any condition</p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card">
+        <span class="feature-icon">🌐</span>
+        <h3>Offline-First Architecture</h3>
+        <p>Work seamlessly without internet. All data cached locally, syncs automatically when connected. Never miss a sale.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">🏢</span>
+        <h3>Multi-Business Support</h3>
+        <p>Manage multiple locations and business types from one account. Switch contexts instantly with zero friction.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">💳</span>
+        <h3>Integrated Payments</h3>
+        <p>Accept payments, track subscriptions, manage approvals. Everything synced across all your locations.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">👨‍💼</span>
+        <h3>Smart Worker Management</h3>
+        <p>Role-based access, granular permissions, automatic business scoping. Your team sees exactly what they need.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">📈</span>
+        <h3>Advanced Analytics</h3>
+        <p>Real-time dashboards, exportable reports, inventory tracking. Make data-driven decisions instantly.</p>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">🎯</span>
+        <h3>Industry-Specific Modules</h3>
+        <p>Tailored workflows for retail, pharmacy, hospitality, salon, auto repair, agriculture, and more.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Industries Section -->
+  <section id="industries" class="industries">
+    <div class="section-header">
+      <h2>Built for Your Industry</h2>
+      <p>Specialized solutions for 9+ business types</p>
+    </div>
+
+    <div class="industries-grid">
+      <div class="industry-card">
+        <span class="industry-icon">🏪</span>
+        <h3>Retail</h3>
+        <p>POS, inventory, multi-store sync, promotions, and analytics</p>
+      </div>
+
+      <div class="industry-card">
+        <span class="industry-icon">💊</span>
+        <h3>Pharmacy</h3>
+        <p>Prescriptions, expiry alerts, controlled stock, regulatory reporting</p>
+      </div>
+
+      <div class="industry-card">
+        <span class="industry-icon">🏨</span>
+        <h3>Hotel</h3>
+        <p>Bookings, room management, billing, housekeeping, night audit</p>
+      </div>
+
+      <div class="industry-card">
+        <span class="industry-icon">🍽️</span>
+        <h3>Restaurant</h3>
+        <p>Table orders, kitchen tickets, menu modifiers, course control</p>
+      </div>
+
+      <div class="industry-card">
+        <span class="industry-icon">🍹</span>
+        <h3>Bar</h3>
+        <p>Quick tabs, happy hour, SKU tracking, peak hour analytics</p>
+      </div>
+
+      <div class="industry-card">
+        <span class="industry-icon">💇</span>
+        <h3>Salon</h3>
+        <p>Appointments, service menus, staff commissions, inventory</p>
+      </div>
+
+      <div class="industry-card">
+        <span class="industry-icon">🔧</span>
+        <h3>Auto Repair</h3>
+        <p>Job cards, parts inventory, labor tracking, estimates</p>
+      </div>
+
+      <div class="industry-card">
+        <span class="industry-icon">🌾</span>
+        <h3>Agriculture</h3>
+        <p>Input tracking, harvest logs, produce sales, settlements</p>
+      </div>
+
+      <div class="industry-card">
+        <span class="industry-icon">🏠</span>
+        <h3>Real Estate</h3>
+        <p>Listings, tenant ledgers, maintenance logs, portfolio reports</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Business-specific features -->
+  <section id="business-details" class="features">
+    <div class="section-header">
+      <h2>Tailored features for each business</h2>
+      <p>We build workflows specific to each industry — reducing manual work and improving accuracy.</p>
+    </div>
+    <div class="biz-controls">
+      <button class="btn btn-outline" id="expandBiz">Expand all</button>
+      <button class="btn btn-outline" id="collapseBiz">Collapse all</button>
+    </div>
+    <div class="biz-grid">
+      <article class="biz-card">
+        <div class="biz-header">
+          <div>
+            <div class="feature-icon">🏪</div>
+            <div class="biz-title">Retail</div>
+            <div class="biz-summary">Fast POS, promotions, multi-store inventory & e-commerce sync</div>
+          </div>
+          <div><button class="btn btn-secondary biz-toggle" aria-expanded="false">View features</button></div>
+        </div>
+        <div class="biz-details" hidden>
+          <ul>
+            <li>Fast POS with barcode & keyboard shortcuts</li>
+            <li>Promotion engine (discounts, bundles, loyalty)</li>
+            <li>Multi-store inventory & transfers</li>
+            <li>Reorder rules & supplier management</li>
+            <li>E-commerce & channel sync</li>
+          </ul>
+          <div class="biz-actions"><a class="btn btn-primary open-demo" href="#">Schedule Demo</a><a class="btn btn-outline start-trial" href="#">Start Trial</a></div>
+        </div>
+      </article>
+
+      <article class="biz-card">
+        <div class="biz-header">
+          <div>
+            <div class="feature-icon">💊</div>
+            <div class="biz-title">Pharmacy</div>
+            <div class="biz-summary">Prescriptions, expiry alerts, controlled stock & regulatory reporting</div>
+          </div>
+          <div><button class="btn btn-secondary biz-toggle" aria-expanded="false">View features</button></div>
+        </div>
+        <div class="biz-details" hidden>
+          <ul>
+            <li>Prescription management & patient history</li>
+            <li>Expiry alerts & batch tracking</li>
+            <li>Controlled drug workflows & approvals</li>
+            <li>Regulatory-ready reporting & audits</li>
+          </ul>
+          <div class="biz-actions"><a class="btn btn-primary open-demo" href="#">Schedule Demo</a><a class="btn btn-outline start-trial" href="#">Start Trial</a></div>
+        </div>
+      </article>
+
+      <article class="biz-card">
+        <div class="biz-header">
+          <div>
+            <div class="feature-icon">🏨</div>
+            <div class="biz-title">Hotel</div>
+            <div class="biz-summary">Bookings, room management, billing and housekeeping workflows</div>
+          </div>
+          <div><button class="btn btn-secondary biz-toggle" aria-expanded="false">View features</button></div>
+        </div>
+        <div class="biz-details" hidden>
+          <ul>
+            <li>Reservations & availability calendar</li>
+            <li>Room billing & checkout flows</li>
+            <li>Housekeeping tickets & staff allocation</li>
+            <li>POS integration for F&B and minibar</li>
+          </ul>
+          <div class="biz-actions"><a class="btn btn-primary open-demo" href="#">Schedule Demo</a><a class="btn btn-outline start-trial" href="#">Start Trial</a></div>
+        </div>
+      </article>
+
+      <article class="biz-card">
+        <div class="biz-header">
+          <div>
+            <div class="feature-icon">🍽️</div>
+            <div class="biz-title">Restaurant</div>
+            <div class="biz-summary">Table orders, kitchen tickets, modifiers and online ordering</div>
+          </div>
+          <div><button class="btn btn-secondary biz-toggle" aria-expanded="false">View features</button></div>
+        </div>
+        <div class="biz-details" hidden>
+          <ul>
+            <li>Table & order management</li>
+            <li>Kitchen tickets & course control</li>
+            <li>Menu modifiers & variants</li>
+            <li>Online ordering sync</li>
+          </ul>
+          <div class="biz-actions"><a class="btn btn-primary open-demo" href="#">Schedule Demo</a><a class="btn btn-outline start-trial" href="#">Start Trial</a></div>
+        </div>
+      </article>
+
+      <article class="biz-card">
+        <div class="biz-header">
+          <div>
+            <div class="feature-icon">🍹</div>
+            <div class="biz-title">Bar</div>
+            <div class="biz-summary">Quick tabs, recipes, happy hour pricing & stock by keg</div>
+          </div>
+          <div><button class="btn btn-secondary biz-toggle" aria-expanded="false">View features</button></div>
+        </div>
+        <div class="biz-details" hidden>
+          <ul>
+            <li>Quick tabs & split bills</li>
+            <li>Drink recipes and cost tracking</li>
+            <li>Happy hour pricing & promotions</li>
+            <li>Inventory by keg and pour tracking</li>
+          </ul>
+          <div class="biz-actions"><a class="btn btn-primary open-demo" href="#">Schedule Demo</a><a class="btn btn-outline start-trial" href="#">Start Trial</a></div>
+        </div>
+      </article>
+
+      <article class="biz-card">
+        <div class="biz-header">
+          <div>
+            <div class="feature-icon">💇</div>
+            <div class="biz-title">Salon</div>
+            <div class="biz-summary">Appointments, staff commissions, inventory & service menus</div>
+          </div>
+          <div><button class="btn btn-secondary biz-toggle" aria-expanded="false">View features</button></div>
+        </div>
+        <div class="biz-details" hidden>
+          <ul>
+            <li>Appointment booking & reminders</li>
+            <li>Staff schedules & commission tracking</li>
+            <li>Service menu & upsell prompts</li>
+            <li>Product retail & inventory</li>
+          </ul>
+          <div class="biz-actions"><a class="btn btn-primary open-demo" href="#">Schedule Demo</a><a class="btn btn-outline start-trial" href="#">Start Trial</a></div>
+        </div>
+      </article>
+
+      <article class="biz-card">
+        <div class="biz-header">
+          <div>
+            <div class="feature-icon">🔧</div>
+            <div class="biz-title">Auto Repair</div>
+            <div class="biz-summary">Job cards, parts inventory, labor tracking and estimates</div>
+          </div>
+          <div><button class="btn btn-secondary biz-toggle" aria-expanded="false">View features</button></div>
+        </div>
+        <div class="biz-details" hidden>
+          <ul>
+            <li>Job cards & estimated vs actual labor</li>
+            <li>Parts inventory & BOMs</li>
+            <li>Service history & warranties</li>
+            <li>Invoicing & deposits</li>
+          </ul>
+          <div class="biz-actions"><a class="btn btn-primary open-demo" href="#">Schedule Demo</a><a class="btn btn-outline start-trial" href="#">Start Trial</a></div>
+        </div>
+      </article>
+
+      <article class="biz-card">
+        <div class="biz-header">
+          <div>
+            <div class="feature-icon">🌾</div>
+            <div class="biz-title">Agriculture</div>
+            <div class="biz-summary">Input tracking, harvest logs, produce sales and settlements</div>
+          </div>
+          <div><button class="btn btn-secondary biz-toggle" aria-expanded="false">View features</button></div>
+        </div>
+        <div class="biz-details" hidden>
+          <ul>
+            <li>Input & batch tracking</li>
+            <li>Harvest logs & yield records</li>
+            <li>Produce sales & settlement workflows</li>
+            <li>Traceability & lot reports</li>
+          </ul>
+          <div class="biz-actions"><a class="btn btn-primary open-demo" href="#">Schedule Demo</a><a class="btn btn-outline start-trial" href="#">Start Trial</a></div>
+        </div>
+      </article>
+
+      <article class="biz-card">
+        <div class="biz-header">
+          <div>
+            <div class="feature-icon">🏠</div>
+            <div class="biz-title">Real Estate</div>
+            <div class="biz-summary">Listings, tenants, maintenance tickets and portfolio reports</div>
+          </div>
+          <div><button class="btn btn-secondary biz-toggle" aria-expanded="false">View features</button></div>
+        </div>
+        <div class="biz-details" hidden>
+          <ul>
+            <li>Listings & availability</li>
+            <li>Tenant ledgers & rent reminders</li>
+            <li>Maintenance tickets & vendor tracking</li>
+            <li>Portfolio performance reports</li>
+          </ul>
+          <div class="biz-actions"><a class="btn btn-primary open-demo" href="#">Schedule Demo</a><a class="btn btn-outline start-trial" href="#">Start Trial</a></div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- Why Choose ManageCare -->
+  <section id="why" class="features">
+    <div class="section-header">
+      <h2>Why businesses choose ManageCare</h2>
+      <p>We provide industry workflows, offline reliability and local support — everything you need to run operations confidently.</p>
+    </div>
+    <div class="why-grid">
+      <div class="why-list">
+        <h3>Core advantages</h3>
+        <ul>
+          <li><strong>Offline-first</strong> — continue selling during outages with safe background sync</li>
+          <li><strong>Multi-business</strong> — manage many locations and switch instantly</li>
+          <li><strong>Industry modules</strong> — workflows tailored for pharmacies, hotels, restaurants and more</li>
+          <li><strong>WhatsApp + email automation</strong> — receipts, reminders and alerts delivered where your customers are</li>
+          <li><strong>Local support & pricing</strong> — Naira pricing and on-the-ground onboarding</li>
+        </ul>
+      </div>
+      <div class="why-list">
+        <div class="compare-card" role="region" aria-labelledby="compare-heading">
+          <div class="compare-card-header">
+            <h3 id="compare-heading">Comparison</h3>
+            <p class="compare-caption">See how ManageCare stacks up — built for local businesses with offline-first reliability and local support.</p>
+          </div>
+          <div class="compare-body">
+            <table class="compare-table" role="table">
+              <thead>
+                <tr><th>Feature</th><th>ManageCare</th><th>Other inventory apps</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Offline-first</td><td class="check">✓</td><td class="cross">✕</td></tr>
+                <tr><td>Multi-business</td><td class="check">✓</td><td class="cross">Limited</td></tr>
+                <tr><td>Industry modules</td><td class="check">✓</td><td class="cross">Generic</td></tr>
+                <tr><td>WhatsApp automation</td><td class="check">✓</td><td class="cross">✕</td></tr>
+                <tr><td>Local (Naira) pricing</td><td class="check">✓</td><td class="cross">USD only</td></tr>
+                <tr><td>SSO & enterprise</td><td class="check">✓</td><td class="cross">Paid add-on</td></tr>
+              </tbody>
+            </table>
+
+            <div class="compare-cta">
+              <a class="btn btn-primary" href="#pricing">Start a free trial</a>
+              <a class="btn btn-outline" href="#open-demo">Schedule a demo</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing Section -->
+  <section id="pricing" class="features">
+    <div class="section-header">
+      <h2>Flexible pricing for growing businesses</h2>
+      <p>Transparent, usage-based plans — scale from a single shop to a multi-location enterprise.</p>
+    </div>
+
+    <div class="pricing-toggle" role="tablist" aria-label="Pricing period" style="text-align:center;margin:18px 0 6px">
+      <button class="toggle-btn active" data-period="monthly" role="tab" aria-pressed="true" aria-controls="pricing">Monthly</button>
+      <button class="toggle-btn" data-period="yearly" role="tab" aria-pressed="false" aria-controls="pricing">Yearly (save 2 months)</button>
+    </div>
+
+    <div class="features-grid pricing-grid">
+      <div class="feature-card">
+        <span class="feature-icon">🔰</span>
+        <h3>Starter</h3>
+        <div class="price" data-monthly="₦10,000" data-yearly="₦100,000"><span class="price-value">₦10,000</span><span class="price-period">/mo</span></div>
+        <p>Perfect for small shops — POS, inventory and simple reports.</p>
+        <ul>
+          <li>1 business</li>
+          <li>Core POS & inventory</li>
+          <li>Email support</li>
+        </ul>
+        <div style="margin-top:12px"><a class="btn btn-secondary" href="#">Start Free</a></div>
+      </div>
+
+      <div class="feature-card">
+        <div class="plan-badge">Most popular</div>
+        <span class="feature-icon">🚀</span>
+        <h3>Pro</h3>
+        <div class="price" data-monthly="₦20,000" data-yearly="₦200,000"><span class="price-value">₦20,000</span><span class="price-period">/mo</span></div>
+        <p>All the essentials — multi-location, subscriptions, advanced reporting and priority support.</p>
+        <ul>
+          <li>Up to 10 businesses</li>
+          <li>Subscription & payments</li>
+          <li>Priority support</li>
+        </ul>
+        <div style="margin-top:12px"><a class="btn btn-primary" href="#" id="start-trial">Start Trial</a></div>
+      </div>
+
+      <div class="feature-card">
+        <span class="feature-icon">🏢</span>
+        <h3>Enterprise</h3>
+        <div class="price" data-monthly="Customized" data-yearly="Customized"><span class="price-value">Customized</span><span class="price-period"></span></div>
+        <p>Custom packages for large operations: SSO, SLAs, integrations and dedicated onboarding.</p>
+        <ul>
+          <li>Unlimited businesses</li>
+          <li>Custom integrations & API</li>
+          <li>Dedicated account manager</li>
+        </ul>
+        <div style="margin-top:12px"><a class="btn btn-secondary" href="#" id="open-demo">Schedule Demo</a></div>
+      </div>
+    </div>
+
+    <div class="pricing-table-wrap" style="margin-top:20px">
+      <table class="pricing-table" role="table" style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="text-align:left;border-bottom:1px solid rgba(255,255,255,0.06)">
+            <th style="padding:12px">Feature</th>
+            <th style="padding:12px">Starter</th>
+            <th style="padding:12px">Pro</th>
+            <th style="padding:12px">Enterprise</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:12px">Multi-business</td><td style="padding:12px">—</td><td style="padding:12px">✓</td><td style="padding:12px">✓</td></tr>
+          <tr><td style="padding:12px">Offline-first</td><td style="padding:12px">✓</td><td style="padding:12px">✓</td><td style="padding:12px">✓</td></tr>
+          <tr><td style="padding:12px">Subscriptions & Approvals</td><td style="padding:12px">—</td><td style="padding:12px">✓</td><td style="padding:12px">✓</td></tr>
+          <tr><td style="padding:12px">WhatsApp & Email Notifications</td><td style="padding:12px">—</td><td style="padding:12px">✓</td><td style="padding:12px">✓</td></tr>
+          <tr><td style="padding:12px">API & Integrations</td><td style="padding:12px">—</td><td style="padding:12px">✓</td><td style="padding:12px">Dedicated</td></tr>
+          <tr><td style="padding:12px">SSO / SAML</td><td style="padding:12px">—</td><td style="padding:12px">—</td><td style="padding:12px">✓</td></tr>
+          <tr><td style="padding:12px">Priority Support</td><td style="padding:12px">Email</td><td style="padding:12px">Priority</td><td style="padding:12px">Dedicated</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Testimonials -->
+  <section class="features">
+    <div class="section-header">
+      <h2>What customers say</h2>
+      <p>Real stories from owners who scaled with Manage Care</p>
+    </div>
+    <div class="testimonials">
+      <div class="testimonial active" data-index="0">
+        <p>"Manage Care gave our team a single place to run 7 stores — switching between businesses is instant and reliable."</p>
+        <strong>— Aisha, Retail Owner</strong>
+      </div>
+      <div class="testimonial" data-index="1">
+        <p>"Offline mode saved us during power outages; we never lost sales and reconciliation is simple."</p>
+        <strong>— Daniel, Bar Owner</strong>
+      </div>
+      <div class="testimonial" data-index="2">
+        <p>"Subscriptions, approvals, and automated receipts make accounting much easier for our chain."</p>
+        <strong>— Mercy, Finance Lead</strong>
+      </div>
+      <div class="test-dots" role="tablist" aria-label="Testimonial navigation">
+        <button class="dot active" data-i="0" aria-label="Show testimonial 1" role="tab" aria-selected="true"></button>
+        <button class="dot" data-i="1" aria-label="Show testimonial 2" role="tab" aria-selected="false"></button>
+        <button class="dot" data-i="2" aria-label="Show testimonial 3" role="tab" aria-selected="false"></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="features" id="faq">
+    <div class="section-header">
+      <h2>Frequently asked questions</h2>
+      <p>Answers to common questions about onboarding, billing and offline support.</p>
+    </div>
+    <div class="features-grid faq-grid">
+      <div class="feature-card faq-item">
+        <button class="faq-question" aria-expanded="false">How does offline mode work?</button>
+        <div class="faq-answer" hidden>
+          <p>All data is cached locally and synced in the background when a connection is available — conflicts are merged safely and you can continue taking payments offline.</p>
+        </div>
+      </div>
+
+      <div class="feature-card faq-item">
+        <button class="faq-question" aria-expanded="false">Can one user manage multiple businesses?</button>
+        <div class="faq-answer" hidden>
+          <p>Yes — users can be linked to multiple businesses and switch between them instantly. Worker accounts respect store access permissions.</p>
+        </div>
+      </div>
+      <div class="feature-card faq-item">
+        <button class="faq-question" aria-expanded="false">What payment providers do you support?</button>
+        <div class="faq-answer" hidden>
+          <p>We integrate with major payment gateways and offer a WhatsApp + email notifications system for receipts and subscription alerts.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Newsletter -->
+  <section class="features">
+    <div class="section-header">
+      <h2>Get product updates & stories</h2>
+      <p>Join our newsletter and receive monthly product updates, tips and success stories.</p>
+    </div>
+    <div style="display:flex;justify-content:center;margin-top:12px">
+      <form id="newsletter-form" style="max-width:560px;width:100%;display:flex;gap:12px;">
+        <input id="newsletter-email" type="email" placeholder="you@company.com" required style="flex:1;padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit" />
+        <button class="btn btn-primary" type="submit">Subscribe</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="more-features" class="features">
+    <div class="section-header">
+      <h2>More capabilities</h2>
+      <p>Advanced features that help teams automate, report and scale.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <span class="feature-icon">💬</span>
+        <h3>WhatsApp & Email Automation</h3>
+        <p>Send daily transaction summaries, payment receipts and subscription notifications over WhatsApp and email.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">🔒</span>
+        <h3>Security & Access</h3>
+        <p>Role-based access, SSO, audit logs and per-business worker scopes for compliance and control.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">📤</span>
+        <h3>Integrations & API</h3>
+        <p>Webhooks, REST APIs and built-in integrations to connect to accounting, payments and CRM systems.</p>
+      </div>
+      <div class="feature-card">
+        <span class="feature-icon">📊</span>
+        <h3>Reporting & Exports</h3>
+        <p>Custom reports, CSV exports and daily reconciliation tools for accounting teams.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Section -->
+  <section id="cta" class="cta">
+    <div class="cta-content">
+      <h2>Ready to Transform Your Business?</h2>
+      <p>Join 2,000+ businesses already using ManageCare. Start your free trial today—no credit card required.</p>
+      <div class="cta-buttons">
+        <a href="#" class="btn btn-primary">Start Free Trial</a>
+        <a href="#" class="btn btn-secondary">Schedule a Demo</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Demo Modal -->
+  <div id="demo-modal" class="modal" aria-hidden="true">
+    <div class="modal-backdrop" id="demo-backdrop"></div>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="demo-title">
+      <button class="modal-close btn-icon" id="demo-close" aria-label="Close demo dialog">✕</button>
+      <h3 id="demo-title">Schedule a demo</h3>
+      <p>Tell us a bit about your business and we'll reach out to schedule a live demo.</p>
+      <form id="demo-form" class="modal-form">
+        <input type="text" id="demo-name" placeholder="Your full name" required />
+        <input type="email" id="demo-email" placeholder="your@company.com" required />
+        <input type="text" id="demo-business" placeholder="Business name" />
+        <div style="display:flex;gap:10px;margin-top:12px">
+          <button class="btn btn-primary" type="submit">Request demo</button>
+          <button type="button" class="btn btn-secondary" id="demo-cancel">Cancel</button>
+        </div>
+      </form>
+      <div id="demo-success" style="display:none;margin-top:12px;color:var(--accent-2)">Thanks — we will contact you soon.</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <p>© 2024 ManageCare. Built for operations teams worldwide.</p>
+    <p style="margin-top: 0.5rem; opacity: 0.7;">
+      <a href="#">Privacy</a>
+      <a href="#">Terms</a>
+      <a href="#">Contact</a>
+    </p>
+  </footer>
+
+  <script>
+    // Header scroll effect
+    const header = document.getElementById('header');
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 50) header.classList.add('scrolled'); else header.classList.remove('scrolled');
+    });
+
+    // Smooth scroll (respect anchor with length check)
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        const href = this.getAttribute('href');
+        if (href && href.length > 1){
+          e.preventDefault();
+          const target = document.querySelector(href);
+          if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+
+    // Mobile nav burger (small-screen navigation)
+    (function(){
+      const burger = document.getElementById('nav-burger');
+      const headerEl = document.getElementById('header');
+      const navLinks = document.querySelectorAll('.nav-links a');
+      if(burger){
+        burger.addEventListener('click', ()=>{
+          const open = burger.getAttribute('aria-expanded') === 'true';
+          burger.setAttribute('aria-expanded', String(!open));
+          headerEl.classList.toggle('nav-open', !open);
+        });
+
+        navLinks.forEach(a=> a.addEventListener('click', ()=>{
+          if(headerEl.classList.contains('nav-open')){ headerEl.classList.remove('nav-open'); burger.setAttribute('aria-expanded','false'); }
+        }));
+
+        window.addEventListener('resize', ()=>{
+          if(window.innerWidth > 768 && headerEl.classList.contains('nav-open')){ headerEl.classList.remove('nav-open'); burger.setAttribute('aria-expanded','false'); }
+        });
+
+        document.addEventListener('click', (e)=>{
+          if(!headerEl.classList.contains('nav-open')) return;
+          if(!headerEl.contains(e.target)){
+            headerEl.classList.remove('nav-open'); burger.setAttribute('aria-expanded','false');
+          }
+        });
+      }
+    })();
+
+    // Demo modal handlers with focus management and Escape key
+    (function(){
+      const demoModal = document.getElementById('demo-modal');
+      const demoOpenBtns = document.querySelectorAll('#open-demo, #start-trial, .open-demo, .start-trial');
+      const demoClose = document.getElementById('demo-close');
+      const demoBackdrop = document.getElementById('demo-backdrop');
+      const demoForm = document.getElementById('demo-form');
+      const demoSuccess = document.getElementById('demo-success');
+      let lastActive = null;
+
+      function openDemo(){ if(!demoModal) return; lastActive = document.activeElement; demoModal.classList.add('open'); demoModal.setAttribute('aria-hidden','false'); document.body.style.overflow='hidden'; setTimeout(()=>{ document.getElementById('demo-name')?.focus(); }, 60); }
+      function closeDemo(){ if(!demoModal) return; demoModal.classList.remove('open'); demoModal.setAttribute('aria-hidden','true'); document.body.style.overflow=''; demoSuccess && (demoSuccess.style.display='none'); demoForm && (demoForm.style.display='block'); lastActive && lastActive.focus(); }
+
+      demoOpenBtns.forEach(b=> b && b.addEventListener('click', e=>{ e.preventDefault(); openDemo(); }));
+      demoClose && demoClose.addEventListener('click', closeDemo);
+      demoBackdrop && demoBackdrop.addEventListener('click', closeDemo);
+      document.getElementById('demo-cancel') && document.getElementById('demo-cancel').addEventListener('click', closeDemo);
+      document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && demoModal && demoModal.classList.contains('open')) closeDemo(); });
+
+      if(demoForm){
+        demoForm.addEventListener('submit', function(e){
+          e.preventDefault();
+          const email = document.getElementById('demo-email').value || '';
+          if(!/\S+@\S+\.\S+/.test(email)){ alert('Please enter a valid email'); return; }
+          demoForm.style.display='none'; demoSuccess.style.display='block';
+          setTimeout(()=> closeDemo(), 1600);
+        });
+      }
+    })();
+
+    // Pricing toggle accessible behavior
+    (function(){
+      const toggleContainer = document.querySelector('.pricing-toggle');
+      const toggleBtns = Array.from(document.querySelectorAll('.toggle-btn'));
+      function updatePrices(period){
+        document.querySelectorAll('.price[data-monthly]').forEach(el=>{
+          const monthly = el.getAttribute('data-monthly');
+          const yearly = el.getAttribute('data-yearly');
+          const val = period === 'monthly' ? monthly : yearly;
+          const periodText = (val === 'Free' || val === 'Contact') ? '' : (period === 'monthly' ? '/mo' : '/yr');
+          const valueEl = el.querySelector('.price-value');
+          const periodEl = el.querySelector('.price-period');
+          if(valueEl) valueEl.textContent = val;
+          if(periodEl) periodEl.textContent = periodText;
+        });
+      }
+      function setActivePeriod(period){
+        toggleBtns.forEach(b=>{
+          const active = b.dataset.period === period;
+          b.classList.toggle('active', active);
+          b.setAttribute('aria-pressed', active ? 'true' : 'false');
+          if(active) b.focus();
+        });
+        updatePrices(period);
+        try{ localStorage.setItem('mc-pricing-period', period);}catch(e){}
+      }
+      toggleBtns.forEach(btn=>{
+        btn.addEventListener('click', ()=> setActivePeriod(btn.dataset.period));
+        btn.addEventListener('keydown', (e)=>{ if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActivePeriod(btn.dataset.period); } });
+      });
+      if(toggleContainer){
+        toggleContainer.addEventListener('keydown', (e)=>{
+          const focused = document.activeElement;
+          const idx = toggleBtns.indexOf(focused);
+          if(idx===-1) return;
+          if(['ArrowRight','ArrowLeft','Home','End'].includes(e.key)){
+            e.preventDefault();
+            let newIdx = idx;
+            if(e.key === 'ArrowRight') newIdx = (idx + 1) % toggleBtns.length;
+            if(e.key === 'ArrowLeft') newIdx = (idx - 1 + toggleBtns.length) % toggleBtns.length;
+            if(e.key === 'Home') newIdx = 0;
+            if(e.key === 'End') newIdx = toggleBtns.length - 1;
+            toggleBtns[newIdx].focus();
+          }
+        });
+      }
+      const saved = (function(){ try{ return localStorage.getItem('mc-pricing-period'); }catch(e){ return null; }})();
+      setActivePeriod(saved || document.querySelector('.toggle-btn.active')?.dataset.period || 'monthly');
+    })();
+
+    // FAQ accordion (accessible, single-open)
+    (function(){
+      const items = document.querySelectorAll('.faq-item');
+      if(!items.length) return;
+      function closeItem(item){
+        const b = item.querySelector('.faq-question'); const a = item.querySelector('.faq-answer');
+        b.setAttribute('aria-expanded','false');
+        a.style.maxHeight = a.scrollHeight + 'px';
+        requestAnimationFrame(()=> a.style.maxHeight = '0px');
+        setTimeout(()=> a.hidden = true, 320);
+        item.classList.remove('open');
+      }
+      function openItem(item){
+        const b = item.querySelector('.faq-question'); const a = item.querySelector('.faq-answer');
+        // close others
+        items.forEach(it=> { if(it !== item && it.classList.contains('open')) closeItem(it); });
+        b.setAttribute('aria-expanded','true');
+        a.hidden = false; a.style.maxHeight = a.scrollHeight + 'px';
+        setTimeout(()=> a.style.maxHeight = 'none', 360);
+        item.classList.add('open');
+      }
+      items.forEach(item=>{
+        const btn = item.querySelector('.faq-question'); const ans = item.querySelector('.faq-answer');
+        const expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        ans.hidden = !expanded;
+        ans.style.overflow = 'hidden'; ans.style.maxHeight = ans.hidden ? '0px' : ans.scrollHeight + 'px';
+        if(expanded) item.classList.add('open');
+        btn.addEventListener('click', ()=>{
+          const isOpen = btn.getAttribute('aria-expanded') === 'true';
+          if(isOpen) closeItem(item); else openItem(item);
+        });
+        btn.addEventListener('keydown', (e)=>{ if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); btn.click(); } });
+      });
+    })();
+
+    // Business cards: expand/collapse and controls
+    (function(){
+      const cards = document.querySelectorAll('.biz-card');
+      const expandBtn = document.getElementById('expandBiz');
+      const collapseBtn = document.getElementById('collapseBiz');
+      function openCard(card){ const btn = card.querySelector('.biz-toggle'); const details = card.querySelector('.biz-details'); card.classList.add('open'); btn.setAttribute('aria-expanded','true'); details.hidden = false; details.style.maxHeight = details.scrollHeight + 'px'; setTimeout(()=> details.style.maxHeight = 'none', 350); }
+      function closeCard(card){ const btn = card.querySelector('.biz-toggle'); const details = card.querySelector('.biz-details'); card.classList.remove('open'); btn.setAttribute('aria-expanded','false'); details.style.maxHeight = details.scrollHeight + 'px'; requestAnimationFrame(()=> details.style.maxHeight = '0px'); setTimeout(()=> details.hidden = true, 310); }
+      cards.forEach(card=>{ const btn = card.querySelector('.biz-toggle'); const details = card.querySelector('.biz-details'); details.hidden = true; btn.setAttribute('aria-expanded','false'); btn.addEventListener('click', ()=>{ if(card.classList.contains('open')) closeCard(card); else openCard(card); }); btn.addEventListener('keydown', (e)=>{ if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.click(); } }); });
+      expandBtn && expandBtn.addEventListener('click', ()=> cards.forEach(openCard));
+      collapseBtn && collapseBtn.addEventListener('click', ()=> cards.forEach(closeCard));
+    })();
+
+    // Testimonials rotation (simple)
+    (function(){
+      const testimonials = document.querySelectorAll('.testimonial');
+      if(testimonials.length){
+        let ti = 0; const dots = document.querySelectorAll('.test-dots .dot');
+        function show(i){
+          testimonials.forEach((t, idx)=> t.classList.toggle('active', idx===i));
+          dots.forEach((d, idx)=> { d.classList.toggle('active', idx===i); d.setAttribute('aria-selected', idx===i ? 'true' : 'false'); });
+          ti = (i + 1) % testimonials.length;
+        }
+        let rot = setInterval(()=> show(ti), 4200);
+        // clickable dots
+        dots.forEach(d=> d.addEventListener('click', ()=>{ clearInterval(rot); show(Number(d.dataset.i)); rot = setInterval(()=> show(ti), 4200);}));
+      }
+    })();
+
+  </script>
+</body>
+</html>

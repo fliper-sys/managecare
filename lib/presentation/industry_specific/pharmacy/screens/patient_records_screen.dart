@@ -1,0 +1,385 @@
+import 'package:flutter/material.dart';
+import '../../../../widgets/profile_avatar.dart';
+import 'package:provider/provider.dart';
+import '../../../../providers/pharmacy_provider.dart';
+import '../../../../providers/business_provider.dart';
+import 'prescription_detail_screen.dart';
+
+class PatientRecordsScreen extends StatefulWidget {
+  const PatientRecordsScreen({super.key});
+
+  @override
+  State<PatientRecordsScreen> createState() => _PatientRecordsScreenState();
+}
+
+class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
+  String _searchQuery = '';
+  String _sortBy = 'name'; // name, prescriptions, recent
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final provider = context.read<PharmacyProvider>();
+      final business = context.read<BusinessProvider>().currentBusiness;
+      if (business != null) {
+        provider.loadFromRepository(businessId: business.id);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Patient Records'),
+        backgroundColor: Colors.green.shade700,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              final provider = context.read<PharmacyProvider>();
+              final business = context.read<BusinessProvider>().currentBusiness;
+              if (business != null) {
+                provider.loadFromRepository(businessId: business.id);
+              }
+            },
+          ),
+        ],
+      ),
+      body: Consumer<PharmacyProvider>(
+        builder: (context, provider, child) {
+          var patients = provider.getPatientsWithPrescriptionCount();
+
+          // Apply search filter
+          if (_searchQuery.isNotEmpty) {
+            patients = patients
+                .where((p) => (p['name'] as String)
+                    .toLowerCase()
+                    .contains(_searchQuery.toLowerCase()))
+                .toList();
+          }
+
+          // Apply sorting
+          switch (_sortBy) {
+            case 'name':
+              patients.sort((a, b) =>
+                  (a['name'] as String).compareTo(b['name'] as String));
+              break;
+            case 'prescriptions':
+              patients.sort((a, b) => (b['prescriptionCount'] as int)
+                  .compareTo(a['prescriptionCount'] as int));
+              break;
+            case 'recent':
+              patients.sort((a, b) {
+                final dateA = a['lastPrescriptionDate'] as DateTime?;
+                final dateB = b['lastPrescriptionDate'] as DateTime?;
+                if (dateA == null && dateB == null) return 0;
+                if (dateA == null) return 1;
+                if (dateB == null) return -1;
+                return dateB.compareTo(dateA);
+              });
+              break;
+          }
+
+          if (patients.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.person_outline, size: 64, color: Colors.grey[300]),
+                  const SizedBox(height: 16),
+                  Text('No patients found',
+                      style: TextStyle(color: Colors.grey[600])),
+                ],
+              ),
+            );
+          }
+
+          return Column(
+            children: [
+              // Search and sort controls
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    TextField(
+                      onChanged: (value) =>
+                          setState(() => _searchQuery = value),
+                      decoration: InputDecoration(
+                        hintText: 'Search patients...',
+                        prefixIcon: const Icon(Icons.search),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        const Text('Sort by: '),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: DropdownButton<String>(
+                            isExpanded: true,
+                            value: _sortBy,
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'name',
+                                child: Text('Patient Name'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'prescriptions',
+                                child: Text('Prescriptions (Most)'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'recent',
+                                child: Text('Recently Active'),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _sortBy = value);
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              // Patients list
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: patients.length,
+                  itemBuilder: (context, index) {
+                    final patient = patients[index];
+                    final prescriptionCount =
+                        patient['prescriptionCount'] as int;
+
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      child: ListTile(
+                        leading: ProfileAvatar(
+                          photoUrl: (patient['photoUrl'] ?? patient['photo_url']) as String?,
+                          initials: (patient['name'] as String).isNotEmpty ? (patient['name'] as String)[0].toUpperCase() : '?',
+                          backgroundColor: Colors.green.shade100,
+                        ),
+                        title: Text(patient['name'] as String,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Phone: ${patient['phone']}'),
+                            Text(
+                              'Prescriptions: $prescriptionCount',
+                              style: TextStyle(
+                                color: prescriptionCount > 5
+                                    ? Colors.green
+                                    : Colors.grey,
+                              ),
+                            ),
+                            if (patient['lastPrescriptionDate'] != null)
+                              Text(
+                                'Last Rx: ${(patient['lastPrescriptionDate'] as DateTime).toString().split(' ')[0]}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                          ],
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () =>
+                            _showPatientDetails(context, patient, provider),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.green.shade700,
+        onPressed: () => _showAddPatientDialog(context),
+        child: const Icon(Icons.person_add),
+      ),
+    );
+  }
+
+  void _showPatientDetails(BuildContext context, Map<String, dynamic> patient,
+      PharmacyProvider provider) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        final patientHistory =
+            provider.getPatientPrescriptionHistory(patient['id'] as String);
+
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(patient['name'] as String,
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              _buildDetailRow('Phone', patient['phone'] as String),
+              _buildDetailRow('ID', patient['id'] as String),
+              _buildDetailRow(
+                  'Total Prescriptions', '${patient['prescriptionCount']}'),
+              const SizedBox(height: 16),
+              const Text('Recent Prescriptions:',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              if (patientHistory.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text('No prescriptions',
+                      style: TextStyle(color: Colors.grey)),
+                )
+              else
+                ...patientHistory.take(5).map((pres) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: InkWell(
+                        onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => PrescriptionDetailScreen(prescriptionId: pres.id))),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(pres.id),
+                            Chip(
+                              label: Text(pres.status),
+                              backgroundColor: pres.status == 'dispensed'
+                                  ? Colors.green.shade100
+                                  : Colors.orange.shade100,
+                            ),
+                          ],
+                        ),
+                      ),
+                    )),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.edit),
+                      label: const Text('Edit Patient'),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.note_add),
+                      label: const Text('New Rx'),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.grey)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  void _showAddPatientDialog(BuildContext context) {
+    final nameController = TextEditingController();
+    final phoneController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Patient'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Patient Name',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phoneController,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Phone Number',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameController.text.trim();
+              final phone = phoneController.text.trim();
+              if (name.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter patient name')));
+                return;
+              }
+              final provider = context.read<PharmacyProvider>();
+              // Duplicate check by phone or exact name
+              final dup = provider.patients.where((p) => p.phone == phone || p.name.toLowerCase() == name.toLowerCase()).toList();
+              if (dup.isNotEmpty) {
+                final keep = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Possible duplicate'),
+                    content: Text('A patient with similar details already exists. Add anyway?'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                      ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Add')),
+                    ],
+                  ),
+                ) ?? false;
+                if (!keep) return;
+              }
+              final id = 'P${DateTime.now().millisecondsSinceEpoch}';
+              final newPatient = Patient(id: id, name: name, phone: phone);
+              final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+              await provider.addPatient(newPatient, persist: true, businessId: businessId);
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Patient added')));
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
