@@ -211,7 +211,7 @@ class _TransferCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${transfer.fromWarehouse} → ${transfer.toWarehouse}',
+                    '${transfer.fromWarehouse} -> ${transfer.toWarehouse}',
                     style: AppTextStyles.body1
                         .copyWith(fontWeight: FontWeight.bold),
                   ),

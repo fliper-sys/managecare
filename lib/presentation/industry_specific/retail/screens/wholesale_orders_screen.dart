@@ -1,7 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/formatters.dart';
 import '../../../../providers/business_provider.dart';
 
 class WholesaleOrdersScreen extends StatefulWidget {
@@ -24,11 +26,17 @@ class _WholesaleOrdersScreenState extends State<WholesaleOrdersScreen> {
 
   Future<void> _loadOrders() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
     try {
       final business =
           Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
-      if (business == null) return setState(() => _isLoading = false);
+      if (business == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
 
       final snap = await FirebaseFirestore.instance
           .collection('wholesaleOrders')
@@ -52,8 +60,15 @@ class _WholesaleOrdersScreenState extends State<WholesaleOrdersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-          title: const Text('Wholesale Orders'),
-          backgroundColor: AppColors.primary),
+        title: const Text('Wholesale Orders'),
+        backgroundColor: AppColors.primary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadOrders,
+          ),
+        ],
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -64,22 +79,110 @@ class _WholesaleOrdersScreenState extends State<WholesaleOrdersScreen> {
                       padding: const EdgeInsets.all(12),
                       itemCount: _orders.length,
                       itemBuilder: (context, index) {
-                        final o = _orders[index];
+                        final order = _orders[index];
+                        final itemCount =
+                            (order['itemCount'] as int?) ?? ((order['items'] as List?)?.length ?? 0);
+                        final total = ((order['totalAmount'] ??
+                                    order['total'] ??
+                                    order['amount'] ??
+                                    0) as num?)
+                                ?.toDouble() ??
+                            0.0;
+
                         return Card(
                           child: ListTile(
                             leading: const Icon(Icons.local_shipping),
                             title: Text(
-                                'Order #${o['orderNumber'] as String? ?? o['id']}'),
+                              'Order #${order['orderNumber'] as String? ?? order['id']}',
+                            ),
                             subtitle: Text(
-                                'Items: ${o['itemCount'] as int? ?? 0} • Status: ${o['status'] as String? ?? 'Pending'}'),
-                            trailing: IconButton(
-                                icon: const Icon(Icons.chevron_right),
-                                onPressed: () {}),
+                              'Items: $itemCount - Status: ${order['status'] as String? ?? 'Pending'}',
+                            ),
+                            trailing: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  formatCurrency(total),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                const Icon(Icons.chevron_right),
+                              ],
+                            ),
+                            onTap: () => _showOrderDetails(order),
                           ),
                         );
                       },
                     ),
     );
   }
-}
 
+  void _showOrderDetails(Map<String, dynamic> order) {
+    final items = (order['items'] as List?) ?? const [];
+    final total =
+        ((order['totalAmount'] ?? order['total'] ?? 0) as num?)?.toDouble() ??
+            0.0;
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Order #${order['orderNumber'] ?? order['id'] ?? '-'}'),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Status: ${order['status'] ?? 'Pending'}'),
+                const SizedBox(height: 8),
+                Text(
+                  'Customer: ${order['customerName'] ?? order['customer'] ?? 'Walk-in'}',
+                ),
+                const SizedBox(height: 8),
+                Text('Total: ${formatCurrency(total)}'),
+                const SizedBox(height: 12),
+                const Text(
+                  'Items',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                ...items.map((item) {
+                  final map = item is Map<String, dynamic>
+                      ? item
+                      : Map<String, dynamic>.from(item as Map);
+                  final qty = (map['quantity'] ?? map['qty'] ?? 1).toString();
+                  final name = (map['name'] ??
+                          map['productName'] ??
+                          map['title'] ??
+                          'Item')
+                      .toString();
+                  final lineTotal =
+                      ((map['total'] ?? map['lineTotal'] ?? 0) as num?)
+                              ?.toDouble() ??
+                          0.0;
+                  return ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(name),
+                    subtitle: Text('Qty $qty'),
+                    trailing: Text(formatCurrency(lineTotal)),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+}

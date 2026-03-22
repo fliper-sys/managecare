@@ -972,14 +972,15 @@ extension WholesaleProviderSales on WholesaleProvider {
             .get();
 
         final totalSales = sumSales(snapshot);
-        debugPrint("[WholesaleProvider] Today's sales total: NGN ");
+        debugPrint("[WholesaleProvider] Today's sales total: NGN $totalSales");
         return totalSales;
       } catch (e) {
         final msg = e.toString();
         if (msg.contains('requires an index') ||
             msg.contains('FAILED_PRECONDITION')) {
           try {
-            debugPrint('[WholesaleProvider] Composite index required; falling back to date-only query for today''s sales');
+            debugPrint(
+                "[WholesaleProvider] Composite index required; falling back to date-only query for today's sales");
             final fallback = await _firestore
                 .collection('businesses')
                 .doc(_businessId)
@@ -991,19 +992,21 @@ extension WholesaleProviderSales on WholesaleProvider {
                 .get();
 
             final totalSales = sumSales(fallback);
-            debugPrint("[WholesaleProvider] Today's sales total (fallback): NGN ");
+            debugPrint(
+                "[WholesaleProvider] Today's sales total (fallback): NGN $totalSales");
             return totalSales;
           } catch (e2) {
-            debugPrint('[WholesaleProvider] Fallback date-only query failed: ');
+            debugPrint(
+                "[WholesaleProvider] Fallback date-only query failed: $e2");
             return 0.0;
           }
         }
 
-        debugPrint("[WholesaleProvider] Error fetching today's sales: ");
+        debugPrint("[WholesaleProvider] Error fetching today's sales: $e");
         return 0.0;
       }
     } catch (e) {
-      debugPrint("[WholesaleProvider] Error fetching today's sales: ");
+      debugPrint("[WholesaleProvider] Error fetching today's sales: $e");
       return 0.0;
     }
   }

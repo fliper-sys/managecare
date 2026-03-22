@@ -16,6 +16,7 @@ import '../presentation/dashboard/analytics/advanced_analytics_dashboard_screen.
 import '../presentation/industry_specific/gas/screens/gas_dashboard_screen.dart';
 import '../presentation/industry_specific/gas/screens/gas_pump_screen.dart';
 import '../presentation/industry_specific/gas/screens/gas_sales_history_screen.dart';
+import '../presentation/industry_specific/wholesale/screens/warehouse_reports_screen.dart';
 import '../presentation/inventory/screens/product_details_screen.dart';
 import '../presentation/reports/screens/aggregated_reports_screen.dart';
 import '../presentation/business/screens/business_switcher_screen.dart';

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/formatters.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../providers/wholesale_provider.dart';
 
@@ -35,6 +36,17 @@ class _WarehouseReportsScreenState extends State<WarehouseReportsScreen> {
         title: const Text('Warehouse Reports'),
         elevation: 0,
         backgroundColor: AppColors.primary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              final provider = context.read<WholesaleProvider>();
+              provider.loadProducts();
+              provider.loadPurchaseOrders();
+              provider.loadStockTransfers();
+            },
+          ),
+        ],
       ),
       body: Consumer<WholesaleProvider>(
         builder: (context, provider, _) {
@@ -234,13 +246,12 @@ class _InventoryReport extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Summary Cards
         Row(
           children: [
             Expanded(
               child: _StatCard(
                 label: 'Total Value',
-                value: '₦${totalValue.toStringAsFixed(0)}',
+                value: formatCurrency(totalValue, decimalDigits: 0),
                 color: AppColors.primary,
               ),
             ),
@@ -263,14 +274,10 @@ class _InventoryReport extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 24),
-
-        // Inventory by Category
         const Text('Inventory by Category', style: AppTextStyles.heading3),
         const SizedBox(height: 12),
         ..._buildCategoryBreakdown(products),
         const SizedBox(height: 24),
-
-        // Low Stock Alert
         if (lowStockProducts.isNotEmpty)
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -282,8 +289,10 @@ class _InventoryReport extends StatelessWidget {
                 (product) => _InventoryRow(
                   name: product.name,
                   quantity: '${product.quantity}/${product.reorderLevel}',
-                  value:
-                      '₦${(product.quantity * product.costPrice).toStringAsFixed(0)}',
+                  value: formatCurrency(
+                    product.quantity * product.costPrice,
+                    decimalDigits: 0,
+                  ),
                   status: 'Low',
                   statusColor: Colors.red,
                 ),
@@ -291,8 +300,6 @@ class _InventoryReport extends StatelessWidget {
               const SizedBox(height: 24),
             ],
           ),
-
-        // Top Products by Value
         const Text('Top Products by Value', style: AppTextStyles.heading3),
         const SizedBox(height: 12),
         ...products
@@ -304,8 +311,10 @@ class _InventoryReport extends StatelessWidget {
               (entry) => _InventoryRow(
                 name: entry.value.name,
                 quantity: '${entry.value.quantity}',
-                value:
-                    '₦${(entry.value.quantity * entry.value.costPrice).toStringAsFixed(0)}',
+                value: formatCurrency(
+                  entry.value.quantity * entry.value.costPrice,
+                  decimalDigits: 0,
+                ),
                 status: entry.key.toString(),
               ),
             ),
@@ -316,9 +325,7 @@ class _InventoryReport extends StatelessWidget {
   List<Widget> _buildCategoryBreakdown(List<WholesaleProduct> products) {
     final categories = <String, List<WholesaleProduct>>{};
     for (var product in products) {
-      if (!categories.containsKey(product.category)) {
-        categories[product.category] = [];
-      }
+      categories.putIfAbsent(product.category, () => []);
       categories[product.category]!.add(product);
     }
 
@@ -330,7 +337,7 @@ class _InventoryReport extends StatelessWidget {
       return _InventoryRow(
         name: entry.key,
         quantity: '${entry.value.length} items',
-        value: '₦${totalValue.toStringAsFixed(0)}',
+        value: formatCurrency(totalValue, decimalDigits: 0),
       );
     }).toList();
   }
@@ -357,33 +364,26 @@ class _SuppliersReport extends StatelessWidget {
 
     final supplierMap = <String, List<PurchaseOrder>>{};
     for (var order in filteredOrders) {
-      if (!supplierMap.containsKey(order.supplier)) {
-        supplierMap[order.supplier] = [];
-      }
+      supplierMap.putIfAbsent(order.supplier, () => []);
       supplierMap[order.supplier]!.add(order);
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Summary
         _StatCard(
           label: 'Total Orders',
           value: '${filteredOrders.length}',
           color: AppColors.primary,
         ),
         const SizedBox(height: 24),
-
-        // Supplier Performance
         const Text('Supplier Performance', style: AppTextStyles.heading3),
         const SizedBox(height: 12),
         ...supplierMap.entries.map(
           (entry) {
             final orders = entry.value;
-            final totalSpent =
-                orders.fold<double>(0, (sum, o) => sum + o.total);
-            final delivered =
-                orders.where((o) => o.status == 'delivered').length;
+            final totalSpent = orders.fold<double>(0, (sum, o) => sum + o.total);
+            final delivered = orders.where((o) => o.status == 'delivered').length;
 
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
@@ -399,9 +399,11 @@ class _SuppliersReport extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(entry.key,
-                          style: AppTextStyles.body1
-                              .copyWith(fontWeight: FontWeight.bold)),
+                      Text(
+                        entry.key,
+                        style: AppTextStyles.body1
+                            .copyWith(fontWeight: FontWeight.bold),
+                      ),
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
@@ -410,11 +412,12 @@ class _SuppliersReport extends StatelessWidget {
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
-                          '${(delivered / orders.length * 100).toStringAsFixed(0)}% Delivered',
+                          '${(orders.isEmpty ? 0 : (delivered / orders.length * 100)).toStringAsFixed(0)}% Delivered',
                           style: const TextStyle(
-                              color: Colors.green,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold),
+                            color: Colors.green,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],
@@ -423,11 +426,12 @@ class _SuppliersReport extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Orders: ${orders.length}',
-                          style: AppTextStyles.body2),
-                      Text('Total: ₦${totalSpent.toStringAsFixed(0)}',
-                          style: AppTextStyles.body2
-                              .copyWith(fontWeight: FontWeight.bold)),
+                      Text('Orders: ${orders.length}', style: AppTextStyles.body2),
+                      Text(
+                        'Total: ${formatCurrency(totalSpent, decimalDigits: 0)}',
+                        style: AppTextStyles.body2
+                            .copyWith(fontWeight: FontWeight.bold),
+                      ),
                     ],
                   ),
                 ],
@@ -459,17 +463,13 @@ class _TransfersReport extends StatelessWidget {
             t.createdAt.isBefore(endDate.add(const Duration(days: 1))))
         .toList();
 
-    final completed =
-        filteredTransfers.where((t) => t.status == 'received').length;
-    final pending =
-        filteredTransfers.where((t) => t.status == 'pending').length;
-    final inTransit =
-        filteredTransfers.where((t) => t.status == 'in-transit').length;
+    final completed = filteredTransfers.where((t) => t.status == 'received').length;
+    final pending = filteredTransfers.where((t) => t.status == 'pending').length;
+    final inTransit = filteredTransfers.where((t) => t.status == 'in-transit').length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Summary Cards
         Row(
           children: [
             Expanded(
@@ -498,8 +498,6 @@ class _TransfersReport extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 24),
-
-        // Status Breakdown
         const Text('Transfer Status', style: AppTextStyles.heading3),
         const SizedBox(height: 12),
         _TransferStatusRow(
@@ -529,8 +527,6 @@ class _TransfersReport extends StatelessWidget {
           color: Colors.orange,
         ),
         const SizedBox(height: 24),
-
-        // Route Summary
         const Text('Transfer Routes', style: AppTextStyles.heading3),
         const SizedBox(height: 12),
         ..._buildRouteSummary(filteredTransfers),
@@ -541,7 +537,7 @@ class _TransfersReport extends StatelessWidget {
   List<Widget> _buildRouteSummary(List<StockTransfer> transfers) {
     final routeMap = <String, int>{};
     for (var transfer in transfers) {
-      final route = '${transfer.fromWarehouse} → ${transfer.toWarehouse}';
+      final route = '${transfer.fromWarehouse} -> ${transfer.toWarehouse}';
       routeMap[route] = (routeMap[route] ?? 0) + 1;
     }
 
@@ -824,4 +820,6 @@ class _RecommendationCard extends StatelessWidget {
     );
   }
 }
+
+
 

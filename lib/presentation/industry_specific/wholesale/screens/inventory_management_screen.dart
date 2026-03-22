@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
+import '../../../../core/utils/formatters.dart';
 import '../../../../widgets/custom_button.dart';
 import '../providers/wholesale_provider.dart';
 
@@ -243,7 +244,7 @@ class _InventoryManagementScreenState extends State<InventoryManagementScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        '₦${product.costPrice.toStringAsFixed(2)}',
+                                        formatCurrency(product.costPrice),
                                         style: AppTextStyles.body2.copyWith(
                                           fontWeight: FontWeight.bold,
                                         ),
@@ -265,27 +266,25 @@ class _InventoryManagementScreenState extends State<InventoryManagementScreen> {
                                       ),
                                       _InfoRow(
                                         label: 'Cost Price',
-                                        value:
-                                            '₦${product.costPrice.toStringAsFixed(2)}',
+                                        value: formatCurrency(product.costPrice),
                                       ),
                                       _InfoRow(
                                         label: 'Selling Price',
-                                        value:
-                                            '₦${product.sellingPrice.toStringAsFixed(2)}',
+                                        value: formatCurrency(product.sellingPrice),
                                       ),
                                       _InfoRow(
                                         label: 'Wholesale Price',
-                                        value:
-                                            '₦${product.wholesalePrice.toStringAsFixed(2)}',
+                                        value: formatCurrency(product.wholesalePrice),
                                       ),
                                       _InfoRow(
                                         label: 'Warehouse Allocations',
                                         value: product.warehouseAllocations.isEmpty
                                             ? 'Not allocated'
                                             : provider.warehouses
-                                                .map((w) => '${w.name}: ${product.warehouseAllocations[w.id] ?? 0}')
+                                                .map((w) =>
+                                                    '${w.name}: ${product.warehouseAllocations[w.id] ?? 0}')
                                                 .where((s) => s.isNotEmpty)
-                                                .join(' · '),
+                                                .join(' - '),
                                       ),
                                       const SizedBox(height: 8),
                                       Row(
@@ -657,4 +656,5 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
     widget.onSave(product);
   }
 }
+
 

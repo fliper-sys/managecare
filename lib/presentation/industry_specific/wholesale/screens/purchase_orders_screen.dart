@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/formatters.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../widgets/custom_button.dart';
 import '../providers/wholesale_provider.dart';
@@ -226,7 +227,7 @@ class _OrderCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '₦${order.total.toStringAsFixed(2)}',
+                  formatCurrency(order.total),
                   style:
                       AppTextStyles.body1.copyWith(fontWeight: FontWeight.bold),
                 ),
@@ -285,7 +286,7 @@ class _OrderCard extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          '₦${item.total.toStringAsFixed(2)}',
+                          formatCurrency(item.total),
                           style: AppTextStyles.body2
                               .copyWith(fontWeight: FontWeight.bold),
                         ),
@@ -306,7 +307,7 @@ class _OrderCard extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text('Subtotal', style: AppTextStyles.body2),
-                          Text('₦${order.subtotal.toStringAsFixed(2)}',
+                          Text(formatCurrency(order.subtotal),
                               style: AppTextStyles.body2),
                         ],
                       ),
@@ -315,7 +316,7 @@ class _OrderCard extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text('Tax', style: AppTextStyles.body2),
-                          Text('₦${order.tax.toStringAsFixed(2)}',
+                          Text(formatCurrency(order.tax),
                               style: AppTextStyles.body2),
                         ],
                       ),
@@ -325,7 +326,7 @@ class _OrderCard extends StatelessWidget {
                         children: [
                           const Text('Total', style: AppTextStyles.body1),
                           Text(
-                            '₦${order.total.toStringAsFixed(2)}',
+                            formatCurrency(order.total),
                             style: AppTextStyles.body1
                                 .copyWith(fontWeight: FontWeight.bold),
                           ),
@@ -558,8 +559,8 @@ class _CreateOrderDialogState extends State<_CreateOrderDialog> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(item.productName,
-                                    style: AppTextStyles.body2
-                                        .copyWith(fontWeight: FontWeight.bold)),
+                                    style: AppTextStyles.body2),
+                                Text('x @ '),
                                 Text('${item.quantity}x @ ₦${item.unitPrice}',
                                     style: AppTextStyles.caption),
                               ],
@@ -781,4 +782,6 @@ class _AddItemDialogState extends State<_AddItemDialog> {
     );
   }
 }
+
+
 

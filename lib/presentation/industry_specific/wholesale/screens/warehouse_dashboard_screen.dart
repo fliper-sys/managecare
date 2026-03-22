@@ -194,7 +194,7 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
                                     final sales = snapshot.data ?? 0.0;
                                     return _CompactStatCard(
                                       label: 'Sold Today',
-                                      value: formatCompactCurrency(sales),
+                                      value: formatCurrency(sales, decimalDigits: 0),
                                       icon: Icons.trending_up,
                                       color: Colors.green,
                                     );
