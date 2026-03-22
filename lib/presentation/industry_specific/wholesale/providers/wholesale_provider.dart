@@ -336,6 +336,7 @@ class WholesaleProvider with ChangeNotifier {
   List<StockTransfer> get stockTransfers => _stockTransfers;
   List<WarehouseLocation> get warehouses => List.unmodifiable(_warehouses);
   String get errorMessage => _errorMessage;
+  bool get hasBusinessContext => _businessId != null && _businessId!.isNotEmpty;
 
   // Initialize with business ID
   void initializeWithBusinessId(String businessId) {
@@ -668,7 +669,16 @@ class WholesaleProvider with ChangeNotifier {
         if (product.id.isNotEmpty) {
           final newQuantity =
               (product.quantity - item.quantity).clamp(0, 999999);
-          await updateProduct(product.copyWith(quantity: newQuantity));
+          final allocs = Map<String, int>.from(product.warehouseAllocations);
+          final currentSource = allocs[transfer.fromWarehouse] ?? 0;
+          allocs[transfer.fromWarehouse] =
+              (currentSource - item.quantity).clamp(0, 999999);
+          await updateProduct(
+            product.copyWith(
+              quantity: newQuantity,
+              warehouseAllocations: allocs,
+            ),
+          );
         }
       }
 
@@ -705,7 +715,34 @@ class WholesaleProvider with ChangeNotifier {
 
       final index = _stockTransfers.indexWhere((t) => t.id == transferId);
       if (index != -1) {
+        if (status == 'received') {
+          final transfer = _stockTransfers[index];
+          for (final item in transfer.items) {
+            final productIdx = _products.indexWhere((p) => p.id == item.productId);
+            if (productIdx == -1) continue;
+
+            final product = _products[productIdx];
+            final allocs = Map<String, int>.from(product.warehouseAllocations);
+            allocs[transfer.toWarehouse] =
+                (allocs[transfer.toWarehouse] ?? 0) + item.quantity;
+
+            await _firestore
+                .collection('businesses')
+                .doc(_businessId)
+                .collection('inventory')
+                .doc(product.id)
+                .update({
+              'warehouseAllocations': allocs,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+
+            _products[productIdx] = product.copyWith(
+              warehouseAllocations: allocs,
+            );
+          }
+        }
         await loadStockTransfers();
+        notifyListeners();
       }
     } catch (e) {
       _errorMessage = 'Error updating stock transfer: $e';
@@ -733,6 +770,38 @@ class WholesaleProvider with ChangeNotifier {
 
   int getTotalItems() {
     return _products.fold(0, (acc, p) => acc + p.quantity);
+  }
+
+  int getWarehouseItemCount(String warehouseId) {
+    return _products.fold<int>(
+      0,
+      (sum, product) => sum + (product.warehouseAllocations[warehouseId] ?? 0),
+    );
+  }
+
+  double getWarehouseInventoryValue(String warehouseId) {
+    return _products.fold<double>(
+      0,
+      (sum, product) =>
+          sum +
+          ((product.warehouseAllocations[warehouseId] ?? 0) * product.costPrice),
+    );
+  }
+
+  int getPendingPurchaseOrdersCount() {
+    return _purchaseOrders.where((o) => o.status == 'pending').length;
+  }
+
+  int getInTransitTransfersCount() {
+    return _stockTransfers.where((t) => t.status == 'in-transit').length;
+  }
+
+  Map<String, int> getInventoryCategoryBreakdown() {
+    final result = <String, int>{};
+    for (final product in _products) {
+      result[product.category] = (result[product.category] ?? 0) + product.quantity;
+    }
+    return result;
   }
 
   /// Create a sale record and update inventory similar to RetailProvider.checkout
@@ -874,59 +943,68 @@ extension WholesaleProviderSales on WholesaleProvider {
       final startOfDay = DateTime(now.year, now.month, now.day);
       final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
 
+      double sumSales(QuerySnapshot<Map<String, dynamic>> snapshot) {
+        var totalSales = 0.0;
+        for (final doc in snapshot.docs) {
+          final data = doc.data();
+          if ((data['status'] as String?)?.toLowerCase() != 'completed') {
+            continue;
+          }
+          totalSales +=
+              (data['finalAmount'] as num?)?.toDouble() ??
+              (data['totalAmount'] as num?)?.toDouble() ??
+              (data['total'] as num?)?.toDouble() ??
+              0.0;
+        }
+        return totalSales;
+      }
+
       try {
         final snapshot = await _firestore
             .collection('businesses')
             .doc(_businessId)
             .collection('sales')
-            .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
-            .where('createdAt', isLessThanOrEqualTo: endOfDay)
+            .where('createdAt',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+            .where('createdAt',
+                isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
             .where('status', isEqualTo: 'completed')
             .get();
 
-        double totalSales = 0.0;
-        for (final doc in snapshot.docs) {
-          final amount = (doc['totalAmount'] as num?)?.toDouble() ?? 0.0;
-          totalSales += amount;
-        }
-
-        debugPrint('[WholesaleProvider] Today\'s sales total: ₦$totalSales');
+        final totalSales = sumSales(snapshot);
+        debugPrint("[WholesaleProvider] Today's sales total: NGN ");
         return totalSales;
       } catch (e) {
         final msg = e.toString();
-        if (msg.contains('requires an index') || msg.contains('FAILED_PRECONDITION')) {
+        if (msg.contains('requires an index') ||
+            msg.contains('FAILED_PRECONDITION')) {
           try {
-            debugPrint('[WholesaleProvider] Composite index required; falling back to date-only query for today\'s sales');
+            debugPrint('[WholesaleProvider] Composite index required; falling back to date-only query for today''s sales');
             final fallback = await _firestore
                 .collection('businesses')
                 .doc(_businessId)
                 .collection('sales')
-                .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
-                .where('createdAt', isLessThanOrEqualTo: endOfDay)
+                .where('createdAt',
+                    isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+                .where('createdAt',
+                    isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
                 .get();
 
-            double totalSales = 0.0;
-            for (final doc in fallback.docs) {
-              if ((doc['status'] as String?)?.toLowerCase() != 'completed') continue;
-              final amount = (doc['totalAmount'] as num?)?.toDouble() ?? 0.0;
-              totalSales += amount;
-            }
-
-            debugPrint('[WholesaleProvider] Today\'s sales total (fallback): ₦$totalSales');
+            final totalSales = sumSales(fallback);
+            debugPrint("[WholesaleProvider] Today's sales total (fallback): NGN ");
             return totalSales;
           } catch (e2) {
-            debugPrint('[WholesaleProvider] Fallback date-only query failed: $e2');
+            debugPrint('[WholesaleProvider] Fallback date-only query failed: ');
             return 0.0;
           }
         }
 
-        debugPrint('[WholesaleProvider] Error fetching today\'s sales: $e');
+        debugPrint("[WholesaleProvider] Error fetching today's sales: ");
         return 0.0;
       }
     } catch (e) {
-      debugPrint('[WholesaleProvider] Error fetching today\'s sales: $e');
+      debugPrint("[WholesaleProvider] Error fetching today's sales: ");
       return 0.0;
     }
   }
 }
-

@@ -4,6 +4,7 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:typed_data';
+import 'package:intl/intl.dart';
 import '../../../services/pdf_receipt_generator_io.dart';
 import '../../../services/web_download.dart' as web_download;
 import 'package:provider/provider.dart';
@@ -12,6 +13,7 @@ import '../../../core/theme/text_styles.dart';
 import '../../../providers/reports_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../services/report_export_service.dart';
 
 class ExportReportScreen extends StatefulWidget {
@@ -29,6 +31,19 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
   bool _includeNotes = false;
   bool _schedule = false;
   String _scheduleFrequency = 'weekly';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final reportsProvider = context.read<ReportsProvider>();
+      if (!mounted) return;
+      setState(() {
+        _schedule = reportsProvider.scheduledExportsEnabled;
+        _scheduleFrequency = reportsProvider.scheduledExportFrequency;
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -204,7 +219,13 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
                       ),
                       Switch(
                         value: _schedule,
-                        onChanged: (value) => setState(() => _schedule = value),
+                        onChanged: (value) {
+                          setState(() => _schedule = value);
+                          context.read<ReportsProvider>().setScheduledExport(
+                                enabled: value,
+                                frequency: _scheduleFrequency,
+                              );
+                        },
                         activeThumbColor: AppColors.primary,
                       ),
                     ],
@@ -224,8 +245,13 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
                         final isSelected = _scheduleFrequency == freq;
                         return Expanded(
                           child: GestureDetector(
-                            onTap: () =>
-                                setState(() => _scheduleFrequency = freq),
+                            onTap: () {
+                              setState(() => _scheduleFrequency = freq);
+                              context.read<ReportsProvider>().setScheduledExport(
+                                    enabled: _schedule,
+                                    frequency: freq,
+                                  );
+                            },
                             child: Container(
                               padding: const EdgeInsets.symmetric(vertical: 8),
                               decoration: BoxDecoration(
@@ -264,31 +290,46 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
             // Export History
             const _SectionHeader(title: 'Export History'),
             const SizedBox(height: 12),
-            const _ExportHistoryItem(
-              fileName: 'Monthly_Report_Nov2024.pdf',
-              format: 'PDF',
-              date: 'Today, 3:45 PM',
-              size: '2.3 MB',
-              icon: Icons.picture_as_pdf,
-              color: AppColors.error,
-            ),
-            const SizedBox(height: 8),
-            const _ExportHistoryItem(
-              fileName: 'Quarterly_Sales_Q3.csv',
-              format: 'CSV',
-              date: 'Yesterday, 10:20 AM',
-              size: '1.8 MB',
-              icon: Icons.insert_drive_file,
-              color: AppColors.info,
-            ),
-            const SizedBox(height: 8),
-            const _ExportHistoryItem(
-              fileName: 'Customer_Data_Export.csv',
-              format: 'CSV',
-              date: '3 days ago',
-              size: '856 KB',
-              icon: Icons.insert_drive_file,
-              color: AppColors.info,
+            Consumer<ReportsProvider>(
+              builder: (context, reportsProvider, _) {
+                if (reportsProvider.exportHistory.isEmpty) {
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Text(
+                      'No exports yet. Your generated report files will appear here.',
+                      style: AppTextStyles.body2.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  );
+                }
+
+                return Column(
+                  children: reportsProvider.exportHistory.take(5).map((item) {
+                    final isPdf = item.format.toLowerCase() == 'pdf';
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _ExportHistoryItem(
+                        fileName: item.fileName,
+                        format: item.format.toUpperCase(),
+                        date:
+                            DateFormat('dd MMM yyyy, h:mm a').format(item.exportedAt),
+                        size: item.displaySize,
+                        icon: isPdf
+                            ? Icons.picture_as_pdf
+                            : Icons.insert_drive_file,
+                        color: isPdf ? AppColors.error : AppColors.info,
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
             ),
             const SizedBox(height: 24),
 
@@ -297,14 +338,7 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Report preview opened'),
-                          backgroundColor: AppColors.info,
-                        ),
-                      );
-                    },
+                    onPressed: () => _showPreviewDialog(context),
                     icon: const Icon(Icons.visibility),
                     label: const Text('Preview'),
                     style: OutlinedButton.styleFrom(
@@ -353,6 +387,16 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
       return;
     }
 
+    final startDate =
+        _startDate ?? DateTime.now().subtract(const Duration(days: 30));
+    final endDate = _endDate ?? DateTime.now();
+    if (endDate.isBefore(startDate)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('End date cannot be earlier than start date')),
+      );
+      return;
+    }
+
     // Show loading
     showDialog(
       context: context,
@@ -373,21 +417,24 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
     );
 
     try {
-      final directory = await getApplicationDocumentsDirectory();
+      final directory =
+          kIsWeb ? null : await getApplicationDocumentsDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       late String filePath;
+      late String fileName;
       late String content;
 
       // Generate financial report with real data
+      final salesSummary = reportsProvider.getSalesSummary();
       final financialSummary = reportsProvider.getFinancialSummary();
       final totalSales =
-          (financialSummary['totalSales'] as num?)?.toDouble() ?? 0.0;
+          (salesSummary['totalSales'] as num?)?.toDouble() ?? 0.0;
       final totalExpenses =
           (financialSummary['totalExpenses'] as num?)?.toDouble() ?? 0.0;
       final totalRevenue =
           (financialSummary['totalRevenue'] as num?)?.toDouble() ?? 0.0;
       final netProfit =
-          (financialSummary['netProfit'] as num?)?.toDouble() ?? 0.0;
+          (financialSummary['profit'] as num?)?.toDouble() ?? 0.0;
 
       // Get detailed transactions
       final transactions = reportsProvider.getDetailedTransactions() ?? [];
@@ -420,16 +467,23 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
             showQrCode: false,
           );
           // Trigger download
-          web_download.downloadBytes(
-              pdfBytes, 'Financial_Report_$timestamp.pdf', 'application/pdf');
+          fileName = 'Financial_Report_$timestamp.pdf';
+          web_download.downloadBytes(pdfBytes, fileName, 'application/pdf');
+          reportsProvider.addExportHistory(
+            fileName: fileName,
+            format: 'pdf',
+            reportType: 'financial',
+            bytes: pdfBytes.length,
+          );
         } else {
-          filePath = '${directory.path}/Financial_Report_$timestamp.pdf';
+          fileName = 'Financial_Report_$timestamp.pdf';
+          filePath = '${directory!.path}/$fileName';
 
           final success = await exportService.exportFinancialReportPdf(
             filePath: filePath,
             businessName: businessName,
-            startDate: _startDate ?? DateTime.now().subtract(const Duration(days: 30)),
-            endDate: _endDate ?? DateTime.now(),
+            startDate: startDate,
+            endDate: endDate,
             totalSales: totalSales,
             totalExpenses: totalExpenses,
             totalRevenue: totalRevenue,
@@ -443,13 +497,20 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
 
           // Share the file on non-web platforms
           await Share.shareXFiles([XFile(filePath)], text: 'Financial Report - PDF');
+          reportsProvider.addExportHistory(
+            fileName: fileName,
+            format: 'pdf',
+            reportType: 'financial',
+            filePath: filePath,
+            bytes: await File(filePath).length(),
+          );
         }
       } else {
         // CSV
         content = exportService.exportFinancialCsv(
           businessName: businessName,
-          startDate: _startDate ?? DateTime.now().subtract(const Duration(days: 30)),
-          endDate: _endDate ?? DateTime.now(),
+          startDate: startDate,
+          endDate: endDate,
           totalSales: totalSales,
           totalExpenses: totalExpenses,
           totalRevenue: totalRevenue,
@@ -459,12 +520,27 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
 
         if (kIsWeb) {
           final csvBytes = Uint8List.fromList(content.codeUnits);
-          web_download.downloadBytes(csvBytes, 'Financial_Report_$timestamp.csv', 'text/csv');
+          fileName = 'Financial_Report_$timestamp.csv';
+          web_download.downloadBytes(csvBytes, fileName, 'text/csv');
+          reportsProvider.addExportHistory(
+            fileName: fileName,
+            format: 'csv',
+            reportType: 'financial',
+            bytes: csvBytes.length,
+          );
         } else {
-          filePath = '${directory.path}/Financial_Report_$timestamp.csv';
+          fileName = 'Financial_Report_$timestamp.csv';
+          filePath = '${directory!.path}/$fileName';
           final file = File(filePath);
           await file.writeAsString(content);
           await Share.shareXFiles([XFile(filePath)], text: 'Financial Report - CSV');
+          reportsProvider.addExportHistory(
+            fileName: fileName,
+            format: 'csv',
+            reportType: 'financial',
+            filePath: filePath,
+            bytes: await file.length(),
+          );
         }
       } 
 
@@ -493,6 +569,72 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
       }
       print('Export error: $e');
     }
+  }
+
+  void _showPreviewDialog(BuildContext context) {
+    final reportsProvider = context.read<ReportsProvider>();
+    final financialSummary = reportsProvider.getFinancialSummary();
+    final transactions = reportsProvider.getDetailedTransactions() ?? [];
+    final startDate =
+        _startDate ?? DateTime.now().subtract(const Duration(days: 30));
+    final endDate = _endDate ?? DateTime.now();
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Report Preview'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Format: ${_selectedFormat.toUpperCase()}',
+                style: AppTextStyles.body2,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Range: ${DateFormat('dd MMM yyyy').format(startDate)} - ${DateFormat('dd MMM yyyy').format(endDate)}',
+                style: AppTextStyles.body2,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Revenue: ${formatCurrency((financialSummary['totalRevenue'] as num?)?.toDouble() ?? 0.0)}',
+                style: AppTextStyles.body2,
+              ),
+              Text(
+                'Expenses: ${formatCurrency((financialSummary['totalExpenses'] as num?)?.toDouble() ?? 0.0)}',
+                style: AppTextStyles.body2,
+              ),
+              Text(
+                'Net Profit: ${formatCurrency((financialSummary['profit'] as num?)?.toDouble() ?? 0.0)}',
+                style: AppTextStyles.body2,
+              ),
+              Text(
+                'Transactions: ${transactions.length}',
+                style: AppTextStyles.body2,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _schedule
+                    ? 'Scheduled export: ${_scheduleFrequency[0].toUpperCase()}${_scheduleFrequency.substring(1)}'
+                    : 'Scheduled export: Off',
+                style: AppTextStyles.caption.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

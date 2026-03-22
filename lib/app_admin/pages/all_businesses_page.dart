@@ -677,6 +677,20 @@ class BusinessDetailPage extends StatelessWidget {
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _deleteBusinessCompletely(context, business),
+                icon: const Icon(Icons.delete_forever),
+                label: const Text('Delete Business Completely'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  side: const BorderSide(color: Colors.red),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () async {
                   final admin = Provider.of<AdminProvider>(context, listen: false);
@@ -1222,10 +1236,26 @@ class BusinessDetailPage extends StatelessWidget {
                   ),
                 );
                 if (confirmed != true) return;
-                // Implementation would go here to remove worker
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Worker removal feature coming soon')),
+                final adminProv = Provider.of<AdminProvider>(context, listen: false);
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (_) => const Center(child: CircularProgressIndicator()),
                 );
+                final ok = await adminProv.removeWorkerFromBusiness(
+                  (worker['id'] ?? worker['uid'] ?? worker['userId']).toString(),
+                  businessId,
+                );
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        ok ? '$name removed from business' : 'Failed to remove worker',
+                      ),
+                    ),
+                  );
+                }
               },
               child: const Text('Remove', style: TextStyle(color: Colors.red)),
             ),
@@ -1854,6 +1884,57 @@ class BusinessDetailPage extends StatelessWidget {
               );
             },
           ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _deleteBusinessCompletely(
+    BuildContext context, Map<String, dynamic> business) async {
+  final businessId = (business['id'] ?? business['businessId']).toString();
+  final businessName = (business['name'] ?? 'this business').toString();
+
+  final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Delete Business Completely'),
+          content: Text(
+            'This will permanently delete $businessName, clean up known business data, and detach linked users. This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
+  if (!confirmed) return;
+
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const Center(child: CircularProgressIndicator()),
+  );
+
+  final admin = Provider.of<AdminProvider>(context, listen: false);
+  final ok = await admin.deleteBusinessCompletely(businessId);
+
+  if (context.mounted) {
+    Navigator.pop(context);
+    if (ok) Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok ? '$businessName deleted permanently' : 'Failed to delete business',
         ),
       ),
     );

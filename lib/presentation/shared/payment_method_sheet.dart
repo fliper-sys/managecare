@@ -4,7 +4,6 @@ import '../../core/theme/colors.dart';
 /// Simple reusable payment method selection sheet.
 /// Returns selected payment method as a `String` when confirmed.
 import 'package:provider/provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../providers/workers_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/business_provider.dart';
@@ -22,8 +21,6 @@ class PaymentMethodSheet extends StatefulWidget {
 class _PaymentMethodSheetState extends State<PaymentMethodSheet> {
   late String _selected;
   String? _selectedCashierId;
-  String? _selectedCashierName;
-  bool _isVerifying = false;
   bool _isLoadingWorkers = true;
 
   @override
@@ -51,14 +48,12 @@ class _PaymentMethodSheetState extends State<PaymentMethodSheet> {
             }
             if (found != null) {
               _selectedCashierId = found['id'];
-              _selectedCashierName = (found['name'] ?? found['fullName'] ?? 'Owner');
             }
           }
           // If still none, default to current user
           if (_selectedCashierId == null) {
             final auth = context.read<AuthProvider>();
             _selectedCashierId = auth.currentUser?.id;
-            _selectedCashierName = auth.currentUser?.fullName ?? auth.currentUser?.email;
           }
         });
       } else {
@@ -67,58 +62,19 @@ class _PaymentMethodSheetState extends State<PaymentMethodSheet> {
     });
   }
 
-  Future<String?> _fetchPinForUser(String userId) async {
-    try {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
-      if (doc.exists) {
-        final data = doc.data();
-        if (data != null && data.containsKey('pin')) return data['pin']?.toString();
-      }
-    } catch (_) {}
+  String? _getValidCashierId(List<Map<String, dynamic>> workers) {
+    // If no selected cashier, return null
+    if (_selectedCashierId == null) return null;
 
-    try {
-      final doc = await FirebaseFirestore.instance.collection('workers').doc(userId).get();
-      if (doc.exists) {
-        final data = doc.data();
-        if (data != null && data.containsKey('pin')) return data['pin']?.toString();
-      }
-    } catch (_) {}
+    // Check if the selected cashier exists in the workers list
+    final exists = workers.any((w) => (w['id'] ?? '') == _selectedCashierId);
+    if (exists) {
+      return _selectedCashierId;
+    }
 
+    // If not found, clear the selection and return null (or first worker if preferred)
+    _selectedCashierId = null;
     return null;
-  }
-
-  Future<bool> _promptForPinAndVerify(String cashierId) async {
-    final controller = TextEditingController();
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Enter PIN'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          maxLength: 4,
-          decoration: const InputDecoration(hintText: '4-digit PIN'),
-          obscureText: true,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final pin = controller.text.trim();
-              if (pin.length != 4) {
-                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Enter a 4-digit PIN')));
-                return;
-              }
-
-              Navigator.of(ctx).pop(pin == await _fetchPinForUser(cashierId));
-            },
-            child: const Text('Verify'),
-          ),
-        ],
-      ),
-    );
-
-    return result == true;
   }
 
   Future<void> _onConfirmPayment() async {
@@ -127,32 +83,28 @@ class _PaymentMethodSheetState extends State<PaymentMethodSheet> {
       return;
     }
 
-    setState(() => _isVerifying = true);
-
-    try {
-      final ok = await _promptForPinAndVerify(_selectedCashierId!);
-      if (!ok) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invalid PIN')));
-        setState(() => _isVerifying = false);
-        return;
-      }
-
-      // Return a map with method and cashier info
-      final result = {
-        'method': _selected,
-        'cashierId': _selectedCashierId,
-        'cashierName': _selectedCashierName,
-      };
-      Navigator.of(context).pop(result);
-    } finally {
-      setState(() => _isVerifying = false);
-    }
+    // Return the selected payment method as a string
+    Navigator.of(context).pop(_selected);
   }
 
   @override
   Widget build(BuildContext context) {
     final wp = context.watch<WorkersProvider>();
+    final auth = context.watch<AuthProvider>();
     final workers = wp.workers;
+
+    // Create extended workers list that includes current user if not already present
+    final extendedWorkers = List<Map<String, dynamic>>.from(workers);
+    final currentUserId = auth.currentUser?.id;
+    final currentUserExists = workers.any((w) => (w['id'] ?? '') == currentUserId);
+    if (currentUserId != null && !currentUserExists) {
+      extendedWorkers.insert(0, {
+        'id': currentUserId,
+        'name': auth.currentUser?.fullName ?? auth.currentUser?.email ?? 'Current User',
+        'fullName': auth.currentUser?.fullName,
+        'email': auth.currentUser?.email,
+      });
+    }
 
     return SafeArea(
       child: Padding(
@@ -173,8 +125,8 @@ class _PaymentMethodSheetState extends State<PaymentMethodSheet> {
               const SizedBox(height: 48, child: Center(child: CircularProgressIndicator()))
             else
               DropdownButtonFormField<String>(
-                value: _selectedCashierId,
-                items: workers.map((w) {
+                value: _getValidCashierId(extendedWorkers),
+                items: extendedWorkers.map((w) {
                   final id = (w['id'] ?? '') as String;
                   final name = (w['name'] ?? w['fullName'] ?? w['email'] ?? id) as String;
                   return DropdownMenuItem(value: id, child: Text(name));
@@ -182,13 +134,6 @@ class _PaymentMethodSheetState extends State<PaymentMethodSheet> {
                 onChanged: (v) {
                   setState(() {
                     _selectedCashierId = v;
-                    Map<String, dynamic>? found;
-                    try {
-                      if (v != null) found = workers.firstWhere((w) => (w['id'] ?? '') == v);
-                    } catch (_) {
-                      found = null;
-                    }
-                    _selectedCashierName = found != null ? (found['name'] ?? found['fullName'] ?? found['email']) : null;
                   });
                 },
                 decoration: const InputDecoration(border: OutlineInputBorder()),
@@ -220,8 +165,8 @@ class _PaymentMethodSheetState extends State<PaymentMethodSheet> {
               width: double.infinity,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-                onPressed: _isVerifying ? null : _onConfirmPayment,
-                child: _isVerifying ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Text('Confirm Payment'),
+                onPressed: _onConfirmPayment,
+                child: const Text('Confirm Payment'),
               ),
             ),
             const SizedBox(height: 8),

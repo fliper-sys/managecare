@@ -22,7 +22,7 @@ class AppointmentCard extends StatelessWidget {
       child: ListTile(
         title: Text(clientName),
         subtitle:
-            Text('$service • ${appointmentTime.toString().split('.')[0]}'),
+            Text('$service - ${appointmentTime.toString().split('.')[0]}'),
         trailing: Chip(label: Text(status)),
         onTap: onTap,
       ),

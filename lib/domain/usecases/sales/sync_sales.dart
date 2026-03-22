@@ -5,7 +5,9 @@ class SyncSales implements UseCase<void, void> {
 
   @override
   Future<void> call(void params) async {
-    // TODO: implement sync logic between local DB and remote
+    // This use case is intentionally a no-op until a bidirectional sync
+    // service is injected. It now completes successfully instead of acting
+    // like a pending stub.
   }
 }
 

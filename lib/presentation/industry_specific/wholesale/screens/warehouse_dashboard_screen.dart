@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/utils/formatters.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/constants/routes.dart' show Routes;
 import '../../../../providers/auth_provider.dart';
@@ -40,6 +41,8 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
       final provider = context.read<WholesaleProvider>();
       provider.loadProducts();
       provider.loadWarehouses();
+      provider.loadPurchaseOrders();
+      provider.loadStockTransfers();
       _controller.forward();
     });
   }
@@ -60,6 +63,8 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
           final inventoryValue = provider.getTotalInventoryValue();
           final lowStockCount = provider.getLowStockProducts().length;
           final totalProducts = provider.products.length;
+          final pendingOrders = provider.getPendingPurchaseOrdersCount();
+          final inTransitTransfers = provider.getInTransitTransfersCount();
 
           return Stack(
             children: [
@@ -129,7 +134,7 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
                                     ),
                                     child: IconButton(
                                       icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-                                      onPressed: () {},
+                                      onPressed: () => _showWholesaleAlerts(provider),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
@@ -189,8 +194,7 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
                                     final sales = snapshot.data ?? 0.0;
                                     return _CompactStatCard(
                                       label: 'Sold Today',
-                                      value:
-                                          '₦${(sales / 1000).toStringAsFixed(1)}k',
+                                      value: formatCompactCurrency(sales),
                                       icon: Icons.trending_up,
                                       color: Colors.green,
                                     );
@@ -251,6 +255,15 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
                                 onTap: () => _navigateTo('transfer'),
                               ),
                               _OperationCard(
+                                title: 'Reports',
+                                icon: Icons.analytics_outlined,
+                                color: Colors.cyan,
+                                onTap: () => Navigator.pushNamed(
+                                  context,
+                                  Routes.wholesaleReports,
+                                ),
+                              ),
+                              _OperationCard(
                                 title: 'Manage Warehouses',
                                 icon: Icons.store_mall_directory_outlined,
                                 color: Colors.brown,
@@ -280,8 +293,33 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
                                 ),
                               ),
                               TextButton(
-                                onPressed: () {},
+                                onPressed: () => Navigator.pushNamed(
+                                  context,
+                                  Routes.wholesalePurchaseOrders,
+                                ),
                                 child: const Text('View All'),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _CompactStatCard(
+                                  label: 'Pending POs',
+                                  value: pendingOrders.toString(),
+                                  icon: Icons.assignment_late_outlined,
+                                  color: Colors.orange,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _CompactStatCard(
+                                  label: 'Transfers',
+                                  value: inTransitTransfers.toString(),
+                                  icon: Icons.local_shipping_outlined,
+                                  color: Colors.teal,
+                                ),
                               ),
                             ],
                           ),
@@ -332,6 +370,57 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
           SnackBar(content: Text('Opening $route...')),
         );
     }
+  }
+
+  void _showWholesaleAlerts(WholesaleProvider provider) {
+    final lowStock = provider.getLowStockProducts();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Wholesale Alerts',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                lowStock.isEmpty
+                    ? 'No low-stock alerts right now.'
+                    : '${lowStock.length} products need attention.',
+              ),
+              const SizedBox(height: 12),
+              ...lowStock.take(5).map(
+                (product) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.orange,
+                  ),
+                  title: Text(product.name),
+                  subtitle: Text(
+                    'Qty ${product.quantity} / Reorder ${product.reorderLevel}',
+                  ),
+                ),
+              ),
+              if (lowStock.length > 5)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'And ${lowStock.length - 5} more products.',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -384,7 +473,7 @@ class _HeroValueCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            '₦${NumberFormat('#,###').format(value)}', // Requires intl package or simple formatting
+            formatCurrency(value, decimalDigits: 0), // Requires intl package or simple formatting
             style: const TextStyle(
               fontSize: 32,
               fontWeight: FontWeight.w800,
@@ -634,7 +723,7 @@ class _OrderListTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '₦${order.total.toStringAsFixed(2)}',
+                formatCurrency(order.total),
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
@@ -682,13 +771,3 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// Helper for formatting
-// Note: In a real app, use intl package
-class NumberFormat {
-  final String pattern;
-  NumberFormat(this.pattern);
-  String format(double value) {
-    return value.toStringAsFixed(0).replaceAllMapped(
-        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},');
-  }
-}

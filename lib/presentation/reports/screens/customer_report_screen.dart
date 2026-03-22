@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../providers/reports_provider.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/theme/colors.dart';
+import '../../../core/utils/formatters.dart';
 
 class CustomerReportScreen extends StatefulWidget {
   const CustomerReportScreen({super.key});
@@ -44,6 +45,17 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
                 children: [
                   const Text('Customers', style: AppTextStyles.heading2),
                   const SizedBox(height: 12),
+                  if (rp.customerReports.isEmpty)
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          'No customer transactions found for this business yet.',
+                          style: AppTextStyles.body2Secondary,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  else
                   Expanded(
                     child: ListView.separated(
                       itemCount: rp.customerReports.length,
@@ -71,8 +83,9 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
                                           style: AppTextStyles.heading5),
                                       const SizedBox(height: 6),
                                       Text(
-                                          'Orders: ${c.totalOrders} • Spent: ₦${c.totalSpent.toStringAsFixed(2)} • Avg: ₦${c.averageOrderValue.toStringAsFixed(2)}',
-                                          style: AppTextStyles.body2Secondary),
+                                        'Orders: ${c.totalOrders} - Spent: ${formatCurrency(c.totalSpent)} - Avg: ${formatCurrency(c.averageOrderValue)}',
+                                        style: AppTextStyles.body2Secondary,
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -132,7 +145,7 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
                                                                   AppTextStyles
                                                                       .caption),
                                                           Text(
-                                                              '₦${((s['totalAmount'] ?? s['total'] ?? 0) as num).toDouble().toStringAsFixed(2)}',
+                                                              formatCurrency(((s['totalAmount'] ?? s['total'] ?? 0) as num).toDouble()),
                                                               style: AppTextStyles
                                                                   .captionBold),
                                                         ],
@@ -193,4 +206,5 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
     );
   }
 }
+
 

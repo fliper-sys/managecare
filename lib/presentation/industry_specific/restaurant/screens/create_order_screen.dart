@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:typed_data';
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../widgets/async_button.dart';
@@ -8,12 +13,17 @@ import '../../../../widgets/custom_button.dart';
 import '../providers/restaurant_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/auth_provider.dart';
+import '../../../../providers/connectivity_provider.dart';
 import '../../../../providers/retail_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/utils/currency.dart';
-import '../../../../services/receipt_manager.dart';
+import '../../../../data/repositories/sales_repository_impl.dart';
+import '../../../../services/offline_sales_service.dart';
 import '../../../../services/payment_service.dart';
+import '../../../../services/receipt_manager.dart';
+import '../../../../services/web_download.dart' as web_download;
 import '../../../../services/web_email_receipt_service.dart';
+import '../../../../services/pdf_invoice_generator.dart';
 
 // Helpers
 String _safeIdSuffix(String id) => id.length >= 6 ? id.substring(id.length - 6) : id;
@@ -98,6 +108,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     // For simplicity, append as a new line (preserving selected options)
     _selectedItems.add(item);
     _updateSubtotal();
+  }
+
+  void _updateSubtotal() {
+    _subtotal = _selectedItems.fold<double>(0.0, (sum, item) => sum + item.subtotal);
+    setState(() {});
   }
 
   String _safeIdSuffix(String id) => id.length >= 6 ? id.substring(id.length - 6) : id;
@@ -443,6 +458,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         }).toList();
 
         final saleData = {
+          'businessId': order.businessId,
           'orderId': order.id,
           'items': itemsList,
           'tableNumber': order.tableNumber,
@@ -453,7 +469,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           'total': order.total,
           'totalAmount': order.total,
           'finalAmount': order.total,
+          'status': 'completed',
           'paymentMethods': selectedPaymentMethods,
+          'paymentMethod': selectedPaymentMethods.isNotEmpty ? selectedPaymentMethods.first : 'cash',
           'paymentBreakdown': paymentBreakdown,
           'category': 'Restaurant',
           'createdAt': FieldValue.serverTimestamp(),
@@ -468,7 +486,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
             .doc(order.businessId)
             .collection('sales')
             .add(saleData);
-        await docRef.update({'orderId': docRef.id});
+        await docRef.update({'saleId': docRef.id});
 
         // Add completed order to provider
         context.read<RestaurantProvider>().createOrder(order);
@@ -506,17 +524,26 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         final firstTx = paymentBreakdown.isNotEmpty ? (paymentBreakdown.first['transactionId'] ?? '') : '';
         final saleMap = {
           'id': docRef.id,
+          'saleId': docRef.id,
+          'businessId': order.businessId,
+          'orderId': order.id,
           'items': itemsList,
+          'tableNumber': order.tableNumber,
+          'orderType': order.orderType,
           'subtotal': order.subtotal,
           'tax': order.tax,
           'discount': order.discount,
           'total': order.total,
           'totalAmount': order.total,
           'finalAmount': order.total,
+          'status': 'completed',
           'paymentMethods': selectedPaymentMethods,
           'paymentBreakdown': paymentBreakdown,
           'paymentMethod': selectedPaymentMethods.isNotEmpty ? selectedPaymentMethods.first : 'cash',
           'paymentTransactionId': firstTx,
+          'category': 'Restaurant',
+          if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
+          if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
           'timestamp': DateTime.now().toIso8601String(),
           if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
         };
@@ -568,10 +595,18 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       };
     }).toList();
 
-    // Save sale to Firestore
+    // Save sale using offline-aware service
     try {
       final firestore = FirebaseFirestore.instance;
+      final connectivityProvider = Provider.of<ConnectivityProvider>(context, listen: false);
+      final salesRepository = SalesRepositoryImpl(firestore: firestore);
+      final offlineSalesService = OfflineSalesService(
+        salesRepository: salesRepository,
+        connectivityProvider: connectivityProvider,
+      );
+
       final saleData = {
+        'businessId': businessId,
         'items': itemsList,
         'subtotal': _subtotal,
         'tax': tax,
@@ -581,50 +616,62 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         'finalAmount': total,
         'paymentMethod': 'confirmed',
         'category': 'Restaurant',
-        'createdAt': FieldValue.serverTimestamp(),
+        'status': 'completed',
         if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
         if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
+        if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
       };
 
-      final docRef = await firestore.collection('businesses').doc(businessId).collection('sales').add(saleData);
-      await docRef.update({'orderId': docRef.id});
+      final result = await offlineSalesService.createSale(saleData);
 
-      final receiptNumber = 'RCPT-${_safeIdSuffix(docRef.id)}';
-
-      // Send notification email to admin/owner
-      String ownerEmail = business?.email ?? '';
-      if (ownerEmail.isEmpty && business?.ownerId != null && business!.ownerId.isNotEmpty) {
-        try {
-          final ownerDoc = await firestore.collection('users').doc(business.ownerId).get();
-          ownerEmail = ownerDoc.exists ? (ownerDoc.data()?['email'] as String? ?? '') : '';
-        } catch (e) {
-          debugPrint('[RestaurantPOS] Failed to fetch owner email: $e');
-        }
+      if (!result['success']) {
+        throw Exception(result['error'] ?? 'Failed to save sale');
       }
 
-      if (ownerEmail.isNotEmpty) {
-        try {
-          await WebEmailReceiptService().sendSalesNotification(
-            ownerEmail: ownerEmail,
-            businessName: business?.name ?? 'Business',
-            customerName: auth.currentUser?.fullName ?? 'Walk-in',
-            customerEmail: auth.currentUser?.email ?? '',
-            totalAmount: total,
-            items: itemsList,
-            paymentMethod: 'Confirmed',
-            receiptNumber: receiptNumber,
-          );
-        } catch (e) {
-          debugPrint('[RestaurantPOS] Failed to send sales notification: $e');
+      final saleResult = result['data'] as Map<String, dynamic>;
+      final saleId = saleResult['id'].toString();
+      final isOffline = result['mode'] == 'offline';
+
+      final receiptNumber = 'RCPT-${_safeIdSuffix(saleId)}';
+
+      // Send notification email to admin/owner (only if online)
+      if (!isOffline) {
+        String ownerEmail = business?.email ?? '';
+        if (ownerEmail.isEmpty && business?.ownerId != null && business!.ownerId.isNotEmpty) {
+          try {
+            final ownerDoc = await firestore.collection('users').doc(business.ownerId).get();
+            ownerEmail = ownerDoc.exists ? (ownerDoc.data()?['email'] as String? ?? '') : '';
+          } catch (e) {
+            debugPrint('[RestaurantPOS] Failed to fetch owner email: $e');
+          }
         }
-      } else {
-        debugPrint('[RestaurantPOS] No owner email configured to send sales notification');
+
+        if (ownerEmail.isNotEmpty) {
+          try {
+            await WebEmailReceiptService().sendSalesNotification(
+              ownerEmail: ownerEmail,
+              businessName: business?.name ?? 'Business',
+              customerName: auth.currentUser?.fullName ?? 'Walk-in',
+              customerEmail: auth.currentUser?.email ?? '',
+              totalAmount: total,
+              items: itemsList,
+              paymentMethod: 'Confirmed',
+              receiptNumber: receiptNumber,
+            );
+          } catch (e) {
+            debugPrint('[RestaurantPOS] Failed to send sales notification: $e');
+          }
+        } else {
+          debugPrint('[RestaurantPOS] No owner email configured to send sales notification');
+        }
       }
 
       // Show confirmation dialog with Print/View options
       if (!mounted) return;
       final saleMap = {
-        'id': docRef.id,
+        'id': saleId,
+        'saleId': saleId,
+        'businessId': businessId,
         'items': itemsList,
         'subtotal': _subtotal,
         'tax': tax,
@@ -632,16 +679,24 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         'total': total,
         'totalAmount': total,
         'finalAmount': total,
+        'status': 'completed',
         'paymentMethod': 'Confirmed',
+        'paymentMethods': const ['Confirmed'],
+        'category': 'Restaurant',
         'receiptNumber': receiptNumber,
+        if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
+        if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
+        if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
         'timestamp': DateTime.now().toIso8601String(),
       };
 
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Payment Confirmed'),
-          content: const Text('Payment recorded. You can print or view the receipt.'),
+          title: Text(isOffline ? 'Payment Saved Offline' : 'Payment Confirmed'),
+          content: Text(isOffline
+            ? 'Payment recorded locally. It will sync when online. You can print or view the receipt.'
+            : 'Payment recorded. You can print or view the receipt.'),
           actions: [
             TextButton(
               onPressed: () async {
@@ -697,7 +752,12 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       _updateSubtotal();
       setState(() {});
 
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment confirmed and admin notified'), backgroundColor: AppColors.success));
+      final successMessage = isOffline
+        ? 'Payment saved offline and will sync when online'
+        : 'Payment confirmed and admin notified';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(successMessage), backgroundColor: AppColors.success),
+      );
     } catch (e) {
       debugPrint('[RestaurantPOS] Confirm payment failed: $e');
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Confirm failed: $e'), backgroundColor: AppColors.error));
@@ -888,6 +948,12 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                       isBold: true,
                     ),
                     const SizedBox(height: 16),
+                    CustomButton(
+                      text: 'Generate PDF Invoice',
+                      backgroundColor: Colors.blue,
+                      onPressed: _selectedItems.isNotEmpty ? () => _generatePdfInvoice() : null,
+                    ),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
                         Expanded(
@@ -937,9 +1003,106 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     );
   }
 
-  void _updateSubtotal() {
-    _subtotal = _selectedItems.fold(0, (sum, item) => sum + item.subtotal);
-    setState(() {});
+  Future<void> _generatePdfInvoice() async {
+    if (_selectedItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add items to cart before generating invoice')),
+      );
+      return;
+    }
+
+    try {
+      // Read tax and discount from text controllers
+      final taxRate = (double.tryParse(_taxRateController.text) ?? 0) / 100;
+      final discount = double.tryParse(_discountController.text) ?? 0;
+      final tax = _subtotal * taxRate;
+      final total = _subtotal + tax - discount;
+
+      final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+
+      // Convert cart items to the format expected by PDF generator
+      final cartItems = _selectedItems.map((item) {
+        return {
+          'menuItemName': item.menuItemName,
+          'name': item.menuItemName,
+          'quantity': item.quantity,
+          'price': item.price,
+          'unitPrice': item.price,
+          'subtotal': item.subtotal,
+          'total': item.subtotal,
+          'specialInstructions': item.specialInstructions,
+          'selectedOptions': item.selectedOptions,
+        };
+      }).toList();
+
+      // Generate invoice number
+      final invoiceNumber = 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+
+      final pdfBytes = await PdfInvoiceGenerator.generateInvoicePdfBytes(
+        businessName: business?.name ?? 'Business',
+        invoiceNumber: invoiceNumber,
+        invoiceDate: DateTime.now(),
+        cartItems: cartItems,
+        subtotal: _subtotal,
+        tax: tax,
+        discount: discount,
+        total: total,
+        customerName: 'Walk-in Customer',
+        businessAddress: business?.address,
+        businessPhone: business?.phone,
+        businessEmail: business?.email,
+        cashierName: auth.currentUser?.fullName,
+      );
+
+      final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
+
+      if (kIsWeb) {
+        // Web: Download PDF
+        web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Invoice PDF downloaded: $filename')),
+        );
+      } else {
+        // Mobile: Share PDF
+        await _sharePdfOnMobile(pdfBytes, filename);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error generating PDF invoice: $e')),
+      );
+    }
+  }
+
+  Future<void> _sharePdfOnMobile(Uint8List pdfBytes, String filename) async {
+    try {
+      // Save to temporary file
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/$filename');
+      await file.writeAsBytes(pdfBytes);
+
+      // Share the file
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Invoice PDF',
+        subject: 'Invoice',
+      );
+    } catch (e) {
+      // Fallback: Save to documents directory
+      try {
+        final docsDir = await getApplicationDocumentsDirectory();
+        final file = File('${docsDir.path}/$filename');
+        await file.writeAsBytes(pdfBytes);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Invoice saved to: ${file.path}')),
+        );
+      } catch (e2) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error saving PDF invoice')),
+        );
+      }
+    }
   }
 
   void _createAndPrintOrder(BuildContext context) {
@@ -1531,6 +1694,18 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                               isBold: true,
                             ),
                             const SizedBox(height: 16),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: CustomButton(
+                                    text: 'Generate PDF Invoice',
+                                    backgroundColor: Colors.blue,
+                                    onPressed: _selectedItems.isNotEmpty ? () => _generatePdfInvoice() : null,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
                             Row(
                               children: [
                                 Expanded(

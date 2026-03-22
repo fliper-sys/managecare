@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../services/sync_service.dart';
+import 'sync_provider.dart';
 
 class ConnectivityProvider with ChangeNotifier {
   final Connectivity _connectivity = Connectivity();
@@ -9,9 +10,14 @@ class ConnectivityProvider with ChangeNotifier {
   bool _isConnected = true;
   bool _wasOffline = false;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  SyncProvider? _syncProvider;
 
   bool get isConnected => _isConnected;
   bool get wasOffline => _wasOffline;
+
+  void setSyncProvider(SyncProvider syncProvider) {
+    _syncProvider = syncProvider;
+  }
 
   Future<void> initialize() async {
     // Check initial connectivity
@@ -35,15 +41,17 @@ class ConnectivityProvider with ChangeNotifier {
       _wasOffline = true;
     }
 
-    // If we just came back online after being offline, attempt to process sync queue
+    // If we just came back online after being offline, attempt to sync sales
     if (!previousState && _isConnected && _wasOffline) {
       try {
         final syncService = SyncService();
-        await syncService.processSyncQueue();
+        await syncService.syncSales();
+        // Update sync provider state
+        await _syncProvider?.checkPendingItems();
         // reset offline flag after attempting sync
         _wasOffline = false;
       } catch (e) {
-        debugPrint('[ConnectivityProvider] Error processing sync queue: $e');
+        debugPrint('[ConnectivityProvider] Error syncing sales: $e');
       }
     }
 

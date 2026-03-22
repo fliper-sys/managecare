@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
+import '../../../../core/theme/colors.dart';
 import '../../../../providers/gym_provider.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../data/models/gym_member_model.dart';
@@ -22,6 +23,7 @@ class GymDashboardScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Gym Dashboard'),
+        backgroundColor: AppColors.primary,
         actions: [
           IconButton(
             icon: const Icon(Icons.people_outline),
@@ -329,7 +331,7 @@ class GymDashboardScreen extends StatelessWidget {
                               style:
                                   const TextStyle(fontWeight: FontWeight.w600)),
                           subtitle: Text(
-                              '$timeStr • ${cls.bookedMemberIds.length}/${cls.capacity} booked'),
+                              '$timeStr - ${cls.bookedMemberIds.length}/${cls.capacity} booked'),
                           trailing: ElevatedButton(
                             child: const Text('Details'),
                             onPressed: () {

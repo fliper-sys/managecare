@@ -1,11 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-        <!-- 🔥 CRITICAL: Explicitly remove READ_MEDIA permissions per Google Play Policy
-             to comply with photo/video permission restrictions.
-             Apps with one-time or infrequent photo access must use system photo picker
-             instead of broad media permissions. -->
-        <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove" />
-        <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove" />
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.managecare">
+    
+    <!-- 🔥 CRITICAL: Explicitly remove READ_MEDIA permissions per Google Play Policy
+         to comply with photo/video permission restrictions (effective from April 2024).
+         Apps with one-time or infrequent photo access must use system photo picker
+         instead of broad media permissions. These permissions are auto-added by
+         image_picker and permission_handler dependencies but must be removed here. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove" />
         
         <!-- Android 13+ requires POST_NOTIFICATIONS permission for runtime notification permission -->
         <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

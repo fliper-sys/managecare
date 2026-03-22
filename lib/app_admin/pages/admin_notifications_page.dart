@@ -12,6 +12,7 @@ class AdminNotificationsPage extends StatefulWidget {
 class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
   final AdminNotificationService _notificationService =
       AdminNotificationService();
+  bool _showUnreadOnly = false;
 
   @override
   Widget build(BuildContext context) {
@@ -23,14 +24,32 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
+            icon: Icon(
+              _showUnreadOnly
+                  ? Icons.mark_email_unread_rounded
+                  : Icons.mail_outline_rounded,
+            ),
+            onPressed: () {
+              setState(() => _showUnreadOnly = !_showUnreadOnly);
+            },
+            tooltip: _showUnreadOnly ? 'Show all' : 'Show unread only',
+          ),
+          IconButton(
             icon: const Icon(Icons.done_all_rounded),
             onPressed: () => _markAllAsRead(),
             tooltip: 'Mark all as read',
           ),
+          IconButton(
+            icon: const Icon(Icons.delete_sweep_rounded),
+            onPressed: () => _deleteReadNotifications(),
+            tooltip: 'Delete read notifications',
+          ),
         ],
       ),
       body: StreamBuilder<List<AdminNotification>>(
-        stream: _notificationService.getNotificationsStream(),
+        stream: _showUnreadOnly
+            ? _notificationService.getUnreadNotificationsStream()
+            : _notificationService.getNotificationsStream(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -275,6 +294,13 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
     _notificationService.markAllAsRead();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('All notifications marked as read')),
+    );
+  }
+
+  void _deleteReadNotifications() {
+    _notificationService.deleteReadNotifications();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Read notifications deleted')),
     );
   }
 

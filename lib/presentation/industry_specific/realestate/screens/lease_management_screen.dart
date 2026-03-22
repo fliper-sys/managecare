@@ -440,20 +440,7 @@ class _LeaseManagementScreenEnhancedState
           CustomButton(
             text: 'Terminate',
             onPressed: () async {
-              final updatedLease = Lease(
-                id: lease.id,
-                propertyId: lease.propertyId,
-                tenantId: lease.tenantId,
-                startDate: lease.startDate,
-                endDate: DateTime.now(),
-                monthlyRent: lease.monthlyRent,
-                deposit: lease.deposit,
-                status: 'expired',
-                documentUrl: lease.documentUrl,
-                createdAt: lease.createdAt,
-              );
-
-              await provider.addLease(updatedLease);
+              await provider.updateLeaseStatus(lease.id, 'terminated');
               if (mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(

@@ -10,7 +10,7 @@ import '../../../../core/constants/routes.dart';
 import '../../../widgets/loading_indicator.dart';
 import '../../../providers/business_provider.dart';
 import '../../../services/subscription_service.dart';
-import '../../../services/email_service.dart';
+import '../../../services/subscription_storage_service.dart';
 import '../../../services/receipt_upload_service.dart';
 import '../../../services/payment_service.dart';
 import '../../../providers/auth_provider.dart';
@@ -42,6 +42,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
   String _selectedPlanId = '';
   bool _isProcessing = false;
   File? _selectedReceipt;
+  double _uploadProgress = 0.0;
 
   @override
   void initState() {
@@ -183,6 +184,40 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                         const SizedBox(height: 24),
                         _buildUploadReceiptSection(currency),
                         const SizedBox(height: 24),
+                        if (_isProcessing && _uploadProgress > 0)
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.blue[50],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.blue[200]!),
+                            ),
+                            child: Column(
+                              children: [
+                                const Text(
+                                  'Uploading receipt...',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                LinearProgressIndicator(
+                                  value: _uploadProgress,
+                                  backgroundColor: Colors.blue[100],
+                                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${(_uploadProgress * 100).toInt()}%',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.blue,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         if (_selectedReceipt != null) _buildReceiptPreview(),
                         const SizedBox(height: 24),
                         ElevatedButton(
@@ -893,14 +928,26 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         print(
             '[SubscriptionPaymentScreen] User: ${widget.userName} (${widget.userEmail})');
 
-        setState(() => _isProcessing = true);
+        setState(() {
+          _isProcessing = true;
+          _uploadProgress = 0.0;
+        });
 
-        final emailService = EmailService();
-        final uploadUrl = await emailService.uploadFile(selectedFile);
+        final storageService = SubscriptionStorageService();
+        final uploadResult = await storageService.uploadSubscriptionProofWithProgress(
+          selectedFile,
+          widget.userId,
+          selectedPlan.id,
+          onProgress: (progress) {
+            if (mounted) {
+              setState(() => _uploadProgress = progress);
+            }
+          },
+        );
 
-        print('[SubscriptionPaymentScreen] Upload result: $uploadUrl');
+        print('[SubscriptionPaymentScreen] Upload result: ${uploadResult.downloadUrl}');
 
-        if (uploadUrl != null) {
+        if (uploadResult.success && uploadResult.downloadUrl != null) {
           print('[SubscriptionPaymentScreen] ✓ Upload successful');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -914,9 +961,9 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
           // Clear receipt preview after successful upload
           setState(() => _selectedReceipt = null);
         } else {
-          print('[SubscriptionPaymentScreen] ✗ Upload failed - null returned');
+          print('[SubscriptionPaymentScreen] ✗ Upload failed: ${uploadResult.error}');
           if (mounted) {
-            _showError('Failed to upload receipt. Please try again.');
+            _showError('Failed to upload receipt: ${uploadResult.error ?? 'Unknown error'}');
           }
         }
       }
@@ -925,7 +972,10 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
       _showError('Error uploading receipt: $e');
     } finally {
       if (mounted) {
-        setState(() => _isProcessing = false);
+        setState(() {
+          _isProcessing = false;
+          _uploadProgress = 0.0;
+        });
       }
     }
   }
@@ -943,6 +993,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
 
     setState(() {
       _isProcessing = true;
+      _uploadProgress = 0.0;
     });
 
     // Capture context values BEFORE any async operations
@@ -983,6 +1034,11 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         receiptFile: _selectedReceipt!,
         userEmail: widget.userEmail,
         userName: widget.userName,
+        onProgress: (progress) {
+          if (mounted) {
+            setState(() => _uploadProgress = progress);
+          }
+        },
       );
 
       print('[SubscriptionPaymentScreen] Upload result: ${result.uploadId}');
@@ -1094,6 +1150,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
       if (mounted) {
         setState(() {
           _isProcessing = false;
+          _uploadProgress = 0.0;
         });
       }
     }

@@ -1,11 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import 'dart:io';
 
 import '../../../services/subscription_service.dart';
-import '../../../services/email_service.dart';
+import '../../../services/subscription_storage_service.dart';
 import '../../../core/theme/text_styles.dart';
+import '../../../providers/marketer_provider.dart';
+import '../../../models/marketer_model.dart';
 
 class AdminSubscriptionsScreen extends StatefulWidget {
   const AdminSubscriptionsScreen({super.key});
@@ -18,6 +21,7 @@ class _AdminSubscriptionsScreenState extends State<AdminSubscriptionsScreen> {
   bool _isLoading = false;
   File? _selectedReceipt;
   List<Map<String, dynamic>> _businesses = [];
+  double _uploadProgress = 0.0;
 
   @override
   void initState() {
@@ -54,11 +58,25 @@ class _AdminSubscriptionsScreenState extends State<AdminSubscriptionsScreen> {
     });
 
     try {
-      final emailService = EmailService();
-      final receiptUrl = await emailService.uploadFile(_selectedReceipt!);
-      if (receiptUrl == null) throw Exception('Upload returned null');
-
+      final storageService = SubscriptionStorageService();
       final ownerId = business['ownerId']?.toString() ?? '';
+      final uploadResult = await storageService.uploadSubscriptionProofWithProgress(
+        _selectedReceipt!,
+        ownerId,
+        plan.id,
+        onProgress: (progress) {
+          if (mounted) {
+            setState(() => _uploadProgress = progress);
+          }
+        },
+      );
+
+      if (!uploadResult.success || uploadResult.downloadUrl == null) {
+        throw Exception('Upload failed: ${uploadResult.error ?? 'Unknown error'}');
+      }
+
+      final receiptUrl = uploadResult.downloadUrl!;
+
       final businessId = business['id'] as String;
 
       final subscriptionService = SubscriptionService(firestore: FirebaseFirestore.instance);
@@ -70,7 +88,10 @@ class _AdminSubscriptionsScreenState extends State<AdminSubscriptionsScreen> {
         businessId: businessId,
       );
 
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _uploadProgress = 0.0;
+      });
 
       if (success) {
         // Log approval to subscription_approvals for audit
@@ -89,6 +110,53 @@ class _AdminSubscriptionsScreenState extends State<AdminSubscriptionsScreen> {
           });
         } catch (_) {}
 
+        // handle marketer referral if provided
+        try {
+          final marketerEmail = business['referralEmail']?.toString();
+          if (marketerEmail != null && marketerEmail.isNotEmpty) {
+            // create referral record and update marketer balance
+            final commission = plan.price * 0.1; // 10% commission example
+            await FirebaseFirestore.instance.collection('referrals').add({
+              'marketerEmail': marketerEmail,
+              'userId': ownerId,
+              'userEmail': business['ownerEmail'] ?? '',
+              'businessId': businessId,
+              'commissionAmount': commission,
+              'status': 'approved',
+              'createdAt': FieldValue.serverTimestamp(),
+              'approvedAt': FieldValue.serverTimestamp(),
+              'approvingAdminId': 'admin',
+            });
+
+            // increment balance via provider (ensure list loaded)
+            final marketerProv = context.read<MarketerProvider>();
+            await marketerProv.fetchMarketers();
+            final m = marketerProv.marketers.firstWhere(
+                (x) => x.email.toLowerCase() == marketerEmail.toLowerCase(),
+                orElse: () => MarketerModel(
+                    id: '',
+                    email: '',
+                    fullName: '',
+                    password: '',
+                    createdAt: DateTime.now(),
+                    updatedAt: DateTime.now()));
+            if (m.id.isNotEmpty) {
+              await marketerProv.updateMarketerBalance(m.id, commission);
+              try {
+                await FirebaseFirestore.instance
+                    .collection('app_marketers')
+                    .doc(m.id)
+                    .update({
+                  'referredUserIds': FieldValue.arrayUnion([ownerId])
+                });
+              } catch (_) {}
+            }
+          }
+        } catch (e) {
+          // ignore failures
+          debugPrint('Referral processing failed: $e');
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Subscription activated successfully'),
           backgroundColor: Colors.green,
@@ -101,7 +169,10 @@ class _AdminSubscriptionsScreenState extends State<AdminSubscriptionsScreen> {
         ));
       }
     } catch (e) {
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _uploadProgress = 0.0;
+      });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Error: $e'),
         backgroundColor: Colors.red,
@@ -160,6 +231,49 @@ class _AdminSubscriptionsScreenState extends State<AdminSubscriptionsScreen> {
             'note': 'Activated by admin without receipt',
           });
         } catch (_) {}
+
+        // referral logic similar to above
+        try {
+          final marketerEmail = business['referralEmail']?.toString();
+          if (marketerEmail != null && marketerEmail.isNotEmpty) {
+            final commission = plan.price * 0.1;
+            await FirebaseFirestore.instance.collection('referrals').add({
+              'marketerEmail': marketerEmail,
+              'userId': ownerId,
+              'userEmail': business['ownerEmail'] ?? '',
+              'businessId': businessId,
+              'commissionAmount': commission,
+              'status': 'approved',
+              'createdAt': FieldValue.serverTimestamp(),
+              'approvedAt': FieldValue.serverTimestamp(),
+              'approvingAdminId': 'admin',
+            });
+            final marketerProv = context.read<MarketerProvider>();
+            await marketerProv.fetchMarketers();
+            final m = marketerProv.marketers.firstWhere(
+                (x) => x.email.toLowerCase() == marketerEmail.toLowerCase(),
+                orElse: () => MarketerModel(
+                    id: '',
+                    email: '',
+                    fullName: '',
+                    password: '',
+                    createdAt: DateTime.now(),
+                    updatedAt: DateTime.now()));
+            if (m.id.isNotEmpty) {
+              await marketerProv.updateMarketerBalance(m.id, commission);
+              try {
+                await FirebaseFirestore.instance
+                    .collection('app_marketers')
+                    .doc(m.id)
+                    .update({
+                  'referredUserIds': FieldValue.arrayUnion([ownerId])
+                });
+              } catch (_) {}
+            }
+          }
+        } catch (e) {
+          debugPrint('Referral processing failed: $e');
+        }
 
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Subscription activated without receipt'),

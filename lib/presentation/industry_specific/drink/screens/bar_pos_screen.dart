@@ -242,6 +242,26 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         debugPrint('[BarPOS] Owner email notify failed: $e');
       }
 
+      // Send push notification to business owners
+      try {
+        await BusinessNotificationManager.instance.notifySaleCompleted(
+          businessId: businessId,
+          customerName: 'Walk-in Customer',
+          amount: totalAmount,
+          paymentMethod: paymentMethod,
+        );
+
+        if (totalAmount > 100) {
+          await BusinessNotificationManager.instance.notifyLargeSale(
+            businessId: businessId,
+            customerName: 'Walk-in Customer',
+            amount: totalAmount,
+          );
+        }
+      } catch (e) {
+        debugPrint('[BarPOS] Push notification failed: $e');
+      }
+
       try {
         await ReceiptManager.handlePostSale(context, saleMap);
       } catch (e) {

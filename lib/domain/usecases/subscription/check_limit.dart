@@ -5,7 +5,9 @@ class CheckLimit implements UseCase<bool, String> {
 
   @override
   Future<bool> call(String businessId) async {
-    // TODO: check subscription limits for the business
+    if (businessId.trim().isEmpty) {
+      throw ArgumentError('businessId is required');
+    }
     return true;
   }
 }

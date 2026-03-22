@@ -3,6 +3,10 @@ import 'dart:ui'; // Required for ImageFilter
 
 import '../../../widgets/custom_text_field.dart';
 import '../../../widgets/loading_indicator.dart';
+import '../../../providers/marketer_provider.dart';
+import '../../../core/constants/routes.dart';
+import 'package:provider/provider.dart';
+
 
 class AdminLoginScreen extends StatefulWidget {
   const AdminLoginScreen({super.key});
@@ -12,12 +16,20 @@ class AdminLoginScreen extends StatefulWidget {
 }
 
 class _AdminLoginScreenState extends State<AdminLoginScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  // worker fields
+  final _workerEmailController = TextEditingController();
+  final _workerPasswordController = TextEditingController();
+
   bool _isPasswordVisible = false;
+  bool _isWorkerPasswordVisible = false;
   bool _isLoading = false;
   String? _errorMessage;
+  String? _workerErrorMessage;
+
+  late TabController _tabController;
 
   // Hidden tap-to-login shortcut
   int _logoTapCount = 0;
@@ -36,6 +48,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
   void initState() {
     super.initState();
     _setupAnimations();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
 
   void _setupAnimations() {
@@ -60,7 +76,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _workerEmailController.dispose();
+    _workerPasswordController.dispose();
     _animationController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -92,7 +111,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
 
     try {
       if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/admin_dashboard');
+        Navigator.of(context).pushReplacementNamed(Routes.adminDashboard);
       }
     } catch (e) {
       setState(() {
@@ -103,6 +122,61 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Future<void> _handleWorkerLogin() async {
+    setState(() {
+      _workerErrorMessage = null;
+      _isLoading = true;
+    });
+    final email = _workerEmailController.text.trim();
+    final password = _workerPasswordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      setState(() {
+        _workerErrorMessage = 'Please enter email and password';
+        _isLoading = false;
+      });
+      return;
+    }
+    final provider = context.read<MarketerProvider>();
+    final marketer = await provider.loginMarketer(email, password);
+    if (marketer == null) {
+      setState(() {
+        _workerErrorMessage = provider.errorMessage ?? 'Login failed';
+        _isLoading = false;
+      });
+      return;
+    }
+    // navigate to marketer dashboard (we'll create route later)
+    if (mounted) {
+      Navigator.of(context).pushReplacementNamed(Routes.marketerDashboard);
+    }
+    setState(() => _isLoading = false);
+  }
+
+  Widget _buildErrorBox(String message) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline, size: 20, color: Colors.red.shade700),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(color: Colors.red.shade700, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -129,6 +203,15 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
                       _buildLogo(),
                       const SizedBox(height: 30),
 
+                      // Tabs for Admin/Worker
+                      TabBar(
+                        controller: _tabController,
+                        labelColor: const Color(0xFF1E293B),
+                        unselectedLabelColor: Colors.grey,
+                        tabs: const [Tab(text: 'Admin'), Tab(text: 'Worker')],
+                      ),
+                      const SizedBox(height: 16),
+
                       // Login Card
                       Container(
                         constraints: const BoxConstraints(maxWidth: 400),
@@ -148,9 +231,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             // Header
-                            const Text(
-                              'Admin Portal',
-                              style: TextStyle(
+                            Text(
+                              _tabController.index == 0 ? 'Admin Portal' : 'Worker Login',
+                              style: const TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFF1E293B),
@@ -169,63 +252,75 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
                             const SizedBox(height: 32),
 
                             // Error Display
-                            if (_errorMessage != null)
-                              AnimatedContainer(
-                                duration: const Duration(milliseconds: 300),
-                                margin: const EdgeInsets.only(bottom: 20),
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.red.shade50,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.red.shade200),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.error_outline,
-                                        size: 20, color: Colors.red.shade700),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        _errorMessage!,
-                                        style: TextStyle(
-                                            color: Colors.red.shade700,
-                                            fontSize: 13),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                            if (_tabController.index == 0 && _errorMessage != null)
+                              _buildErrorBox(_errorMessage!)
+                            else if (_tabController.index == 1 && _workerErrorMessage != null)
+                              _buildErrorBox(_workerErrorMessage!),
+                    
 
-                            // Inputs
-                            CustomTextField(
-                              controller: _emailController,
-                              label: 'Email',
-                              hint: 'admin@system.com',
-                              keyboardType: TextInputType.emailAddress,
-                              prefixIcon: Icons.admin_panel_settings_outlined,
-                            ),
-                            const SizedBox(height: 16),
-                            CustomTextField(
-                              controller: _passwordController,
-                              label: 'Password',
-                              hint: '••••••••',
-                              obscureText: !_isPasswordVisible,
-                              prefixIcon: Icons.lock_outline,
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _isPasswordVisible
-                                      ? Icons.visibility_off_outlined
-                                      : Icons.visibility_outlined,
-                                  color: Colors.grey,
-                                  size: 20,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    _isPasswordVisible = !_isPasswordVisible;
-                                  });
-                                },
+
+                            // Inputs for chosen tab
+                            if (_tabController.index == 0) ...[
+                              CustomTextField(
+                                controller: _emailController,
+                                label: 'Email',
+                                hint: 'admin@system.com',
+                                keyboardType: TextInputType.emailAddress,
+                                prefixIcon: Icons.admin_panel_settings_outlined,
                               ),
-                            ),
+                              const SizedBox(height: 16),
+                              CustomTextField(
+                                controller: _passwordController,
+                                label: 'Password',
+                                hint: '••••••••',
+                                obscureText: !_isPasswordVisible,
+                                prefixIcon: Icons.lock_outline,
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _isPasswordVisible
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                    color: Colors.grey,
+                                    size: 20,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _isPasswordVisible = !_isPasswordVisible;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ] else ...[
+                              CustomTextField(
+                                controller: _workerEmailController,
+                                label: 'Email',
+                                hint: 'worker@example.com',
+                                keyboardType: TextInputType.emailAddress,
+                                prefixIcon: Icons.person_outline,
+                              ),
+                              const SizedBox(height: 16),
+                              CustomTextField(
+                                controller: _workerPasswordController,
+                                label: 'Password',
+                                hint: '••••••••',
+                                obscureText: !_isWorkerPasswordVisible,
+                                prefixIcon: Icons.lock_outline,
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _isWorkerPasswordVisible
+                                        ? Icons.visibility_off_outlined
+                                        : Icons.visibility_outlined,
+                                    color: Colors.grey,
+                                    size: 20,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _isWorkerPasswordVisible = !_isWorkerPasswordVisible;
+                                    });
+                                  },
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 32),
 
                             // Action Button
@@ -244,7 +339,9 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
                                       ],
                                     ),
                                     child: ElevatedButton(
-                                      onPressed: _handleAdminLogin,
+                                      onPressed: _tabController.index == 0
+                                          ? _handleAdminLogin
+                                          : _handleWorkerLogin,
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: const Color(0xFF8B5CF6),
                                         shape: RoundedRectangleBorder(
@@ -252,9 +349,10 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
                                         ),
                                         elevation: 0,
                                       ),
-                                      child: const Text(
-                                        'Authenticate',
-                                        style: TextStyle(
+                                      child: Text(
+                                        _tabController.index == 0 ?
+                                            'Authenticate' : 'Sign in',
+                                        style: const TextStyle(
                                           fontSize: 16,
                                           fontWeight: FontWeight.bold,
                                           color: Colors.white,
@@ -376,7 +474,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen>
       _logoTapCount = 0;
       _firstLogoTapTime = null;
       if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/admin_dashboard');
+        Navigator.of(context).pushReplacementNamed(Routes.adminDashboard);
       }
     }
   }

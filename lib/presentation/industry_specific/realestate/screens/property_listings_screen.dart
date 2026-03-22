@@ -8,6 +8,7 @@ import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../widgets/custom_button.dart';
 import '../providers/real_estate_provider.dart';
+import '../../../../core/constants/routes.dart';
 import 'edit_property_screen.dart';
 
 class PropertyListingsScreen extends StatefulWidget {
@@ -187,16 +188,24 @@ class _PropertyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return GestureDetector(
+      onTap: () {
+        Navigator.pushNamed(
+          context,
+          Routes.realEstatePropertyDetails,
+          arguments: {'id': property.id},
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           // Property Image
           Container(
             height: 200,
@@ -266,6 +275,15 @@ class _PropertyCard extends StatelessWidget {
                               return;
                             }
 
+                            if (v == 'rent_history') {
+                              Navigator.pushNamed(
+                                context,
+                                Routes.realEstatePropertyRentHistory,
+                                arguments: {'propertyId': property.id},
+                              );
+                              return;
+                            }
+
                             if (v == 'delete') {
                               final ok = await showDialog<bool>(
                                   context: context,
@@ -289,6 +307,7 @@ class _PropertyCard extends StatelessWidget {
                           },
                           itemBuilder: (_) => [
                             const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                            const PopupMenuItem(value: 'rent_history', child: Text('Rent History')),
                             const PopupMenuItem(value: 'delete', child: Text('Delete')),
                           ],
                         )
@@ -335,7 +354,7 @@ class _PropertyCard extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ));
   }
 
   Widget _buildPlaceholder() => const Center(

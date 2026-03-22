@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../widgets/custom_button.dart';
 import '../providers/salon_provider.dart';
 
@@ -236,7 +237,7 @@ class _AppointmentCard extends StatelessWidget {
                 _InfoRow(label: 'Stylist', value: appointment.stylistName),
                 _InfoRow(
                     label: 'Price',
-                    value: '₦${appointment.servicePrice.toStringAsFixed(0)}'),
+                    value: formatCurrency(appointment.servicePrice)),
                 // Show commission earned for completed appointments
                 if (appointment.status == 'completed')
                   Builder(builder: (context) {
@@ -248,7 +249,7 @@ class _AppointmentCard extends StatelessWidget {
                     } catch (_) {}
                     final amount = (appointment.amountPaid != null && appointment.amountPaid! > 0) ? appointment.amountPaid! : appointment.servicePrice;
                     final commission = amount * (pct / 100.0);
-                    return _InfoRow(label: 'Commission', value: '₦${commission.toStringAsFixed(2)}');
+                    return _InfoRow(label: 'Commission', value: formatCurrency(commission));
                   }),
                 const SizedBox(height: 12),
                 if (appointment.status == 'pending')
@@ -391,14 +392,14 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Amount'),
-                      Text('₦${amount.toStringAsFixed(0)}'),
+                      Text(formatCurrency(amount)),
                     ]),
                 const SizedBox(height: 8),
                 Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Tip'),
-                      Text('₦${tip.toStringAsFixed(0)}'),
+                      Text(formatCurrency(tip)),
                     ]),
                 const Divider(),
                 Row(
@@ -406,7 +407,7 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
                     children: [
                       const Text('Total',
                           style: TextStyle(fontWeight: FontWeight.bold)),
-                      Text('₦${total.toStringAsFixed(0)}',
+                      Text(formatCurrency(total),
                           style: const TextStyle(
                               fontWeight: FontWeight.bold, fontSize: 16)),
                     ]),

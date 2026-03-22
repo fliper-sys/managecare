@@ -4,11 +4,14 @@ import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../providers/admin_provider.dart';
 import '../providers/auth_provider.dart';
+import '../core/utils/currency.dart';
 import '../core/constants/routes.dart';
 import '../routes/app_router.dart';
 import 'pages/admin_notifications_page.dart';
 import 'pages/all_businesses_page.dart';
 import 'pages/admin_payments_page.dart';
+import 'pages/marketers_page.dart';
+import '../providers/marketer_provider.dart';
 
 class AdminDashboardApp extends StatelessWidget {
   const AdminDashboardApp({super.key});
@@ -21,6 +24,7 @@ class AdminDashboardApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AdminProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => MarketerProvider()),
       ],
       child: MaterialApp(
         title: 'Manage Care ',
@@ -91,6 +95,7 @@ class _DashboardHomeState extends State<DashboardHome> {
     const BusinessesPage(),
     const PaymentsPage(),
     const UsersAndWorkersPage(),
+    const MarketersPage(),
     const SettingsPage(),
   ];
 
@@ -145,7 +150,8 @@ class _DashboardHomeState extends State<DashboardHome> {
                     _buildNavItem(Icons.business_rounded, 'Business', 1),
                     _buildNavItem(Icons.payment_rounded, 'Payments', 2),
                     _buildNavItem(Icons.people_rounded, 'Users', 3),
-                    _buildNavItem(Icons.settings_rounded, 'Settings', 4),
+                    _buildNavItem(Icons.person_rounded, 'Marketers', 4),
+                    _buildNavItem(Icons.settings_rounded, 'Settings', 5),
                   ],
                 ),
               ),
@@ -415,7 +421,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         admin.stats.totalBusinesses.toString(),
                         Icons.business_rounded,
                         const Color(0xFF3B82F6),
-                        '+${(admin.stats.totalBusinesses * 0.1).toStringAsFixed(0)}%',
+                        '${admin.allBusinesses.where((b) => b['isActive'] == true).length} active',
                         onTap: () => Navigator.pushNamed(context, Routes.allBusinessesAdmin),
                       ),
                     ),
@@ -426,7 +432,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         admin.stats.activeUsers.toString(),
                         Icons.trending_up_rounded,
                         const Color(0xFF10B981),
-                        'Live',
+                        '24h live',
                         onTap: () => Navigator.pushNamed(context, Routes.adminUsersAndWorkers),
                       ),
                     ),
@@ -438,22 +444,22 @@ class _DashboardPageState extends State<DashboardPage> {
                     Expanded(
                       child: _buildStatCard(
                         'Revenue',
-                        '₦${(admin.stats.totalRevenue / 1000000).toStringAsFixed(1)}M',
+                        formatCurrency(admin.stats.totalRevenue.toDouble()),
                         Icons.attach_money_rounded,
                         const Color(0xFF8B5CF6),
-                        '+8%',
+                        '${admin.stats.pendingPayments} pending',
                         onTap: () => Navigator.pushNamed(context, Routes.adminPayments),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _buildStatCard(
-                        'Pending',
-                        admin.stats.pendingPayments.toString(),
-                        Icons.pending_actions_rounded,
+                        'Transactions',
+                        admin.stats.totalTransactions.toString(),
+                        Icons.receipt_long_rounded,
                         const Color(0xFFF59E0B),
-                        'Urgent',
-                        onTap: () => Navigator.pushNamed(context, Routes.adminPaymentsApproval),
+                        'Platform-wide',
+                        onTap: () => Navigator.pushNamed(context, Routes.adminPayments),
                       ),
                     ),
                   ],
@@ -1528,6 +1534,17 @@ class _SettingsPageState extends State<SettingsPage> {
   final _emailSubjectController = TextEditingController();
   final _emailBodyController = TextEditingController();
   bool _isSending = false;
+  bool _pushNotificationsEnabled = true;
+  bool _twoFactorEnabled = false;
+  String _selectedLanguage = 'en';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadSettings();
+    });
+  }
 
   @override
   void dispose() {
@@ -1536,6 +1553,29 @@ class _SettingsPageState extends State<SettingsPage> {
     _emailSubjectController.dispose();
     _emailBodyController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSettings() async {
+    final admin = context.read<AdminProvider>();
+    final settings = await admin.getAdminSettings();
+    if (!mounted) return;
+    setState(() {
+      _pushNotificationsEnabled =
+          (settings['pushNotificationsEnabled'] as bool?) ?? true;
+      _twoFactorEnabled = (settings['twoFactorEnabled'] as bool?) ?? false;
+      _selectedLanguage = (settings['language'] as String?) ?? 'en';
+    });
+  }
+
+  Future<void> _saveAdminSettings(Map<String, dynamic> settings) async {
+    final admin = context.read<AdminProvider>();
+    final ok = await admin.saveAdminSettings(settings);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Settings saved' : 'Failed to save settings'),
+      ),
+    );
   }
 
   Future<void> _sendBroadcastNotification() async {
@@ -1656,11 +1696,11 @@ class _SettingsPageState extends State<SettingsPage> {
 
             // Existing settings (kept simple)
             _buildSettingItem(Icons.notifications_rounded, 'Notifications',
-              'Manage notification preferences', const Color(0xFF3B82F6), onTap: () => _showNotificationSettingsDialog(context)),
+              _pushNotificationsEnabled ? 'Push notifications enabled' : 'Push notifications disabled', const Color(0xFF3B82F6), onTap: () => _showNotificationSettingsDialog(context)),
             _buildSettingItem(Icons.security_rounded, 'Security',
-              'Two-factor authentication', const Color(0xFF10B981), onTap: () => _showSecurityDialog(context)),
+              _twoFactorEnabled ? 'Two-factor authentication enabled' : 'Two-factor authentication disabled', const Color(0xFF10B981), onTap: () => _showSecurityDialog(context)),
             _buildSettingItem(Icons.language_rounded, 'Language',
-              'English (US)', const Color(0xFF8B5CF6), onTap: () => _showLanguageDialog(context)),
+              _selectedLanguage == 'en' ? 'English (US)' : 'Spanish', const Color(0xFF8B5CF6), onTap: () => _showLanguageDialog(context)),
             const SizedBox(height: 24),
 
             SizedBox(
@@ -1760,7 +1800,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _showNotificationSettingsDialog(BuildContext context) {
-    bool enabled = true;
+    bool enabled = _pushNotificationsEnabled;
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1775,9 +1815,12 @@ class _SettingsPageState extends State<SettingsPage> {
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
           ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
+                setState(() => _pushNotificationsEnabled = enabled);
+                await _saveAdminSettings({
+                  'pushNotificationsEnabled': enabled,
+                });
                 Navigator.of(ctx).pop();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notification settings saved')));
               },
               child: const Text('Save'))
         ],
@@ -1786,26 +1829,37 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _showSecurityDialog(BuildContext context) {
+    bool enabled = _twoFactorEnabled;
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Security'),
-        content: const Text('Enable two-factor authentication for admin accounts.'),
+        content: StatefulBuilder(
+          builder: (ctx, setStateDialog) => SwitchListTile(
+            title: const Text('Enable two-factor authentication'),
+            subtitle: const Text('Require an extra verification step for admin access.'),
+            value: enabled,
+            onChanged: (value) => setStateDialog(() => enabled = value),
+          ),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Close')),
           ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
+                setState(() => _twoFactorEnabled = enabled);
+                await _saveAdminSettings({
+                  'twoFactorEnabled': enabled,
+                });
                 Navigator.of(ctx).pop();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Two-factor authentication not implemented')));
               },
-              child: const Text('Enable'))
+              child: const Text('Save'))
         ],
       ),
     );
   }
 
   void _showLanguageDialog(BuildContext context) {
-    String lang = 'en';
+    String lang = _selectedLanguage;
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1832,9 +1886,12 @@ class _SettingsPageState extends State<SettingsPage> {
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
           ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
+                setState(() => _selectedLanguage = lang);
+                await _saveAdminSettings({
+                  'language': lang,
+                });
                 Navigator.of(ctx).pop();
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Language set to ${lang == 'en' ? 'English' : 'Spanish'}')));
               },
               child: const Text('Set'))
         ],

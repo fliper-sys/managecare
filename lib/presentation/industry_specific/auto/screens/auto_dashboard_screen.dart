@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/constants/routes.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../providers/auto_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/auth_provider.dart';
@@ -131,7 +132,7 @@ class _AutoDashboardScreenState extends State<AutoDashboardScreen> {
                       Expanded(
                         child: _StatCard(
                           label: 'Est. Revenue',
-                          value: '\$${estimatedRevenue.toStringAsFixed(0)}',
+                          value: formatCurrency(estimatedRevenue),
                           icon: Icons.attach_money,
                           color: Colors.green,
                           onTap: () => Navigator.pushNamed(context, Routes.autoInvoices),
@@ -424,7 +425,7 @@ class _JobTile extends StatelessWidget {
               ),
 
               // 3. Price
-              Text('\$${cost.toStringAsFixed(0)}', 
+              Text(formatCurrency(cost), 
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(width: 8),
               Icon(Icons.chevron_right, color: Colors.grey[400], size: 20),
@@ -435,3 +436,4 @@ class _JobTile extends StatelessWidget {
     );
   }
 }
+

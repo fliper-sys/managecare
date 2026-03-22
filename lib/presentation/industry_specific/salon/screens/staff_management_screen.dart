@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/currency.dart';
 import '../providers/salon_provider.dart';
 
 class StaffManagementScreen extends StatefulWidget {
@@ -12,62 +15,83 @@ class StaffManagementScreen extends StatefulWidget {
 class _StaffManagementScreenState extends State<StaffManagementScreen> {
   final _nameCtrl = TextEditingController();
   final _roleCtrl = TextEditingController();
-  final _commissionCtrl = TextEditingController(text: '10.0');
+  final _emailCtrl = TextEditingController();
+  final _commissionCtrl = TextEditingController(text: '10');
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<SalonProvider>().loadStylists();
+    });
+  }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _roleCtrl.dispose();
+    _emailCtrl.dispose();
     _commissionCtrl.dispose();
     super.dispose();
   }
 
+  void _resetForm() {
+    _nameCtrl.clear();
+    _roleCtrl.clear();
+    _emailCtrl.clear();
+    _commissionCtrl.text = '10';
+  }
+
   void _showAddStaffDialog(SalonProvider provider) {
+    _resetForm();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Add Stylist'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
                 controller: _nameCtrl,
-                decoration: const InputDecoration(labelText: 'Name')),
-            TextField(
+                decoration: const InputDecoration(labelText: 'Name'),
+              ),
+              TextField(
+                controller: _emailCtrl,
+                decoration: const InputDecoration(labelText: 'Email'),
+              ),
+              TextField(
                 controller: _roleCtrl,
-                decoration: const InputDecoration(labelText: 'Specialization')),
-            TextField(
+                decoration: const InputDecoration(labelText: 'Specialization'),
+              ),
+              TextField(
                 controller: _commissionCtrl,
                 decoration: const InputDecoration(labelText: 'Commission %'),
-                keyboardType: TextInputType.number),
-          ],
+                keyboardType: TextInputType.number,
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () {
-              final id = DateTime.now().millisecondsSinceEpoch.toString();
-              final name = _nameCtrl.text.trim();
-              final specialization = _roleCtrl.text.trim();
-              final commission = double.tryParse(_commissionCtrl.text) ?? 0.0;
-              if (name.isEmpty || specialization.isEmpty) return;
-              final s = Stylist(
-                id: id,
-                name: name,
-                email: '',
+              final stylist = Stylist(
+                id: DateTime.now().millisecondsSinceEpoch.toString(),
+                name: _nameCtrl.text.trim(),
+                email: _emailCtrl.text.trim(),
                 phone: null,
-                specialization: specialization,
-                serviceIds: [],
-                commissionPercentage: commission,
+                specialization: _roleCtrl.text.trim(),
+                serviceIds: const [],
+                commissionPercentage: double.tryParse(_commissionCtrl.text) ?? 0.0,
                 isActive: true,
                 createdAt: DateTime.now(),
               );
-              provider.addStylist(s);
-              _nameCtrl.clear();
-              _roleCtrl.clear();
-              _commissionCtrl.text = '10.0';
+              if (stylist.name.isEmpty || stylist.specialization.isEmpty) return;
+              provider.addStylist(stylist);
               Navigator.of(context).pop();
             },
             child: const Text('Add'),
@@ -77,24 +101,30 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     );
   }
 
-  void _showEditCommissionDialog(SalonProvider provider, Stylist s) {
-    final ctrl = TextEditingController(text: (s.commissionPercentage ?? 0.0).toString());
+  void _showEditCommissionDialog(SalonProvider provider, Stylist stylist) {
+    final ctrl = TextEditingController(
+      text: (stylist.commissionPercentage ?? 0.0).toStringAsFixed(0),
+    );
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Edit Commission'),
         content: TextField(
-            controller: ctrl,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Commission %')),
+          controller: ctrl,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Commission %'),
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () {
-              final val = double.tryParse(ctrl.text) ?? (s.commissionPercentage ?? 0.0);
-              final updated = s.copyWith(commissionPercentage: val);
+              final updated = stylist.copyWith(
+                commissionPercentage:
+                    double.tryParse(ctrl.text) ?? stylist.commissionPercentage,
+              );
               provider.updateStylist(updated);
               Navigator.of(context).pop();
             },
@@ -107,76 +137,110 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = Provider.of<SalonProvider>(context);
-    final staff = provider.stylists;
+    return Consumer<SalonProvider>(
+      builder: (context, provider, _) {
+        final staff = provider.stylists;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Staff Management')),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(12),
-        itemCount: staff.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (context, index) {
-          final s = staff[index];
-          return Card(
-            child: ListTile(
-              title: Text(s.name),
-              subtitle: Text(s.specialization),
-              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text('Commission: ${((s.commissionPercentage ?? 0.0)).toStringAsFixed(1)}%'),
-                    const SizedBox(height: 4),
-                    Text(
-                        'Earned: ₦${provider.getStylistCommissionTotal(s.id).toStringAsFixed(2)}'),
-                  ],
-                ),
-                IconButton(
-                  icon: const Icon(Icons.edit),
-                  onPressed: () => _showEditCommissionDialog(provider, s),
-                ),
-              ]),
-              onTap: () {
-                showModalBottomSheet(
-                  context: context,
-                  builder: (ctx) => Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(s.name,
-                              style: const TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 8),
-                          Text('Specialization: ${s.specialization}'),
-                          const SizedBox(height: 8),
-                          Text('Active: ${s.isActive ? 'Yes' : 'No'}'),
-                          const SizedBox(height: 8),
-                          Text(
-                              'Commission: ${((s.commissionPercentage ?? 0.0)).toStringAsFixed(1)}%'),
-                          const SizedBox(height: 12),
-                          ElevatedButton(
-                            onPressed: () {
-                              Navigator.of(context).pop();
-                            },
-                            child: const Text('Close'),
-                          )
-                        ]),
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Staff Management'),
+            backgroundColor: AppColors.primary,
+          ),
+          backgroundColor: Colors.grey[50],
+          body: staff.isEmpty
+              ? Center(
+                  child: Text(
+                    'No stylists found',
+                    style: TextStyle(color: Colors.grey[600]),
                   ),
-                );
-              },
-            ),
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddStaffDialog(provider),
-        child: const Icon(Icons.person_add),
-      ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: staff.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final stylist = staff[index];
+                    final earned = provider.getStylistCommissionTotal(stylist.id);
+                    return Card(
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: AppColors.primary.withOpacity(0.12),
+                          child: Text(
+                            stylist.name.isNotEmpty ? stylist.name[0].toUpperCase() : '?',
+                            style: const TextStyle(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        title: Text(stylist.name),
+                        subtitle: Text(
+                          '${stylist.specialization}\nCommission ${((stylist.commissionPercentage ?? 0.0)).toStringAsFixed(1)}%',
+                        ),
+                        isThreeLine: true,
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              formatCurrency(earned),
+                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () => _showEditCommissionDialog(provider, stylist),
+                            ),
+                          ],
+                        ),
+                        onTap: () {
+                          showModalBottomSheet<void>(
+                            context: context,
+                            builder: (ctx) => Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    stylist.name,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text('Email: ${stylist.email.isEmpty ? 'Not set' : stylist.email}'),
+                                  const SizedBox(height: 8),
+                                  Text('Specialization: ${stylist.specialization}'),
+                                  const SizedBox(height: 8),
+                                  Text('Commission: ${((stylist.commissionPercentage ?? 0.0)).toStringAsFixed(1)}%'),
+                                  const SizedBox(height: 8),
+                                  Text('Earned: ${formatCurrency(earned)}'),
+                                  const SizedBox(height: 12),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: ElevatedButton(
+                                      onPressed: () => Navigator.of(ctx).pop(),
+                                      child: const Text('Close'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: () => _showAddStaffDialog(provider),
+            backgroundColor: AppColors.primary,
+            icon: const Icon(Icons.person_add),
+            label: const Text('Add Stylist'),
+          ),
+        );
+      },
     );
   }
 }
-

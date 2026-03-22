@@ -1,3 +1,6 @@
+analyzer:
+  errors:
+    deprecated_member_use: ignore
 include: package:flutter_lints/flutter.yaml
 
 # Temporarily relax a few noisy rules so analyzer runs cleanly in CI/local

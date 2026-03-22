@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'notification_service.dart';
+import 'push_notification_service.dart';
 
 /// Business event notification manager
 /// Centralized place to trigger notifications for all business events
@@ -8,6 +9,7 @@ class BusinessNotificationManager {
       BusinessNotificationManager._internal();
 
   final NotificationService _notificationService = NotificationService.instance;
+  final PushNotificationService _pushService = PushNotificationService();
   int _notificationCounter = 0;
 
   factory BusinessNotificationManager() {
@@ -30,9 +32,26 @@ class BusinessNotificationManager {
     try {
       const title = '✅ Sale Completed';
       final body =
-          '$customerName - ${amount.toStringAsFixed(2)} via $paymentMethod';
+          '$customerName - ₦${amount.toStringAsFixed(2)} via $paymentMethod';
+
+      // Send local notification
       await _notificationService.sendNotification(title, body,
           id: _getNotificationId('sale', businessId));
+
+      // Send push notification to business owners
+      await _pushService.sendNotificationToBusinessOwners(
+        businessId: businessId,
+        title: title,
+        body: body,
+        data: {
+          'type': 'sale_completed',
+          'businessId': businessId,
+          'customerName': customerName,
+          'amount': amount,
+          'paymentMethod': paymentMethod,
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+      );
     } catch (e) {
       debugPrint('Error notifying sale completed: $e');
     }

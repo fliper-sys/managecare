@@ -7,6 +7,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../services/email_service.dart';
 import '../../../../services/notification_and_email_service.dart';
+import '../../../../services/business_notification_manager.dart';
 
 import '../../../industry_specific/retail/widgets/pos_product_card.dart';
 import '../../../../core/theme/colors.dart';
@@ -348,6 +349,27 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
           duration: Duration(seconds: 2),
         ),
       );
+
+      // Send push notification to business owners
+      try {
+        final totalAmt = (saleData['total'] as num?)?.toDouble() ?? 0.0;
+        await BusinessNotificationManager.instance.notifySaleCompleted(
+          businessId: businessId,
+          customerName: customerName ?? 'Walk-in Customer',
+          amount: totalAmt,
+          paymentMethod: paymentMethod,
+        );
+
+        if (totalAmt > 100) {
+          await BusinessNotificationManager.instance.notifyLargeSale(
+            businessId: businessId,
+            customerName: customerName ?? 'Walk-in Customer',
+            amount: totalAmt,
+          );
+        }
+      } catch (e) {
+        debugPrint('[PharmacyPOS] Push notification failed: $e');
+      }
 
       // Prepare receipt map
       final saleMap = {

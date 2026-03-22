@@ -10,5 +10,11 @@ abstract class SalesRepository {
   Future<void> syncSales();
   Future<Map<String, dynamic>?> getReceipt(String id);
   Future<void> syncSaleToFirestore(Map<String, dynamic> saleData);
+
+  // Offline support methods
+  Future<String> createSaleOffline(Map<String, dynamic> saleData);
+  Future<List<Map<String, dynamic>>> getPendingOfflineSales();
+  Future<void> markSaleAsSynced(String saleId);
+  Future<void> deleteOfflineSale(String saleId);
 }
 

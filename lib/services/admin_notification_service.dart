@@ -124,5 +124,20 @@ class AdminNotificationService {
       print('Error deleting notification: $e');
     }
   }
+
+  Future<void> deleteReadNotifications() async {
+    try {
+      final snapshot = await _db
+          .collection(_notificationsCollection)
+          .where('isRead', isEqualTo: true)
+          .get();
+
+      for (final doc in snapshot.docs) {
+        await doc.reference.delete();
+      }
+    } catch (e) {
+      print('Error deleting read notifications: $e');
+    }
+  }
 }
 

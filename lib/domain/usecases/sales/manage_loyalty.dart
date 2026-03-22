@@ -5,8 +5,81 @@ class ManageLoyaltyProgramUseCase
     extends UseCase<LoyaltyProgram, ManageLoyaltyParams> {
   @override
   Future<LoyaltyProgram> call(ManageLoyaltyParams params) async {
-    // Implementation handled by repository
-    throw UnimplementedError();
+    if (params.businessId.trim().isEmpty || params.customerId.trim().isEmpty) {
+      throw ArgumentError('businessId and customerId are required');
+    }
+    final normalized = params.operation.trim().toLowerCase();
+    var points = 0;
+    final redeemedRewards = <RewardRedeemed>[];
+
+    switch (normalized) {
+      case 'enroll':
+        points = 100;
+        break;
+      case 'addpoints':
+        points = (params.amount ?? 0).floor();
+        break;
+      case 'redeempoints':
+        final redeemPoints = (params.amount ?? 0).floor().clamp(0, 1000000);
+        points = -redeemPoints;
+        if (redeemPoints > 0) {
+          redeemedRewards.add(
+            RewardRedeemed(
+              rewardId: 'reward_$redeemPoints',
+              rewardName: 'Points redemption',
+              pointsUsed: redeemPoints,
+              redeemedAt: DateTime.now(),
+              status: 'completed',
+            ),
+          );
+        }
+        break;
+      case 'upgrade':
+        points = ((params.amount ?? 0) * 2).floor();
+        break;
+      default:
+        throw ArgumentError('Unsupported loyalty operation: ${params.operation}');
+    }
+
+    final totalPoints = points < 0 ? 0 : points;
+    final tier = _tierForPoints(totalPoints);
+    return LoyaltyProgram(
+      customerId: params.customerId,
+      totalPoints: totalPoints,
+      tier: tier,
+      tierMultiplier: _tierMultiplier(tier),
+      enrollmentDate: DateTime.now(),
+      nextTierDate: DateTime.now().add(const Duration(days: 30)),
+      pointsToNextTier: _pointsToNextTier(totalPoints),
+      redeemedRewards: redeemedRewards,
+    );
+  }
+
+  String _tierForPoints(int points) {
+    if (points >= 5000) return 'platinum';
+    if (points >= 2500) return 'gold';
+    if (points >= 1000) return 'silver';
+    return 'bronze';
+  }
+
+  double _tierMultiplier(String tier) {
+    switch (tier) {
+      case 'silver':
+        return 1.2;
+      case 'gold':
+        return 1.5;
+      case 'platinum':
+        return 2.0;
+      default:
+        return 1.0;
+    }
+  }
+
+  int _pointsToNextTier(int points) {
+    if (points >= 5000) return 0;
+    if (points >= 2500) return 5000 - points;
+    if (points >= 1000) return 2500 - points;
+    return 1000 - points;
   }
 }
 
@@ -67,8 +140,40 @@ class GetAvailableRewardsUseCase
     extends UseCase<List<AvailableReward>, GetRewardsParams> {
   @override
   Future<List<AvailableReward>> call(GetRewardsParams params) async {
-    // Implementation handled by repository
-    throw UnimplementedError();
+    final now = DateTime.now();
+    final rewards = [
+      AvailableReward(
+        id: 'rw_500',
+        name: '5% Discount',
+        description: 'Redeem for a 5% discount on your next order',
+        pointsRequired: 500,
+        discountValue: 5,
+        expiryDate: now.add(const Duration(days: 90)),
+        maxRedemptions: 1,
+        canRedeem: params.currentPoints >= 500,
+      ),
+      AvailableReward(
+        id: 'rw_1000',
+        name: '10% Discount',
+        description: 'Redeem for a 10% discount on your next order',
+        pointsRequired: 1000,
+        discountValue: 10,
+        expiryDate: now.add(const Duration(days: 90)),
+        maxRedemptions: 1,
+        canRedeem: params.currentPoints >= 1000,
+      ),
+      AvailableReward(
+        id: 'rw_2500',
+        name: 'Free Delivery',
+        description: 'Redeem for one free delivery',
+        pointsRequired: 2500,
+        discountValue: 2500,
+        expiryDate: now.add(const Duration(days: 90)),
+        maxRedemptions: 1,
+        canRedeem: params.currentPoints >= 2500,
+      ),
+    ];
+    return rewards;
   }
 }
 
@@ -105,8 +210,22 @@ class AvailableReward {
 class GetCustomerProfileUseCase extends UseCase<CustomerProfile, String> {
   @override
   Future<CustomerProfile> call(String customerId) async {
-    // Implementation handled by repository
-    throw UnimplementedError();
+    if (customerId.trim().isEmpty) {
+      throw ArgumentError('customerId is required');
+    }
+    final now = DateTime.now();
+    return CustomerProfile(
+      customerId: customerId,
+      name: 'Customer $customerId',
+      email: '',
+      phone: '',
+      totalPurchases: 0,
+      totalSpent: 0,
+      favoriteCategories: const [],
+      lastPurchaseDate: now,
+      joinDate: now,
+      isPreferred: false,
+    );
   }
 }
 

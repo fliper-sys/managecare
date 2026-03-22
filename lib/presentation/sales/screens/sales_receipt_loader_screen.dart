@@ -29,22 +29,34 @@ class _SalesReceiptLoaderScreenState extends State<SalesReceiptLoaderScreen> {
     try {
       final businessId =
           context.read<BusinessProvider>().currentBusiness?.id;
-      if (businessId == null || businessId.isEmpty) {
-        return null;
+      final firestore = FirebaseFirestore.instance;
+
+      if (businessId != null && businessId.isNotEmpty) {
+        final nestedSaleDoc = await firestore
+            .collection('businesses')
+            .doc(businessId)
+            .collection('sales')
+            .doc(widget.saleId)
+            .get();
+
+        if (nestedSaleDoc.exists) {
+          final saleData = nestedSaleDoc.data() ?? {};
+          return {
+            'id': nestedSaleDoc.id,
+            ...saleData,
+          };
+        }
       }
 
-      // Try to fetch from sales collection
-      final saleDoc = await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
+      final rootSaleDoc = await firestore
           .collection('sales')
           .doc(widget.saleId)
           .get();
 
-      if (saleDoc.exists) {
-        final saleData = saleDoc.data() ?? {};
+      if (rootSaleDoc.exists) {
+        final saleData = rootSaleDoc.data() ?? {};
         return {
-          'id': saleDoc.id,
+          'id': rootSaleDoc.id,
           ...saleData,
         };
       }

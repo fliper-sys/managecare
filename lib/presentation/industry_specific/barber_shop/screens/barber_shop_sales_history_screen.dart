@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/utils/currency.dart';
 import '../providers/barber_shop_provider.dart';
 
 class BarberShopSalesHistoryScreen extends StatefulWidget {
@@ -46,8 +47,8 @@ class _BarberShopSalesHistoryScreenState extends State<BarberShopSalesHistoryScr
                   return Card(
                     child: ListTile(
                       title: Text(s.clientName),
-                      subtitle: Text('${s.barberName} • ${s.paymentMethod}'),
-                      trailing: Text('₦${s.total.toStringAsFixed(2)}'),
+                      subtitle: Text('${s.barberName} - ${s.paymentMethod}'),
+                      trailing: Text(formatCurrency(s.total)),
                       onTap: () => _showSaleDetails(s),
                     ),
                   );
@@ -79,10 +80,14 @@ class _BarberShopSalesHistoryScreenState extends State<BarberShopSalesHistoryScr
             Text('Client: ${sale.clientName}'),
             Text('Barber: ${sale.barberName}'),
             Text('Payment: ${sale.paymentMethod}'),
-            Text('Total: ₦${sale.total.toStringAsFixed(2)}'),
+            Text('Total: ${formatCurrency(sale.total)}'),
             const SizedBox(height: 8),
             const Text('Services:'),
-            ...sale.services.map<Widget>((sv) => Text('${sv['serviceName']} — ₦${sv['price']}'))
+            ...sale.services.map<Widget>(
+              (sv) => Text(
+                '${sv['serviceName']} - ${formatCurrency(((sv['price'] ?? 0) as num).toDouble())}',
+              ),
+            )
           ],
         ),
         actions: [

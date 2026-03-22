@@ -53,6 +53,41 @@ class AdminProvider extends ChangeNotifier {
   List<Map<String, dynamic>> get allBusinesses => _allBusinesses;
   int get pendingInstallationRequestsCount => _pendingInstallationRequests;
 
+  /// Load persisted admin settings.
+  Future<Map<String, dynamic>> getAdminSettings() async {
+    try {
+      final doc = await _firestore.collection('system').doc('admin_settings').get();
+      return doc.data() ?? const {};
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+      return const {};
+    }
+  }
+
+  /// Persist admin settings to Firestore.
+  Future<bool> saveAdminSettings(Map<String, dynamic> settings) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      await _firestore.collection('system').doc('admin_settings').set({
+        ...settings,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': _auth.currentUser?.uid,
+      }, SetOptions(merge: true));
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Fetch real-time admin statistics from Firestore
   Future<void> fetchAdminStats() async {
     // Prevent duplicate simultaneous requests
@@ -609,6 +644,58 @@ class AdminProvider extends ChangeNotifier {
     }
   }
 
+  /// Remove a worker from a business without deleting the underlying user.
+  Future<bool> removeWorkerFromBusiness(String userId, String businessId) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      await _firestore.collection('users').doc(userId).set({
+        'businessId': null,
+        'role': 'user',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      final businessRef = _firestore.collection('businesses').doc(businessId);
+      final businessSnap = await businessRef.get();
+      if (businessSnap.exists) {
+        final data = businessSnap.data() ?? const {};
+        final currentWorkers = (data['totalWorkers'] as num?)?.toInt() ?? 0;
+        await businessRef.set({
+          'totalWorkers': currentWorkers > 0 ? currentWorkers - 1 : 0,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      final userIdx = _allUsers.indexWhere((u) => u['id'] == userId);
+      if (userIdx >= 0) {
+        _allUsers[userIdx] = {
+          ..._allUsers[userIdx],
+          'businessId': null,
+          'role': 'user',
+        };
+      }
+
+      final businessIdx = _allBusinesses.indexWhere((b) => b['id'] == businessId);
+      if (businessIdx >= 0) {
+        final currentWorkers = (_allBusinesses[businessIdx]['totalWorkers'] as num?)?.toInt() ?? 0;
+        _allBusinesses[businessIdx] = {
+          ..._allBusinesses[businessIdx],
+          'totalWorkers': currentWorkers > 0 ? currentWorkers - 1 : 0,
+        };
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Get business details
   Future<Map<String, dynamic>?> getBusinessDetails(String businessId) async {
     try {
@@ -834,6 +921,123 @@ class AdminProvider extends ChangeNotifier {
       if (idx >= 0) {
         _allBusinesses[idx] = {..._allBusinesses[idx], ...updates};
       }
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Permanently delete a business, remove known child data, and detach linked users.
+  Future<bool> deleteBusinessCompletely(String businessId) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      final businessRef = _firestore.collection('businesses').doc(businessId);
+      final businessSnap = await businessRef.get();
+      final businessName =
+          (businessSnap.data() ?? const {})['name']?.toString() ?? businessId;
+
+      const subcollections = [
+        'sales',
+        'inventory',
+        'orders',
+        'bookings',
+        'invoices',
+        'payments',
+        'payment_transactions',
+        'serviceOrders',
+        'restaurant_orders',
+        'services',
+        'products',
+        'workers',
+        'staff',
+        'tables',
+      ];
+
+      for (final subcollection in subcollections) {
+        try {
+          final snap = await businessRef.collection(subcollection).get();
+          for (final doc in snap.docs) {
+            await doc.reference.delete();
+          }
+        } catch (_) {}
+      }
+
+      const rootCollections = [
+        'subscriptions',
+        'payments',
+        'transactions',
+        'activities',
+        'serviceOrders',
+      ];
+
+      for (final collection in rootCollections) {
+        try {
+          final snap = await _firestore
+              .collection(collection)
+              .where('businessId', isEqualTo: businessId)
+              .get();
+          for (final doc in snap.docs) {
+            await doc.reference.delete();
+          }
+        } catch (_) {}
+      }
+
+      try {
+        final usersSnap = await _firestore
+            .collection('users')
+            .where('businessId', isEqualTo: businessId)
+            .get();
+        for (final doc in usersSnap.docs) {
+          await doc.reference.set({
+            'businessId': null,
+            'isSubscriptionActive': false,
+            'businessDeletedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      } catch (_) {}
+
+      await businessRef.delete();
+
+      _allBusinesses.removeWhere((b) => b['id'] == businessId);
+      for (var i = 0; i < _allUsers.length; i++) {
+        if (_allUsers[i]['businessId'] == businessId) {
+          _allUsers[i] = {
+            ..._allUsers[i],
+            'businessId': null,
+            'isSubscriptionActive': false,
+          };
+        }
+      }
+
+      await _firestore.collection('admin_notifications').add({
+        'type': 'business',
+        'title': 'Business Deleted',
+        'message': '$businessName was permanently deleted by admin.',
+        'data': {
+          'businessId': businessId,
+          'businessName': businessName,
+          'eventType': 'deleted',
+        },
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      _stats = AdminStats(
+        totalBusinesses: _allBusinesses.length,
+        activeUsers: _stats.activeUsers,
+        totalRevenue: _stats.totalRevenue,
+        pendingPayments: _stats.pendingPayments,
+        totalTransactions: _stats.totalTransactions,
+        recentActivities: _stats.recentActivities,
+      );
 
       _isLoading = false;
       notifyListeners();

@@ -7,8 +7,15 @@ abstract class HotelRepository {
   /// Fetch reservations for the given business.
   Future<List<Map<String, dynamic>>> fetchReservations(String businessId);
 
+  /// Update a single reservation in the backend.
+  Future<void> updateReservation(
+      String businessId, String reservationId, Map<String, dynamic> updates);
+
+  /// Soft cancel a reservation (update status)
+  Future<void> cancelReservation(String businessId, String reservationId,
+      {String? reason});
+
   /// Sync reservations (batch write) for the given business.
   Future<void> syncReservations(
       String businessId, List<Map<String, dynamic>> reservations);
 }
-

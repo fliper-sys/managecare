@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../core/theme/text_styles.dart';
 import '../core/theme/colors.dart';
 import '../providers/connectivity_provider.dart';
+import '../providers/sync_provider.dart';
 
 class OfflineIndicator extends StatelessWidget {
   final bool showAlways;
@@ -14,23 +15,26 @@ class OfflineIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ConnectivityProvider>(
-      builder: (context, connectivity, _) {
-        if (connectivity.isConnected && !showAlways) {
+    return Consumer2<ConnectivityProvider, SyncProvider>(
+      builder: (context, connectivity, sync, _) {
+        if (connectivity.isConnected && !showAlways && sync.pendingItems == 0) {
           return const SizedBox.shrink();
         }
+
+        final hasPendingItems = sync.pendingItems > 0;
+        final isSyncing = sync.isSyncing;
 
         return Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: connectivity.isConnected
-                ? AppColors.warning
+                ? (hasPendingItems ? AppColors.warning : AppColors.success)
                 : Theme.of(context).colorScheme.surface,
             border: Border(
               bottom: BorderSide(
                 color: connectivity.isConnected
-                    ? AppColors.warning
+                    ? (hasPendingItems ? AppColors.warning : AppColors.success)
                     : Theme.of(context).dividerColor,
                 width: 1,
               ),
@@ -47,7 +51,7 @@ class OfflineIndicator extends StatelessWidget {
             children: [
               Icon(
                 connectivity.isConnected
-                    ? Icons.cloud_off_rounded
+                    ? (isSyncing ? Icons.sync : hasPendingItems ? Icons.cloud_upload : Icons.cloud_done)
                     : Icons.signal_cellular_nodata_rounded,
                 color: Theme.of(context).colorScheme.onPrimary,
                 size: 20,
@@ -60,7 +64,7 @@ class OfflineIndicator extends StatelessWidget {
                   children: [
                     Text(
                       connectivity.isConnected
-                          ? 'Limited Connection'
+                          ? (isSyncing ? 'Syncing...' : hasPendingItems ? 'Pending Sync' : 'Online')
                           : 'You\'re Offline',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             color: Theme.of(context).colorScheme.onPrimary,
@@ -70,7 +74,11 @@ class OfflineIndicator extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       connectivity.isConnected
-                          ? 'Some features may be unavailable'
+                          ? (isSyncing
+                              ? 'Uploading ${sync.pendingItems} items...'
+                              : hasPendingItems
+                                  ? '${sync.pendingItems} items waiting to sync'
+                                  : 'All changes synced')
                           : 'Working in offline mode • Changes will sync when online',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: Theme.of(context)
@@ -92,7 +100,9 @@ class OfflineIndicator extends StatelessWidget {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  'OFFLINE',
+                  connectivity.isConnected
+                      ? (isSyncing ? 'SYNCING' : hasPendingItems ? 'PENDING' : 'ONLINE')
+                      : 'OFFLINE',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Theme.of(context).colorScheme.onPrimary,
                         fontWeight: FontWeight.w800,

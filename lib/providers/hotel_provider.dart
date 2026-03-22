@@ -12,7 +12,8 @@ class Room {
   final String? emoji;
   final List<String> amenities; // WiFi, AC, TV, Kitchenette, etc.
   final List<String> images;
-  final List<Map<String, dynamic>>? priceIntervals; // Optional time-interval pricing
+  final List<Map<String, dynamic>>?
+      priceIntervals; // Optional time-interval pricing
   final int floor;
   final double rating;
 
@@ -85,6 +86,38 @@ class Reservation {
     required this.paymentStatus,
   });
 
+  Reservation copyWith({
+    String? id,
+    String? roomId,
+    String? guestName,
+    String? guestEmail,
+    String? guestPhone,
+    DateTime? checkIn,
+    DateTime? checkOut,
+    int? adults,
+    int? children,
+    String? status,
+    double? totalPrice,
+    List<String>? specialRequests,
+    String? paymentStatus,
+  }) {
+    return Reservation(
+      id: id ?? this.id,
+      roomId: roomId ?? this.roomId,
+      guestName: guestName ?? this.guestName,
+      guestEmail: guestEmail ?? this.guestEmail,
+      guestPhone: guestPhone ?? this.guestPhone,
+      checkIn: checkIn ?? this.checkIn,
+      checkOut: checkOut ?? this.checkOut,
+      adults: adults ?? this.adults,
+      children: children ?? this.children,
+      status: status ?? this.status,
+      totalPrice: totalPrice ?? this.totalPrice,
+      specialRequests: specialRequests ?? this.specialRequests,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
+    );
+  }
+
   int get nights => checkOut.difference(checkIn).inDays;
 }
 
@@ -142,7 +175,8 @@ class HotelProvider extends ChangeNotifier {
   }
 
   Future<void> _init() async {
-    if (_businessId == null || _businessId!.isEmpty || repository == null) return;
+    if (_businessId == null || _businessId!.isEmpty || repository == null)
+      return;
     await loadFromRepository();
     await syncReservations();
   }
@@ -159,10 +193,178 @@ class HotelProvider extends ChangeNotifier {
   int get availableRooms => _rooms.where((r) => r.status == 'available').length;
   int get maintenanceRooms =>
       _rooms.where((r) => r.status == 'maintenance').length;
+  int get reservedRooms =>
+      _reservations.where((r) => r.status == 'confirmed').length;
+
+  List<Reservation> get checkedInReservations =>
+      _reservations.where((r) => r.status == 'checked-in').toList();
+
+  List<Reservation> get confirmedReservations =>
+      _reservations.where((r) => r.status == 'confirmed').toList();
+
+  List<Reservation> get cancelledReservations =>
+      _reservations.where((r) => r.status == 'cancelled').toList();
 
   double get revenue => _reservations
       .where((r) => r.status == 'checked-out' || r.status == 'confirmed')
       .fold(0, (sum, r) => sum + r.totalPrice);
+
+  Room? getRoomById(String roomId) {
+    for (final room in _rooms) {
+      if (room.id == roomId) return room;
+    }
+    return null;
+  }
+
+  List<Reservation> getReservationsForRoom(String roomId) {
+    return _reservations.where((r) => r.roomId == roomId).toList();
+  }
+
+  List<Reservation> get reservationsSortedByCheckIn {
+    final list = [..._reservations];
+    list.sort((a, b) => a.checkIn.compareTo(b.checkIn));
+    return list;
+  }
+
+  List<Map<String, dynamic>> get guestProfiles {
+    final Map<String, Map<String, dynamic>> guests = {};
+    for (final reservation in _reservations) {
+      final key = reservation.guestEmail.trim().isNotEmpty
+          ? reservation.guestEmail.trim().toLowerCase()
+          : reservation.guestPhone.trim().isNotEmpty
+              ? reservation.guestPhone.trim()
+              : reservation.guestName.trim().toLowerCase();
+
+      final current = guests[key];
+      final room = getRoomById(reservation.roomId);
+      final data = {
+        'guestName': reservation.guestName,
+        'guestEmail': reservation.guestEmail,
+        'guestPhone': reservation.guestPhone,
+        'reservationCount': (current?['reservationCount'] ?? 0) + 1,
+        'checkedInCount': (current?['checkedInCount'] ?? 0) +
+            (reservation.status == 'checked-in' ? 1 : 0),
+        'totalSpend':
+            (current?['totalSpend'] ?? 0.0) + reservation.totalPrice,
+        'lastReservation': reservation,
+        'roomNumber': room?.number ?? '',
+      };
+      guests[key] = data;
+    }
+    final list = guests.values.toList();
+    list.sort((a, b) {
+      final aRes = a['lastReservation'] as Reservation;
+      final bRes = b['lastReservation'] as Reservation;
+      return bRes.checkIn.compareTo(aRes.checkIn);
+    });
+    return list;
+  }
+
+  Map<String, int> get serviceStatusCounts {
+    return {
+      'pending': _serviceOrders.where((s) => s.status == 'pending').length,
+      'in-progress':
+          _serviceOrders.where((s) => s.status == 'in-progress').length,
+      'completed': _serviceOrders.where((s) => s.status == 'completed').length,
+      'cancelled': _serviceOrders.where((s) => s.status == 'cancelled').length,
+    };
+  }
+
+  double estimateServiceCharge(String serviceName, {String priority = 'medium'}) {
+    final normalized = serviceName.trim().toLowerCase();
+    double base;
+    switch (normalized) {
+      case 'housekeeping':
+        base = 5000.0;
+        break;
+      case 'laundry':
+        base = 3500.0;
+        break;
+      case 'room service':
+      case 'food delivery':
+        base = 7000.0;
+        break;
+      case 'maintenance':
+        base = 4000.0;
+        break;
+      case 'spa & wellness':
+        base = 12000.0;
+        break;
+      default:
+        base = 3000.0;
+    }
+
+    double multiplier;
+    switch (priority.trim().toLowerCase()) {
+      case 'urgent':
+        multiplier = 1.5;
+        break;
+      case 'high':
+        multiplier = 1.25;
+        break;
+      case 'low':
+        multiplier = 0.9;
+        break;
+      default:
+        multiplier = 1.0;
+    }
+    return base * multiplier;
+  }
+
+  List<Map<String, dynamic>> buildFolioCharges(Reservation reservation) {
+    final room = getRoomById(reservation.roomId);
+    final roomRate = room?.pricePerNight ?? 0.0;
+    final nights = reservation.nights <= 0 ? 1 : reservation.nights;
+    final charges = <Map<String, dynamic>>[
+      {
+        'description':
+            'Room ${room?.number ?? reservation.roomId} x $nights night${nights == 1 ? '' : 's'}',
+        'amount': roomRate * nights,
+        'type': 'room',
+      },
+    ];
+
+    final relatedServices = _serviceOrders.where((service) {
+      final sameRoom = service.roomId == reservation.roomId;
+      final withinStay = !service.requestedAt.isBefore(reservation.checkIn) &&
+          !service.requestedAt.isAfter(reservation.checkOut);
+      return sameRoom && withinStay && service.status != 'cancelled';
+    }).toList();
+
+    for (final service in relatedServices) {
+      charges.add({
+        'description':
+            '${service.serviceName} (${service.priority})',
+        'amount': estimateServiceCharge(
+          service.serviceName,
+          priority: service.priority,
+        ),
+        'type': 'service',
+      });
+    }
+
+    return charges;
+  }
+
+  double getReservationBalance(Reservation reservation) {
+    return buildFolioCharges(reservation).fold<double>(
+      0.0,
+      (sum, charge) => sum + ((charge['amount'] as num?)?.toDouble() ?? 0.0),
+    );
+  }
+
+  List<Reservation> getReservationsByStatuses(List<String> statuses) {
+    return _reservations.where((r) => statuses.contains(r.status)).toList();
+  }
+
+  List<Reservation> getArrivalsForDate(DateTime date) {
+    return _reservations.where((r) {
+      return r.checkIn.year == date.year &&
+          r.checkIn.month == date.month &&
+          r.checkIn.day == date.day &&
+          r.status == 'confirmed';
+    }).toList();
+  }
 
   // Initialize with sample data
   void _initializeSampleData() {
@@ -436,12 +638,30 @@ class HotelProvider extends ChangeNotifier {
     required int children,
     required List<String> specialRequests,
   }) async {
-    final room = _rooms.firstWhere((r) => r.id == roomId);
+    if (checkIn.isAfter(checkOut) || checkIn.isAtSameMomentAs(checkOut)) {
+      throw Exception('Check-out must be after check-in.');
+    }
+
+    final room = _rooms.firstWhere((r) => r.id == roomId,
+        orElse: () => throw Exception('Selected room not found.'));
+
+    final conflict = _reservations.any((existing) {
+      if (existing.roomId != roomId || existing.status == 'cancelled')
+        return false;
+      return existing.checkOut.isAfter(checkIn) &&
+          existing.checkIn.isBefore(checkOut);
+    });
+
+    if (conflict) {
+      throw Exception('Selected room is already booked for the chosen dates.');
+    }
+
     final nights = checkOut.difference(checkIn).inDays;
     final totalPrice = room.pricePerNight * nights;
+    String reservationId = 'B${_reservations.length + 1}';
 
-    final reservation = Reservation(
-      id: 'B${_reservations.length + 1}',
+    var reservation = Reservation(
+      id: reservationId,
       roomId: roomId,
       guestName: guestName,
       guestEmail: guestEmail,
@@ -458,10 +678,9 @@ class HotelProvider extends ChangeNotifier {
 
     _reservations.add(reservation);
 
-    if (repository != null) {
-      // Persist as a simple map using repository API
-      await repository!.createBooking({
-        'businessId': _businessId ?? '',
+    if (repository != null && _businessId != null && _businessId!.isNotEmpty) {
+      final saved = await repository!.createBooking({
+        'businessId': _businessId,
         'roomId': reservation.roomId,
         'guestName': reservation.guestName,
         'guestEmail': reservation.guestEmail,
@@ -475,58 +694,82 @@ class HotelProvider extends ChangeNotifier {
         'specialRequests': reservation.specialRequests,
         'paymentStatus': reservation.paymentStatus,
       });
+
+      if (saved['id'] != null) {
+        reservationId = saved['id'].toString();
+        _reservations[_reservations.length - 1] =
+            reservation.copyWith(id: reservationId);
+      }
     }
 
     notifyListeners();
   }
 
-  void updateReservationStatus(String reservationId, String newStatus) {
+  Future<void> updateReservationStatus(
+      String reservationId, String newStatus) async {
     final index = _reservations.indexWhere((r) => r.id == reservationId);
     if (index >= 0) {
-      _reservations[index] = Reservation(
-        id: _reservations[index].id,
-        roomId: _reservations[index].roomId,
-        guestName: _reservations[index].guestName,
-        guestEmail: _reservations[index].guestEmail,
-        guestPhone: _reservations[index].guestPhone,
-        checkIn: _reservations[index].checkIn,
-        checkOut: _reservations[index].checkOut,
-        adults: _reservations[index].adults,
-        children: _reservations[index].children,
-        status: newStatus,
-        totalPrice: _reservations[index].totalPrice,
-        specialRequests: _reservations[index].specialRequests,
-        paymentStatus: _reservations[index].paymentStatus,
-      );
+      _reservations[index] = _reservations[index].copyWith(status: newStatus);
 
       if (newStatus == 'checked-in') {
         updateRoomStatus(_reservations[index].roomId, 'occupied');
       } else if (newStatus == 'checked-out') {
         updateRoomStatus(_reservations[index].roomId, 'available');
+      } else if (newStatus == 'cancelled') {
+        updateRoomStatus(_reservations[index].roomId, 'available');
+      }
+
+      if (repository != null &&
+          _businessId != null &&
+          _businessId!.isNotEmpty) {
+        try {
+          await repository!.updateReservation(
+              _businessId!, reservationId, {'status': newStatus});
+        } catch (e) {
+          debugPrint('[HotelProvider] updateReservationStatus error: $e');
+        }
       }
 
       notifyListeners();
     }
   }
 
-  void updatePaymentStatus(String reservationId, String paymentStatus) {
+  Future<void> cancelReservation(String reservationId, {String? reason}) async {
+    await updateReservationStatus(reservationId, 'cancelled');
+    if (reason != null && reason.isNotEmpty) {
+      // optional reason stored in Firestore if supported
+      if (repository != null &&
+          _businessId != null &&
+          _businessId!.isNotEmpty) {
+        try {
+          await repository!.updateReservation(
+              _businessId!, reservationId, {'cancelReason': reason});
+        } catch (e) {
+          debugPrint(
+              '[HotelProvider] cancelReservation reason store error: $e');
+        }
+      }
+    }
+  }
+
+  Future<void> updatePaymentStatus(
+      String reservationId, String paymentStatus) async {
     final index = _reservations.indexWhere((r) => r.id == reservationId);
     if (index >= 0) {
-      _reservations[index] = Reservation(
-        id: _reservations[index].id,
-        roomId: _reservations[index].roomId,
-        guestName: _reservations[index].guestName,
-        guestEmail: _reservations[index].guestEmail,
-        guestPhone: _reservations[index].guestPhone,
-        checkIn: _reservations[index].checkIn,
-        checkOut: _reservations[index].checkOut,
-        adults: _reservations[index].adults,
-        children: _reservations[index].children,
-        status: _reservations[index].status,
-        totalPrice: _reservations[index].totalPrice,
-        specialRequests: _reservations[index].specialRequests,
-        paymentStatus: paymentStatus,
-      );
+      _reservations[index] =
+          _reservations[index].copyWith(paymentStatus: paymentStatus);
+
+      if (repository != null &&
+          _businessId != null &&
+          _businessId!.isNotEmpty) {
+        try {
+          await repository!.updateReservation(
+              _businessId!, reservationId, {'paymentStatus': paymentStatus});
+        } catch (e) {
+          debugPrint('[HotelProvider] updatePaymentStatus error: $e');
+        }
+      }
+
       notifyListeners();
     }
   }
@@ -692,13 +935,29 @@ class HotelProvider extends ChangeNotifier {
   /// Get today's sales total from Firestore sales collection
   Future<double> getTodaysSalesTotal() async {
     try {
-      // Get business ID from some provider or context
-      // For now, return 0 as placeholder - this needs to be integrated with business context
-      return 0.0;
+      final today = DateTime.now();
+      double total = 0.0;
+
+      for (final reservation in _reservations) {
+        final touchesToday =
+            (reservation.checkIn.year == today.year &&
+                    reservation.checkIn.month == today.month &&
+                    reservation.checkIn.day == today.day) ||
+                (reservation.checkOut.year == today.year &&
+                    reservation.checkOut.month == today.month &&
+                    reservation.checkOut.day == today.day);
+
+        if (!touchesToday) continue;
+        if (reservation.paymentStatus == 'paid' ||
+            reservation.paymentStatus == 'partial') {
+          total += reservation.totalPrice;
+        }
+      }
+
+      return total;
     } catch (e) {
       debugPrint('[HotelProvider] Error fetching today\'s sales: $e');
       return 0.0;
     }
   }
 }
-

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/salon_provider.dart';
+
+import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../providers/inventory_alerts_provider.dart';
+import '../providers/salon_provider.dart';
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key});
@@ -13,7 +16,15 @@ class InventoryScreen extends StatefulWidget {
 class _InventoryScreenState extends State<InventoryScreen> {
   final _nameCtrl = TextEditingController();
   final _qtyCtrl = TextEditingController(text: '1');
-  final _priceCtrl = TextEditingController(text: '0.0');
+  final _priceCtrl = TextEditingController(text: '0');
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<SalonProvider>().loadProducts();
+    });
+  }
 
   @override
   void dispose() {
@@ -23,59 +34,60 @@ class _InventoryScreenState extends State<InventoryScreen> {
     super.dispose();
   }
 
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final provider = Provider.of<SalonProvider>(context, listen: false);
-      provider.loadProducts();
-    });
+  Future<void> _refreshInventory() async {
+    await context.read<SalonProvider>().loadProducts();
   }
 
-  Future<void> _refreshInventory() async {
-    final provider = Provider.of<SalonProvider>(context, listen: false);
-    await provider.loadProducts();
+  void _resetForm() {
+    _nameCtrl.clear();
+    _qtyCtrl.text = '1';
+    _priceCtrl.text = '0';
   }
 
   void _showAddProductDialog(SalonProvider provider) {
+    _resetForm();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Add Product'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
                 controller: _nameCtrl,
-                decoration: const InputDecoration(labelText: 'Name')),
-            TextField(
+                decoration: const InputDecoration(labelText: 'Name'),
+              ),
+              TextField(
                 controller: _qtyCtrl,
                 decoration: const InputDecoration(labelText: 'Quantity'),
-                keyboardType: TextInputType.number),
-            TextField(
+                keyboardType: TextInputType.number,
+              ),
+              TextField(
                 controller: _priceCtrl,
                 decoration: const InputDecoration(labelText: 'Price'),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true)),
-          ],
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () {
-              final id = DateTime.now().millisecondsSinceEpoch.toString();
-              final name = _nameCtrl.text.trim();
-              final qty = int.tryParse(_qtyCtrl.text) ?? 0;
-              final price = double.tryParse(_priceCtrl.text) ?? 0.0;
-              if (name.isEmpty) return;
-              final p =
-                  ProductItem(id: id, name: name, quantity: qty, price: price, minStock: 10, reorderQuantity: 50);
-              provider.addProduct(p);
-              _nameCtrl.clear();
-              _qtyCtrl.text = '1';
-              _priceCtrl.text = '0.0';
+              final product = ProductItem(
+                id: DateTime.now().millisecondsSinceEpoch.toString(),
+                name: _nameCtrl.text.trim(),
+                quantity: int.tryParse(_qtyCtrl.text) ?? 0,
+                price: double.tryParse(_priceCtrl.text) ?? 0.0,
+                minStock: 10,
+                reorderQuantity: 50,
+              );
+              if (product.name.isEmpty) return;
+              provider.addProduct(product);
               Navigator.of(context).pop();
             },
             child: const Text('Add'),
@@ -94,50 +106,47 @@ class _InventoryScreenState extends State<InventoryScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Edit Product'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
                 controller: _nameCtrl,
-                decoration: const InputDecoration(labelText: 'Name')),
-            TextField(
+                decoration: const InputDecoration(labelText: 'Name'),
+              ),
+              TextField(
                 controller: _qtyCtrl,
                 decoration: const InputDecoration(labelText: 'Quantity'),
-                keyboardType: TextInputType.number),
-            TextField(
+                keyboardType: TextInputType.number,
+              ),
+              TextField(
                 controller: _priceCtrl,
                 decoration: const InputDecoration(labelText: 'Price'),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true)),
-          ],
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
-              onPressed: () {
-                _nameCtrl.clear();
-                _qtyCtrl.text = '1';
-                _priceCtrl.text = '0.0';
-                Navigator.of(context).pop();
-              },
-              child: const Text('Cancel')),
+            onPressed: () {
+              _resetForm();
+              Navigator.of(context).pop();
+            },
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () {
-              final name = _nameCtrl.text.trim();
-              final qty = int.tryParse(_qtyCtrl.text) ?? 0;
-              final price = double.tryParse(_priceCtrl.text) ?? 0.0;
-              if (name.isEmpty) return;
               final updated = ProductItem(
                 id: product.id,
-                name: name,
-                quantity: qty,
-                price: price,
+                name: _nameCtrl.text.trim(),
+                quantity: int.tryParse(_qtyCtrl.text) ?? 0,
+                price: double.tryParse(_priceCtrl.text) ?? 0.0,
                 minStock: product.minStock,
                 reorderQuantity: product.reorderQuantity,
               );
+              if (updated.name.isEmpty) return;
               provider.updateProduct(updated);
-              _nameCtrl.clear();
-              _qtyCtrl.text = '1';
-              _priceCtrl.text = '0.0';
               Navigator.of(context).pop();
             },
             child: const Text('Save'),
@@ -154,7 +163,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
         title: const Text('Delete Product'),
         content: Text('Delete "${product.name}"?'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () {
               provider.deleteProduct(product.id);
@@ -167,25 +179,41 @@ class _InventoryScreenState extends State<InventoryScreen> {
     );
   }
 
-  void _showReorderDialog(SalonProvider provider, InventoryAlertsProvider alertsProvider, ProductItem product) {
-    final _reorderCtrl = TextEditingController(text: product.reorderQuantity.toString());
+  void _showReorderDialog(
+    SalonProvider provider,
+    InventoryAlertsProvider alertsProvider,
+    ProductItem product,
+  ) {
+    final reorderCtrl =
+        TextEditingController(text: product.reorderQuantity.toString());
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Reorder ${product.name}'),
         content: TextField(
-          controller: _reorderCtrl,
+          controller: reorderCtrl,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(labelText: 'Quantity to reorder'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () async {
-              final qty = int.tryParse(_reorderCtrl.text) ?? product.reorderQuantity;
-              await alertsProvider.placeDirectReorderForProduct(product.id, product.name, qty);
+              final qty =
+                  int.tryParse(reorderCtrl.text) ?? product.reorderQuantity;
+              await alertsProvider.placeDirectReorderForProduct(
+                product.id,
+                product.name,
+                qty,
+              );
+              if (!mounted) return;
               Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Reorder placed for ${product.name}')));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Reorder placed for ${product.name}')),
+              );
             },
             child: const Text('Place Reorder'),
           ),
@@ -196,59 +224,113 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = Provider.of<SalonProvider>(context);
-    final products = provider.products;
+    return Consumer<SalonProvider>(
+      builder: (context, provider, _) {
+        final products = provider.products;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Inventory')),
-      body: RefreshIndicator(
-        onRefresh: _refreshInventory,
-        child: ListView.separated(
-        padding: const EdgeInsets.all(12),
-        itemCount: products.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (context, index) {
-          final p = products[index];
-          return Card(
-            child: ListTile(
-              title: Text(p.name),
-              subtitle:
-                  Text('Qty: ${p.quantity} • \$${p.price.toStringAsFixed(2)}${p.quantity <= p.minStock ? ' • LOW' : ''}'),
-              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                IconButton(
-                  icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: () => provider.adjustProductQuantity(p.id, -1),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.add_circle_outline),
-                  onPressed: () => provider.adjustProductQuantity(p.id, 1),
-                ),
-                PopupMenuButton<String>(
-                  onSelected: (value) {
-                    final alertsProvider = Provider.of<InventoryAlertsProvider>(context, listen: false);
-                    if (value == 'edit') _showEditProductDialog(provider, p);
-                    if (value == 'delete') _confirmDeleteProduct(provider, p);
-                    if (value == 'reorder') _showReorderDialog(provider, alertsProvider, p);
-                  },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(value: 'edit', child: Text('Edit')),
-                    PopupMenuItem(value: 'delete', child: Text('Delete')),
-                    PopupMenuItem(value: 'reorder', child: Text('Reorder')),
-                  ],
-                ),
-              ]),
-            ),
-          );
-        },
-      ),
-        ),
-    
-      
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddProductDialog(provider),
-        child: const Icon(Icons.add_shopping_cart),
-      ),
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Inventory'),
+            backgroundColor: AppColors.primary,
+          ),
+          backgroundColor: Colors.grey[50],
+          body: RefreshIndicator(
+            onRefresh: _refreshInventory,
+            child: products.isEmpty
+                ? ListView(
+                    children: [
+                      const SizedBox(height: 180),
+                      Center(
+                        child: Text(
+                          'No inventory products yet',
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: products.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final product = products[index];
+                      final lowStock = product.quantity <= product.minStock;
+                      return Card(
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: lowStock
+                                ? Colors.orange.withOpacity(0.12)
+                                : AppColors.primary.withOpacity(0.12),
+                            child: Icon(
+                              Icons.inventory_2_outlined,
+                              color: lowStock ? Colors.orange : AppColors.primary,
+                            ),
+                          ),
+                          title: Text(product.name),
+                          subtitle: Text(
+                            'Qty: ${product.quantity} - ${formatCurrency(product.price)}${lowStock ? ' - LOW' : ''}',
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.remove_circle_outline),
+                                onPressed: () =>
+                                    provider.adjustProductQuantity(product.id, -1),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.add_circle_outline),
+                                onPressed: () =>
+                                    provider.adjustProductQuantity(product.id, 1),
+                              ),
+                              PopupMenuButton<String>(
+                                onSelected: (value) {
+                                  final alertsProvider =
+                                      context.read<InventoryAlertsProvider>();
+                                  if (value == 'edit') {
+                                    _showEditProductDialog(provider, product);
+                                  }
+                                  if (value == 'delete') {
+                                    _confirmDeleteProduct(provider, product);
+                                  }
+                                  if (value == 'reorder') {
+                                    _showReorderDialog(
+                                      provider,
+                                      alertsProvider,
+                                      product,
+                                    );
+                                  }
+                                },
+                                itemBuilder: (context) => const [
+                                  PopupMenuItem(
+                                    value: 'edit',
+                                    child: Text('Edit'),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'delete',
+                                    child: Text('Delete'),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'reorder',
+                                    child: Text('Reorder'),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          floatingActionButton: FloatingActionButton.extended(
+            onPressed: () => _showAddProductDialog(provider),
+            backgroundColor: AppColors.primary,
+            icon: const Icon(Icons.add_shopping_cart),
+            label: const Text('Add Product'),
+          ),
+        );
+      },
     );
   }
 }
-

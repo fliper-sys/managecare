@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../widgets/async_button.dart';
@@ -10,7 +15,12 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
 import '../../../../services/payment_service.dart';
+import '../../../../services/offline_sales_service.dart';
+import '../../../../data/repositories/sales_repository_impl.dart';
+import '../../../../providers/connectivity_provider.dart';
 import '../providers/restaurant_provider.dart';
+import '../../../../services/pdf_invoice_generator.dart';
+import '../../../../services/web_download.dart' as web_download;
 
 class PendingOrdersAndCheckoutScreen extends StatefulWidget {
   const PendingOrdersAndCheckoutScreen({super.key});
@@ -284,17 +294,25 @@ class _PendingOrdersAndCheckoutScreenState
               // Action Buttons
               Padding(
                 padding: const EdgeInsets.all(16),
-                child: Row(
+                child: Column(
                   children: [
-                    Expanded(
-                      child: CustomButton(
-                        text: 'Print Receipt',
-                        backgroundColor: Colors.blue,
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text('Receipt sent to printer')),
-                          );
+                    CustomButton(
+                      text: 'Generate PDF Invoice',
+                      backgroundColor: Colors.blue,
+                      onPressed: () => _generatePdfInvoice(order),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CustomButton(
+                            text: 'Print Receipt',
+                            backgroundColor: Colors.blue,
+                            onPressed: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Receipt sent to printer')),
+                              );
                         },
                       ),
                     ),
@@ -307,12 +325,97 @@ class _PendingOrdersAndCheckoutScreenState
                     ),
                   ],
                 ),
-              ),
-            ],
+            ] ),
+          )],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _generatePdfInvoice(RestaurantOrder order) async {
+    try {
+      final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final business = businessProvider.currentBusiness;
+
+      // Convert order items to cart items format
+      final cartItems = order.items.map((item) {
+        return {
+          'menuItemName': item.menuItemName,
+          'name': item.menuItemName,
+          'quantity': item.quantity,
+          'price': item.price,
+          'unitPrice': item.price,
+          'subtotal': item.subtotal,
+          'total': item.subtotal,
+          'specialInstructions': item.specialInstructions,
+          'selectedOptions': item.selectedOptions,
+        };
+      }).toList();
+
+      final invoiceNumber = 'INV-${order.id.split('-').last}';
+
+      final pdfBytes = await PdfInvoiceGenerator.generateInvoicePdfBytes(
+        businessName: business?.name ?? 'Restaurant',
+        invoiceNumber: invoiceNumber,
+        invoiceDate: DateTime.now(),
+        cartItems: cartItems,
+        subtotal: order.subtotal,
+        tax: order.tax,
+        discount: order.discount,
+        total: order.total,
+        customerName: order.customerName ?? 'Customer',
+        customerEmail: order.customerEmail,
+        businessAddress: business?.address,
+        businessPhone: business?.phone,
+        businessEmail: business?.email,
+        cashierName: authProvider.currentUser?.fullName,
+      );
+
+      final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
+
+      if (kIsWeb) {
+        web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Invoice PDF downloaded: $filename')),
+        );
+      } else {
+        await _sharePdfOnMobile(pdfBytes, filename);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error generating PDF invoice: $e')),
+      );
+    }
+  }
+
+  Future<void> _sharePdfOnMobile(Uint8List pdfBytes, String filename) async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/$filename');
+      await file.writeAsBytes(pdfBytes);
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Invoice PDF',
+        subject: 'Invoice',
+      );
+    } catch (e) {
+      try {
+        final docsDir = await getApplicationDocumentsDirectory();
+        final file = File('${docsDir.path}/$filename');
+        await file.writeAsBytes(pdfBytes);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Invoice saved to: ${file.path}')),
+        );
+      } catch (e2) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error saving PDF invoice')),
+        );
+      }
+    }
   }
 
   Future<void> _confirmAndCompleteOrder(
@@ -380,6 +483,7 @@ class _PendingOrdersAndCheckoutScreenState
       }
 
       final saleData = {
+        'businessId': businessId,
         'orderId': order.id,
         'items': itemsList,
         'tableNumber': order.tableNumber,
@@ -392,7 +496,7 @@ class _PendingOrdersAndCheckoutScreenState
         'finalAmount': order.total,
         'paymentMethod': _paymentMethod,
         'category': 'Restaurant',
-        'createdAt': FieldValue.serverTimestamp(),
+        'status': 'completed',
         if ((_dialogSelectedStore ?? '').isNotEmpty)
           'storeId': _dialogSelectedStore!,
         if ((_dialogSelectedStore ?? '').isEmpty && (authProvider.currentUser?.storeId ?? '').isNotEmpty)
@@ -402,13 +506,23 @@ class _PendingOrdersAndCheckoutScreenState
         if (authProvider.currentUser?.fullName != null)
           'workerName': authProvider.currentUser!.fullName,
       };
-      // Save sale to Firestore
+
+      // Save sale using offline-aware service
       final firestore = FirebaseFirestore.instance;
-      await firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('sales')
-          .add(saleData);
+      final connectivityProvider = Provider.of<ConnectivityProvider>(context, listen: false);
+      final salesRepository = SalesRepositoryImpl(firestore: firestore);
+      final offlineSalesService = OfflineSalesService(
+        salesRepository: salesRepository,
+        connectivityProvider: connectivityProvider,
+      );
+
+      final result = await offlineSalesService.createSale(saleData);
+
+      if (!result['success']) {
+        throw Exception(result['error'] ?? 'Failed to save sale');
+      }
+
+      final isOffline = result['mode'] == 'offline';
 
       // Update order status to completed
       context
@@ -475,11 +589,14 @@ class _PendingOrdersAndCheckoutScreenState
       // Close dialog
       Navigator.pop(context);
 
+      final successMessage = isOffline
+        ? '✓ Order completed and saved offline (will sync when online)'
+        : '✓ Order completed and payment recorded';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✓ Order completed and payment recorded'),
+        SnackBar(
+          content: Text(successMessage),
           backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
+          duration: const Duration(seconds: 2),
         ),
       );
     } catch (e) {

@@ -25,6 +25,7 @@ import '../../../providers/business_provider.dart';
 import '../../../providers/receipt_settings_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../core/access_control.dart';
+import '../../../services/pdf_invoice_generator.dart';
 
 /// Post-sale action sheet allowing users to choose:
 /// Share receipt as text
@@ -192,6 +193,95 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
           _statusMessage = 'Error generating PDF: $e';
           _statusColor = Colors.red;
         });
+      });
+    }
+  }
+
+  Future<void> _generatePdfInvoice() async {
+    if (_pdfGenerating) return;
+    setState(() {
+      _pdfGenerating = true;
+      _statusMessage = 'Generating PDF invoice...';
+      _statusColor = Colors.grey;
+    });
+
+    try {
+      final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
+      final business = businessProvider.currentBusiness;
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+
+      // Convert sale items to cart items format
+      final cartItems = (widget.saleData['items'] as List? ?? []).map((item) {
+        if (item is Map<String, dynamic>) {
+          return {
+            'menuItemName': item['name'] ?? item['productName'] ?? 'Item',
+            'name': item['name'] ?? item['productName'] ?? 'Item',
+            'quantity': item['quantity'] ?? 1,
+            'price': item['price'] ?? item['unitPrice'] ?? 0.0,
+            'unitPrice': item['price'] ?? item['unitPrice'] ?? 0.0,
+            'subtotal': item['total'] ?? ((item['quantity'] ?? 1) * (item['price'] ?? item['unitPrice'] ?? 0.0)),
+            'total': item['total'] ?? ((item['quantity'] ?? 1) * (item['price'] ?? item['unitPrice'] ?? 0.0)),
+            'specialInstructions': item['specialInstructions'],
+            'selectedOptions': item['selectedOptions'] ?? [],
+          };
+        }
+        return {
+          'menuItemName': 'Item',
+          'name': 'Item',
+          'quantity': 1,
+          'price': 0.0,
+          'unitPrice': 0.0,
+          'subtotal': 0.0,
+          'total': 0.0,
+          'specialInstructions': null,
+          'selectedOptions': [],
+        };
+      }).toList();
+
+      final invoiceNumber = 'INV-${widget.orderId ?? DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+
+      final pdfBytes = await PdfInvoiceGenerator.generateInvoicePdfBytes(
+        businessName: widget.businessName,
+        invoiceNumber: invoiceNumber,
+        invoiceDate: DateTime.now(), // Use current date for invoice
+        cartItems: cartItems,
+        subtotal: (widget.saleData['subtotal'] ?? 0.0).toDouble(),
+        tax: (widget.saleData['tax'] ?? 0.0).toDouble(),
+        discount: (widget.saleData['discount'] ?? 0.0).toDouble(),
+        total: (widget.saleData['total'] ?? widget.saleData['finalAmount'] ?? 0.0).toDouble(),
+        customerName: (widget.saleData['customerName'] ?? widget.saleData['customer']?['name'] ?? 'Customer').toString(),
+        customerEmail: widget.customerEmail,
+        businessAddress: business?.address,
+        businessPhone: business?.phone,
+        businessEmail: business?.email,
+        cashierName: auth.currentUser?.fullName,
+      );
+
+      final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
+
+      if (kIsWeb) {
+        web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
+        setState(() {
+          _pdfGenerating = false;
+          _statusMessage = 'Invoice PDF downloaded';
+          _statusColor = Colors.green;
+        });
+      } else {
+        final tempDir = await getTemporaryDirectory();
+        final file = File('${tempDir.path}/$filename');
+        await file.writeAsBytes(pdfBytes);
+        setState(() {
+          _pdfFile = file;
+          _pdfGenerating = false;
+          _statusMessage = 'Invoice PDF generated';
+          _statusColor = Colors.green;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _pdfGenerating = false;
+        _statusMessage = 'Error generating PDF invoice: $e';
+        _statusColor = Colors.red;
       });
     }
   }
@@ -653,12 +743,17 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
           final lineTotal = (e['total'] != null) ? ThermalPrintingService.parseDouble(e['total']) : (quantity * price);
           subtotal += lineTotal;
 
+          // Extract unit information if available
+          final unitRaw = (e['unit'] ?? e['unitName'] ?? e['uom'] ?? 
+              ((e['product'] is Map) ? (e['product']['unit'] ?? e['product']['unitName'] ?? e['product']['uom']) : null) ?? '').toString();
+
           itemsList.add(
             ReceiptLineItem(
               name: name,
               quantity: quantity,
               unitPrice: price,
               total: lineTotal,
+              unit: unitRaw.isNotEmpty ? unitRaw : null,
             ),
           );
         }
@@ -1272,15 +1367,27 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                 ),
                 const SizedBox(height: 12),
               ] else if (!_pdfGenerating && _pdfFile == null && _pdfBytes == null && widget.pdfFuture == null) ...[
-                // Offer explicit Generate PDF action when no background generation was started
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _generatePdf,
-                    icon: const Icon(Icons.picture_as_pdf_outlined),
-                    label: const Text('Generate PDF'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
-                  ),
+                // Offer explicit Generate PDF actions when no background generation was started
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _generatePdf,
+                        icon: const Icon(Icons.picture_as_pdf_outlined),
+                        label: const Text('Generate PDF Receipt'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _generatePdfInvoice,
+                        icon: const Icon(Icons.receipt_long),
+                        label: const Text('Generate PDF Invoice'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
               ],

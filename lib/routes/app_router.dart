@@ -126,6 +126,8 @@ import '../presentation/industry_specific/hotel/screens/room_list_screen.dart';
 import '../presentation/industry_specific/hotel/screens/create_room_screen.dart';
 import '../presentation/industry_specific/hotel/screens/bookings_screen.dart'
     as hotel_bookings;
+import '../presentation/industry_specific/hotel/screens/check_in_screen.dart';
+import '../presentation/industry_specific/hotel/screens/check_out_screen.dart';
 import '../presentation/industry_specific/hotel/screens/front_desk_screen.dart';
 import '../presentation/industry_specific/hotel/screens/services_screen.dart';
 import '../presentation/industry_specific/hotel/screens/guest_management_screen.dart';
@@ -157,18 +159,23 @@ import '../presentation/industry_specific/restaurant/screens/pending_orders_chec
 
 
 import '../presentation/industry_specific/realestate/screens/realestate_dashboard_screen.dart';
-import '../presentation/industry_specific/realestate/screens/listings_screen.dart';
+import '../presentation/industry_specific/realestate/screens/property_listings_screen.dart';
 import '../presentation/industry_specific/realestate/screens/property_details_screen.dart';
 import '../presentation/industry_specific/realestate/screens/add_property_screen.dart';
 import '../presentation/industry_specific/realestate/screens/tenant_management_enhanced_screen.dart';
 import '../presentation/industry_specific/realestate/screens/lease_management_screen.dart';
 import '../presentation/industry_specific/realestate/screens/rent_collection_screen.dart';
+import '../presentation/industry_specific/realestate/screens/tenant_rent_history_screen.dart';
+import '../presentation/industry_specific/realestate/screens/property_rent_history_screen.dart';
 import '../presentation/industry_specific/realestate/screens/create_ticket_screen.dart';
 import '../presentation/industry_specific/realestate/screens/maintenance_screen.dart';
 import '../presentation/industry_specific/realestate/screens/property_documents_screen.dart';
 
 // Workers screens
+import 'package:provider/provider.dart';
 import '../presentation/workers/screens/workers_list_screen.dart';
+import '../presentation/marketer/marketer_dashboard_screen.dart';
+import '../providers/marketer_provider.dart';
 import '../presentation/workers/screens/add_worker_screen.dart';
 import '../presentation/workers/screens/worker_details_screen.dart';
 import '../presentation/workers/screens/attendance_screen.dart';
@@ -414,10 +421,13 @@ class AppRouter {
       case Routes.workerInventory:
         return _buildRoute(const WorkerInventoryScreen());
 
-      case '/admin_login':
+      case Routes.adminLogin:
         return _buildRoute(const AdminLoginScreen());
 
-      case '/admin_dashboard':
+      case Routes.marketerDashboard:
+        return _buildRoute(const MarketerDashboardScreen());
+
+      case Routes.adminDashboard:
         return _buildRoute(const AdminDashboardApp());
 
       // Receipt Routes
@@ -535,6 +545,9 @@ class AppRouter {
       case Routes.wholesaleTransfers:
         return _buildRoute(const StockTransfersScreen());
 
+      case Routes.wholesaleReports:
+        return _buildRoute(const WarehouseReportsScreen());
+
       case Routes.retailStoreReports:
         return _buildRoute(const StoreReportsScreen());
 
@@ -647,6 +660,12 @@ class AppRouter {
       case Routes.hotelBookings:
         return _buildRoute(const hotel_bookings.BookingsScreen());
 
+      case Routes.hotelCheckIn:
+        return _buildRoute(const CheckInScreen());
+
+      case Routes.hotelCheckOut:
+        return _buildRoute(const CheckOutScreen());
+
       case Routes.hotelFrontDesk:
         return _buildRoute(const FrontDeskScreen());
 
@@ -756,7 +775,7 @@ class AppRouter {
         return _buildRoute(const RealestateDashboardScreen());
 
       case Routes.realEstateProperties:
-        return _buildRoute(const ListingsScreen());
+        return _buildRoute(const PropertyListingsScreen());
 
       case Routes.realEstatePropertyDetails:
         final args = settings.arguments as Map<String, dynamic>?;
@@ -771,6 +790,16 @@ class AppRouter {
 
       case Routes.realEstateRentCollection:
         return _buildRoute(const RentCollectionScreen());
+
+      case Routes.realEstateTenantRentHistory:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(
+            TenantRentHistoryScreen(tenantId: args?['tenantId'] ?? ''));
+
+      case Routes.realEstatePropertyRentHistory:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(
+            PropertyRentHistoryScreen(propertyId: args?['propertyId'] ?? ''));
 
       case Routes.realEstateMaintenance:
         return _buildRoute(const MaintenanceScreen());

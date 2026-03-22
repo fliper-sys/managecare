@@ -482,7 +482,7 @@ final snapshot = await _firestore!
     for (var i = 0; i < completed.length; i) {
       final a = completed[i];
       final when = a.appointmentTime.toLocal().toString().split('.').first;
-      lines.add('${i + 1}. ${a.clientName} • ${a.serviceName} • ${a.stylistName} • $when • ₦${(a.amountPaid ?? 0).toString()}');
+      lines.add('${i + 1}. ${a.clientName} - ${a.serviceName} - ${a.stylistName} - $when - NGN ${(a.amountPaid ?? 0).toString()}');
     }
     final header = 'Completed bookings for ${start.toLocal().toIso8601String().split('T').first}: ${completed.length}';
     return [header, ...lines].join('\n');
@@ -550,6 +550,8 @@ final snapshot = await _firestore!
         final saleId = appointmentId + '-sale';
         final data = {
           'id': saleId,
+          'saleId': saleId,
+          'businessId': _businessId,
           'appointmentId': appointmentId,
           'clientName': appt.clientName,
           'services': [
@@ -562,10 +564,20 @@ final snapshot = await _firestore!
           'subtotal': appt.servicePrice,
           'tax': 0.0,
           'total': amountPaid,
+          'totalAmount': amountPaid,
+          'finalAmount': amountPaid,
+          'status': 'completed',
           'payments': null,
           'paymentMethod': paymentMethod,
+          'paymentBreakdown': [
+            {
+              'method': paymentMethod,
+              'amount': amountPaid,
+            }
+          ],
           'stylistId': appt.stylistId,
           'stylistName': appt.stylistName,
+          'category': 'Salon',
           'saleDate': DateTime.now(),
         };
 
@@ -981,7 +993,7 @@ extension SalonProviderSales on SalonProvider {
           totalSales += amount;
         }
 
-        debugPrint('[SalonProvider] Today\'s sales total: ₦$totalSales');
+        debugPrint('[SalonProvider] Today\'s sales total: NGN $totalSales');
         return totalSales;
       } catch (e) {
         final msg = e.toString();
@@ -1003,7 +1015,7 @@ extension SalonProviderSales on SalonProvider {
               totalSales += amount;
             }
 
-            debugPrint('[SalonProvider] Today\'s sales total (fallback): ₦$totalSales');
+            debugPrint('[SalonProvider] Today\'s sales total (fallback): NGN $totalSales');
             return totalSales;
           } catch (e2) {
             debugPrint('[SalonProvider] Fallback date-only query failed: $e2');
@@ -1020,4 +1032,5 @@ extension SalonProviderSales on SalonProvider {
     }
   }
 }
+
 

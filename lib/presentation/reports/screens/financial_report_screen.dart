@@ -8,6 +8,7 @@ import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/reports_provider.dart';
 import '../../../core/constants/routes.dart';
+import '../../../core/utils/formatters.dart';
 import '../widgets/date_range_picker.dart';
 import '../widgets/report_card.dart';
 
@@ -177,7 +178,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
                       Text('Financial Summary', style: AppTextStyles.heading2),
                       const SizedBox(width: 8),
                       Tooltip(
-                        message: 'Gross = Revenue − COGS; Net = Revenue − (COGS + Other Expenses)',
+                        message: 'Gross = Revenue - COGS; Net = Revenue - (COGS + Other Expenses)',
                         child: IconButton(
                           icon: const Icon(Icons.info_outline, size: 18),
                           onPressed: _showProfitHelpDialog,
@@ -192,8 +193,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
                       Expanded(
                         child: ReportCard(
                           title: 'Total Revenue',
-                          value:
-                              '₦${(financialSummary['totalRevenue'] as double).toStringAsFixed(2)}',
+                          value: formatCurrency((financialSummary['totalRevenue'] as num?)?.toDouble() ?? 0.0),
                           icon: Icons.trending_up,
                           color: AppColors.success,
                         ),
@@ -202,8 +202,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
                       Expanded(
                         child: ReportCard(
                           title: 'Total Expenses',
-                          value:
-                              '₦${(financialSummary['totalExpenses'] as double).toStringAsFixed(2)}',
+                          value: formatCurrency((financialSummary['totalExpenses'] as num?)?.toDouble() ?? 0.0),
                           icon: Icons.trending_down,
                           color: AppColors.error,
                         ),
@@ -234,7 +233,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
                                   children: [
                                     Text(e.key.toUpperCase(), style: AppTextStyles.caption),
                                     const SizedBox(height: 4),
-                                    Text('₦${e.value.toStringAsFixed(2)}', style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.bold)),
+                                    Text(formatCurrency(e.value), style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.bold)),
                                   ],
                                 ),
                               )).toList(),
@@ -253,7 +252,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
                           title: 'Gross Profit',
                           value: reportsProvider.isComputingFinancials
                               ? 'Calculating...'
-                              : '₦${(financialSummary['grossProfit'] as double).toStringAsFixed(2)}',
+                              : formatCurrency((financialSummary['grossProfit'] as num?)?.toDouble() ?? 0.0),
                           icon: Icons.money_off, // indicates COGS adjusted
                           color: AppColors.primary,
                           subtitle: reportsProvider.isComputingFinancials
@@ -267,7 +266,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
                           title: 'Net Profit',
                           value: reportsProvider.isComputingFinancials
                               ? 'Calculating...'
-                              : '₦${(financialSummary['profit'] as double).toStringAsFixed(2)}',
+                              : formatCurrency((financialSummary['profit'] as num?)?.toDouble() ?? 0.0),
                           icon: Icons.trending_down, // net after expenses
                           color: AppColors.info,
                           subtitle: reportsProvider.isComputingFinancials
@@ -297,7 +296,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
 
                       return ReportCard(
                         title: 'Inventory Value (Cost)',
-                        value: '₦${totalCost.toStringAsFixed(2)}',
+                        value: formatCurrency(totalCost),
                         icon: Icons.warehouse,
                         color: AppColors.warning,
                         subtitle: '$itemCount items in stock',
@@ -338,7 +337,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
               children: [
                 Expanded(child: Text('Revenue Trend', style: AppTextStyles.heading2)),
                 Tooltip(
-                  message: 'Gross = Revenue − COGS; Net = Revenue − (COGS + Other Expenses)',
+                  message: 'Gross = Revenue - COGS; Net = Revenue - (COGS + Other Expenses)',
                   child: IconButton(
                     icon: const Icon(Icons.info_outline, size: 18),
                     onPressed: _showProfitHelpDialog,
@@ -698,4 +697,5 @@ class LineChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(LineChartPainter oldDelegate) => false;
 }
+
 

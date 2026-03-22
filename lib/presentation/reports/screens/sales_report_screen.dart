@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/colors.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../core/theme/text_styles.dart';
+import '../../../core/utils/formatters.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/reports_provider.dart';
@@ -22,19 +23,19 @@ class SalesReportScreen extends StatefulWidget {
 class _SalesReportScreenState extends State<SalesReportScreen> {
   late TextEditingController _searchController;
   String? _lastBusinessId;
+  late ReportsProvider _reportsProvider;
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController();
+    _reportsProvider = context.read<ReportsProvider>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = context.read<AuthProvider>();
       final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
           authProvider.currentUser?.businessId;
       if (businessId != null && businessId.isNotEmpty) {
-        context
-            .read<ReportsProvider>()
-            .subscribeToSalesReports(businessId: businessId);
+        _reportsProvider.subscribeToSalesReports(businessId: businessId);
         _lastBusinessId = businessId;
       }
     });
@@ -43,7 +44,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
   @override
   void dispose() {
     // cancel subscription on dispose
-    context.read<ReportsProvider>().unsubscribeFromSalesReports();
+    _reportsProvider.unsubscribeFromSalesReports();
     _searchController.dispose();
     super.dispose();
   }
@@ -171,8 +172,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                     Expanded(
                       child: ReportCard(
                         title: 'Total Sales',
-                        value:
-                            '₦${(salesSummary['totalSales'] as double).toStringAsFixed(2)}',
+                        value: formatCurrency((salesSummary['totalSales'] as num?)?.toDouble() ?? 0.0),
                         icon: Icons.trending_up,
                         color: AppColors.success,
                         trend: salesSummary['trend'],
@@ -195,8 +195,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                     Expanded(
                       child: ReportCard(
                         title: 'Average Sale',
-                        value:
-                            '₦${(salesSummary['averageSale'] as double).toStringAsFixed(2)}',
+                        value: formatCurrency((salesSummary['averageSale'] as num?)?.toDouble() ?? 0.0),
                         icon: Icons.calculate,
                         color: AppColors.warning,
                       ),
@@ -816,4 +815,5 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
     }
   }
 }
+
 

@@ -4,7 +4,7 @@ library;
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../core/utils/datetime_utils.dart';
-import 'file_upload_service.dart';
+import 'subscription_storage_service.dart';
 
 
 class ReceiptUploadService {
@@ -30,6 +30,7 @@ class ReceiptUploadService {
     required File receiptFile,
     required String userEmail,
     required String userName,
+    Function(double progress)? onProgress,
   }) async {
     try {
       print('[ReceiptUploadService] ━━━━━━━ RECEIPT UPLOAD INITIATED ━━━━━━━');
@@ -56,15 +57,21 @@ class ReceiptUploadService {
       print(
           '[ReceiptUploadService] ✓ File validation passed (${(fileSize / 1024 / 1024).toStringAsFixed(2)} MB)');
 
-      // Upload receipt to server using FileUploadService
-      print('[ReceiptUploadService] ▶ Uploading receipt to server...');
-      final uploader = FileUploadService();
-      final downloadUrl = await uploader.uploadFile(receiptFile);
+      // Upload receipt to Firebase Storage
+      print('[ReceiptUploadService] ▶ Uploading receipt to Firebase Storage...');
+      final storageService = SubscriptionStorageService();
+      final uploadResult = await storageService.uploadSubscriptionProofWithProgress(
+        receiptFile,
+        userId,
+        planId,
+        onProgress: onProgress,
+      );
 
-      if (downloadUrl == null) {
-        throw Exception('Server upload failed or returned no URL');
+      if (!uploadResult.success || uploadResult.downloadUrl == null) {
+        throw Exception('Firebase Storage upload failed: ${uploadResult.error ?? 'Unknown error'}');
       }
 
+      final downloadUrl = uploadResult.downloadUrl!;
       print('[ReceiptUploadService] ✓ Receipt uploaded successfully');
       print('[ReceiptUploadService] Download URL: $downloadUrl');
 

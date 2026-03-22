@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../domain/repositories/sales_repository.dart';
+import '../../data/local/database_helper.dart';
 
 /// Firebase implementation of sales repository
 class SalesRepositoryImpl implements SalesRepository {
@@ -98,14 +99,6 @@ class SalesRepositoryImpl implements SalesRepository {
             'deletedBy': 'system',
             'items': items,
             'errors': _deleteErrors,
-            'createdAt': FieldValue.serverTimestamp(),
-          });        
-
-          // log audit
-          tx.set(auditRef, {
-            'saleId': saleId,
-            'deletedBy': 'system',
-            'items': items,
             'createdAt': FieldValue.serverTimestamp(),
           });
         }
@@ -361,6 +354,52 @@ class SalesRepositoryImpl implements SalesRepository {
         }
       }
 
+      rethrow;
+    }
+  }
+
+  // Offline support methods
+  @override
+  Future<String> createSaleOffline(Map<String, dynamic> saleData) async {
+    try {
+      final dbHelper = DatabaseHelper.instance;
+      saleData['createdAt'] = DateTime.now().toIso8601String();
+      saleData['updatedAt'] = DateTime.now().toIso8601String();
+      saleData['syncStatus'] = 'pending';
+
+      final id = await dbHelper.insert('sales', saleData);
+      return id.toString();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getPendingOfflineSales() async {
+    try {
+      final dbHelper = DatabaseHelper.instance;
+      return await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['pending']);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> markSaleAsSynced(String saleId) async {
+    try {
+      final dbHelper = DatabaseHelper.instance;
+      await dbHelper.update('sales', {'syncStatus': 'synced'}, where: 'id = ?', whereArgs: [saleId]);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> deleteOfflineSale(String saleId) async {
+    try {
+      final dbHelper = DatabaseHelper.instance;
+      await dbHelper.delete('sales', where: 'id = ?', whereArgs: [saleId]);
+    } catch (e) {
       rethrow;
     }
   }

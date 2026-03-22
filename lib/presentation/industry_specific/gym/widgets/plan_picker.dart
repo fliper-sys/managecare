@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../providers/gym_provider.dart';
 
 /// Displays a modal listing available membership plans and returns the
@@ -23,7 +24,7 @@ Future<MembershipPlan?> showPlanPicker(
                     return ListTile(
                       title: Text(p.name),
                       subtitle: Text(
-                          '${p.durationMonths} month(s) • ${p.pricePerMonth.toStringAsFixed(2)} per month${p.features.isNotEmpty ? ' • ${p.features.join(', ')}' : ''}'),
+                          '${p.durationMonths} month(s) - ${formatCurrency(p.pricePerMonth)} per month${p.features.isNotEmpty ? '\n${p.features.join(', ')}' : ''}'),
                       trailing: ElevatedButton(
                         child: const Text('Select'),
                         onPressed: () => Navigator.of(ctx).pop(p),

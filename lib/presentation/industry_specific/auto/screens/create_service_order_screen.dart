@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../providers/auto_provider.dart';
 
 class CreateServiceOrderScreen extends StatefulWidget {
@@ -49,7 +50,7 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
               final checked = _selectedServiceIds.contains(s.id);
               return CheckboxListTile(
                 value: checked,
-                title: Text('${s.name} (${s.laborCost.toStringAsFixed(2)})'),
+                title: Text('${s.name} (${formatCurrency(s.laborCost)})'),
                 onChanged: (val) => setState(() => val == true ? _selectedServiceIds.add(s.id) : _selectedServiceIds.remove(s.id)),
               );
             }).toList(),

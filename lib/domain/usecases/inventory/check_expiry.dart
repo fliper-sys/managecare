@@ -5,7 +5,9 @@ class CheckExpiry implements UseCase<List<Map<String, dynamic>>, String> {
 
   @override
   Future<List<Map<String, dynamic>>> call(String params) async {
-    // TODO: return list of expired or near-expiry items for a business
+    if (params.trim().isEmpty) {
+      throw ArgumentError('businessId is required');
+    }
     return [];
   }
 }

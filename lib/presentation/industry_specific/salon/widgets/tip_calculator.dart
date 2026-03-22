@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/utils/currency.dart';
 
 class TipCalculator extends StatefulWidget {
   final double totalAmount;
@@ -18,8 +19,7 @@ class _TipCalculatorState extends State<TipCalculator> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(
-            'Tip: \$${(widget.totalAmount * tipPercent / 100).toStringAsFixed(2)}'),
+        Text('Tip: ${formatCurrency(widget.totalAmount * tipPercent / 100)}'),
         Slider(
             value: tipPercent,
             min: 0,

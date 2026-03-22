@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../providers/auto_provider.dart';
 
 class PartsInventoryScreen extends StatefulWidget {
@@ -95,7 +96,7 @@ class _PartsInventoryScreenState extends State<PartsInventoryScreen> {
                       Text('Total Parts: ${parts.length}',
                           style: const TextStyle(fontWeight: FontWeight.bold)),
                       Text(
-                          'Total Value: \$${provider.getTotalPartsCost().toStringAsFixed(2)}'),
+                          'Total Value: ${formatCurrency(provider.getTotalPartsCost())}'),
                     ],
                   ),
                   Chip(
@@ -122,7 +123,7 @@ class _PartsInventoryScreenState extends State<PartsInventoryScreen> {
                                 color: isLowStock ? Colors.red : Colors.blue),
                             title: Text(p.name),
                             subtitle: Text(
-                                'Stock: ${p.quantity} • \$${p.cost.toStringAsFixed(2)} each'),
+                                'Stock: ${p.quantity} - ${formatCurrency(p.cost)} each'),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [

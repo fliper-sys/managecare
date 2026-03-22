@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../core/theme/colors.dart';
 import 'thermal_printing_service.dart';
 import '../providers/receipt_settings_provider.dart';
 import '../providers/business_provider.dart';
@@ -38,11 +39,14 @@ class ReceiptManager {
         if (it is Map<String, dynamic>) {
           // Determine item name (support nested product map)
           String name = 'Item';
-          if (it.containsKey('name') && it['name']?.toString().trim().isNotEmpty == true) {
+          if (it.containsKey('name') &&
+              it['name']?.toString().trim().isNotEmpty == true) {
             name = it['name'].toString();
-          } else if (it.containsKey('productName') && it['productName']?.toString().trim().isNotEmpty == true) {
+          } else if (it.containsKey('productName') &&
+              it['productName']?.toString().trim().isNotEmpty == true) {
             name = it['productName'].toString();
-          } else if (it.containsKey('product_name') && it['product_name']?.toString().trim().isNotEmpty == true) {
+          } else if (it.containsKey('product_name') &&
+              it['product_name']?.toString().trim().isNotEmpty == true) {
             name = it['product_name'].toString();
           } else if (it['product'] is Map && it['product']['name'] != null) {
             name = it['product']['name'].toString();
@@ -53,7 +57,8 @@ class ReceiptManager {
           final quantityRaw = it['quantity'] ?? it['qty'] ?? 1;
           final quantity = ThermalPrintingService.parseNum(quantityRaw);
 
-          final priceRaw = it['price'] ?? it['unitPrice'] ?? it['unit_price'] ?? 0;
+          final priceRaw =
+              it['price'] ?? it['unitPrice'] ?? it['unit_price'] ?? 0;
           var price = ThermalPrintingService.parseDouble(priceRaw);
 
           // If price missing but a total is present, derive unit price
@@ -65,7 +70,8 @@ class ReceiptManager {
           }
 
           // Capture unit when available so receipts can format quantities correctly (e.g., L -> 3 decimals)
-          final unitRaw = (it['unit'] ?? it['unitName'] ?? it['uom'] ?? '').toString();
+          final unitRaw =
+              (it['unit'] ?? it['unitName'] ?? it['uom'] ?? '').toString();
 
           items.add({
             'name': name,
@@ -76,7 +82,13 @@ class ReceiptManager {
         }
       }
 
-      final paperWidth = settings?.paperWidth ?? (business?.settings is Map ? (business!.settings!['receipt'] is Map ? (business.settings!['receipt']['paperWidth'] as int?) : null) : null) ?? 58; 
+      final paperWidth = settings?.paperWidth ??
+          (business?.settings is Map
+              ? (business!.settings!['receipt'] is Map
+                  ? (business.settings!['receipt']['paperWidth'] as int?)
+                  : null)
+              : null) ??
+          58;
       final receiptText = ThermalPrintingService.createCompleteReceipt(
         businessName: business?.name ?? 'Business',
         paperWidth: paperWidth,
@@ -93,7 +105,8 @@ class ReceiptManager {
       // Do not generate PDFs automatically for pump/fuel sales. Defer generation
       // to user-initiated action in the PostSaleActionSheet so the app shows a
       // confirmation/print action immediately without doing extra work.
-      Future<dynamic>? pdfFuture = null; // generation will be triggered on demand by UI
+      Future<dynamic>? pdfFuture =
+          null; // generation will be triggered on demand by UI
       // (Intentionally left pdfFuture null for all categories by default. If we
       // need different behaviour per category, adjust here.)
 
@@ -103,7 +116,8 @@ class ReceiptManager {
         return;
       }
 
-      debugPrint('[ReceiptManager] About to show modal bottom sheet (root navigator)');
+      debugPrint(
+          '[ReceiptManager] About to show modal bottom sheet (root navigator)');
 
       // Use the root navigator so the sheet remains visible even if callers
       // navigate to a new route (e.g., SalesReceipt screen).
@@ -127,6 +141,17 @@ class ReceiptManager {
         ),
       );
 
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Transaction complete. Post-sale options are available.'),
+            backgroundColor: AppColors.success,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+
       debugPrint('[ReceiptManager] Modal bottom sheet dismissed');
     } catch (e) {
       debugPrint('[ReceiptManager] Error: $e');
@@ -134,4 +159,3 @@ class ReceiptManager {
     }
   }
 }
-

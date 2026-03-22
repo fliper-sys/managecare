@@ -113,6 +113,7 @@ class Routes {
   static const String wholesalePos = '/wholesale/pos';
   static const String wholesalePurchaseOrders = '/wholesale/purchase-orders';
   static const String wholesaleTransfers = '/wholesale/transfers';
+  static const String wholesaleReports = '/wholesale/reports';
   static const String retailPos = '/retail/pos';
   static const String retailCatalog = '/retail/catalog';
   static const String retailSuppliers = '/retail/suppliers';
@@ -219,6 +220,8 @@ class Routes {
   static const String realEstateTenants = '/realestate/tenants';
   static const String realEstateLeases = '/realestate/leases';
   static const String realEstateRentCollection = '/realestate/rent-collection';
+  static const String realEstateTenantRentHistory = '/realestate/tenants/rent-history';
+  static const String realEstatePropertyRentHistory = '/realestate/properties/rent-history';
   static const String realEstateMaintenance = '/realestate/maintenance';
   static const String realEstateCreateTicket = '/realestate/maintenance/create';
   static const String realEstateDocuments = '/realestate/documents';
@@ -233,6 +236,7 @@ class Routes {
   static const String gymCalendar = '/gym/calendar';
 
   // Admin Routes
+  static const String adminLogin = '/admin_login';
   static const String adminDunning = '/admin/dunning';
   static const String adminSubscriptions = '/admin/subscriptions';
   static const String adminDashboard = '/admin/dashboard';
@@ -242,5 +246,8 @@ class Routes {
   static const String adminPaymentsApproval = '/admin/payments-approval';
   static const String installationRequestsAdmin = '/admin/installation-requests';
   static const String installationRequestsMy = '/install/my-requests';
+
+  // Marketer/worker dashboard
+  static const String marketerDashboard = '/marketer/dashboard';
 }
 

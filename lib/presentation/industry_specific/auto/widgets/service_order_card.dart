@@ -19,7 +19,7 @@ class ServiceOrderCard extends StatelessWidget {
     return Card(
       child: ListTile(
         title: Text('Order: $orderId'),
-        subtitle: Text('$customerName • $status'),
+        subtitle: Text('$customerName - $status'),
         onTap: onTap,
       ),
     );

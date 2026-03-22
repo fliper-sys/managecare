@@ -187,6 +187,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen> with SingleTick
                           _OperationCard(title: 'Pump Sale', icon: Icons.local_gas_station, color: Colors.purple, onTap: () => Navigator.pushNamed(context, Routes.gasPump).then((_) => _loadMetrics())),
                           _OperationCard(title: 'POS / Sales', icon: Icons.point_of_sale, color: Colors.indigo, onTap: () => Navigator.pushNamed(context, Routes.salesReport)),
                           _OperationCard(title: 'Procurement', icon: Icons.shopping_bag_outlined, color: Colors.orange, onTap: () => Navigator.pushNamed(context, Routes.procurement).then((_) => _loadMetrics())),
+                          _OperationCard(title: 'Printer settings', icon: Icons.print, color: Colors.teal, onTap: () => Navigator.pushNamed(context, Routes.printerSettings)),
                           _OperationCard(title: 'History', icon: Icons.history, color: Colors.teal, onTap: () => Navigator.pushNamed(context, Routes.gasSalesHistory)),
                         ],
                       ),

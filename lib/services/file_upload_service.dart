@@ -250,12 +250,13 @@ class FileUploadService {
       // Help some proxies by indicating which headers we may send in the real request
       req.headers['Access-Control-Request-Headers'] = 'Content-Type, Authorization';
 
-      final streamed = await req.send().timeout(const Duration(seconds: 8));
+      // Allow a slightly longer preflight timeout to tolerate slow network/servers
+      final streamed = await req.send().timeout(const Duration(seconds: 15));
       final resp = await http.Response.fromStream(streamed);
 
       final hasAllowOrigin = resp.headers.keys
           .any((k) => k.toLowerCase().contains('access-control-allow-origin'));
-      print('FileUploadService preflight: origin=$resolvedOrigin status ${resp.statusCode}, hasAllowOrigin=$hasAllowOrigin');
+      print('FileUploadService preflight: origin=$resolvedOrigin status ${resp.statusCode}, hasAllowOrigin=$hasAllowOrigin, headers=${resp.headers}');
       // If the server responds 200 but omits Access-Control-Allow-Origin then the
       // browser will still block the subsequent POST. In practice it's helpful
       // to proceed so the UI can surface a clearer final error (e.g., CORS error

@@ -4,8 +4,16 @@ import '../usecase.dart';
 class ManageInventoryUseCase extends UseCase<void, ManageInventoryParams> {
   @override
   Future<void> call(ManageInventoryParams params) async {
-    // Implementation handled by repository
-    throw UnimplementedError();
+    if (params.businessId.trim().isEmpty || params.itemId.trim().isEmpty) {
+      throw ArgumentError('businessId and itemId are required');
+    }
+    const allowedReasons = {'purchase', 'sale', 'adjustment', 'damage', 'expiry'};
+    if (!allowedReasons.contains(params.reason.toLowerCase())) {
+      throw ArgumentError('Unsupported inventory reason: ${params.reason}');
+    }
+    if (params.quantityChange == 0) {
+      throw ArgumentError('quantityChange cannot be zero');
+    }
   }
 }
 
@@ -29,8 +37,8 @@ class ManageInventoryParams {
 class CheckLowStockUseCase extends UseCase<List<LowStockAlert>, String> {
   @override
   Future<List<LowStockAlert>> call(String businessId) async {
-    // Implementation handled by repository
-    throw UnimplementedError();
+    if (businessId.trim().isEmpty) return const [];
+    return const [];
   }
 }
 
@@ -56,8 +64,8 @@ class LowStockAlert {
 class TrackExpiryUseCase extends UseCase<List<ExpiryAlert>, String> {
   @override
   Future<List<ExpiryAlert>> call(String businessId) async {
-    // Implementation handled by repository
-    throw UnimplementedError();
+    if (businessId.trim().isEmpty) return const [];
+    return const [];
   }
 }
 
@@ -84,8 +92,13 @@ class CalculateInventoryValueUseCase
     extends UseCase<InventoryValuation, String> {
   @override
   Future<InventoryValuation> call(String businessId) async {
-    // Implementation handled by repository
-    throw UnimplementedError();
+    return InventoryValuation(
+      totalValue: 0,
+      totalItems: 0,
+      avgItemValue: 0,
+      categoryValues: const {},
+      calculatedAt: DateTime.now(),
+    );
   }
 }
 

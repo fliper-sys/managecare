@@ -359,7 +359,7 @@ class GymProvider extends ChangeNotifier {
   }
 
   Future<void> recordPayment(String memberId, double amount, String method,
-      {String? planId, String? note, String currency = 'USD'}) async {
+      {String? planId, String? note, String currency = 'NGN'}) async {
     final payment = PaymentRecord(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       memberId: memberId,

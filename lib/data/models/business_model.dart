@@ -21,6 +21,7 @@ class BusinessModel {
   // Address
   final String? address;
   final String? city;
+  final String? referralEmail; // optional marketer referral email
   final String? state;
   final String? country;
   final String? postalCode;
@@ -68,6 +69,7 @@ class BusinessModel {
     this.country,
     this.postalCode,
     this.location,
+    this.referralEmail,
     this.subscriptionTier = 'free',
     this.businessClass = 'tier1',
     this.subscriptionPlan,
@@ -106,6 +108,7 @@ class BusinessModel {
       country: data['country'],
       postalCode: data['postalCode'],
       location: data['location'],
+      referralEmail: data['referralEmail'],
       subscriptionTier: data['subscriptionTier'] ?? 'free',
       businessClass: data['businessClass'] ?? 'tier1',
       subscriptionPlan: data['subscriptionPlan'],
@@ -144,6 +147,7 @@ class BusinessModel {
       country: json['country'],
       postalCode: json['postalCode'],
       location: json['location'],
+      referralEmail: json['referralEmail'],
       subscriptionTier: json['subscriptionTier'] ?? 'free',
       businessClass: json['businessClass'] ?? 'tier1',
       subscriptionPlan: json['subscriptionPlan'],
@@ -197,6 +201,7 @@ class BusinessModel {
       'settings': settings,
       'industrySpecificSettings': industrySpecificSettings,
       'isActive': isActive,
+      'referralEmail': referralEmail,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
       'totalWorkers': totalWorkers,
@@ -225,6 +230,7 @@ class BusinessModel {
       'country': country,
       'postalCode': postalCode,
       'location': location,
+      'referralEmail': referralEmail,
       'subscriptionTier': subscriptionTier,
       'subscriptionPlan': subscriptionPlan,
       'businessClass': businessClass,

@@ -9,6 +9,7 @@ import '../../../providers/reports_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import 'package:intl/intl.dart';
+import '../../../core/utils/formatters.dart';
 
 class ReportsDashboardScreen extends StatefulWidget {
   const ReportsDashboardScreen({super.key});
@@ -20,26 +21,27 @@ class ReportsDashboardScreen extends StatefulWidget {
 class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
   String _selectedPeriod = 'month';
   String? _lastBusinessId;
+  late ReportsProvider _reportsProvider;
 
   @override
   void initState() {
     super.initState();
+    _reportsProvider = context.read<ReportsProvider>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final reportsProvider = context.read<ReportsProvider>();
       final businessProvider = context.read<BusinessProvider>();
       final authProvider = context.read<AuthProvider>();
       final businessId = businessProvider.currentBusiness?.id ??
           authProvider.currentUser?.businessId;
       if (businessId != null && businessId.isNotEmpty) {
-        reportsProvider.subscribeToSalesReports(businessId: businessId);
-        reportsProvider.subscribeToFinancialReports(businessId: businessId);
-        reportsProvider.subscribeToInventoryReports(businessId: businessId);
-        reportsProvider.subscribeToExpensesReports(businessId: businessId);
+        _reportsProvider.subscribeToSalesReports(businessId: businessId);
+        _reportsProvider.subscribeToFinancialReports(businessId: businessId);
+        _reportsProvider.subscribeToInventoryReports(businessId: businessId);
+        _reportsProvider.subscribeToExpensesReports(businessId: businessId);
       } else {
-        reportsProvider.subscribeToSalesReports();
-        reportsProvider.subscribeToFinancialReports();
-        reportsProvider.subscribeToInventoryReports();
-        reportsProvider.subscribeToExpensesReports();
+        _reportsProvider.subscribeToSalesReports();
+        _reportsProvider.subscribeToFinancialReports();
+        _reportsProvider.subscribeToInventoryReports();
+        _reportsProvider.subscribeToExpensesReports();
       }
     });
   }
@@ -47,7 +49,7 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
   @override
   void dispose() {
     // ensure subscriptions are canceled when screen is disposed
-    context.read<ReportsProvider>().unsubscribeFromReportSubscriptions();
+    _reportsProvider.unsubscribeFromReportSubscriptions();
     super.dispose();
   }
 
@@ -249,8 +251,7 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
                         Expanded(
                           child: _MetricCard(
                             title: 'Total Revenue',
-                            value:
-                                '₦${(financialSummary['totalRevenue'] ?? 0).toStringAsFixed(0)}',
+                            value: formatCurrency((financialSummary['totalRevenue'] as num?)?.toDouble() ?? 0.0, decimalDigits: 0),
                             change:
                                 '+${(financialSummary['revenueChange'] ?? 0).toStringAsFixed(1)}%',
                             isPositive: true,
@@ -261,8 +262,7 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
                         Expanded(
                           child: _MetricCard(
                             title: 'Total Expenses',
-                            value:
-                                '₦${(financialSummary['totalExpenses'] ?? 0).toStringAsFixed(0)}',
+                            value: formatCurrency((financialSummary['totalExpenses'] as num?)?.toDouble() ?? 0.0, decimalDigits: 0),
                             change:
                                 '+${(financialSummary['expensesChange'] ?? 0).toStringAsFixed(1)}%',
                             isPositive: false,
@@ -277,28 +277,24 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
                         Expanded(
                           child: _MetricCard(
                             title: 'Gross Profit',
-                            value: reportsProvider.isComputingFinancials
-                                ? 'Calculating...'
-                                : '₦${(financialSummary['grossProfit'] ?? 0).toStringAsFixed(0)}',
+                            value: reportsProvider.isComputingFinancials ? 'Calculating...' : formatCurrency((financialSummary['grossProfit'] as num?)?.toDouble() ?? 0.0, decimalDigits: 0),
                             change:
                                 '+${(financialSummary['grossChange'] ?? 0).toStringAsFixed(1)}%',
                             isPositive: (financialSummary['grossProfit'] ?? 0) >= 0,
                             icon: Icons.money_off,
-                            tooltip: 'Gross = Revenue − Cost of Goods Sold (COGS)',
+                            tooltip: 'Gross = Revenue - Cost of Goods Sold (COGS)',
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: _MetricCard(
                             title: 'Net Profit',
-                            value: reportsProvider.isComputingFinancials
-                                ? 'Calculating...'
-                                : '₦${(financialSummary['profit'] ?? 0).toStringAsFixed(0)}',
+                            value: reportsProvider.isComputingFinancials ? 'Calculating...' : formatCurrency((financialSummary['profit'] as num?)?.toDouble() ?? 0.0, decimalDigits: 0),
                             change:
                                 '+${(financialSummary['profitChange'] ?? 0).toStringAsFixed(1)}%',
                             isPositive: (financialSummary['profit'] ?? 0) >= 0,
                             icon: Icons.trending_down,
-                            tooltip: 'Net = Revenue − (COGS + Other Expenses)',
+                            tooltip: 'Net = Revenue - (COGS + Other Expenses)',
                           ),
                         ),
                       ],
@@ -698,3 +694,4 @@ class _RecentReportItem extends StatelessWidget {
     );
   }
 }
+

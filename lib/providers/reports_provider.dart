@@ -58,6 +58,9 @@ class ReportsProvider extends ChangeNotifier {
 
   // Customer Report Data
   List<CustomerReport> _customerReports = [];
+  final List<ReportExportHistoryItem> _exportHistory = [];
+  bool _scheduledExportsEnabled = false;
+  String _scheduledExportFrequency = 'weekly';
 
   // Loading states
   bool _isLoading = false;
@@ -126,6 +129,25 @@ class ReportsProvider extends ChangeNotifier {
     }
   }
 
+  /// Helper to safely extract string values from Firestore data that might be Maps
+  static String? _extractStringValue(dynamic value) {
+    if (value == null) return null;
+    if (value is String) return value;
+    if (value is Map) {
+      // Try common keys that might contain the actual string value
+      final possibleKeys = ['name', 'value', 'text', 'displayName', 'fullName'];
+      for (final key in possibleKeys) {
+        if (value.containsKey(key) && value[key] is String) {
+          return value[key] as String;
+        }
+      }
+      // If no string keys found, convert the map to string as fallback
+      return value.toString();
+    }
+    // For other types, convert to string
+    return value.toString();
+  }
+
   /// Set `AuthProvider` when this provider is created via ProxyProvider
   void setAuthProvider(AuthProvider? authProvider) {
     _authProvider = authProvider;
@@ -164,13 +186,52 @@ class ReportsProvider extends ChangeNotifier {
   List<InventoryReport> get inventoryReports => _inventoryReports;
   List<Map<String, dynamic>> get expenses => _expenses;
   List<CustomerReport> get customerReports => _customerReports;
+  List<ReportExportHistoryItem> get exportHistory =>
+      List.unmodifiable(_exportHistory);
   bool get isLoading => _isLoading;
   String? get error => _error;
+  bool get scheduledExportsEnabled => _scheduledExportsEnabled;
+  String get scheduledExportFrequency => _scheduledExportFrequency;
 
   DateTime get salesStartDate => _salesStartDate;
   DateTime get salesEndDate => _salesEndDate;
   DateTime get financialStartDate => _financialStartDate;
   DateTime get financialEndDate => _financialEndDate;
+
+  void setScheduledExport({
+    required bool enabled,
+    String? frequency,
+  }) {
+    _scheduledExportsEnabled = enabled;
+    if (frequency != null && frequency.isNotEmpty) {
+      _scheduledExportFrequency = frequency;
+    }
+    notifyListeners();
+  }
+
+  void addExportHistory({
+    required String fileName,
+    required String format,
+    required String reportType,
+    String? filePath,
+    int? bytes,
+  }) {
+    _exportHistory.insert(
+      0,
+      ReportExportHistoryItem(
+        fileName: fileName,
+        format: format,
+        reportType: reportType,
+        exportedAt: DateTime.now(),
+        filePath: filePath,
+        bytes: bytes,
+      ),
+    );
+    if (_exportHistory.length > 20) {
+      _exportHistory.removeRange(20, _exportHistory.length);
+    }
+    notifyListeners();
+  }
 
   // Date range setters
   void setSalesDateRange(DateTime start, DateTime end) {
@@ -809,10 +870,10 @@ class ReportsProvider extends ChangeNotifier {
         // Extract items/products and payment information
         final items = (data['items'] as List?) ?? [];
         final products = items.map<Map<String, dynamic>>((it) {
-          final name = (it is Map &&
-                  (it['name'] ?? it['productName'] ?? it['title']) != null)
+          final name = _extractStringValue(it is Map &&
+                  (it['name'] ?? it['productName'] ?? it['title']) != null
               ? (it['name'] ?? it['productName'] ?? it['title'])
-              : it.toString();
+              : it.toString()) ?? 'Unknown Item';
           final unitPrice = (it is Map)
               ? (it['price'] ??
                   it['unitPrice'] ??
@@ -835,18 +896,21 @@ class ReportsProvider extends ChangeNotifier {
           category: data['category'] ?? data['type'] ?? 'N/A',
           itemsCount: products.length,
           totalAmount: (data['totalAmount'] ?? data['total'] ?? 0).toDouble(),
-          cashier:
-              data['cashier'] ?? data['workerName'] ?? data['soldBy'] ?? 'N/A',
-          paymentMethod: data['paymentMethod'] ??
-              data['payment'] ??
-              data['tenderType'] ??
+          cashier: _extractStringValue(data['cashier']) ??
+              _extractStringValue(data['workerName']) ??
+              _extractStringValue(data['soldBy']) ??
               'N/A',
-          productNames: products.map((p) => p['name'].toString()).toList(),
+          paymentMethod: _extractStringValue(data['paymentMethod']) ??
+              _extractStringValue(data['payment']) ??
+              _extractStringValue(data['tenderType']) ??
+              'N/A',
+          productNames: products.map((p) => _extractStringValue(p['name']) ?? 'Unknown').toList(),
           products: products,
           receiptId: doc.id,
-          customerId: data['customerId'] ?? data['customer'] ?? '',
-          customerName:
-              data['customerName'] ?? data['customerDisplayName'] ?? '',
+          customerId: _extractStringValue(data['customerId']) ?? _extractStringValue(data['customer']) ?? '',
+          customerName: _extractStringValue(data['customerName']) ??
+              _extractStringValue(data['customerDisplayName']) ??
+              '',
         );
       }).toList();
       _isLoading = false;
@@ -1508,7 +1572,8 @@ class ReportsProvider extends ChangeNotifier {
             '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
         final description = expense['description'].toString().padRight(20);
         final category = expense['category'].toString().padRight(15);
-        final amount = '₦${expense['amount']}';
+        final amount =
+            formatCurrency((expense['amount'] as num?)?.toDouble() ?? 0.0);
 
         pdfContent.writeln('$formattedDate | $description | $category | $amount');
         if (expense['receiptUrl'] != null && expense['receiptUrl'].toString().isNotEmpty) {
@@ -2879,7 +2944,7 @@ class ReportsProvider extends ChangeNotifier {
   }
 
   String _formatCurrency(double amount) {
-    return '₦${amount.toStringAsFixed(2)}';
+    return formatCurrency(amount);
   }
 }
 
@@ -2977,5 +3042,31 @@ class CustomerReport {
 
   double get averageOrderValue =>
       totalOrders == 0 ? 0 : totalSpent / totalOrders;
+}
+
+class ReportExportHistoryItem {
+  final String fileName;
+  final String format;
+  final String reportType;
+  final DateTime exportedAt;
+  final String? filePath;
+  final int? bytes;
+
+  ReportExportHistoryItem({
+    required this.fileName,
+    required this.format,
+    required this.reportType,
+    required this.exportedAt,
+    this.filePath,
+    this.bytes,
+  });
+
+  String get displaySize {
+    final size = bytes ?? 0;
+    if (size <= 0) return '-';
+    if (size < 1024) return '${size} B';
+    if (size < 1024 * 1024) return '${(size / 1024).toStringAsFixed(1)} KB';
+    return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
 }
 

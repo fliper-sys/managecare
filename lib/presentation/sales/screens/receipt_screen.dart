@@ -965,6 +965,36 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     }
   }
 
+  /// Determine the appropriate number of decimal places for a quantity based on its unit
+  int _getDecimalPlacesForUnit(String unit) {
+    if (unit.isEmpty) return 0; // Default: no decimals for unspecified units
+    
+    final unitLower = unit.toLowerCase();
+    
+    // Volume/Fuel units: use 2 decimals
+    if (['l', 'litre', 'liter', 'ltr', 'liters', 'litres', 'gallon', 'gal', 'ml', 'milliliter'].contains(unitLower)) {
+      return 2;
+    }
+    
+    // Cylinder/Gas tank units: use 2 decimals (can be fractional)
+    if (['cyl', 'cylinder', 'cylinders', 'tank', 'tanks'].contains(unitLower)) {
+      return 2;
+    }
+    
+    // Weight units: use 2 decimals
+    if (['kg', 'gram', 'g', 'lbs', 'lb', 'oz', 'ounce'].contains(unitLower)) {
+      return 2;
+    }
+    
+    // Count/Quantity units: use 0 decimals
+    if (['unit', 'units', 'pcs', 'pieces', 'pc', 'piece', 'count', 'no', 'nos', 'items', 'item'].contains(unitLower)) {
+      return 0;
+    }
+    
+    // Default: 2 decimals for liquid/continuous measurements
+    return 2;
+  }
+
   @override
   Widget build(BuildContext context) {
     final sale = _normalizeSale(widget.sale);
@@ -990,15 +1020,26 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     // ignore: deprecated_member_use
     return WillPopScope(
       onWillPop: () async {
-        Navigator.of(context).pop();
-        return false;
+        if (Navigator.canPop(context)) {
+          Navigator.of(context).pop();
+        }
+        return !Navigator.canPop(context);
       },
       child: Scaffold(
         backgroundColor: Colors.grey[100],
         appBar: AppBar(
           title: Text(widget.isInvoice ? 'Invoice' : 'Receipt'),
           elevation: 0,
-          backgroundColor: headerColor,
+          backgroundColor: Colors.transparent,
+          flexibleSpace: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [headerColor, AppColors.primaryDark],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+          ),
           actions: [
             IconButton(
               icon: const Icon(Icons.image),
@@ -1241,10 +1282,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                             const SizedBox(height: 24),
 
                             // Divider
-                            Container(
-                              height: 1,
-                              color: Colors.grey.withAlpha(30),
-                            ),
+                            _buildDashedDivider(),
 
                             const SizedBox(height: 20),
 
@@ -1377,17 +1415,42 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     }
   }
 
+  Widget _buildDashedDivider() {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final boxWidth = constraints.constrainWidth();
+        const dashWidth = 6.0;
+        const dashHeight = 1.0;
+        final dashCount = (boxWidth / (2 * dashWidth)).floor();
+        return Flex(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          direction: Axis.horizontal,
+          children: List.generate(dashCount, (_) {
+            return SizedBox(
+              width: dashWidth,
+              height: dashHeight,
+              child: DecoratedBox(
+                decoration: BoxDecoration(color: Colors.grey[300]),
+              ),
+            );
+          }),
+        );
+      },
+    );
+  }
+
   // Modern OPay-style builder methods
 
   /// Build modern receipt metadata in grid layout
   Widget _buildModernReceiptMetadata(
       Map<String, dynamic> sale, dynamic settings) {
-    final List<({String label, String value})> items = [];
+    final List<({String label, String value, IconData icon})> items = [];
 
     if (settings?.showOrderId ?? true) {
       items.add((
         label: 'Order ID',
         value: sale['id'] ?? 'N/A',
+        icon: Icons.tag,
       ));
     }
 
@@ -1395,6 +1458,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       items.add((
         label: 'Date',
         value: sale['displayDate'] ?? (sale['date'] != null ? DateFormat('MMMM d, yyyy').format(parseTimestamp(sale['date'])) : 'N/A'),
+        icon: Icons.calendar_today,
       ));
     }
 
@@ -1402,6 +1466,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       items.add((
         label: 'Time',
         value: sale['time'] ?? 'N/A',
+        icon: Icons.access_time,
       ));
     }
 
@@ -1409,58 +1474,53 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       items.add((
         label: 'Cashier',
         value: sale['cashier'] ?? 'N/A',
+        icon: Icons.person_outline,
       ));
     }
 
-    return Wrap(
-      spacing: 16,
-      runSpacing: 12,
-      children: items.map((item) {
-        // Wrap does not support Expanded (a ParentDataWidget for Flex).
-        // Use ConstrainedBox with a maxWidth to allow flexible wrapping.
-        return ConstrainedBox(
-          constraints: BoxConstraints(
-            minWidth: 120,
-            maxWidth: MediaQuery.of(context).size.width * 0.45,
-          ),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey.withAlpha(8),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: Colors.grey.withAlpha(15),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        children: items.map((item) {
+          final isLast = item == items.last;
+          return Padding(
+            padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+            child: Row(
               children: [
+                Icon(item.icon, size: 16, color: Colors.blueGrey),
+                const SizedBox(width: 8),
                 Text(
                   item.label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey[600],
-                    letterSpacing: 0.3,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item.value,
                   style: const TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.black87,
+                    color: Colors.blueGrey,
+                    fontWeight: FontWeight.w500,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                ),
+                const Spacer(),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    item.value,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                    textAlign: TextAlign.right,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ),
-          ),
-        );
-      }).toList(),
+          );
+        }).toList(),
+      ),
     );
   }
 
@@ -1488,24 +1548,24 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               Expanded(
                 flex: 3,
                 child: Text(
-                  'Item',
+                  'ITEM',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    fontSize: 12,
+                    fontSize: 11,
                     color: Colors.grey[600],
-                    letterSpacing: 0.2,
+                    letterSpacing: 0.5,
                   ),
                 ),
               ),
               SizedBox(
                 width: 50,
                 child: Text(
-                  'Qty',
+                  'QTY',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    fontSize: 12,
+                    fontSize: 11,
                     color: Colors.grey[600],
-                    letterSpacing: 0.2,
+                    letterSpacing: 0.5,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -1513,12 +1573,12 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               SizedBox(
                 width: 60,
                 child: Text(
-                  'Price',
+                  'PRICE',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    fontSize: 12,
+                    fontSize: 11,
                     color: Colors.grey[600],
-                    letterSpacing: 0.2,
+                    letterSpacing: 0.5,
                   ),
                   textAlign: TextAlign.right,
                 ),
@@ -1526,12 +1586,12 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               SizedBox(
                 width: 60,
                 child: Text(
-                  'Total',
+                  'TOTAL',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    fontSize: 12,
+                    fontSize: 11,
                     color: Colors.grey[600],
-                    letterSpacing: 0.2,
+                    letterSpacing: 0.5,
                   ),
                   textAlign: TextAlign.right,
                 ),
@@ -1539,14 +1599,16 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
             ],
           ),
         ),
+        const Divider(height: 1),
+        const SizedBox(height: 8),
         // Items
         ...items.map((item) {
           final qty = (item['quantity'] ?? 1).toInt();
           final price = (item['price'] ?? 0.0).toDouble();
           final itemTotal = qty * price;
 
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
+          return Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(
               children: [
                 Expanded(
@@ -1557,7 +1619,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                       Text(
                         item['name'] ?? 'Product',
                         style: const TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: FontWeight.w600,
                           color: Colors.black87,
                         ),
@@ -1567,7 +1629,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                       if (item['description'] != null &&
                           (item['description'] as String).isNotEmpty)
                         Padding(
-                          padding: const EdgeInsets.only(top: 4),
+                          padding: const EdgeInsets.only(top: 2),
                           child: Text(
                             item['description'],
                             style: TextStyle(
@@ -1584,10 +1646,10 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                 SizedBox(
                   width: 50,
                   child: Text(
-                    qty.toString(),
+                    qty.toStringAsFixed(_getDecimalPlacesForUnit(item['unit'] ?? item['uom'] ?? '')),
                     style: const TextStyle(
                       fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w500,
                       color: Colors.black87,
                     ),
                     textAlign: TextAlign.center,
@@ -1596,11 +1658,11 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                 SizedBox(
                   width: 60,
                   child: Text(
-                    '₦${price.toStringAsFixed(2)}',
+                    '₦${price.toStringAsFixed(0)}',
                     style: TextStyle(
                       fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey[800],
                     ),
                     textAlign: TextAlign.right,
                   ),
@@ -1608,7 +1670,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                 SizedBox(
                   width: 60,
                   child: Text(
-                    '₦${itemTotal.toStringAsFixed(2)}',
+                    '₦${itemTotal.toStringAsFixed(0)}',
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
@@ -1715,24 +1777,19 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         const SizedBox(height: 12),
         // Total - Emphasized
         Container(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                headerColor.withAlpha(8),
-                AppColors.primaryDark.withAlpha(8),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(8),
+            color: headerColor.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: headerColor.withAlpha(30),
+              color: headerColor.withOpacity(0.1),
             ),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Total',
+                'Total Amount',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -1743,8 +1800,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
               Text(
                 '₦${total.toStringAsFixed(2)}',
                 style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
                   color: headerColor,
                   letterSpacing: -0.5,
                 ),
@@ -1957,4 +2014,3 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     );
   }
 }
-

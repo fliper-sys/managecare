@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../../../core/theme/text_styles.dart';
+import '../../../../core/utils/currency.dart';
 import '../providers/barber_shop_provider.dart';
 
 class BarberShopPaymentsScreen extends StatefulWidget {
@@ -40,7 +40,7 @@ class _BarberShopPaymentsScreenState extends State<BarberShopPaymentsScreen> {
                         return Card(
                           child: ListTile(
                             title: Text(appt.clientName),
-                            subtitle: Text('${appt.serviceName} • ${appt.barberName}'),
+                            subtitle: Text('${appt.serviceName} - ${appt.barberName}'),
                             trailing: ElevatedButton(
                               onPressed: () => _showPayDialog(appt.id, appt.servicePrice, appt.clientName, appt.barberName),
                               child: const Text('Pay'),
@@ -57,7 +57,6 @@ class _BarberShopPaymentsScreenState extends State<BarberShopPaymentsScreen> {
   }
 
   void _showPayDialog(String appointmentId, double price, String clientName, String barberName) {
-    final nf = NumberFormat.currency(symbol: '₦', decimalDigits: 2);
     _payments = [
       {'method': _paymentMethod, 'amount': price}
     ];
@@ -126,14 +125,14 @@ class _BarberShopPaymentsScreenState extends State<BarberShopPaymentsScreen> {
                         child: const Text('Add Payment'),
                       ),
                       const SizedBox(width: 12),
-                      Text('Total: ${nf.format(totalPaid)}')
+                      Text('Total: ${formatCurrency(totalPaid)}')
                     ],
                   ),
                   const SizedBox(height: 6),
                   if (totalPaid < price)
                     Padding(
                       padding: const EdgeInsets.only(top: 8.0),
-                      child: Text('Remaining: ${nf.format(price - totalPaid)}', style: const TextStyle(color: Colors.orange)),
+                      child: Text('Remaining: ${formatCurrency(price - totalPaid)}', style: const TextStyle(color: Colors.orange)),
                     )
                   else if (totalPaid == price)
                     Padding(
@@ -143,7 +142,7 @@ class _BarberShopPaymentsScreenState extends State<BarberShopPaymentsScreen> {
                   else
                     Padding(
                       padding: const EdgeInsets.only(top: 8.0),
-                      child: Text('Change: ${nf.format(totalPaid - price)}', style: const TextStyle(color: Colors.green)),
+                      child: Text('Change: ${formatCurrency(totalPaid - price)}', style: const TextStyle(color: Colors.green)),
                     )
                 ],
               ),
@@ -175,3 +174,4 @@ class _BarberShopPaymentsScreenState extends State<BarberShopPaymentsScreen> {
     );
   }
 }
+

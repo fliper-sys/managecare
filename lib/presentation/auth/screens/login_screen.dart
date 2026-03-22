@@ -222,7 +222,7 @@ class _LoginScreenState extends State<LoginScreen>
                                   if (_appIconTaps >= 7) {
                                     _appIconTaps = 0;
                                     Navigator.of(context)
-                                        .pushNamed('/admin_login');
+                                          .pushNamed(Routes.adminLogin);
                                   } else if (_appIconTaps > 1 &&
                                       _appIconTaps < 7) {
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -466,6 +466,24 @@ class _LoginScreenState extends State<LoginScreen>
                             ],
                           ),
                         ),
+                      
+                      // Marketers login link (visible from main login)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: Center(
+                          child: TextButton(
+                            onPressed: () => Navigator.of(context).pushNamed(Routes.adminLogin),
+                            child: Text(
+                              'Marketers login',
+                              style: AppTextStyles.body2.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),

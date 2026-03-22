@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/constants/routes.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../providers/auth_provider.dart';
 import '../providers/barber_shop_provider.dart';
 
@@ -178,7 +179,7 @@ class _BarberShopDashboardScreenState extends State<BarberShopDashboardScreen>
                                   final todayRevenue = snapshot.data ?? 0.0;
                                   return _MetricCard(
                                     label: 'Today\'s Sales',
-                                    value: '₦${todayRevenue.toStringAsFixed(0)}',
+                                    value: formatCurrency(todayRevenue),
                                     icon: Icons.payments_outlined,
                                     color: Colors.green,
                                     isPrimary: true,
@@ -195,7 +196,7 @@ class _BarberShopDashboardScreenState extends State<BarberShopDashboardScreen>
                               ),
                               _MetricCard(
                                 label: 'Monthly',
-                                value: '₦${monthlyRevenue.toStringAsFixed(0)}',
+                                value: formatCurrency(monthlyRevenue),
                                 icon: Icons.trending_up,
                                 color: Colors.blue,
                                 onTap: () => Navigator.pushNamed(context, Routes.reports),

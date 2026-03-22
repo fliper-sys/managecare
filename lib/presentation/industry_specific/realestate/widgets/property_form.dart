@@ -7,6 +7,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../providers/real_estate_provider.dart';
@@ -42,22 +43,45 @@ class _PropertyFormState extends State<PropertyForm> {
   late TextEditingController _bedroomsCtrl;
   late TextEditingController _bathroomsCtrl;
   late TextEditingController _parkingCtrl;
+  late TextEditingController _yearBuiltCtrl;
+  late TextEditingController _floorsCtrl;
+  late TextEditingController _unitsCtrl;
+  late TextEditingController _agentNameCtrl;
 
   String _selectedType = 'residential';
-  // Stores either local File (mobile/desktop) or XFile (web)
+  String _selectedStatus = 'available';
+  String? _selectedTenantId;
+  String? _selectedAgentId;
+
+  // Image handling
   List<dynamic> _selectedImages = [];
-  // On web store in-memory bytes for quick preview
   List<Uint8List?> _selectedImageBytes = [];
   List<double> _uploadProgress = [];
   List<String?> _uploadedImageUrls = [];
   List<bool> _uploadError = [];
-  // For retry: store pending bytes and filenames
   List<List<int>?> _pendingImageBytes = [];
   List<String?> _pendingImageFilenames = [];
+
+  // Document handling
+  List<PlatformFile> _selectedDocuments = [];
+  List<String?> _uploadedDocumentUrls = [];
+  List<double> _documentUploadProgress = [];
+  List<bool> _documentUploadError = [];
+
+  // Amenities
+  final List<String> _availableAmenities = [
+    'Swimming Pool', 'Gym', 'Parking', 'Security', 'Garden', 'Balcony',
+    'Air Conditioning', 'Heating', 'Internet', 'Cable TV', 'Laundry',
+    'Storage', 'Elevator', 'Fireplace', 'Dishwasher', 'Walk-in Closet'
+  ];
+  List<String> _selectedAmenities = [];
+
   bool _isSubmitting = false;
 
   static const int maxImages = 8;
+  static const int maxDocuments = 5;
   static const int maxImageSizeBytes = 2 * 1024 * 1024; // 2MB
+  static const int maxDocumentSizeBytes = 10 * 1024 * 1024; // 10MB
 
   @override
   void initState() {
@@ -76,15 +100,28 @@ class _PropertyFormState extends State<PropertyForm> {
         text: widget.initial != null ? widget.initial!.bathrooms.toString() : '1');
     _parkingCtrl = TextEditingController(
         text: widget.initial != null ? widget.initial!.parking.toString() : '0');
+    _yearBuiltCtrl = TextEditingController(text: widget.initial != null ? '2024' : '');
+    _floorsCtrl = TextEditingController(text: widget.initial != null ? '1' : '1');
+    _unitsCtrl = TextEditingController(text: widget.initial != null ? '1' : '1');
+    _agentNameCtrl = TextEditingController(text: widget.initial?.agentName ?? '');
 
     _selectedType = widget.initial?.propertyType ?? 'residential';
+    _selectedStatus = widget.initial?.status ?? 'available';
+    _selectedTenantId = null; // Will be set if editing existing property with tenant
+    _selectedAgentId = widget.initial?.agentId;
+    _selectedAmenities = List<String>.from(widget.initial?.amenities ?? []);
+
     _uploadedImageUrls = List<String?>.from(widget.initial?.imageUrls ?? []);
     _selectedImages = [];
-    // Use growable lists so we can add/remove items when users pick new images
     _uploadProgress = List<double>.filled(_uploadedImageUrls.length, 1.0, growable: true);
     _uploadError = List<bool>.filled(_uploadedImageUrls.length, false, growable: true);
     _pendingImageBytes = List<List<int>?>.filled(_uploadedImageUrls.length, null, growable: true);
     _pendingImageFilenames = List<String?>.filled(_uploadedImageUrls.length, null, growable: true);
+
+    // Initialize document lists
+    _uploadedDocumentUrls = [];
+    _documentUploadProgress = [];
+    _documentUploadError = [];
   }
 
   @override
@@ -97,6 +134,10 @@ class _PropertyFormState extends State<PropertyForm> {
     _bedroomsCtrl.dispose();
     _bathroomsCtrl.dispose();
     _parkingCtrl.dispose();
+    _yearBuiltCtrl.dispose();
+    _floorsCtrl.dispose();
+    _unitsCtrl.dispose();
+    _agentNameCtrl.dispose();
     super.dispose();
   }
 
@@ -118,19 +159,135 @@ class _PropertyFormState extends State<PropertyForm> {
     }
   }
 
-  Future<void> _selectImages() async {
-    final ImagePicker picker = ImagePicker();
-    final List<XFile> images = await picker.pickMultiImage();
-    if (images.isEmpty) return;
+  Future<void> _selectDocuments() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'],
+      allowMultiple: true,
+    );
 
-    // Enforce max images
-    if (_uploadedImageUrls.length + _selectedImages.length + images.length >
-        maxImages) {
+    if (result != null && result.files.isNotEmpty) {
+      if (_uploadedDocumentUrls.length + result.files.length > maxDocuments) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Maximum of 5 documents allowed per property')));
+        return;
+      }
+
+      setState(() {
+        _selectedDocuments.addAll(result.files);
+        _documentUploadProgress.addAll(List<double>.filled(result.files.length, 0.0));
+        _documentUploadError.addAll(List<bool>.filled(result.files.length, false));
+        _uploadedDocumentUrls.addAll(List<String?>.filled(result.files.length, null));
+      });
+
+      // Start uploading documents
+      for (int i = 0; i < result.files.length; i++) {
+        final idx = _uploadedDocumentUrls.length - result.files.length + i;
+        await _uploadDocumentAtIndex(idx);
+      }
+    }
+  }
+
+  Future<void> _uploadDocumentAtIndex(int index) async {
+    if (index < 0 || index >= _selectedDocuments.length) return;
+
+    final document = _selectedDocuments[index - (_uploadedDocumentUrls.length - _selectedDocuments.length)];
+    if (document.bytes == null && document.path == null) return;
+
+    try {
+      setState(() {
+        _documentUploadError[index] = false;
+        _documentUploadProgress[index] = 0.0;
+      });
+
+      List<int> bytes;
+      String filename;
+
+      if (document.bytes != null) {
+        bytes = document.bytes!;
+        filename = document.name;
+      } else {
+        final file = File(document.path!);
+        bytes = await file.readAsBytes();
+        filename = document.name;
+      }
+
+      if (bytes.length > maxDocumentSizeBytes) {
+        setState(() => _documentUploadError[index] = true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Document ${document.name} is too large (max 10MB)')));
+        }
+        return;
+      }
+
+      // Create a temporary file for upload
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/$filename');
+      await tempFile.writeAsBytes(bytes);
+
+      final urls = await widget.provider.uploadPropertyDocuments([tempFile],
+          onProgress: (i, sent, total) {
+        if (mounted) {
+          setState(() => _documentUploadProgress[index] = total > 0 ? (sent / total) : 0);
+        }
+      });
+
+      if (urls.isNotEmpty) {
+        setState(() {
+          _uploadedDocumentUrls[index] = urls.first;
+          _documentUploadProgress[index] = 1.0;
+          _documentUploadError[index] = false;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Document ${document.name} uploaded successfully')));
+        }
+      } else {
+        setState(() => _documentUploadError[index] = true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Failed to upload document')));
+        }
+      }
+
+      // Clean up temp file
+      try {
+        await tempFile.delete();
+      } catch (_) {}
+    } catch (e) {
+      setState(() => _documentUploadError[index] = true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Document upload failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _selectImages() async {
+    if (_uploadedImageUrls.length >= maxImages) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Maximum of 8 images allowed per property')));
       return;
     }
 
+    final picker = ImagePicker();
+    final images = await picker.pickMultiImage();
+
+    if (images.isNotEmpty) {
+      final remainingSlots = maxImages - _uploadedImageUrls.length;
+      if (images.length > remainingSlots) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('You can only add $remainingSlots more images')));
+        await _handleImageSelection(images.sublist(0, remainingSlots));
+      } else {
+        await _handleImageSelection(images);
+      }
+    }
+  }
+
+  Future<void> _handleImageSelection(List<XFile> images) async {
     final List<dynamic> newSelected = [];
     final List<Uint8List?> newBytes = [];
 
@@ -418,13 +575,13 @@ if (_pendingImageBytes[index] == null || _pendingImageBytes[index]!.isEmpty) {
         bedrooms: int.tryParse(_bedroomsCtrl.text) ?? 0,
         bathrooms: int.tryParse(_bathroomsCtrl.text) ?? 0,
         parking: int.tryParse(_parkingCtrl.text) ?? 0,
-        amenities: widget.initial?.amenities ?? [],
+        amenities: _selectedAmenities,
         imageUrls: _uploadedImageUrls.where((u) => u != null).map((u) => u!).toList(),
-        status: widget.initial?.status ?? 'available',
+        status: _selectedStatus,
         createdAt: widget.initial?.createdAt ?? DateTime.now(),
         updatedAt: DateTime.now(),
-        agentId: widget.initial?.agentId,
-        agentName: widget.initial?.agentName,
+        agentId: _selectedAgentId,
+        agentName: _agentNameCtrl.text.trim().isNotEmpty ? _agentNameCtrl.text.trim() : null,
       );
 
       await widget.onSubmit(property);
@@ -443,179 +600,487 @@ if (_pendingImageBytes[index] == null || _pendingImageBytes[index]!.isEmpty) {
   Widget build(BuildContext context) {
     return Form(
       key: _formKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextFormField(
-            controller: _titleCtrl,
-            decoration: InputDecoration(labelText: 'Property Title', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Title is required' : null,
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _descriptionCtrl,
-            decoration: InputDecoration(labelText: 'Description', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
-            maxLines: 3,
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _locationCtrl,
-            decoration: InputDecoration(labelText: 'Location', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Location is required' : null,
-          ),
-          const SizedBox(height: 12),
-          const Text('Property Type'),
-          const SizedBox(height: 8),
-          DropdownButton<String>(
-            value: _selectedType,
-            isExpanded: true,
-            items: ['residential', 'commercial', 'land'].map((type) => DropdownMenuItem(value: type, child: Text(type.toUpperCase()))).toList(),
-            onChanged: (v) => setState(() => _selectedType = v!),
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _priceCtrl,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(labelText: 'Price (₦)', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))),
-            validator: (v) {
-              final val = _parsePrice(v ?? '');
-              if (val <= 0) return 'Price must be greater than zero';
-              return null;
-            },
-          ),
-          const SizedBox(height: 12),
-          Row(children: [
-            Expanded(child: TextFormField(controller: _areaCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Area (m²)', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))))),
-            const SizedBox(width: 8),
-            Expanded(child: TextFormField(controller: _bedroomsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Bedrooms', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))))),
-            const SizedBox(width: 8),
-            Expanded(child: TextFormField(controller: _bathroomsCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Bathrooms', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))))),
-          ]),
-          const SizedBox(height: 12),
-          TextFormField(controller: _parkingCtrl, keyboardType: TextInputType.number, decoration: InputDecoration(labelText: 'Parking Spaces', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)))),
-          const SizedBox(height: 16),
-          const Text('Property Images'),
-          const SizedBox(height: 8),
-          GestureDetector(
-            onTap: _selectImages,
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(8)),
-              child: Column(children: [
-                const Icon(Icons.image_outlined, size: 48, color: AppColors.primary),
-                const SizedBox(height: 8),
-                const Text('Tap to select images'),
-                const SizedBox(height: 8),
-                if (_uploadedImageUrls.where((u) => u != null).isNotEmpty)
-                  Padding(padding: const EdgeInsets.only(top: 8), child: Text('${_uploadedImageUrls.where((u) => u != null).length} image(s) available', style: AppTextStyles.body2.copyWith(color: AppColors.primary))),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _uploadedImageUrls.asMap().entries.map((entry) {
-                    final i = entry.key;
-                    final url = entry.value;
-                    // Calculate how many uploaded (existing) images there are so we can map
-                    // the _selectedImages array correctly to indices in _uploadedImageUrls.
-                    final existingCount = _uploadedImageUrls.length - _selectedImages.length;
-
-                    Widget imageWidget;
-
-                    if (url != null) {
-                      imageWidget = Image.network(url, width: 80, height: 80, fit: BoxFit.cover);
-                    } else {
-                      final selIndex = i - existingCount;
-                      if (selIndex >= 0 && selIndex < _selectedImages.length) {
-                        if (_selectedImageBytes.length > selIndex && _selectedImageBytes[selIndex] != null) {
-                          imageWidget = Image.memory(_selectedImageBytes[selIndex]!, width: 80, height: 80, fit: BoxFit.cover);
-                        } else {
-                          final sel = _selectedImages[selIndex];
-                          if (sel is File) {
-                            imageWidget = Image.file(sel, width: 80, height: 80, fit: BoxFit.cover);
-                          } else if (sel is XFile) {
-                            imageWidget = Image.memory(_selectedImageBytes[selIndex] ?? Uint8List(0), width: 80, height: 80, fit: BoxFit.cover);
-                          } else {
-                            imageWidget = const SizedBox(width: 80, height: 80);
-                          }
-                        }
-                      } else {
-                        imageWidget = const SizedBox(width: 80, height: 80);
-                      }
-                    }
-
-                    return Stack(children: [
-                      ClipRRect(borderRadius: BorderRadius.circular(8), child: imageWidget),
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        child: GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              final existingCountInner = _uploadedImageUrls.length - _selectedImages.length;
-
-                              if (i < existingCountInner) {
-                                // Removing an already-uploaded image
-                                _uploadedImageUrls.removeAt(i);
-                                _uploadProgress.removeAt(i);
-                                _uploadError.removeAt(i);
-                                _pendingImageBytes.removeAt(i);
-                                _pendingImageFilenames.removeAt(i);
-                              } else {
-                                // Removing a newly-selected image that hasn't been uploaded yet
-                                final selIndex = i - existingCountInner;
-                                if (selIndex >= 0 && selIndex < _selectedImages.length) {
-                                  _selectedImages.removeAt(selIndex);
-                                  if (_selectedImageBytes.length > selIndex) _selectedImageBytes.removeAt(selIndex);
-                                  // Remove the parallel slot in the uploaded arrays
-                                  _uploadedImageUrls.removeAt(i);
-                                  _uploadProgress.removeAt(i);
-                                  _uploadError.removeAt(i);
-                                  _pendingImageBytes.removeAt(i);
-                                  _pendingImageFilenames.removeAt(i);
-                                } else {
-                                  // Fallback: remove the slot at i
-                                  _uploadedImageUrls.removeAt(i);
-                                  _uploadProgress.removeAt(i);
-                                  _uploadError.removeAt(i);
-                                  _pendingImageBytes.removeAt(i);
-                                  _pendingImageFilenames.removeAt(i);
-                                }
-                              }
-                            });
-                          },
-                          child: Container(decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.close, color: Colors.white, size: 16)),
-                        ),
-                      ),
-                      if (i < _uploadProgress.length && _uploadProgress[i] > 0 && _uploadProgress[i] < 1)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), color: Colors.black.withOpacity(0.35)),
-                            child: LinearProgressIndicator(value: _uploadProgress[i], minHeight: 6, backgroundColor: Colors.white.withOpacity(0.2), valueColor: const AlwaysStoppedAnimation(AppColors.primary)),
-                          ),
-                        ),
-                      if (i < _uploadError.length && _uploadError[i])
-                        Positioned(
-                          left: 4,
-                          bottom: 4,
-                          child: GestureDetector(onTap: () => _retryUploadImage(i), child: Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(8)), child: const Text('Retry', style: TextStyle(color: Colors.white, fontSize: 12)))),
-                        )
-                    ]);
-                  }).toList(),
-                ),
-              ]),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Basic Information Section
+            _buildSectionHeader('Basic Information'),
+            TextFormField(
+              controller: _titleCtrl,
+              decoration: InputDecoration(
+                labelText: 'Property Title',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                hintText: 'e.g., Modern 3BR Apartment in Lekki'
+              ),
+              validator: (v) => (v == null || v.trim().isEmpty) ? 'Title is required' : null,
             ),
-          ),
-          const SizedBox(height: 16),
-          Row(children: [
-            Expanded(child: OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel'))),
-            const SizedBox(width: 8),
-            Expanded(child: ElevatedButton(onPressed: _isSubmitting ? null : _handleSubmit, child: _isSubmitting ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(Colors.white), strokeWidth: 2)) : Text(widget.submitText)))
-          ])
-        ],
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _descriptionCtrl,
+              decoration: InputDecoration(
+                labelText: 'Description',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                hintText: 'Detailed description of the property...'
+              ),
+              maxLines: 4,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _locationCtrl,
+              decoration: InputDecoration(
+                labelText: 'Location',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                hintText: 'Full address or location description'
+              ),
+              validator: (v) => (v == null || v.trim().isEmpty) ? 'Location is required' : null,
+            ),
+            const SizedBox(height: 16),
+
+            // Property Type and Status
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Property Type'),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: _selectedType,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        items: ['residential', 'commercial', 'land'].map((type) =>
+                          DropdownMenuItem(value: type, child: Text(type.toUpperCase()))
+                        ).toList(),
+                        onChanged: (v) => setState(() => _selectedType = v!),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Status'),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: _selectedStatus,
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        items: ['available', 'rented', 'sold', 'maintenance'].map((status) =>
+                          DropdownMenuItem(value: status, child: Text(status.toUpperCase()))
+                        ).toList(),
+                        onChanged: (v) => setState(() => _selectedStatus = v!),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Pricing Section
+            _buildSectionHeader('Pricing & Financial'),
+            TextFormField(
+              controller: _priceCtrl,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Price (₦)',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                hintText: 'Monthly rent or sale price'
+              ),
+              validator: (v) {
+                final val = _parsePrice(v ?? '');
+                if (val <= 0) return 'Price must be greater than zero';
+                return null;
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // Property Details Section
+            _buildSectionHeader('Property Details'),
+            Row(children: [
+              Expanded(child: TextFormField(
+                controller: _areaCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Area (m²)',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+                )
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: TextFormField(
+                controller: _bedroomsCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Bedrooms',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+                )
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: TextFormField(
+                controller: _bathroomsCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Bathrooms',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+                )
+              )),
+            ]),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(child: TextFormField(
+                controller: _parkingCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Parking Spaces',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+                )
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: TextFormField(
+                controller: _yearBuiltCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Year Built',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+                )
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: TextFormField(
+                controller: _floorsCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Floors',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+                )
+              )),
+            ]),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _unitsCtrl,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Number of Units',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))
+              )
+            ),
+            const SizedBox(height: 16),
+
+            // Agent Information Section
+            _buildSectionHeader('Agent Information'),
+            TextFormField(
+              controller: _agentNameCtrl,
+              decoration: InputDecoration(
+                labelText: 'Agent Name',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                hintText: 'Name of the listing agent'
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Amenities Section
+            _buildSectionHeader('Amenities'),
+            _buildAmenitiesSelector(),
+            const SizedBox(height: 16),
+
+            // Images Section
+            _buildSectionHeader('Property Images'),
+            _buildImageUploadSection(),
+            const SizedBox(height: 16),
+
+            // Documents Section
+            _buildSectionHeader('Documents'),
+            _buildDocumentUploadSection(),
+            const SizedBox(height: 24),
+
+            // Submit Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isSubmitting ? null : _handleSubmit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: _isSubmitting
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : Text(widget.submitText, style: const TextStyle(fontSize: 16)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: AppColors.primary,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAmenitiesSelector() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: _availableAmenities.map((amenity) {
+        final isSelected = _selectedAmenities.contains(amenity);
+        return FilterChip(
+          label: Text(amenity),
+          selected: isSelected,
+          onSelected: (selected) {
+            setState(() {
+              if (selected) {
+                _selectedAmenities.add(amenity);
+              } else {
+                _selectedAmenities.remove(amenity);
+              }
+            });
+          },
+          backgroundColor: Colors.grey[100],
+          selectedColor: AppColors.primary.withOpacity(0.2),
+          checkmarkColor: AppColors.primary,
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildImageUploadSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: _selectImages,
+          child: Container(
+            height: 120,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!, style: BorderStyle.solid),
+              borderRadius: BorderRadius.circular(8),
+              color: Colors.grey[50],
+            ),
+            child: const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_photo_alternate, size: 32, color: Colors.grey),
+                  SizedBox(height: 8),
+                  Text('Tap to add property images', style: TextStyle(color: Colors.grey)),
+                  Text('(Max 8 images, 2MB each)', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (_uploadedImageUrls.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 100,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _uploadedImageUrls.length,
+              itemBuilder: (context, index) {
+                final url = _uploadedImageUrls[index];
+                if (url == null) return const SizedBox.shrink();
+
+                return Container(
+                  width: 100,
+                  margin: const EdgeInsets.only(right: 8),
+                  child: Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: CachedNetworkImage(
+                          imageUrl: url,
+                          width: 100,
+                          height: 100,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(
+                            color: Colors.grey[300],
+                            child: const Center(child: CircularProgressIndicator()),
+                          ),
+                          errorWidget: (context, url, error) => Container(
+                            color: Colors.grey[300],
+                            child: const Icon(Icons.error),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: GestureDetector(
+                          onTap: () => _removeImage(index),
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.close, size: 16, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDocumentUploadSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GestureDetector(
+          onTap: _selectDocuments,
+          child: Container(
+            height: 80,
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!, style: BorderStyle.solid),
+              borderRadius: BorderRadius.circular(8),
+              color: Colors.grey[50],
+            ),
+            child: const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.attach_file, size: 24, color: Colors.grey),
+                  SizedBox(height: 4),
+                  Text('Tap to add documents', style: TextStyle(color: Colors.grey)),
+                  Text('(PDF, DOC, Images - Max 10MB)', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (_selectedDocuments.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _selectedDocuments.length,
+            itemBuilder: (context, index) {
+              final doc = _selectedDocuments[index];
+              final progress = index < _documentUploadProgress.length ? _documentUploadProgress[index] : 0.0;
+              final hasError = index < _documentUploadError.length ? _documentUploadError[index] : false;
+              final isUploaded = index < _uploadedDocumentUrls.length && _uploadedDocumentUrls[index] != null;
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey[300]!),
+                  borderRadius: BorderRadius.circular(8),
+                  color: Colors.white,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _getDocumentIcon(doc.extension),
+                      color: hasError ? Colors.red : isUploaded ? Colors.green : Colors.grey,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            doc.name,
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            '${(doc.size / 1024).toStringAsFixed(1)} KB',
+                            style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                          ),
+                          if (progress > 0 && progress < 1) ...[
+                            const SizedBox(height: 4),
+                            LinearProgressIndicator(value: progress),
+                          ],
+                          if (hasError) ...[
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Upload failed',
+                              style: TextStyle(color: Colors.red, fontSize: 12),
+                            ),
+                          ],
+                          if (isUploaded) ...[
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Uploaded successfully',
+                              style: TextStyle(color: Colors.green, fontSize: 12),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    if (!isUploaded && !hasError)
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => _removeDocument(index),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ],
+    );
+  }
+
+  IconData _getDocumentIcon(String? extension) {
+    switch (extension?.toLowerCase()) {
+      case 'pdf':
+        return Icons.picture_as_pdf;
+      case 'doc':
+      case 'docx':
+        return Icons.description;
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+        return Icons.image;
+      default:
+        return Icons.insert_drive_file;
+    }
+  }
+
+  void _removeImage(int index) {
+    setState(() {
+      _uploadedImageUrls.removeAt(index);
+      if (index < _uploadProgress.length) _uploadProgress.removeAt(index);
+      if (index < _uploadError.length) _uploadError.removeAt(index);
+      if (index < _pendingImageBytes.length) _pendingImageBytes.removeAt(index);
+      if (index < _pendingImageFilenames.length) _pendingImageFilenames.removeAt(index);
+    });
+  }
+
+  void _removeDocument(int index) {
+    setState(() {
+      _selectedDocuments.removeAt(index);
+      if (index < _documentUploadProgress.length) _documentUploadProgress.removeAt(index);
+      if (index < _documentUploadError.length) _documentUploadError.removeAt(index);
+      if (index < _uploadedDocumentUrls.length) _uploadedDocumentUrls.removeAt(index);
+    });
   }
 }

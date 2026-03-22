@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/utils/currency.dart';
 import '../providers/barber_shop_provider.dart';
 
 class BarberCommissionScreen extends StatefulWidget {
@@ -59,7 +60,7 @@ class _BarberCommissionScreenState extends State<BarberCommissionScreen> {
                   return ExpansionTile(
                     title: Text(b.name),
                     subtitle: Text(b.specialization),
-                    trailing: Text('₦${owed.toStringAsFixed(2)}'),
+                    trailing: Text(formatCurrency(owed)),
                     children: [
                       if (completed.isEmpty)
                         const Padding(
@@ -73,13 +74,13 @@ class _BarberCommissionScreenState extends State<BarberCommissionScreen> {
                           final date = DateFormat('MMM dd, yyyy').format(a.appointmentTime);
                           final time = DateFormat('HH:mm').format(a.appointmentTime);
                           return ListTile(
-                            title: Text('${a.serviceName} • ${a.clientName}'),
-                            subtitle: Text('$date • $time'),
+                            title: Text('${a.serviceName} - ${a.clientName}'),
+                            subtitle: Text('$date - $time'),
                             trailing: Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                Text('₦${amount.toStringAsFixed(2)}'),
-                                Text('Comm: ₦${commission.toStringAsFixed(2)}', style: const TextStyle(fontSize: 12)),
+                                Text(formatCurrency(amount)),
+                                Text('Comm: ${formatCurrency(commission)}', style: const TextStyle(fontSize: 12)),
                               ],
                             ),
                           );
@@ -97,7 +98,7 @@ class _BarberCommissionScreenState extends State<BarberCommissionScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Total Commission Owed'),
-                    Text('₦${totalCommission.toStringAsFixed(2)}'),
+                    Text(formatCurrency(totalCommission)),
                   ],
                 ),
               ),

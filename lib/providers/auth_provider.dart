@@ -12,6 +12,7 @@ import '../services/local_user_storage.dart';
 import '../services/local_business_storage.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../services/push_service.dart';
+import '../services/push_notification_service.dart';
 import '../data/repositories/business_repository_impl.dart';
 import '../data/repositories/worker_repository_impl.dart';
 
@@ -462,6 +463,11 @@ class AuthProvider with ChangeNotifier {
           }
         }
 
+        // Send login notification to business owners
+        if (_currentUser != null && !_currentUser!.isOwner) {
+          await _notifyBusinessOwnerOfLogin(_currentUser!.id, email);
+        }
+
         notifyListeners();
         return true;
       } catch (e) {
@@ -483,6 +489,11 @@ class AuthProvider with ChangeNotifier {
               _subscriptionValidated = await _subscriptionService.validateAndUpdateSubscriptionStatus(_currentUser!.id);
               print('[AuthProvider] Subscription validated for user (fallback): ${_currentUser!.id}');
             }
+          }
+
+          // Send login notification to business owners
+          if (_currentUser != null && !_currentUser!.isOwner) {
+            await _notifyBusinessOwnerOfLogin(_currentUser!.id, email);
           }
 
           notifyListeners();
@@ -631,6 +642,9 @@ class AuthProvider with ChangeNotifier {
         _subscriptionValidated = true;
         if (kDebugMode) print('[AuthProvider] Skipped subscription validation for worker after worker login: ${_currentUser!.id}');
       }
+
+      // Send login notification to business owners
+      await _notifyBusinessOwnerOfLogin(_currentUser!.id, workerId);
 
       print('[AuthProvider] Worker login successful: ${user.id}');
       notifyListeners();
@@ -1044,5 +1058,49 @@ class AuthProvider with ChangeNotifier {
 
   /// Get the last logged-in email (useful for pre-filling login form)
   String? getLastLoggedInEmail() => _localStorage?.getLastLoggedInEmail();
+
+  /// Notify business owner when a worker logs in
+  Future<void> _notifyBusinessOwnerOfLogin(String workerId, String workerEmail) async {
+    try {
+      // Get worker's business associations
+      final workerDoc = await FirebaseFirestore.instance.collection('users').doc(workerId).get();
+      if (!workerDoc.exists) return;
+
+      final workerData = workerDoc.data() as Map<String, dynamic>;
+      final businessIds = workerData['businesses'] as List<dynamic>? ?? [];
+
+      for (final businessId in businessIds) {
+        if (businessId is String) {
+          // Get business details to find owner
+          final businessDoc = await FirebaseFirestore.instance.collection('businesses').doc(businessId).get();
+          if (businessDoc.exists) {
+            final businessData = businessDoc.data() as Map<String, dynamic>;
+            final ownerId = businessData['ownerId'] as String?;
+            final businessName = businessData['name'] as String? ?? 'Business';
+
+            if (ownerId != null && ownerId.isNotEmpty) {
+              // Send push notification to business owner
+              final pushService = PushNotificationService();
+              await pushService.sendNotificationToUser(
+                userId: ownerId,
+                title: '👤 Worker Login',
+                body: '${workerData['name'] ?? workerEmail} logged into $businessName',
+                data: {
+                  'type': 'worker_login',
+                  'workerId': workerId,
+                  'workerEmail': workerEmail,
+                  'businessId': businessId,
+                  'businessName': businessName,
+                  'timestamp': DateTime.now().toIso8601String(),
+                },
+              );
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('[AuthProvider] Error notifying business owner of login: $e');
+    }
+  }
 }
 

@@ -166,7 +166,8 @@ class EscPosReceiptGenerator {
 
   static void _printItem(EscPosBuffer buffer, ReceiptLineItem item, int charsPerLine) {
     final itemName = item.name.length > 12 ? item.name.substring(0, 12) : item.name;
-    final qty = item.quantity.toStringAsFixed(0).padLeft(4);
+    final qtyDecimals = _getDecimalPlacesForUnit(item.unit);
+    final qty = item.quantity.toStringAsFixed(qtyDecimals).padLeft(4);
     final price = '${item.unitPrice.toStringAsFixed(2)}'.padLeft(6);
     final total = '${item.total.toStringAsFixed(2)}'.padLeft(8);
 
@@ -175,7 +176,8 @@ class EscPosReceiptGenerator {
 
   static void _printFormalItem(EscPosBuffer buffer, ReceiptLineItem item, int nameWidth, int qtyWidth, int unitWidth, int totalWidth, String currencySymbol) {
     final wrapped = _wrapText(item.name, nameWidth);
-    final qtyStr = item.quantity.toStringAsFixed(0).padLeft(qtyWidth);
+    final qtyDecimals = _getDecimalPlacesForUnit(item.unit);
+    final qtyStr = item.quantity.toStringAsFixed(qtyDecimals).padLeft(qtyWidth);
     final unitStr = _formatCurrency(item.unitPrice, currencySymbol).padLeft(unitWidth);
     final totalStr = _formatCurrency(item.total, currencySymbol).padLeft(totalWidth);
 
@@ -240,6 +242,36 @@ class EscPosReceiptGenerator {
   static String _formatCurrency(double amount, String currencySymbol) {
     return '$currencySymbol${amount.toStringAsFixed(2)}';
   }
+
+  /// Determine the appropriate number of decimal places for a quantity based on its unit
+  static int _getDecimalPlacesForUnit(String? unit) {
+    if (unit == null || unit.isEmpty) return 0; // Default: no decimals for unspecified units
+    
+    final unitLower = unit.toLowerCase();
+    
+    // Volume/Fuel units: use 2 decimals
+    if (['l', 'litre', 'liter', 'ltr', 'liters', 'litres', 'gallon', 'gal', 'ml', 'milliliter'].contains(unitLower)) {
+      return 2;
+    }
+    
+    // Cylinder/Gas tank units: use 2 decimals (can be fractional)
+    if (['cyl', 'cylinder', 'cylinders', 'tank', 'tanks'].contains(unitLower)) {
+      return 2;
+    }
+    
+    // Weight units: use 2 decimals
+    if (['kg', 'gram', 'g', 'lbs', 'lb', 'oz', 'ounce'].contains(unitLower)) {
+      return 2;
+    }
+    
+    // Count/Quantity units: use 0 decimals
+    if (['unit', 'units', 'pcs', 'pieces', 'pc', 'piece', 'count', 'no', 'nos', 'items', 'item'].contains(unitLower)) {
+      return 0;
+    }
+    
+    // Default: 2 decimals for liquid/continuous measurements
+    return 2;
+  }
 }
 
 /// Receipt line item model
@@ -248,12 +280,14 @@ class ReceiptLineItem {
   final double quantity;
   final double unitPrice;
   final double total;
+  final String? unit; // e.g. 'L', 'kg', 'litre', 'cyl'
 
   ReceiptLineItem({
     required this.name,
     required this.quantity,
     required this.unitPrice,
     required this.total,
+    this.unit,
   });
 }
 

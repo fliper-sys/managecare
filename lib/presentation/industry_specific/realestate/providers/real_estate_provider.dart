@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
 import 'package:http_parser/http_parser.dart';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:business_manager/services/notification_service.dart';
 import 'package:business_manager/data/repositories/industry_specific/real_estate_repository.dart';
 import 'package:image_picker/image_picker.dart';
@@ -517,6 +518,10 @@ class RealEstateProvider extends ChangeNotifier {
       await docRef.set(p.toJson());
       _properties.insert(0, p);
       _errorMessage = '';
+
+      // Send push notification for new property
+      await notifyPropertyCreated(p);
+
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
@@ -561,7 +566,127 @@ class RealEstateProvider extends ChangeNotifier {
     }
   }
 
-  // ==================== IMAGE UPLOAD ====================
+  Future<Property?> getPropertyById(String propertyId) async {
+    try {
+      // First check if it's already loaded
+      final existingProperty = _properties.firstWhere(
+        (p) => p.id == propertyId,
+        orElse: () => Property.empty(),
+      );
+      if (existingProperty.id.isNotEmpty) {
+        return existingProperty;
+      }
+
+      // If not loaded, fetch from Firestore
+      final doc = await _firestore
+          .collection('businesses')
+          .doc(_businessId)
+          .collection('properties')
+          .doc(propertyId)
+          .get();
+
+      if (doc.exists) {
+        final property = Property.fromJson(doc.data()!);
+        // Add to loaded properties to avoid future fetches
+        _properties.add(property);
+        return property;
+      }
+
+      return null;
+    } catch (e) {
+      _errorMessage = e.toString();
+      return null;
+    }
+  }
+
+  // ==================== DOCUMENT UPLOAD ====================
+
+  Future<List<String>> uploadPropertyDocuments(List<dynamic> documentFiles,
+      {void Function(int index, int sent, int total)? onProgress}) async {
+    try {
+      _isLoading = true;
+      final List<String> urls = [];
+
+      for (int i = 0; i < documentFiles.length; i++) {
+        final item = documentFiles[i];
+        late final MultipartFile multipart;
+        late final String fileExtension;
+        late final String mimeType;
+
+        if (kIsWeb) {
+          // Expecting PlatformFile or bytes
+          if (item is PlatformFile && item.bytes != null) {
+            final bytes = item.bytes!;
+            fileExtension = item.extension ?? 'pdf';
+            mimeType = _getDocumentMimeType(fileExtension);
+            multipart = MultipartFile.fromBytes(bytes,
+                filename: '${item.name}',
+                contentType: MediaType.parse(mimeType));
+          } else if (item is List<int>) {
+            // raw bytes
+            fileExtension = 'pdf';
+            mimeType = _getDocumentMimeType(fileExtension);
+            multipart = MultipartFile.fromBytes(item,
+                filename: 'document_${DateTime.now().millisecondsSinceEpoch}_$i.pdf',
+                contentType: MediaType.parse(mimeType));
+          } else {
+            continue;
+          }
+        } else {
+          // Mobile/desktop - File
+          if (item is File) {
+            final bytes = await item.readAsBytes();
+            fileExtension = item.path.split('.').last.toLowerCase();
+            mimeType = _getDocumentMimeType(fileExtension);
+            multipart = MultipartFile.fromBytes(bytes,
+                filename: 'document_${DateTime.now().millisecondsSinceEpoch}_$i.$fileExtension',
+                contentType: MediaType.parse(mimeType));
+          } else {
+            continue;
+          }
+        }
+
+        final formData = FormData.fromMap({
+          'file': multipart,
+          'api_key': _apiKey,
+        });
+
+        final response = await _dio.post(
+          _uploadUrl,
+          data: formData,
+          options: Options(
+            headers: kIsWeb ? {} : {'Authorization': 'Bearer $_apiKey'},
+          ),
+          onSendProgress: onProgress != null ? (sent, total) => onProgress(i, sent, total) : null,
+        );
+
+        if (response.statusCode == 200) {
+          final data = response.data;
+          String? url;
+
+          if (data['url'] is String) {
+            url = data['url'];
+          } else if (data['urls'] is List && (data['urls'] as List).isNotEmpty) {
+            url = (data['urls'] as List)[0];
+          }
+
+          if (url != null) {
+            urls.add(url);
+          }
+        }
+      }
+
+      _errorMessage = '';
+      notifyListeners();
+      return urls;
+    } catch (e) {
+      _errorMessage = 'Document upload error: $e';
+      notifyListeners();
+      return [];
+    } finally {
+      _isLoading = false;
+    }
+  }
 
   Future<List<String>> uploadPropertyImages(List<dynamic> imageFiles,
       {void Function(int index, int sent, int total)? onProgress}) async {
@@ -738,22 +863,124 @@ class RealEstateProvider extends ChangeNotifier {
     }
   }
 
-  String _getMimeType(String extension) {
-    const mimeTypes = {
-      'jpg': 'image/jpeg',
-      'jpeg': 'image/jpeg',
-      'png': 'image/png',
-      'gif': 'image/gif',
-      'pdf': 'application/pdf',
-      'csv': 'text/csv',
-      'xls': 'application/vnd.ms-excel',
-      'xlsx':
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'doc': 'application/msword',
-      'docx':
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    };
-    return mimeTypes[extension] ?? 'application/octet-stream';
+  // ==================== PUSH NOTIFICATIONS ====================
+
+  Future<void> sendPropertyNotification({
+    required String title,
+    required String body,
+    required String propertyId,
+    String? tenantId,
+    String? agentId,
+    Map<String, String>? additionalData,
+  }) async {
+    try {
+      // Get target users (tenants and agents)
+      List<String> targetUserIds = [];
+
+      if (tenantId != null) {
+        targetUserIds.add(tenantId);
+      }
+
+      if (agentId != null) {
+        targetUserIds.add(agentId);
+      }
+
+      // If no specific targets, send to all users (for property updates)
+      if (targetUserIds.isEmpty) {
+        // Get all users from Firestore
+        final usersSnapshot = await _firestore.collection('users').get();
+        targetUserIds = usersSnapshot.docs.map((doc) => doc.id).toList();
+      }
+
+      // Send push notifications to each target user
+      for (final userId in targetUserIds) {
+        final userDoc = await _firestore.collection('users').doc(userId).get();
+        final fcmToken = userDoc.data()?['fcmToken'] as String?;
+
+        if (fcmToken != null) {
+          final data = {
+            'type': 'property_notification',
+            'propertyId': propertyId,
+            'userId': userId,
+            'timestamp': DateTime.now().toIso8601String(),
+            ...?additionalData,
+          };
+
+          await _sendPushNotificationToUser(
+            token: fcmToken,
+            title: title,
+            body: body,
+            data: data,
+          );
+        }
+      }
+    } catch (e) {
+      // Ignore notification errors
+      debugPrint('Failed to send property notification: $e');
+    }
+  }
+
+  Future<void> _sendPushNotificationToUser({
+    required String token,
+    required String title,
+    required String body,
+    required Map<String, String> data,
+  }) async {
+    try {
+      // Store notification in Firestore for cloud function to pick up
+      await _firestore.collection('push_notifications').add({
+        'token': token,
+        'title': title,
+        'body': body,
+        'data': data,
+        'scheduledFor': FieldValue.serverTimestamp(),
+        'type': 'property',
+        'businessId': _businessId,
+      });
+    } catch (e) {
+      debugPrint('Failed to queue push notification: $e');
+    }
+  }
+
+  // Send notification when property is created
+  Future<void> notifyPropertyCreated(Property property) async {
+    await sendPropertyNotification(
+      title: 'New Property Listed',
+      body: '${property.title} is now available at ${property.location}',
+      propertyId: property.id,
+      additionalData: {
+        'action': 'property_created',
+        'propertyType': property.propertyType,
+        'price': property.price.toString(),
+      },
+    );
+  }
+
+  // Send notification when property is updated
+  Future<void> notifyPropertyUpdated(Property property) async {
+    await sendPropertyNotification(
+      title: 'Property Updated',
+      body: '${property.title} has been updated',
+      propertyId: property.id,
+      additionalData: {
+        'action': 'property_updated',
+        'status': property.status,
+      },
+    );
+  }
+
+  // Send notification when tenant is assigned to property
+  Future<void> notifyTenantAssigned(Property property, String tenantId, String tenantName) async {
+    await sendPropertyNotification(
+      title: 'Tenant Assigned',
+      body: '${tenantName} has been assigned to ${property.title}',
+      propertyId: property.id,
+      tenantId: tenantId,
+      additionalData: {
+        'action': 'tenant_assigned',
+        'tenantName': tenantName,
+      },
+    );
   }
 
   // ==================== TENANTS ====================
@@ -853,6 +1080,15 @@ class RealEstateProvider extends ChangeNotifier {
           .where('status', isNotEqualTo: 'deleted')
           .get();
       _leases = snapshot.docs.map((doc) => Lease.fromJson(doc.data())).toList();
+
+      // Check for expired leases
+      final now = DateTime.now();
+      for (final lease in _leases) {
+        if (lease.status == 'active' && lease.endDate.isBefore(now)) {
+          await updateLeaseStatus(lease.id, 'expired');
+        }
+      }
+
       _errorMessage = '';
       notifyListeners();
     } catch (e) {
@@ -870,6 +1106,96 @@ class RealEstateProvider extends ChangeNotifier {
           .doc(lease.id)
           .set(lease.toJson());
       _leases.add(lease);
+
+      // Update property status to 'rented'
+      final propertyIndex = _properties.indexWhere((p) => p.id == lease.propertyId);
+      if (propertyIndex != -1) {
+        final property = _properties[propertyIndex];
+        final updatedProperty = Property(
+          id: property.id,
+          title: property.title,
+          description: property.description,
+          location: property.location,
+          propertyType: property.propertyType,
+          price: property.price,
+          area: property.area,
+          bedrooms: property.bedrooms,
+          bathrooms: property.bathrooms,
+          parking: property.parking,
+          amenities: property.amenities,
+          imageUrls: property.imageUrls,
+          status: 'rented',
+          agentId: property.agentId,
+          agentName: property.agentName,
+          createdAt: property.createdAt,
+          updatedAt: DateTime.now(),
+        );
+        await updateProperty(updatedProperty);
+      }
+
+      _errorMessage = '';
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateLeaseStatus(String leaseId, String status) async {
+    try {
+      await _firestore
+          .collection('businesses')
+          .doc(_businessId)
+          .collection('leases')
+          .doc(leaseId)
+          .update({'status': status});
+
+      final index = _leases.indexWhere((l) => l.id == leaseId);
+      if (index != -1) {
+        final lease = _leases[index];
+        final updatedLease = Lease(
+          id: lease.id,
+          propertyId: lease.propertyId,
+          tenantId: lease.tenantId,
+          startDate: lease.startDate,
+          endDate: lease.endDate,
+          monthlyRent: lease.monthlyRent,
+          deposit: lease.deposit,
+          status: status,
+          documentUrl: lease.documentUrl,
+          createdAt: lease.createdAt,
+        );
+        _leases[index] = updatedLease;
+
+        // If lease is terminated or expired, update property status to available
+        if (status == 'terminated' || status == 'expired') {
+          final propertyIndex = _properties.indexWhere((p) => p.id == lease.propertyId);
+          if (propertyIndex != -1) {
+            final property = _properties[propertyIndex];
+            final updatedProperty = Property(
+              id: property.id,
+              title: property.title,
+              description: property.description,
+              location: property.location,
+              propertyType: property.propertyType,
+              price: property.price,
+              area: property.area,
+              bedrooms: property.bedrooms,
+              bathrooms: property.bathrooms,
+              parking: property.parking,
+              amenities: property.amenities,
+              imageUrls: property.imageUrls,
+              status: 'available',
+              agentId: property.agentId,
+              agentName: property.agentName,
+              createdAt: property.createdAt,
+              updatedAt: DateTime.now(),
+            );
+            await updateProperty(updatedProperty);
+          }
+        }
+      }
+
       _errorMessage = '';
       notifyListeners();
     } catch (e) {
@@ -1197,13 +1523,27 @@ class RealEstateProvider extends ChangeNotifier {
             final notifyAt = p.dueDate.subtract(const Duration(days: 1));
             if (notifyAt.isAfter(now)) {
               final id = _computeNotificationIdForPayment(p.id);
+
+              // Schedule local notification for owner
               await NotificationService.instance.scheduleNotificationAt(
                   id: id,
-                  title: 'Rent due soon',
+                  title: 'Rent Due Soon - Owner Reminder',
                   body:
                       'Rent of ₦${p.amount.toStringAsFixed(0)} is due on ${p.dueDate.toLocal().toIso8601String().split('T').first}',
                   at: notifyAt);
+
+              // Also schedule push notification for owner
+              await _scheduleOwnerRentReminder(p, days);
+
+              // Also schedule push notification if tenant has FCM token
+              await _schedulePushRentReminder(p, days);
             }
+          }
+
+          // Send immediate notification for overdue payments
+          if (days < 0 && p.dueDate.isBefore(now.subtract(const Duration(days: 1)))) {
+            await _sendOverdueRentNotification(p);
+            await _sendOwnerOverdueNotification(p);
           }
         }
       }
@@ -1212,7 +1552,456 @@ class RealEstateProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> _schedulePushRentReminder(RentPayment payment, int daysUntilDue) async {
+    try {
+      // Find the tenant for this payment
+      final tenant = _tenants.firstWhere(
+        (t) => t.id == payment.tenantId,
+        orElse: () => Tenant.empty(),
+      );
+
+      if (tenant.id.isEmpty || tenant.email.isEmpty) return;
+
+      // Get tenant's FCM token from Firestore
+      final userDoc = await _firestore.collection('users').doc(tenant.email).get();
+      final fcmToken = userDoc.data()?['fcmToken'] as String?;
+
+      if (fcmToken == null) return;
+
+      String title;
+      String body;
+
+      if (daysUntilDue == 0) {
+        title = 'Rent Due Today';
+        body = 'Your rent payment of ₦${payment.amount.toStringAsFixed(0)} is due today for ${payment.leaseId}';
+      } else if (daysUntilDue == 1) {
+        title = 'Rent Due Tomorrow';
+        body = 'Your rent payment of ₦${payment.amount.toStringAsFixed(0)} will be due tomorrow for ${payment.leaseId}';
+      } else {
+        title = 'Rent Reminder';
+        body = 'Your rent payment of ₦${payment.amount.toStringAsFixed(0)} is due in $daysUntilDue days for ${payment.leaseId}';
+      }
+
+      // Send push notification via FCM
+      await _sendPushNotification(
+        token: fcmToken,
+        title: title,
+        body: body,
+        data: {
+          'type': 'rent_reminder',
+          'paymentId': payment.id,
+          'leaseId': payment.leaseId,
+          'tenantId': payment.tenantId,
+          'amount': payment.amount.toString(),
+          'dueDate': payment.dueDate.toIso8601String(),
+        },
+      );
+    } catch (e) {
+      // Ignore push notification errors
+    }
+  }
+
+  Future<void> _sendOverdueRentNotification(RentPayment payment) async {
+    try {
+      // Find the tenant for this payment
+      final tenant = _tenants.firstWhere(
+        (t) => t.id == payment.tenantId,
+        orElse: () => Tenant.empty(),
+      );
+
+      if (tenant.id.isEmpty || tenant.email.isEmpty) return;
+
+      // Get tenant's FCM token from Firestore
+      final userDoc = await _firestore.collection('users').doc(tenant.email).get();
+      final fcmToken = userDoc.data()?['fcmToken'] as String?;
+
+      if (fcmToken != null) {
+        final overdueDays = DateTime.now().difference(payment.dueDate).inDays;
+
+        await _sendPushNotification(
+          token: fcmToken,
+          title: 'Rent Overdue',
+          body: 'Your rent payment of ₦${payment.amount.toStringAsFixed(0)} is $overdueDays days overdue for ${payment.leaseId}',
+          data: {
+            'type': 'rent_overdue',
+            'paymentId': payment.id,
+            'leaseId': payment.leaseId,
+            'tenantId': payment.tenantId,
+            'amount': payment.amount.toString(),
+            'dueDate': payment.dueDate.toIso8601String(),
+            'overdueDays': overdueDays.toString(),
+          },
+        );
+      }
+    } catch (e) {
+      // Ignore push notification errors
+    }
+  }
+
+  Future<void> _scheduleOwnerRentReminder(RentPayment payment, int daysUntilDue) async {
+    try {
+      // Find the tenant and property for this payment
+      final tenant = _tenants.firstWhere(
+        (t) => t.id == payment.tenantId,
+        orElse: () => Tenant.empty(),
+      );
+
+      final lease = _leases.firstWhere(
+        (l) => l.id == payment.leaseId,
+        orElse: () => Lease.empty(),
+      );
+
+      final property = _properties.firstWhere(
+        (p) => p.id == lease.propertyId,
+        orElse: () => Property.empty(),
+      );
+
+      if (property.id.isEmpty) return;
+
+      String title;
+      String body;
+
+      if (daysUntilDue == 0) {
+        title = 'Rent Due Today - ${property.title}';
+        body = 'Rent payment of ₦${payment.amount.toStringAsFixed(0)} from ${tenant.name} is due today';
+      } else if (daysUntilDue == 1) {
+        title = 'Rent Due Tomorrow - ${property.title}';
+        body = 'Rent payment of ₦${payment.amount.toStringAsFixed(0)} from ${tenant.name} will be due tomorrow';
+      } else {
+        title = 'Upcoming Rent Due - ${property.title}';
+        body = 'Rent payment of ₦${payment.amount.toStringAsFixed(0)} from ${tenant.name} is due in $daysUntilDue days';
+      }
+
+      // Send push notification to business owner/admin users
+      await _sendOwnerNotification(
+        title: title,
+        body: body,
+        data: {
+          'type': 'owner_rent_reminder',
+          'paymentId': payment.id,
+          'leaseId': payment.leaseId,
+          'tenantId': payment.tenantId,
+          'propertyId': property.id,
+          'amount': payment.amount.toString(),
+          'dueDate': payment.dueDate.toIso8601String(),
+          'daysUntilDue': daysUntilDue.toString(),
+        },
+      );
+    } catch (e) {
+      // Ignore push notification errors
+    }
+  }
+
+  Future<void> _sendOwnerOverdueNotification(RentPayment payment) async {
+    try {
+      // Find the tenant and property for this payment
+      final tenant = _tenants.firstWhere(
+        (t) => t.id == payment.tenantId,
+        orElse: () => Tenant.empty(),
+      );
+
+      final lease = _leases.firstWhere(
+        (l) => l.id == payment.leaseId,
+        orElse: () => Lease.empty(),
+      );
+
+      final property = _properties.firstWhere(
+        (p) => p.id == lease.propertyId,
+        orElse: () => Property.empty(),
+      );
+
+      if (property.id.isEmpty) return;
+
+      final overdueDays = DateTime.now().difference(payment.dueDate).inDays;
+
+      await _sendOwnerNotification(
+        title: 'Overdue Rent - ${property.title}',
+        body: 'Rent payment of ₦${payment.amount.toStringAsFixed(0)} from ${tenant.name} is $overdueDays days overdue',
+        data: {
+          'type': 'owner_rent_overdue',
+          'paymentId': payment.id,
+          'leaseId': payment.leaseId,
+          'tenantId': payment.tenantId,
+          'propertyId': property.id,
+          'amount': payment.amount.toString(),
+          'dueDate': payment.dueDate.toIso8601String(),
+          'overdueDays': overdueDays.toString(),
+        },
+      );
+    } catch (e) {
+      // Ignore push notification errors
+    }
+  }
+
+  Future<void> _sendOwnerNotification({
+    required String title,
+    required String body,
+    required Map<String, String> data,
+  }) async {
+    try {
+      // Get all business users (owners/admins) for this business
+      final businessUsers = await _firestore
+          .collection('business_users')
+          .where('businessId', isEqualTo: _businessId)
+          .where('role', whereIn: ['owner', 'admin'])
+          .get();
+
+      for (final userDoc in businessUsers.docs) {
+        final userId = userDoc.data()['userId'] as String?;
+        if (userId == null) continue;
+
+        // Get user's FCM token
+        final userTokenDoc = await _firestore.collection('users').doc(userId).get();
+        final fcmToken = userTokenDoc.data()?['fcmToken'] as String?;
+
+        if (fcmToken != null) {
+          await _sendPushNotification(
+            token: fcmToken,
+            title: title,
+            body: body,
+            data: data,
+          );
+        }
+      }
+    } catch (e) {
+      // Ignore notification sending errors
+    }
+  }
+
+  Future<void> _sendPushNotification({
+    required String token,
+    required String title,
+    required String body,
+    required Map<String, String> data,
+  }) async {
+    try {
+      // This would typically use Firebase Cloud Messaging to send the notification
+      // For now, we'll store it in Firestore to be picked up by a cloud function
+      await _firestore.collection('notifications').add({
+        'token': token,
+        'title': title,
+        'body': body,
+        'data': data,
+        'scheduledFor': FieldValue.serverTimestamp(),
+        'type': 'rent_reminder',
+        'businessId': _businessId,
+      });
+    } catch (e) {
+      // Ignore notification sending errors
+    }
+  }
+
   int _computeNotificationIdForPayment(String paymentId) =>
       _businessId.hashCode ^ paymentId.hashCode;
+
+  int _computeNotificationIdForOwnerReminder(String paymentId) =>
+      _businessId.hashCode ^ paymentId.hashCode ^ 'owner'.hashCode;
+
+  String _getMimeType(String extension) {
+    switch (extension.toLowerCase()) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      case 'webp':
+        return 'image/webp';
+      case 'bmp':
+        return 'image/bmp';
+      default:
+        return 'image/jpeg'; // fallback
+    }
+  }
+
+  String _getDocumentMimeType(String extension) {
+    switch (extension.toLowerCase()) {
+      case 'pdf':
+        return 'application/pdf';
+      case 'doc':
+        return 'application/msword';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'xls':
+        return 'application/vnd.ms-excel';
+      case 'xlsx':
+        return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      case 'txt':
+        return 'text/plain';
+      case 'rtf':
+        return 'application/rtf';
+      default:
+        return 'application/octet-stream'; // fallback
+    }
+  }
+
+  // ==================== OWNER RENT REMINDERS ====================
+
+  /// Send reminder notifications to owner about pending rent payments
+  Future<void> sendOwnerPendingRentReminders() async {
+    try {
+      final now = DateTime.now();
+      for (final payment in _rentPayments) {
+        if (payment.status == 'pending') {
+          final daysUntilDue = payment.dueDate.difference(now).inDays;
+          // Send reminder 3 days before due date and 1 day after due date
+          if ((daysUntilDue >= 0 && daysUntilDue <= 3) || (daysUntilDue < 0 && daysUntilDue >= -7)) {
+            await _sendOwnerRentReminder(payment, daysUntilDue);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error sending owner rent reminders: $e');
+    }
+  }
+
+  /// Send specific reminder for a rent payment to owner
+  Future<void> _sendOwnerRentReminder(RentPayment payment, int daysUntilDue) async {
+    try {
+      final tenant = _tenants.firstWhere(
+        (t) => t.id == payment.tenantId,
+        orElse: () => Tenant.empty(),
+      );
+
+      final lease = _leases.firstWhere(
+        (l) => l.id == payment.leaseId,
+        orElse: () => Lease.empty(),
+      );
+
+      final property = _properties.firstWhere(
+        (p) => p.id == lease.propertyId,
+        orElse: () => Property.empty(),
+      );
+
+      if (tenant.id.isEmpty || property.id.isEmpty) return;
+
+      String title;
+      String body;
+      
+      if (daysUntilDue > 0) {
+        title = 'Upcoming Rent Payment Due';
+        body = 'Tenant ${tenant.name} at ${property.title} has rent of ₦${payment.amount.toStringAsFixed(0)} due in $daysUntilDue days';
+      } else if (daysUntilDue == 0) {
+        title = 'Rent Due Today';
+        body = 'Tenant ${tenant.name} at ${property.title} has rent of ₦${payment.amount.toStringAsFixed(0)} due today';
+      } else {
+        title = 'Rent Payment Overdue';
+        body = 'Tenant ${tenant.name} at ${property.title} has overdue rent of ₦${payment.amount.toStringAsFixed(0)} (${-daysUntilDue} days late)';
+      }
+
+      // Store notification in Firestore for owner
+      await _firestore.collection('businesses').doc(_businessId).collection('owner_notifications').add({
+        'title': title,
+        'body': body,
+        'type': 'rent_reminder',
+        'paymentId': payment.id,
+        'leaseId': payment.leaseId,
+        'tenantId': payment.tenantId,
+        'propertyId': property.id,
+        'amount': payment.amount,
+        'daysUntilDue': daysUntilDue,
+        'dueDate': payment.dueDate,
+        'createdAt': FieldValue.serverTimestamp(),
+        'read': false,
+      });
+
+      // Send local notification to owner
+      final id = _computeNotificationIdForOwnerReminder(payment.id);
+      await NotificationService.instance.sendNotification(
+        title,
+        body,
+        id: id,
+      );
+    } catch (e) {
+      debugPrint('Error sending owner reminder: $e');
+    }
+  }
+
+  /// Get rent history for a specific property
+  List<RentPayment> getRentHistoryByProperty(String propertyId) {
+    try {
+      final propertyLeases = _leases.where((l) => l.propertyId == propertyId).map((l) => l.id).toList();
+      final rentHistory = _rentPayments.where((p) => propertyLeases.contains(p.leaseId)).toList();
+      rentHistory.sort((a, b) => b.dueDate.compareTo(a.dueDate));
+      return rentHistory;
+    } catch (e) {
+      debugPrint('Error getting rent history: $e');
+      return [];
+    }
+  }
+
+  /// Get pending rent payments for a specific property
+  List<RentPayment> getPendingRentByProperty(String propertyId) {
+    try {
+      final propertyLeases = _leases.where((l) => l.propertyId == propertyId).map((l) => l.id).toList();
+      return _rentPayments.where((p) => propertyLeases.contains(p.leaseId) && p.status == 'pending').toList();
+    } catch (e) {
+      debugPrint('Error getting pending rent: $e');
+      return [];
+    }
+  }
+
+  /// Get overdue rent payments for a specific property
+  List<RentPayment> getOverdueRentByProperty(String propertyId) {
+    try {
+      final propertyLeases = _leases.where((l) => l.propertyId == propertyId).map((l) => l.id).toList();
+      return _rentPayments.where((p) => propertyLeases.contains(p.leaseId) && p.status == 'overdue').toList();
+    } catch (e) {
+      debugPrint('Error getting overdue rent: $e');
+      return [];
+    }
+  }
+
+  /// Get total collected rent for a specific property in a time period
+  double getTotalCollectedRentByProperty(String propertyId, {DateTime? startDate, DateTime? endDate}) {
+    try {
+      final propertyLeases = _leases.where((l) => l.propertyId == propertyId).map((l) => l.id).toList();
+      final paidPayments = _rentPayments.where((p) {
+        if (!propertyLeases.contains(p.leaseId)) return false;
+        if (p.status != 'paid' || p.paidDate == null) return false;
+        if (startDate != null && p.paidDate!.isBefore(startDate)) return false;
+        if (endDate != null && p.paidDate!.isAfter(endDate)) return false;
+        return true;
+      });
+      return paidPayments.fold<double>(0, (sum, p) => sum + p.amount);
+    } catch (e) {
+      debugPrint('Error calculating collected rent: $e');
+      return 0;
+    }
+  }
+
+  /// Get tenant rent payment summary for a property
+  Map<String, dynamic> getTenantRentSummary(String propertyId, String tenantId) {
+    try {
+      final propertyLeases = _leases.where((l) => l.propertyId == propertyId).map((l) => l.id).toList();
+      final tenantPayments = _rentPayments.where((p) => propertyLeases.contains(p.leaseId) && p.tenantId == tenantId).toList();
+      
+      final totalAmount = tenantPayments.fold<double>(0, (sum, p) => sum + p.amount);
+      final totalPaid = tenantPayments.where((p) => p.status == 'paid').fold<double>(0, (sum, p) => sum + p.amount);
+      final totalPending = tenantPayments.where((p) => p.status == 'pending').fold<double>(0, (sum, p) => sum + p.amount);
+      final totalOverdue = tenantPayments.where((p) => p.status == 'overdue').fold<double>(0, (sum, p) => sum + p.amount);
+      final paymentCount = tenantPayments.length;
+      final paidCount = tenantPayments.where((p) => p.status == 'paid').length;
+      final overdueCount = tenantPayments.where((p) => p.status == 'overdue').length;
+      
+      return {
+        'totalAmount': totalAmount,
+        'totalPaid': totalPaid,
+        'totalPending': totalPending,
+        'totalOverdue': totalOverdue,
+        'paymentCount': paymentCount,
+        'paidCount': paidCount,
+        'pendingCount': paymentCount - paidCount - overdueCount,
+        'overdueCount': overdueCount,
+        'lastPaymentDate': tenantPayments.where((p) => p.status == 'paid').isEmpty 
+            ? null 
+            : tenantPayments.where((p) => p.status == 'paid').first.paidDate,
+      };
+    } catch (e) {
+      debugPrint('Error getting tenant rent summary: $e');
+      return {};
+    }
+  }
 }
 

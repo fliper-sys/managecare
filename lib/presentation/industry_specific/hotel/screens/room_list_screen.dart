@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/currency.dart';
 
 import '../../../../providers/hotel_provider.dart';
 import 'create_room_screen.dart'; // Assumed import based on previous context
@@ -269,7 +270,7 @@ class _RoomListScreenState extends State<RoomListScreen> {
                       ],
                     ),
                     Text(
-                      '\$${room.pricePerNight.toStringAsFixed(0)}',
+                      formatCurrency(room.pricePerNight),
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -356,7 +357,7 @@ class _RoomListScreenState extends State<RoomListScreen> {
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Expanded(child: _buildDetailBox('Price', '\$${room.pricePerNight}', Icons.attach_money)),
+                        Expanded(child: _buildDetailBox('Price', formatCurrency(room.pricePerNight), Icons.attach_money)),
                         const SizedBox(width: 12),
                         Expanded(child: _buildDetailBox('Capacity', '${room.capacity} Guests', Icons.group_outlined)),
                       ],

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../providers/auto_provider.dart';
 import 'job_card_screen.dart';
 
@@ -64,8 +65,8 @@ class _RepairJobsScreenState extends State<RepairJobsScreen> {
                                 color: _statusColor(job.status)),
                             title: Text('Job #${job.id}'),
                             subtitle: Text(
-                                '${vehicle?.make ?? "Unknown"} ${vehicle?.model ?? ""} • ${job.status}'),
-                            trailing: Text('\$${job.totalCost.toStringAsFixed(2)}'),
+                                '${vehicle?.make ?? "Unknown"} ${vehicle?.model ?? ""} - ${job.status}'),
+                            trailing: Text(formatCurrency(job.totalCost)),
                             onTap: () {
                               Navigator.of(context).push(MaterialPageRoute(
                                   builder: (_) => JobCardScreen(jobId: job.id)));

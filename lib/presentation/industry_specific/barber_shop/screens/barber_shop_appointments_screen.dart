@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../widgets/custom_button.dart';
 import '../providers/barber_shop_provider.dart';
 import '../../../../providers/business_provider.dart';
@@ -280,7 +281,7 @@ class _AppointmentCard extends StatelessWidget {
                     value: '${appointment.durationMinutes} mins'),
                 _InfoRow(
                     label: 'Price',
-                    value: '₦${appointment.servicePrice.toStringAsFixed(0)}'),
+                    value: formatCurrency(appointment.servicePrice)),
                 // Show commission earned for completed appointments
                 if (appointment.status == 'completed')
                   Builder(builder: (context) {
@@ -292,7 +293,7 @@ class _AppointmentCard extends StatelessWidget {
                     } catch (_) {}
                     final amount = (appointment.amountPaid != null && appointment.amountPaid! > 0) ? appointment.amountPaid! : appointment.servicePrice;
                     final commission = amount * (pct / 100.0);
-                    return _InfoRow(label: 'Commission', value: '₦${commission.toStringAsFixed(2)}');
+                    return _InfoRow(label: 'Commission', value: formatCurrency(commission));
                   }),
                 if (appointment.notes != null && appointment.notes!.isNotEmpty)
                   _InfoRow(label: 'Notes', value: appointment.notes!),
@@ -459,7 +460,7 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
                   children: [
                     const Text('Base Price'),
                     Text(
-                        '₦${widget.appointment.servicePrice.toStringAsFixed(0)}',
+                        formatCurrency(widget.appointment.servicePrice),
                         style: AppTextStyles.body2),
                   ],
                 ),
@@ -469,7 +470,7 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
                   children: [
                     const Text('Total',
                         style: TextStyle(fontWeight: FontWeight.bold)),
-                    Text('₦${total.toStringAsFixed(0)}',
+                    Text(formatCurrency(total),
                         style: AppTextStyles.body1
                             .copyWith(fontWeight: FontWeight.bold)),
                   ],
@@ -511,7 +512,7 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
                 ),
               ),
               const SizedBox(width: 8),
-              Text('₦${tax.toStringAsFixed(2)}',
+              Text(formatCurrency(tax),
                   style: AppTextStyles.caption),
             ],
           ),
@@ -520,7 +521,7 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
           Row(
             children: [
               Expanded(
-                child: Text('Discount (₦)',
+                child: const Text('Discount (NGN)',
                     style: AppTextStyles.body2),
               ),
               SizedBox(
@@ -538,7 +539,7 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
                 ),
               ),
               const SizedBox(width: 8),
-              Text('-₦${discount.toStringAsFixed(2)}',
+              Text('-${formatCurrency(discount)}',
                   style: AppTextStyles.caption.copyWith(color: AppColors.success)),
             ],
           ),
@@ -774,4 +775,5 @@ class _CreateAppointmentDialogState extends State<_CreateAppointmentDialog> {
     );
   }
 }
+
 

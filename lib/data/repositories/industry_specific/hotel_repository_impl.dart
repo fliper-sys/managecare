@@ -31,7 +31,10 @@ class HotelRepositoryImpl implements HotelRepository {
     try {
       final businessId = room['businessId'] as String?;
       final col = businessId != null
-          ? firestore.collection('businesses').doc(businessId).collection('rooms')
+          ? firestore
+              .collection('businesses')
+              .doc(businessId)
+              .collection('rooms')
           : firestore.collection('rooms');
       final docRef = col.doc();
       final data = Map<String, dynamic>.from(room);
@@ -128,6 +131,44 @@ class HotelRepositoryImpl implements HotelRepository {
     }
   }
 
+  @override
+  Future<void> updateReservation(String businessId, String reservationId,
+      Map<String, dynamic> updates) async {
+    try {
+      final doc = firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('reservations')
+          .doc(reservationId);
+      await doc.set(updates, fs.SetOptions(merge: true));
+    } catch (e) {
+      // ignore: avoid_print
+      print('Error updating reservation: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> cancelReservation(String businessId, String reservationId,
+      {String? reason}) async {
+    try {
+      final doc = firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('reservations')
+          .doc(reservationId);
+      final payload = {'status': 'cancelled'};
+      if (reason != null && reason.isNotEmpty) {
+        payload['cancelReason'] = reason;
+      }
+      await doc.set(payload, fs.SetOptions(merge: true));
+    } catch (e) {
+      // ignore: avoid_print
+      print('Error cancelling reservation: $e');
+      rethrow;
+    }
+  }
+
   /// Batch update rooms collection (expects each room map to include 'id')
   Future<void> syncRoomUpdates(
       String businessId, List<Map<String, dynamic>> rooms) async {
@@ -201,4 +242,3 @@ class HotelRepositoryImpl implements HotelRepository {
     }
   }
 }
-

@@ -26,18 +26,23 @@ class FolioWidget extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(charge['description'] ?? ''),
-                      Text('\$${charge['amount']?.toStringAsFixed(2)}'),
+                      Text('₦${_amount(charge['amount']).toStringAsFixed(2)}'),
                     ])),
             const Divider(),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               const Text('Total:',
                   style: TextStyle(fontWeight: FontWeight.bold)),
-              Text('\$${total.toStringAsFixed(2)}'),
+              Text('₦${total.toStringAsFixed(2)}'),
             ]),
           ],
         ),
       ),
     );
+  }
+
+  double _amount(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString()) ?? 0.0;
   }
 }
 

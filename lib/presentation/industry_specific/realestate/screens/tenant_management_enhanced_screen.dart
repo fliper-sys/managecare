@@ -6,6 +6,7 @@ import 'dart:io';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../widgets/custom_button.dart';
+import '../../../../core/constants/routes.dart';
 import '../providers/real_estate_provider.dart';
 
 class TenantManagementScreenEnhanced extends StatefulWidget {
@@ -150,6 +151,7 @@ class _TenantManagementScreenEnhancedState
                               context, tenants[index], provider),
                           onViewDocuments: () =>
                               _showDocumentsDialog(context, tenants[index]),
+                          onViewRentHistory: () => _navigateToRentHistory(context, tenants[index]),
                         ),
                       ),
               ),
@@ -514,6 +516,14 @@ class _TenantManagementScreenEnhancedState
     );
   }
 
+  void _navigateToRentHistory(BuildContext context, Tenant tenant) {
+    Navigator.pushNamed(
+      context,
+      Routes.realEstateTenantRentHistory,
+      arguments: {'tenantId': tenant.id},
+    );
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -554,12 +564,14 @@ class _TenantCard extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onViewDocuments;
+  final VoidCallback onViewRentHistory;
 
   const _TenantCard({
     required this.tenant,
     required this.onEdit,
     required this.onDelete,
     required this.onViewDocuments,
+    required this.onViewRentHistory,
   });
 
   @override
@@ -639,6 +651,12 @@ class _TenantCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
+              TextButton.icon(
+                onPressed: onViewRentHistory,
+                icon: const Icon(Icons.history),
+                label: const Text('Rent History'),
+              ),
+              const SizedBox(width: 4),
               if (tenant.documentUrl != null)
                 TextButton.icon(
                   onPressed: onViewDocuments,

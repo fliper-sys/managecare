@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/currency.dart';
 
 import '../../../../providers/hotel_provider.dart';
 import 'package:intl/intl.dart';
@@ -14,8 +15,18 @@ class BookingsScreen extends StatefulWidget {
 }
 
 class _BookingsScreenState extends State<BookingsScreen> {
-  String _filterStatus = 'all'; 
+  String _filterStatus = 'all';
+  String _searchQuery = '';
   bool _initialized = false;
+  bool _isCreatingReservation = false;
+
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -34,10 +45,21 @@ class _BookingsScreenState extends State<BookingsScreen> {
     final provider = Provider.of<HotelProvider>(context);
     List<Reservation> reservations = provider.reservations;
 
-    // Apply filters
+    // Apply status filter
     if (_filterStatus != 'all') {
       reservations =
           reservations.where((r) => r.status == _filterStatus).toList();
+    }
+
+    // Apply search filter
+    if (_searchQuery.isNotEmpty) {
+      final lower = _searchQuery.trim().toLowerCase();
+      reservations = reservations.where((r) {
+        return r.guestName.toLowerCase().contains(lower) ||
+            r.roomId.toLowerCase().contains(lower) ||
+            r.guestEmail.toLowerCase().contains(lower) ||
+            r.guestPhone.toLowerCase().contains(lower);
+      }).toList();
     }
 
     // Sort by check-in date
@@ -54,14 +76,6 @@ class _BookingsScreenState extends State<BookingsScreen> {
         foregroundColor: Colors.black87,
         elevation: 0,
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              // TODO: Implement search
-            },
-          )
-        ],
       ),
       body: Column(
         children: [
@@ -82,7 +96,32 @@ class _BookingsScreenState extends State<BookingsScreen> {
               ),
             ),
           ),
-          
+
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) => setState(() => _searchQuery = value),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: 'Search guest, email, phone or room...',
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                fillColor: Colors.white,
+                filled: true,
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+              ),
+            ),
+          ),
+
           // Reservations List
           Expanded(
             child: reservations.isEmpty
@@ -94,10 +133,19 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     itemBuilder: (context, index) {
                       final reservation = reservations[index];
                       // Handle case where room might have been deleted/null safely
-                      final room = provider.rooms.firstWhere(
-                          (r) => r.id == reservation.roomId,
-                          orElse: () => Room(id: '0', number: '???', type: 'Unknown', capacity: 0, pricePerNight: 0, amenities: [], status: '', images: [], floor: 0)); // Fallback
-                      
+                      final room = provider.getRoomById(reservation.roomId) ??
+                          Room(
+                            id: '0',
+                            number: '???',
+                            type: 'Unknown',
+                            capacity: 0,
+                            pricePerNight: 0,
+                            amenities: const [],
+                            status: '',
+                            images: const [],
+                            floor: 0,
+                          );
+
                       return _buildTicketCard(
                         context,
                         reservation,
@@ -113,7 +161,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
         backgroundColor: AppColors.primary,
         elevation: 4,
         onPressed: () => _showNewReservationDialog(context, provider),
-        label: const Text('New Booking', style: TextStyle(fontWeight: FontWeight.bold)),
+        label: const Text('New Booking',
+            style: TextStyle(fontWeight: FontWeight.bold)),
         icon: const Icon(Icons.add),
       ),
     );
@@ -183,12 +232,18 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   Color _getStatusColor(String status) {
     switch (status) {
-      case 'confirmed': return Colors.blue;
-      case 'checked-in': return Colors.green;
-      case 'checked-out': return Colors.grey;
-      case 'pending': return Colors.orange;
-      case 'cancelled': return Colors.red;
-      default: return Colors.grey;
+      case 'confirmed':
+        return Colors.blue;
+      case 'checked-in':
+        return Colors.green;
+      case 'checked-out':
+        return Colors.grey;
+      case 'pending':
+        return Colors.orange;
+      case 'cancelled':
+        return Colors.red;
+      default:
+        return Colors.grey;
     }
   }
 
@@ -218,7 +273,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
-          onTap: () => _showReservationDetails(context, reservation, room, provider),
+          onTap: () =>
+              _showReservationDetails(context, reservation, room, provider),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -256,7 +312,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                
+
                 // Middle: Guest & Room Info
                 Expanded(
                   child: Column(
@@ -277,7 +333,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
                               color: statusColor.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(8),
@@ -297,24 +354,28 @@ class _BookingsScreenState extends State<BookingsScreen> {
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Icon(Icons.door_front_door_outlined, size: 14, color: Colors.grey[600]),
+                          Icon(Icons.door_front_door_outlined,
+                              size: 14, color: Colors.grey[600]),
                           const SizedBox(width: 4),
                           Text(
                             'Room ${room.number} (${room.type})',
-                            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                            style: TextStyle(
+                                fontSize: 13, color: Colors.grey[600]),
                           ),
                           const SizedBox(width: 12),
-                          Icon(Icons.nights_stay_outlined, size: 14, color: Colors.grey[600]),
+                          Icon(Icons.nights_stay_outlined,
+                              size: 14, color: Colors.grey[600]),
                           const SizedBox(width: 4),
                           Text(
                             '${reservation.nights} nights',
-                            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                            style: TextStyle(
+                                fontSize: 13, color: Colors.grey[600]),
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        '\$${reservation.totalPrice.toStringAsFixed(0)}',
+                        formatCurrency(reservation.totalPrice),
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.bold,
@@ -324,7 +385,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     ],
                   ),
                 ),
-                
+
                 // Right Arrow
                 const SizedBox(width: 8),
                 Icon(Icons.chevron_right, color: Colors.grey[300]),
@@ -366,7 +427,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 ),
               ),
             ),
-            
+
             // Header
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -374,7 +435,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Reservation Details',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   IconButton(
                     icon: const Icon(Icons.close_rounded),
                     onPressed: () => Navigator.pop(context),
@@ -393,32 +455,44 @@ class _BookingsScreenState extends State<BookingsScreen> {
                   children: [
                     // Section 1: Guest
                     _buildSectionHeader('Guest Information'),
-                    _buildDetailRow('Guest Name', reservation.guestName, Icons.person_outline),
-                    _buildDetailRow('Email', reservation.guestEmail, Icons.email_outlined),
-                    _buildDetailRow('Phone', reservation.guestPhone, Icons.phone_outlined),
-                    _buildDetailRow('Party Size', 
-                      '${reservation.adults} Adults, ${reservation.children} Kids', 
-                      Icons.group_outlined
-                    ),
+                    _buildDetailRow('Guest Name', reservation.guestName,
+                        Icons.person_outline),
+                    _buildDetailRow(
+                        'Email', reservation.guestEmail, Icons.email_outlined),
+                    _buildDetailRow(
+                        'Phone', reservation.guestPhone, Icons.phone_outlined),
+                    _buildDetailRow(
+                        'Party Size',
+                        '${reservation.adults} Adults, ${reservation.children} Kids',
+                        Icons.group_outlined),
 
                     const SizedBox(height: 24),
-                    
+
                     // Section 2: Stay
                     _buildSectionHeader('Stay Details'),
-                    _buildDetailRow('Room', '${room.emoji} ${room.number} (${room.type})', Icons.meeting_room_outlined),
+                    _buildDetailRow(
+                        'Room',
+                        '${room.number} (${room.type})',
+                        Icons.meeting_room_outlined),
                     Row(
                       children: [
-                        Expanded(child: _buildDateBox('Check-in', reservation.checkIn)),
+                        Expanded(
+                            child:
+                                _buildDateBox('Check-in', reservation.checkIn)),
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 12),
                           child: Icon(Icons.arrow_forward, color: Colors.grey),
                         ),
-                        Expanded(child: _buildDateBox('Check-out', reservation.checkOut)),
+                        Expanded(
+                            child: _buildDateBox(
+                                'Check-out', reservation.checkOut)),
                       ],
                     ),
                     const SizedBox(height: 12),
                     if (reservation.specialRequests.isNotEmpty) ...[
-                      const Text('Special Requests:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const Text('Special Requests:',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 13)),
                       const SizedBox(height: 4),
                       Container(
                         width: double.infinity,
@@ -430,9 +504,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: reservation.specialRequests.map((req) => 
-                            Text('• $req', style: TextStyle(color: Colors.orange[900]))
-                          ).toList(),
+                          children: reservation.specialRequests
+                              .map((req) => Text('- $req',
+                                  style: TextStyle(color: Colors.orange[900])))
+                              .toList(),
                         ),
                       ),
                     ],
@@ -450,35 +525,49 @@ class _BookingsScreenState extends State<BookingsScreen> {
                       ),
                       child: Column(
                         children: [
-                          _buildPriceRow('Price per night', '\$${room.pricePerNight}'),
+                          _buildPriceRow(
+                              'Price per night', formatCurrency(room.pricePerNight)),
                           _buildPriceRow('Nights', 'x ${reservation.nights}'),
                           const Divider(),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text('Total', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                              Text('\$${reservation.totalPrice.toStringAsFixed(2)}', 
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.primary)),
+                              const Text('Total',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16)),
+                              Text(
+                                  formatCurrency(reservation.totalPrice),
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                      color: AppColors.primary)),
                             ],
                           ),
                           const SizedBox(height: 8),
                           Row(
                             children: [
-                              Icon(reservation.paymentStatus == 'paid' ? Icons.check_circle : Icons.pending, 
-                                size: 16, 
-                                color: reservation.paymentStatus == 'paid' ? Colors.green : Colors.orange
-                              ),
+                              Icon(
+                                  reservation.paymentStatus == 'paid'
+                                      ? Icons.check_circle
+                                      : Icons.pending,
+                                  size: 16,
+                                  color: reservation.paymentStatus == 'paid'
+                                      ? Colors.green
+                                      : Colors.orange),
                               const SizedBox(width: 4),
-                              Text('Status: ${reservation.paymentStatus.toUpperCase()}', 
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)
-                              ),
+                              Text(
+                                  'Status: ${reservation.paymentStatus.toUpperCase()}',
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold)),
                             ],
                           )
                         ],
                       ),
                     ),
                     const SizedBox(height: 30),
-                    
+
                     // Action Buttons
                     if (reservation.status == 'confirmed')
                       SizedBox(
@@ -487,17 +576,23 @@ class _BookingsScreenState extends State<BookingsScreen> {
                         child: ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
                           ),
                           onPressed: () {
-                            provider.updateReservationStatus(reservation.id, 'checked-in');
+                            provider.updateReservationStatus(
+                                reservation.id, 'checked-in');
                             Navigator.pop(context);
                           },
                           icon: const Icon(Icons.login, color: Colors.white),
-                          label: const Text('Check-in Guest', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                          label: const Text('Check-in Guest',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold)),
                         ),
                       ),
-                    
+
                     if (reservation.status == 'checked-in')
                       SizedBox(
                         width: double.infinity,
@@ -505,14 +600,17 @@ class _BookingsScreenState extends State<BookingsScreen> {
                         child: ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.purple,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
                           ),
                           onPressed: () async {
-                            provider.updateReservationStatus(reservation.id, 'checked-out');
-                            
+                            await provider.updateReservationStatus(
+                                reservation.id, 'checked-out');
+
                             // Prepare Sale Map
                             final saleMap = {
                               'id': reservation.id,
+                              'saleId': reservation.id,
                               'items': [
                                 {
                                   'name': 'Room ${room.number} (${room.type})',
@@ -520,23 +618,97 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                   'price': room.pricePerNight,
                                 }
                               ],
+                              'subtotal': reservation.totalPrice,
                               'total': reservation.totalPrice,
-                              'paymentMethod': reservation.paymentStatus == 'paid' ? 'Card' : 'Cash',
+                              'totalAmount': reservation.totalPrice,
+                              'finalAmount': reservation.totalPrice,
+                              'paymentMethod':
+                                  reservation.paymentStatus == 'paid'
+                                      ? 'Card'
+                                      : 'Cash',
+                              'paymentBreakdown': [
+                                {
+                                  'method': reservation.paymentStatus == 'paid'
+                                      ? 'Card'
+                                      : 'Cash',
+                                  'amount': reservation.totalPrice,
+                                }
+                              ],
+                              'status': 'completed',
+                              'category': 'Hotel',
                               'date': DateTime.now().toIso8601String(),
                               'customer': {
                                 'name': reservation.guestName,
                                 'email': reservation.guestEmail,
                                 'phone': reservation.guestPhone,
                               },
-                              'numberOfPersons': reservation.adults + reservation.children,
+                              'customerName': reservation.guestName,
+                              'numberOfPersons':
+                                  reservation.adults + reservation.children,
                             };
 
-                            await ReceiptManager.handlePostSale(context, saleMap);
+                            await ReceiptManager.handlePostSale(
+                                context, saleMap);
                             if (!context.mounted) return;
                             Navigator.pop(context);
                           },
                           icon: const Icon(Icons.logout, color: Colors.white),
-                          label: const Text('Check-out & Invoice', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                          label: const Text('Check-out & Invoice',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+
+                    if (reservation.status != 'cancelled' &&
+                        reservation.status != 'checked-out')
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () async {
+                            await provider.cancelReservation(reservation.id);
+                            if (!context.mounted) return;
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.cancel, color: Colors.red),
+                          label: const Text('Cancel Booking',
+                              style: TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+
+                    if (reservation.paymentStatus != 'paid')
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueAccent,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () async {
+                            await provider.updatePaymentStatus(
+                                reservation.id, 'paid');
+                            if (!context.mounted) return;
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.payment, color: Colors.white),
+                          label: const Text('Mark as Paid',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold)),
                         ),
                       ),
                   ],
@@ -581,8 +753,11 @@ class _BookingsScreenState extends State<BookingsScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+              Text(label,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              Text(value,
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w500)),
             ],
           ),
         ],
@@ -602,10 +777,11 @@ class _BookingsScreenState extends State<BookingsScreen> {
         children: [
           Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
           const SizedBox(height: 4),
-          Text(DateFormat('MMM d').format(date), 
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          Text(DateFormat('yyyy').format(date), 
-            style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+          Text(DateFormat('MMM d').format(date),
+              style:
+                  const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(DateFormat('yyyy').format(date),
+              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
         ],
       ),
     );
@@ -625,20 +801,288 @@ class _BookingsScreenState extends State<BookingsScreen> {
   }
 
   void _showNewReservationDialog(BuildContext context, HotelProvider provider) {
-    // Dialog logic remains the same, but you might want to replace this with a full screen form later
-    showDialog(
+    final _formKey = GlobalKey<FormState>();
+    final guestNameCtrl = TextEditingController();
+    final guestEmailCtrl = TextEditingController();
+    final guestPhoneCtrl = TextEditingController();
+    final adultsCtrl = TextEditingController(text: '1');
+    final childrenCtrl = TextEditingController(text: '0');
+    final requestsCtrl = TextEditingController();
+
+    DateTime checkIn = DateTime.now().add(const Duration(days: 1));
+    DateTime checkOut = DateTime.now().add(const Duration(days: 2));
+    String? selectedRoomId =
+        provider.getAvailableRoomsForDates(checkIn, checkOut).isNotEmpty
+            ? provider.getAvailableRoomsForDates(checkIn, checkOut).first.id
+            : null;
+
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('New Reservation'),
-        content: const Text('Reservation creation form would go here'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
-        ],
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const Text('New Booking',
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 16),
+                  Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextFormField(
+                          controller: guestNameCtrl,
+                          decoration:
+                              const InputDecoration(labelText: 'Guest Name'),
+                          validator: (value) => value == null || value.isEmpty
+                              ? 'Guest name is required'
+                              : null,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: guestEmailCtrl,
+                          decoration:
+                              const InputDecoration(labelText: 'Guest Email'),
+                          keyboardType: TextInputType.emailAddress,
+                          validator: (value) {
+                            if (value == null || value.isEmpty)
+                              return 'Email is required';
+                            if (!RegExp(r"^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}")
+                                .hasMatch(value)) {
+                              return 'Enter a valid email address';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: guestPhoneCtrl,
+                          decoration:
+                              const InputDecoration(labelText: 'Guest Phone'),
+                          keyboardType: TextInputType.phone,
+                          validator: (value) => value == null || value.isEmpty
+                              ? 'Phone is required'
+                              : null,
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          value: selectedRoomId,
+                          items: provider
+                              .getAvailableRoomsForDates(checkIn, checkOut)
+                              .map((room) {
+                            return DropdownMenuItem(
+                              value: room.id,
+                              child: Text('${room.number} (${room.type})'),
+                            );
+                          }).toList(),
+                          onChanged: (val) =>
+                              setState(() => selectedRoomId = val),
+                          hint: const Text('Select Room'),
+                          validator: (value) => value == null || value.isEmpty
+                              ? 'Pick a room'
+                              : null,
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Check-in'),
+                                subtitle: Text(
+                                    DateFormat('yyyy-MM-dd').format(checkIn)),
+                                trailing: const Icon(Icons.calendar_today),
+                                onTap: () async {
+                                  final date = await showDatePicker(
+                                    context: context,
+                                    initialDate: checkIn,
+                                    firstDate: DateTime.now(),
+                                    lastDate: DateTime.now()
+                                        .add(const Duration(days: 365)),
+                                  );
+                                  if (date != null) {
+                                    setState(() {
+                                      checkIn = date;
+                                      if (!checkOut.isAfter(checkIn)) {
+                                        checkOut = checkIn
+                                            .add(const Duration(days: 1));
+                                      }
+                                    });
+                                  }
+                                },
+                              ),
+                            ),
+                            Expanded(
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Check-out'),
+                                subtitle: Text(
+                                    DateFormat('yyyy-MM-dd').format(checkOut)),
+                                trailing: const Icon(Icons.calendar_today),
+                                onTap: () async {
+                                  final date = await showDatePicker(
+                                    context: context,
+                                    initialDate: checkOut,
+                                    firstDate:
+                                        checkIn.add(const Duration(days: 1)),
+                                    lastDate: DateTime.now()
+                                        .add(const Duration(days: 366)),
+                                  );
+                                  if (date != null) {
+                                    setState(() => checkOut = date);
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: adultsCtrl,
+                                decoration:
+                                    const InputDecoration(labelText: 'Adults'),
+                                keyboardType: TextInputType.number,
+                                validator: (value) {
+                                  if (value == null || value.isEmpty)
+                                    return 'Enter adults';
+                                  final val = int.tryParse(value);
+                                  if (val == null || val < 1)
+                                    return 'Must be at least 1 adult';
+                                  return null;
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                controller: childrenCtrl,
+                                decoration: const InputDecoration(
+                                    labelText: 'Children'),
+                                keyboardType: TextInputType.number,
+                                validator: (value) {
+                                  if (value == null || value.isEmpty)
+                                    return 'Enter count';
+                                  final val = int.tryParse(value);
+                                  if (val == null || val < 0)
+                                    return 'Must be >=0';
+                                  return null;
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: requestsCtrl,
+                          minLines: 1,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                              labelText: 'Special requests (optional)'),
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: _isCreatingReservation
+                                ? null
+                                : () async {
+                                    if (!_formKey.currentState!.validate())
+                                      return;
+                                    if (selectedRoomId == null) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text(
+                                                  'Please select a room')));
+                                      return;
+                                    }
+                                    setState(
+                                        () => _isCreatingReservation = true);
+                                    try {
+                                      await provider.createReservation(
+                                        roomId: selectedRoomId!,
+                                        guestName: guestNameCtrl.text.trim(),
+                                        guestEmail: guestEmailCtrl.text.trim(),
+                                        guestPhone: guestPhoneCtrl.text.trim(),
+                                        checkIn: checkIn,
+                                        checkOut: checkOut,
+                                        adults: int.tryParse(
+                                                adultsCtrl.text.trim()) ??
+                                            1,
+                                        children: int.tryParse(
+                                                childrenCtrl.text.trim()) ??
+                                            0,
+                                        specialRequests: requestsCtrl.text
+                                            .split(',')
+                                            .map((s) => s.trim())
+                                            .where((s) => s.isNotEmpty)
+                                            .toList(),
+                                      );
+                                      if (!context.mounted) return;
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text(
+                                                  'Reservation created successfully')));
+                                      Navigator.pop(context);
+                                    } catch (err) {
+                                      if (!context.mounted) return;
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(SnackBar(
+                                              content: Text(
+                                                  'Failed to create reservation: $err')));
+                                    } finally {
+                                      if (mounted)
+                                        setState(() =>
+                                            _isCreatingReservation = false);
+                                    }
+                                  },
+                            child: _isCreatingReservation
+                                ? const CircularProgressIndicator(
+                                    color: Colors.white)
+                                : const Text('Create Reservation',
+                                    style:
+                                        TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 }
+

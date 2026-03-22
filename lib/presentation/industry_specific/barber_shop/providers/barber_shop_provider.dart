@@ -303,6 +303,7 @@ class BarberShopProvider extends ChangeNotifier {
   List<Barber> get barbers => _barbers;
   List<BarberShopSale> get sales => _sales;
   String? get errorMessage => _errorMessage;
+  bool get hasBusinessContext => _businessId != null && _businessId!.isNotEmpty;
 
   void setBusinessId(String businessId) {
     if (_businessId != null && _businessId == businessId) return;
@@ -318,6 +319,11 @@ class BarberShopProvider extends ChangeNotifier {
   // ==================== SERVICES ====================
 
   Future<void> loadServices() async {
+    if (!hasBusinessContext) {
+      _services = [];
+      notifyListeners();
+      return;
+    }
     try {
       final snapshot = await _fs
           .collection('businesses')
@@ -409,6 +415,11 @@ class BarberShopProvider extends ChangeNotifier {
   // ==================== APPOINTMENTS ====================
 
   Future<void> loadAppointments() async {
+    if (!hasBusinessContext) {
+      _appointments = [];
+      notifyListeners();
+      return;
+    }
     try {
       final snapshot = await _fs
           .collection('businesses')
@@ -528,7 +539,9 @@ class BarberShopProvider extends ChangeNotifier {
     for (var i = 0; i < completed.length; i++) {
       final a = completed[i];
       final when = a.appointmentTime.toLocal().toString().split('.').first;
-      lines.add('${i+1}. ${a.clientName} • ${a.serviceName} • ${a.barberName} • $when • ₦${(a.amountPaid ?? 0).toString()}');
+      lines.add(
+        '${i + 1}. ${a.clientName} - ${a.serviceName} - ${a.barberName} - $when - NGN ${(a.amountPaid ?? 0).toStringAsFixed(2)}',
+      );
     }
     final header = 'Completed bookings for ${start.toLocal().toIso8601String().split('T').first}: ${completed.length}';
     return [header, ...lines].join('\n');
@@ -552,6 +565,11 @@ class BarberShopProvider extends ChangeNotifier {
   Future<void> updateAppointmentStatus(
       String appointmentId, String newStatus) async {
     try {
+      if (!hasBusinessContext) {
+        _errorMessage = 'No business selected';
+        notifyListeners();
+        return;
+      }
       await _fs
           .collection('businesses')
           .doc(_businessId)
@@ -574,6 +592,11 @@ class BarberShopProvider extends ChangeNotifier {
   Future<void> completeAppointment(
       String appointmentId, double amountPaid, String paymentMethod, {List<Map<String, dynamic>>? payments}) async {
     try {
+      if (!hasBusinessContext) {
+        _errorMessage = 'No business selected';
+        notifyListeners();
+        return;
+      }
       await _fs
           .collection('businesses')
           .doc(_businessId)
@@ -637,6 +660,11 @@ class BarberShopProvider extends ChangeNotifier {
   // ==================== BARBERS ====================
 
   Future<void> loadBarbers() async {
+    if (!hasBusinessContext) {
+      _barbers = [];
+      notifyListeners();
+      return;
+    }
     try {
       final snapshot = await _fs
           .collection('businesses')
@@ -700,6 +728,11 @@ class BarberShopProvider extends ChangeNotifier {
 
   Future<void> addBarber(Barber barber) async {
     try {
+      if (!hasBusinessContext) {
+        _errorMessage = 'No business selected';
+        notifyListeners();
+        return;
+      }
       await _fs
           .collection('businesses')
           .doc(_businessId)
@@ -717,9 +750,68 @@ class BarberShopProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> updateBarber(Barber barber) async {
+    try {
+      if (!hasBusinessContext) {
+        _errorMessage = 'No business selected';
+        notifyListeners();
+        return;
+      }
+      await _fs
+          .collection('businesses')
+          .doc(_businessId)
+          .collection('barbers')
+          .doc(barber.id)
+          .set(barber.toJson(), SetOptions(merge: true));
+
+      final index = _barbers.indexWhere((b) => b.id == barber.id);
+      if (index >= 0) {
+        _barbers[index] = barber;
+      } else {
+        _barbers.add(barber);
+      }
+      _errorMessage = null;
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteBarber(String barberId) async {
+    try {
+      if (!hasBusinessContext) {
+        _errorMessage = 'No business selected';
+        notifyListeners();
+        return;
+      }
+      await _fs
+          .collection('businesses')
+          .doc(_businessId)
+          .collection('barbers')
+          .doc(barberId)
+          .set({
+        'isActive': false,
+        'updatedAt': Timestamp.now(),
+      }, SetOptions(merge: true));
+
+      _barbers.removeWhere((b) => b.id == barberId);
+      _errorMessage = null;
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
   // ==================== SALES ====================
 
   Future<void> loadSales() async {
+    if (!hasBusinessContext) {
+      _sales = [];
+      notifyListeners();
+      return;
+    }
     try {
       final snapshot = await _fs
           .collection('businesses')
@@ -794,9 +886,22 @@ class BarberShopProvider extends ChangeNotifier {
 
   Future<void> recordSale(BarberShopSale sale) async {
     try {
-      final data = sale.toJson();
-      // attach business/store id for reporting
-      data['businessId'] = _businessId;
+      if (!hasBusinessContext) {
+        _errorMessage = 'No business selected';
+        notifyListeners();
+        return;
+      }
+      final data = {
+        ...sale.toJson(),
+        'businessId': _businessId,
+        'status': 'completed',
+        'customerName': sale.clientName,
+        'category': 'Barber Shop',
+        'industry': 'barber_shop',
+        'totalAmount': sale.total,
+        'finalAmount': sale.total,
+        'createdAt': Timestamp.fromDate(sale.saleDate),
+      };
 
       await _fs
           .collection('businesses')
@@ -1020,7 +1125,15 @@ class BarberShopProvider extends ChangeNotifier {
       if (pct <= 0.0) return 0.0;
       final total = _sales
           .where((s) => s.barberId == barberId)
-          .fold(0.0, (sum, sale) => sum + sale.total * (pct / 100.0));
+          .fold(0.0, (sum, sale) {
+            final saleBase = sale.payments != null && sale.payments!.isNotEmpty
+                ? sale.payments!.fold<double>(
+                    0.0,
+                    (s, p) => s + ((p['amount'] as num?)?.toDouble() ?? 0.0),
+                  )
+                : sale.total;
+            return sum + (saleBase * (pct / 100.0));
+          });
       return total;
     } catch (e) {
       return 0.0;
@@ -1033,6 +1146,18 @@ class BarberShopProvider extends ChangeNotifier {
       total += getBarberCommissionTotal(b.id);
     }
     return total;
+  }
+
+  int getBarberCompletedAppointmentsCount(String barberId) {
+    return _appointments
+        .where((a) => a.barberId == barberId && a.status == 'completed')
+        .length;
+  }
+
+  double getBarberRevenueTotal(String barberId) {
+    return _sales
+        .where((s) => s.barberId == barberId)
+        .fold(0.0, (sum, sale) => sum + sale.total);
   }
 }
 
@@ -1063,63 +1188,70 @@ extension BarberCopyWith on Barber {
 extension BarberShopProviderSales on BarberShopProvider {
   Future<double> getTodaysSalesTotal() async {
     try {
+      if (_businessId == null || _businessId!.isEmpty) return 0.0;
+
       final now = DateTime.now();
       final startOfDay = DateTime(now.year, now.month, now.day);
       final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+      double sumSales(QuerySnapshot<Map<String, dynamic>> snapshot) {
+        var totalSales = 0.0;
+        for (final doc in snapshot.docs) {
+          final data = doc.data();
+          if ((data['status'] as String?)?.toLowerCase() != 'completed') continue;
+          final amount =
+              (data['finalAmount'] as num?)?.toDouble() ??
+              (data['totalAmount'] as num?)?.toDouble() ??
+              (data['total'] as num?)?.toDouble() ??
+              0.0;
+          totalSales += amount;
+        }
+        return totalSales;
+      }
 
       try {
         final snapshot = await _fs
             .collection('businesses')
             .doc(_businessId)
             .collection('sales')
-            .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
-            .where('createdAt', isLessThanOrEqualTo: endOfDay)
+            .where('saleDate', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+            .where('saleDate', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
             .where('status', isEqualTo: 'completed')
             .get();
 
-        double totalSales = 0.0;
-        for (final doc in snapshot.docs) {
-          final amount = (doc['totalAmount'] as num?)?.toDouble() ?? 0.0;
-          totalSales += amount;
-        }
-
-        debugPrint('[BarberShopProvider] Today\'s sales total: ₦$totalSales');
+        final totalSales = sumSales(snapshot);
+        debugPrint("[BarberShopProvider] Today's sales total: NGN $totalSales");
         return totalSales;
       } catch (e) {
         final msg = e.toString();
         if (msg.contains('requires an index') || msg.contains('FAILED_PRECONDITION')) {
           try {
-            debugPrint('[BarberShopProvider] Composite index required; falling back to date-only query for today\'s sales');
+            debugPrint("[BarberShopProvider] Composite index required; falling back to createdAt/date-only query for today's sales");
             final fallback = await _fs
                 .collection('businesses')
                 .doc(_businessId)
                 .collection('sales')
-                .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
-                .where('createdAt', isLessThanOrEqualTo: endOfDay)
+                .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+                .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
                 .get();
 
-            double totalSales = 0.0;
-            for (final doc in fallback.docs) {
-              if ((doc['status'] as String?)?.toLowerCase() != 'completed') continue;
-              final amount = (doc['totalAmount'] as num?)?.toDouble() ?? 0.0;
-              totalSales += amount;
-            }
-
-            debugPrint('[BarberShopProvider] Today\'s sales total (fallback): ₦$totalSales');
+            final totalSales = sumSales(fallback);
+            debugPrint("[BarberShopProvider] Today's sales total (fallback): NGN $totalSales");
             return totalSales;
           } catch (e2) {
-            debugPrint('[BarberShopProvider] Fallback date-only query failed: $e2');
+            debugPrint("[BarberShopProvider] Fallback date-only query failed: $e2");
             return 0.0;
           }
         }
 
-        debugPrint('[BarberShopProvider] Error fetching today\'s sales: $e');
+        debugPrint("[BarberShopProvider] Error fetching today's sales: $e");
         return 0.0;
       }
     } catch (e) {
-      debugPrint('[BarberShopProvider] Error fetching today\'s sales: $e');
+      debugPrint("[BarberShopProvider] Error fetching today's sales: $e");
       return 0.0;
     }
   }
 }
+
 

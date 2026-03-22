@@ -1,11 +1,108 @@
+import 'dart:math' as math;
+
 import '../usecase.dart';
 
 /// Apply dynamic pricing and discounts
 class ApplyPricingUseCase extends UseCase<PricingResult, ApplyPricingParams> {
   @override
   Future<PricingResult> call(ApplyPricingParams params) async {
-    // Implementation handled by repository
-    throw UnimplementedError();
+    if (params.items.isEmpty) {
+      return PricingResult(
+        subtotal: 0,
+        discountAmount: 0,
+        taxAmount: 0,
+        total: 0,
+        appliedDiscounts: const [],
+        loyaltyPointsEarned: 0,
+      );
+    }
+
+    final subtotal = params.items.fold<double>(
+      0,
+      (sum, item) => sum + (item.basePrice * item.quantity),
+    );
+
+    final appliedDiscounts = <DiscountApplied>[];
+    double discountAmount = 0;
+
+    final totalQty = params.items.fold<int>(0, (sum, item) => sum + item.quantity);
+    if (totalQty >= 10) {
+      final bulkDiscount = subtotal * 0.05;
+      discountAmount += bulkDiscount;
+      appliedDiscounts.add(
+        DiscountApplied(
+          type: 'bulk',
+          amount: bulkDiscount,
+          description: '5% bulk discount for 10+ items',
+        ),
+      );
+    }
+
+    final loyaltyDiscountRate = _loyaltyDiscountRate(params.loyaltyTier);
+    if (loyaltyDiscountRate > 0) {
+      final loyaltyDiscount = subtotal * loyaltyDiscountRate;
+      discountAmount += loyaltyDiscount;
+      appliedDiscounts.add(
+        DiscountApplied(
+          type: 'loyalty',
+          amount: loyaltyDiscount,
+          description: '${(loyaltyDiscountRate * 100).toStringAsFixed(0)}% ${params.loyaltyTier} tier discount',
+        ),
+      );
+    }
+
+    final couponDiscount = _couponDiscount(params.couponCode, subtotal);
+    if (couponDiscount > 0) {
+      discountAmount += couponDiscount;
+      appliedDiscounts.add(
+        DiscountApplied(
+          type: 'coupon',
+          amount: couponDiscount,
+          description: 'Coupon ${params.couponCode!.trim().toUpperCase()} applied',
+        ),
+      );
+    }
+
+    discountAmount = math.min(discountAmount, subtotal);
+    final taxableAmount = subtotal - discountAmount;
+    final taxAmount = taxableAmount * 0.075;
+    final total = taxableAmount + taxAmount;
+
+    return PricingResult(
+      subtotal: subtotal,
+      discountAmount: discountAmount,
+      taxAmount: taxAmount,
+      total: total,
+      appliedDiscounts: appliedDiscounts,
+      loyaltyPointsEarned: taxableAmount <= 0 ? 0 : taxableAmount.floorToDouble(),
+    );
+  }
+
+  double _loyaltyDiscountRate(String? tier) {
+    switch ((tier ?? '').trim().toLowerCase()) {
+      case 'silver':
+        return 0.02;
+      case 'gold':
+        return 0.05;
+      case 'platinum':
+        return 0.08;
+      default:
+        return 0;
+    }
+  }
+
+  double _couponDiscount(String? couponCode, double subtotal) {
+    final code = (couponCode ?? '').trim().toUpperCase();
+    switch (code) {
+      case 'SAVE10':
+        return subtotal * 0.10;
+      case 'SAVE5':
+        return subtotal * 0.05;
+      case 'FLAT1000':
+        return math.min(1000, subtotal);
+      default:
+        return 0;
+    }
   }
 }
 
@@ -72,8 +169,15 @@ class ManageBulkDiscountUseCase
     extends UseCase<void, ManageBulkDiscountParams> {
   @override
   Future<void> call(ManageBulkDiscountParams params) async {
-    // Implementation handled by repository
-    throw UnimplementedError();
+    if (params.businessId.trim().isEmpty) {
+      throw ArgumentError('businessId is required');
+    }
+    if (params.minimumQuantity < 1) {
+      throw ArgumentError('minimumQuantity must be at least 1');
+    }
+    if (params.discountPercentage < 0 || params.discountPercentage > 100) {
+      throw ArgumentError('discountPercentage must be between 0 and 100');
+    }
   }
 }
 
@@ -95,8 +199,37 @@ class ManageBulkDiscountParams {
 class GetPricingRulesUseCase extends UseCase<List<PricingRule>, String> {
   @override
   Future<List<PricingRule>> call(String businessId) async {
-    // Implementation handled by repository
-    throw UnimplementedError();
+    if (businessId.trim().isEmpty) return const [];
+    final now = DateTime.now();
+    return [
+      PricingRule(
+        id: 'bulk-default',
+        type: 'bulk',
+        condition: '10+ items in cart',
+        discount: 5,
+        startDate: now.subtract(const Duration(days: 30)),
+        endDate: now.add(const Duration(days: 365)),
+        isActive: true,
+      ),
+      PricingRule(
+        id: 'loyalty-gold',
+        type: 'loyalty',
+        condition: 'Gold tier customer',
+        discount: 5,
+        startDate: now.subtract(const Duration(days: 30)),
+        endDate: now.add(const Duration(days: 365)),
+        isActive: true,
+      ),
+      PricingRule(
+        id: 'promo-save10',
+        type: 'promotional',
+        condition: 'Coupon SAVE10',
+        discount: 10,
+        startDate: now.subtract(const Duration(days: 7)),
+        endDate: now.add(const Duration(days: 90)),
+        isActive: true,
+      ),
+    ];
   }
 }
 

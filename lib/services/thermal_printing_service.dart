@@ -363,7 +363,10 @@ class ThermalPrintingService {
       final price = parseDouble(item['price']);
       final itemTotal = (item['total'] != null) ? parseDouble(item['total']) : (qty * price);
 
-      final qtyPrice = '${qty.toStringAsFixed(0)} x ${price.toStringAsFixed(2)}';
+      // Determine decimal places based on unit (for fuel/volume: 2-3 decimals, for counts: 0)
+      final unit = (item['unit'] ?? '').toString().toLowerCase();
+      final qtyDecimals = _getDecimalPlacesForUnit(unit);
+      final qtyPrice = '${qty.toStringAsFixed(qtyDecimals)} x ${price.toStringAsFixed(2)}';
       final lineName = name.length > nameColWidth ? name.substring(0, nameColWidth) : name;
 
       sb.writeln('${_padRight(lineName, nameColWidth)} ${_padLeft(qtyPrice, amountColWidth)} ${_padLeft('₦' + itemTotal.toStringAsFixed(2), priceColWidth)}');
@@ -390,6 +393,35 @@ class ThermalPrintingService {
     sb.writeln('Powered by Manage Care');
 
     return sb.toString();
+  }
+
+  /// Determine the appropriate number of decimal places for a quantity based on its unit
+  static int _getDecimalPlacesForUnit(String unit) {
+    if (unit.isEmpty) return 0; // Default: no decimals for unspecified units
+    
+    // Volume/Fuel units: use 2 decimals
+    if (['l', 'litre', 'liter', 'ltr', 'liters', 'litres', 'gallon', 'gal', 'ml', 'milliliter'].contains(unit)) {
+      return 2;
+    }
+    
+    // Cylinder/Gas tank units: use 2 decimals (can be fractional)
+    if (['cyl', 'cylinder', 'cylinders', 'tank', 'tanks'].contains(unit)) {
+      return 2;
+    }
+    
+    // Weight units: use 2 decimals
+    if (['kg', 'gram', 'g', 'lbs', 'lb', 'oz', 'ounce'].contains(unit)) {
+      return 2;
+    }
+    
+    // Count/Quantity units: use 0 decimals
+    if (['unit', 'units', 'pcs', 'pieces', 'pc', 'piece', 'count', 'no', 'nos', 'items', 'item'].contains(unit)) {
+      return 0;
+    }
+    
+    // Default: 2 decimals for liquid/continuous measurements, 0 for discrete units
+    // Volume-like units get 2 decimals by default
+    return 2;
   }
 
   // Utility padding helpers for text receipts

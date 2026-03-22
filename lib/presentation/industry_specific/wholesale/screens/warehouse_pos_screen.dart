@@ -8,6 +8,7 @@ import '../../../../widgets/custom_button.dart';
 import '../../../../widgets/async_button.dart';
 import '../providers/wholesale_provider.dart';
 import '../../../../providers/auth_provider.dart';
+import '../../../../services/business_notification_manager.dart';
 
 class WarehousePosScreen extends StatefulWidget {
   const WarehousePosScreen({super.key});
@@ -568,6 +569,27 @@ class _WarehousePosScreenState extends State<WarehousePosScreen> {
         workerName: auth.currentUser?.fullName,
         warehouseId: warehouseId,
       );
+
+      // Send push notification to business owners
+      try {
+        final totalAmount = items.fold<double>(0.0, (sum, item) => sum + item.total);
+        await BusinessNotificationManager.instance.notifySaleCompleted(
+          businessId: auth.currentUser?.businessId ?? '',
+          customerName: 'Customer',
+          amount: totalAmount,
+          paymentMethod: paymentMethod,
+        );
+
+        if (totalAmount > 100) {
+          await BusinessNotificationManager.instance.notifyLargeSale(
+            businessId: auth.currentUser?.businessId ?? '',
+            customerName: 'Customer',
+            amount: totalAmount,
+          );
+        }
+      } catch (e) {
+        debugPrint('[WarehousePOS] Push notification failed: $e');
+      }
     } catch (e) {
       debugPrint('[WarehousePOS] Failed to save sale: $e');
     }
@@ -989,4 +1011,3 @@ class _CheckoutDialogState extends State<_CheckoutDialog> {
     );
   }
 }
-

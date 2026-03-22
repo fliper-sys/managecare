@@ -31,6 +31,7 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
   final _businessNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _referralEmailController = TextEditingController();
   final _addressController = TextEditingController();
   final _cityController = TextEditingController();
   final _stateController = TextEditingController();
@@ -93,6 +94,7 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
     _productCountController.dispose();
     _staffCountController.dispose();
     _monthlyIncomeController.dispose();
+    _referralEmailController.dispose();
 
     super.dispose();
   }
@@ -221,6 +223,7 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
       // Set subscription tier (user-selected level constrained by class) and size metrics
       subscriptionTier: _selectedPlanLevel,
       businessClass: _selectedBusinessClass,
+      referralEmail: _referralEmailController.text.trim().isEmpty ? null : _referralEmailController.text.trim(),
       isSubscriptionActive: false,
       createdAt: DateTime.now(),
       isActive: true,
@@ -511,8 +514,14 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
                             }
                             return null;
                           },
-                        ),
-                      ],
+                        ),                        const SizedBox(height: 16),
+                        CustomTextField(
+                          controller: _referralEmailController,
+                          label: 'Referral (marketer) Email',
+                          hint: 'Optional',
+                          keyboardType: TextInputType.emailAddress,
+                          prefixIcon: Icons.email_outlined,
+                        ),                      ],
                     ).animate().fadeIn(delay: 200.ms, duration: 500.ms).slideY(
                           begin: 0.2,
                           end: 0,

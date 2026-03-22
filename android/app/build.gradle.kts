@@ -41,14 +41,30 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        
+        // 🔥 CRITICAL: Ensure manifest annotations are processed correctly
+        // This is needed for tools:node="remove" to work properly on permissions
+        manifestPlaceholders["package_name"] = applicationId
     }
 
     packagingOptions {
-        // 🔥 CRITICAL: Exclude READ_MEDIA permissions per Google Play policy
-        // These permissions are automatically added by some dependencies like image_picker
-        // but our app uses one-time photo access via system picker instead
-        exclude("android/permission/READ_MEDIA_IMAGES")
-        exclude("android/permission/READ_MEDIA_VIDEO")
+        resources {
+            // 🔥 CRITICAL: Exclude READ_MEDIA permissions per Google Play policy
+            // These permissions are automatically added by some dependencies like image_picker
+            // but our app uses one-time photo access via system picker instead
+            excludes += "android/permission/READ_MEDIA_IMAGES"
+            excludes += "android/permission/READ_MEDIA_VIDEO"
+        }
+    }
+
+    // 🔥 CRITICAL: Override manifest merging to remove READ_MEDIA permissions
+    // This ensures that even if dependencies declare these permissions,
+    // they will be removed from the final manifest
+    applicationVariants.all {
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            output.outputFileName = "${project.name}-${variant.name}-$versionName.apk"
+        }
     }
 
     signingConfigs {

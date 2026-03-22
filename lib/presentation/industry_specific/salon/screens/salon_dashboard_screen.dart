@@ -5,6 +5,7 @@ import 'package:business_manager/core/utils/datetime_utils.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/constants/routes.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../providers/auth_provider.dart';
 import '../providers/salon_provider.dart';
 
@@ -69,8 +70,10 @@ class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
 
           return RefreshIndicator(
             onRefresh: () async {
-              // wrapper to reload data
-              provider.loadAppointments(); 
+              await provider.loadAppointments();
+              await provider.loadServices();
+              await provider.loadStylists();
+              await provider.loadProducts();
             },
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
@@ -159,7 +162,7 @@ class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    '₦${todaysSales.toStringAsFixed(0)}',
+                                    formatCurrency(todaysSales),
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 20,

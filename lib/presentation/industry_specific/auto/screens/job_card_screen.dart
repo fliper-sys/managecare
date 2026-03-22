@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../providers/auto_provider.dart';
 
 class JobCardScreen extends StatelessWidget {
@@ -33,10 +34,10 @@ class JobCardScreen extends StatelessWidget {
               Text('Status: ${job.status}'),
               const SizedBox(height: 8),
               const Text('Services', style: TextStyle(fontWeight: FontWeight.bold)),
-              ...job.tasks.map((t) => ListTile(title: Text(t.name), subtitle: Text('Cost: ${t.laborCost.toStringAsFixed(2)}'))),
+              ...job.tasks.map((t) => ListTile(title: Text(t.name), subtitle: Text('Cost: ${formatCurrency(t.laborCost)}'))),
               const SizedBox(height: 8),
               const Text('Parts', style: TextStyle(fontWeight: FontWeight.bold)),
-              ...job.usedParts.map((p) => ListTile(title: Text(p.name), subtitle: Text('Qty: ${p.quantity} Cost/unit: ${p.cost.toStringAsFixed(2)}'))),
+              ...job.usedParts.map((p) => ListTile(title: Text(p.name), subtitle: Text('Qty: ${p.quantity}  Cost/unit: ${formatCurrency(p.cost)}'))),
               const Spacer(),
               Row(
                 children: [

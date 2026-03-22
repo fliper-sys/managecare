@@ -56,32 +56,25 @@ class SyncService {
 
   Future<void> syncSales() async {
     try {
-      // Get pending sales from local database
-      final pendingSales = await _dbHelper.query(
-        'sales',
-        where: 'syncStatus = ?',
-        whereArgs: ['pending'],
-      );
+      // Get pending sales from local database using repository
+      final pendingSales = await _salesRepository.getPendingOfflineSales();
 
       for (final saleData in pendingSales) {
         try {
-          // Sync to Firestore
+          // Sync to Firestore using repository
           await _salesRepository.syncSaleToFirestore(saleData);
 
-          // Update sync status
-          await _dbHelper.update(
-            'sales',
-            {'syncStatus': 'synced'},
-            where: 'id = ?',
-            whereArgs: [saleData['id']],
-          );
+          // Mark as synced
+          final saleId = saleData['id'].toString();
+          await _salesRepository.markSaleAsSynced(saleId);
         } catch (e) {
           // Mark as failed
+          final saleId = saleData['id'].toString();
           await _dbHelper.update(
             'sales',
             {'syncStatus': 'failed'},
             where: 'id = ?',
-            whereArgs: [saleData['id']],
+            whereArgs: [saleId],
           );
         }
       }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
+import '../../../../core/utils/currency.dart';
 import '../providers/barber_shop_provider.dart';
 import '../../../../providers/business_provider.dart';
 
@@ -225,7 +226,7 @@ class _ServiceCard extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text('₦${service.price.toStringAsFixed(0)}',
+              Text(formatCurrency(service.price),
                   style: AppTextStyles.body1.copyWith(
                       fontWeight: FontWeight.bold, color: AppColors.primary)),
               const SizedBox(height: 8),

@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:typed_data';
+import 'dart:io';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../../../services/receipt_manager.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
@@ -10,6 +15,10 @@ import '../../../../providers/retail_provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../data/repositories/worker_repository_impl.dart';
 import '../../../../widgets/profile_avatar.dart';
+import '../../../../services/business_notification_manager.dart';
+import '../../../../services/web_download.dart' as web_download;
+import '../../../../services/pdf_invoice_generator.dart';
+import '../../../../providers/business_provider.dart';
 
 class CheckoutSheet extends StatefulWidget {
   const CheckoutSheet({super.key});
@@ -156,7 +165,99 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
     }
   }
 
-  /// Verify worker PIN when required. Returns true if verification succeeded or not required.
+  Future<void> _generatePdfInvoice() async {
+    try {
+      final provider = Provider.of<RetailProvider>(context, listen: false);
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
+      final business = businessProvider.currentBusiness;
+
+      // Calculate totals
+      double subtotal = 0.0;
+      final cartItems = provider.cartItems.entries.map((e) {
+        final product = e.key;
+        final qty = e.value;
+        final price = product.price;
+        subtotal += price * qty;
+        return {
+          'name': product.name,
+          'menuItemName': product.name,
+          'quantity': qty,
+          'price': price,
+          'unitPrice': price,
+          'subtotal': price * qty,
+          'total': price * qty,
+          'specialInstructions': null,
+          'selectedOptions': [],
+        };
+      }).toList();
+
+      final taxAmt = subtotal * (_taxPercent / 100.0);
+      final total = subtotal + taxAmt;
+
+      final invoiceNumber = 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+
+      final pdfBytes = await PdfInvoiceGenerator.generateInvoicePdfBytes(
+        businessName: business?.name ?? 'Business',
+        invoiceNumber: invoiceNumber,
+        invoiceDate: DateTime.now(),
+        cartItems: cartItems,
+        subtotal: subtotal,
+        tax: taxAmt,
+        discount: 0.0,
+        total: total,
+        customerName: 'Walk-in Customer',
+        businessAddress: business?.address,
+        businessPhone: business?.phone,
+        businessEmail: business?.email,
+        cashierName: auth.currentUser?.fullName,
+      );
+
+      final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
+
+      if (kIsWeb) {
+        web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Invoice PDF downloaded: $filename')),
+        );
+      } else {
+        await _sharePdfOnMobile(pdfBytes, filename);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error generating PDF invoice: $e')),
+      );
+    }
+  }
+
+  Future<void> _sharePdfOnMobile(Uint8List pdfBytes, String filename) async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/$filename');
+      await file.writeAsBytes(pdfBytes);
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'Invoice PDF',
+        subject: 'Invoice',
+      );
+    } catch (e) {
+      try {
+        final docsDir = await getApplicationDocumentsDirectory();
+        final file = File('${docsDir.path}/$filename');
+        await file.writeAsBytes(pdfBytes);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Invoice saved to: ${file.path}')),
+        );
+      } catch (e2) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error saving PDF invoice')),
+        );
+      }
+    }
+  }
+
   Future<bool> _verifyWorkerPin(AuthProvider auth, {String? workerId}) async {
     try {
       // Determine which worker's PIN to validate: selected worker or the current user
@@ -482,6 +583,19 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: provider.cartItems.isNotEmpty ? () => _generatePdfInvoice() : null,
+                  icon: const Icon(Icons.receipt_long),
+                  label: const Text('Generate PDF Invoice'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
                 child: Tooltip(
                   message: AppLocalizations.tr(context, 'confirm_pay'),
                   child: Semantics(
@@ -544,6 +658,26 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                               content: Text(AppLocalizations.tr(context, 'checkout_success')),
                               backgroundColor: AppColors.success));
+                        }
+
+                        // Send push notification to business owners
+                        try {
+                          await BusinessNotificationManager.instance.notifySaleCompleted(
+                            businessId: auth.currentUser?.businessId ?? '',
+                            customerName: 'Customer',
+                            amount: total,
+                            paymentMethod: _selectedPaymentMethod,
+                          );
+
+                          if (total > 100) {
+                            await BusinessNotificationManager.instance.notifyLargeSale(
+                              businessId: auth.currentUser?.businessId ?? '',
+                              customerName: 'Customer',
+                              amount: total,
+                            );
+                          }
+                        } catch (e) {
+                          debugPrint('[CheckoutSheet] Push notification failed: $e');
                         }
 
                         // Perform post-sale receipt actions

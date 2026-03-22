@@ -53,6 +53,7 @@ import 'data/repositories/industry_specific/gym_repository_impl.dart';
 import 'services/notification_service.dart';
 import 'data/local/database_helper.dart';
 import 'providers/admin_provider.dart';
+import 'providers/marketer_provider.dart';
 import 'services/services_initializer.dart';
 
 void main() async {
@@ -510,6 +511,8 @@ class MyApp extends StatelessWidget {
         ),
         // Apartment management provider
         ChangeNotifierProvider(create: (_) => ApartmentProvider()),
+        // Marketer provider for admin/marketer login functionality
+        ChangeNotifierProvider(create: (_) => MarketerProvider()),
       ],
       child: const App(),
     );

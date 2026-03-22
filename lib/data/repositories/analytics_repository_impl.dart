@@ -58,9 +58,16 @@ class AnalyticsRepositoryImpl implements AnalyticsRepository {
       }
 
       for (var doc in salesDocs) {
-        totalSales +=
-            ((doc['totalAmount'] ?? doc['total'] ?? 0) as num?)?.toDouble() ??
-                0;
+        // Use safe data access to prevent "field does not exist" errors
+        final data = doc.data() as Map<String, dynamic>?;
+        if (data == null) continue;
+        
+        final amount = (data['totalAmount'] as num?) ??
+            (data['total'] as num?) ??
+            (data['amount'] as num?) ??
+            (data['finalAmount'] as num?) ??
+            0;
+        totalSales += (amount as num).toDouble();
         totalTransactions++;
       }
 
@@ -154,14 +161,20 @@ class AnalyticsRepositoryImpl implements AnalyticsRepository {
       }
 
       for (var doc in salesDocs) {
-        final amount =
-            ((doc['totalAmount'] ?? doc['total'] ?? 0) as num?)?.toDouble() ??
-                0;
+        // Use safe data access to prevent "field does not exist" errors
+        final data = doc.data() as Map<String, dynamic>?;
+        if (data == null) continue;
+        
+        final amount = (data['totalAmount'] as num?) ??
+            (data['total'] as num?) ??
+            (data['amount'] as num?) ??
+            (data['finalAmount'] as num?) ??
+            0;
         final date = _getSaleDate(doc);
         final dateKey = '${date.year}-${date.month}-${date.day}';
 
-        totalRevenue += amount;
-        revenueByDay[dateKey] = (revenueByDay[dateKey] ?? 0) + amount;
+        totalRevenue += (amount as num).toDouble();
+        revenueByDay[dateKey] = (revenueByDay[dateKey] ?? 0) + (amount as num).toDouble();
       }
 
       return {

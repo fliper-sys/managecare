@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import '../../../services/subscription_storage_service.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../services/subscription_service.dart';
-import '../../../services/data_sync_service.dart';
 // Use AuthProvider to update user instead of directly depending on AuthRepository
 
 import '../../../widgets/loading_indicator.dart';
@@ -24,6 +25,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   late String _currentPlan;
   bool _isLoading = false;
   File? _selectedReceipt;
+  double _uploadProgress = 0.0;
 
   @override
   void initState() {
@@ -248,34 +250,82 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     final picker = ImagePicker();
     final image = await picker.pickImage(source: ImageSource.gallery);
 
-    if (image != null) {
-      _selectedReceipt = File(image.path);
-      if (mounted) Navigator.pop(context);
-      await _uploadReceiptAndActivateOrRenewSubscription(plan, isRenew: isRenew);
+    if (image == null) return;
+
+    // On web, ImagePicker returns an XFile that cannot be converted to dart:io File.
+    // Upload bytes directly and pass the resulting URL to the activation flow.
+    if (kIsWeb) {
+      try {
+        final bytes = await image.readAsBytes();
+        final authProvider = context.read<AuthProvider>();
+        final currentUser = authProvider.currentUser;
+        final storageService = SubscriptionStorageService();
+        final uploadResult = await storageService.uploadSubscriptionProofBytesWithProgress(
+          bytes,
+          image.name,
+          currentUser?.id ?? 'unknown',
+          plan.id,
+          onProgress: (progress) {
+            if (mounted) {
+              setState(() => _uploadProgress = progress);
+            }
+          },
+        );
+
+        final uploadResultMap = {
+          'success': uploadResult.success,
+          'serverUrl': uploadResult.downloadUrl,
+          'error': uploadResult.error,
+        };
+
+        // Directly proceed with activation using the uploaded URL
+        await _uploadReceiptAndActivateOrRenewSubscription(plan, isRenew: isRenew, serverUrlOverride: uploadResultMap['serverUrl'] as String?);
+      } catch (e) {
+        _showError('Upload failed: $e');
+      }
+      return;
     }
+
+    // Native platforms: use dart:io File
+    _selectedReceipt = File(image.path);
+    if (mounted) Navigator.pop(context);
+    await _uploadReceiptAndActivateOrRenewSubscription(plan, isRenew: isRenew);
   }
 
-  Future<void> _uploadReceiptAndActivateOrRenewSubscription(
-      SubscriptionPlan plan, {bool isRenew = false}) async {
+    Future<void> _uploadReceiptAndActivateOrRenewSubscription(
+      SubscriptionPlan plan, {bool isRenew = false, String? serverUrlOverride}) async {
     if (_selectedReceipt == null) {
       _showError('No receipt selected');
       return;
     }
 
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
 
     // Show a modal upload indicator (keeps flow consistent with profile upload)
     if (mounted) {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => const AlertDialog(
+        builder: (context) => AlertDialog(
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Uploading receipt...'),
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              const Text('Uploading receipt...'),
+              if (_uploadProgress > 0) ...[
+                const SizedBox(height: 8),
+                LinearProgressIndicator(
+                  value: _uploadProgress,
+                  backgroundColor: Colors.grey[300],
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${(_uploadProgress * 100).toInt()}%',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
             ],
           ),
         ),
@@ -283,53 +333,52 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
 
     try {
-      // Upload receipt using the robust DataSyncService (uses FileUploadService + PHP fallback)
+      // Upload receipt using Firebase Storage
       final authProvider = context.read<AuthProvider>();
       final currentUser = authProvider.currentUser;
       final businessProvider = context.read<BusinessProvider>();
       final currentBusiness = businessProvider.currentBusiness;
 
-      final dataSync = DataSyncService();
-      final uploadResult = await dataSync.uploadReceipt(
-        receiptFile: _selectedReceipt!,
-        userId: currentUser?.id,
-        businessId: currentBusiness?.id,
-      );
+      String? receiptUrl = serverUrlOverride;
+      if (receiptUrl == null && _selectedReceipt != null) {
+        final storageService = SubscriptionStorageService();
+        final uploadResult = await storageService.uploadSubscriptionProofWithProgress(
+          _selectedReceipt!,
+          currentUser?.id ?? 'unknown',
+          plan.id,
+          onProgress: (progress) {
+            if (mounted) {
+              setState(() => _uploadProgress = progress);
+            }
+          },
+        );
 
-      if (!mounted) return;
-      Navigator.pop(context); // close upload dialog
+        if (!uploadResult.success || uploadResult.downloadUrl == null) {
+          if (!mounted) return;
+          Navigator.pop(context); // close upload dialog
+          _showError('Failed to upload receipt: ${uploadResult.error ?? 'Unknown error'}');
+          if (mounted) setState(() => _isLoading = false);
+          return;
+        }
 
-      if (uploadResult['success'] != true) {
-        _showError('Failed to upload receipt');
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(uploadResult['error'] ?? 'Failed to upload receipt'),
-          action: SnackBarAction(
-            label: 'Retry',
-            onPressed: () => _uploadReceiptAndActivateOrRenewSubscription(plan, isRenew: isRenew),
-          ),
-          backgroundColor: Colors.red,
-        ));
-        return;
+        receiptUrl = uploadResult.downloadUrl;
       }
-
-      final receiptUrl = uploadResult['serverUrl'] as String?;
 
       // Activate or renew subscription via SubscriptionService so events and logs are recorded
       if (currentUser != null) {
         final subscriptionService = SubscriptionService(firestore: FirebaseFirestore.instance);
-        final success = await subscriptionService.activateOrRenewSubscription(
+        final activationSuccess = await subscriptionService.activateOrRenewSubscription(
           userId: currentUser.id,
           planId: plan.id,
-          receiptUrl: receiptUrl ?? '',
+          receiptUrl: receiptUrl!,
           amount: plan.price,
           businessId: currentBusiness?.id,
         );
 
         if (!mounted) return;
 
-        if (!success) {
-          setState(() => _isLoading = false);
+        if (!activationSuccess) {
+          if (mounted) setState(() => _isLoading = false);
           _showError(isRenew ? 'Failed to renew subscription' : 'Failed to activate subscription');
           return;
         }
@@ -354,11 +403,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           await context.read<BusinessProvider>().updateBusiness(updatedBusiness);
         }
 
-        setState(() {
-          _isLoading = false;
-          _currentPlan = plan.id;
-          _selectedReceipt = null;
-        });
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _currentPlan = plan.id;
+            _selectedReceipt = null;
+          });
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -374,10 +425,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         try {
           Navigator.pop(context);
         } catch (_) {}
-     setState(() => _isLoading = false);
-     _showError('Error: $e');
       }
-    }}
+      if (mounted) setState(() {
+        _isLoading = false;
+        _uploadProgress = 0.0;
+      });
+      _showError('Error: $e');
+    }
+  }
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(

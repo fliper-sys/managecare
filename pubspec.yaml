@@ -1,7 +1,7 @@
 name: business_manager
 description: A comprehensive business management app for multiple industries
 publish_to: 'none'
-version: 1.0.15+15
+version: 1.0.18+18
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -117,8 +117,6 @@ flutter:
 
   assets:
     - assets/images/
-    - assets/images/business_types/
-    - assets/icons/
     - assets/lottie/
     - assets/
     - assets/fonts/NotoSans-Regular.ttf
