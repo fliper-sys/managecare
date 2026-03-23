@@ -44,7 +44,7 @@ android {
         
         // 🔥 CRITICAL: Ensure manifest annotations are processed correctly
         // This is needed for tools:node="remove" to work properly on permissions
-        manifestPlaceholders["package_name"] = applicationId
+        manifestPlaceholders["package_name"] = applicationId as String
     }
 
     packagingOptions {
@@ -60,10 +60,11 @@ android {
     // 🔥 CRITICAL: Override manifest merging to remove READ_MEDIA permissions
     // This ensures that even if dependencies declare these permissions,
     // they will be removed from the final manifest
-    applicationVariants.all {
-        outputs.all {
-            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
-            output.outputFileName = "${project.name}-${variant.name}-$versionName.apk"
+    applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            val baseOutput = output as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            baseOutput.outputFileName = "${project.name}-${variant.name}-${variant.versionName}.apk"
+            true
         }
     }
 
