@@ -20,27 +20,49 @@ class SettingsScreen extends StatelessWidget {
     final authProvider = context.watch<AuthProvider>();
     final businessProvider = context.watch<BusinessProvider>();
     final themeProvider = context.watch<ThemeProvider>();
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     final user = authProvider.currentUser;
     final business = businessProvider.currentBusiness;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Settings'),
         elevation: 0,
+        backgroundColor: Colors.transparent,
       ),
       body: SingleChildScrollView(
         child: Column(
           children: [
             // Profile Header
             Container(
-              color: AppColors.primary,
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              margin: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    scheme.primary,
+                    Color.lerp(scheme.primary, scheme.secondary, 0.55)!,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: scheme.primary.withOpacity(isDark ? 0.22 : 0.16),
+                    blurRadius: 28,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
               child: Row(
                 children: [
                   ProfileAvatar(
                     radius: 40,
-                    backgroundColor: Colors.white.withOpacity(0.2),
+                    backgroundColor: Colors.white.withOpacity(0.18),
                     photoUrl: user?.photoUrl,
                     initials: user?.initials ?? 'U',
                   ),
@@ -102,10 +124,13 @@ class SettingsScreen extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
+                    children: [
+                  Text(
                     'Business',
-                    style: AppTextStyles.subtitle2,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                          color: scheme.onSurface.withOpacity(0.72),
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                   const SizedBox(height: 12),
                   _SettingsCard(
@@ -202,9 +227,12 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Preferences',
-                    style: AppTextStyles.subtitle2,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                          color: scheme.onSurface.withOpacity(0.72),
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                   const SizedBox(height: 12),
                   _SettingsCard(
@@ -277,9 +305,12 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Data & Privacy',
-                    style: AppTextStyles.subtitle2,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                          color: scheme.onSurface.withOpacity(0.72),
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                   const SizedBox(height: 12),
                   _SettingsCard(
@@ -330,9 +361,12 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Support',
-                    style: AppTextStyles.subtitle2,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                          color: scheme.onSurface.withOpacity(0.72),
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                   const SizedBox(height: 12),
                   _SettingsCard(
@@ -646,11 +680,25 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Color.alphaBlend(
+          scheme.primary.withOpacity(isDark ? 0.08 : 0.02),
+          theme.cardColor,
+        ),
         borderRadius: BorderRadius.circular(16),
-        boxShadow: AppColors.cardShadow,
+        border: Border.all(color: scheme.outline.withOpacity(0.7)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.18 : 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Column(children: children),
     );
@@ -674,18 +722,36 @@ class _SettingsItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return ListTile(
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: AppColors.primary.withOpacity(0.1),
+          color: scheme.primary.withOpacity(0.12),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(icon, color: AppColors.primary, size: 24),
+        child: Icon(icon, color: scheme.primary, size: 24),
       ),
-      title: Text(title, style: AppTextStyles.subtitle1),
-      subtitle: Text(subtitle, style: AppTextStyles.body2Secondary),
-      trailing: trailing ?? const Icon(Icons.arrow_forward_ios, size: 16),
+      title: Text(
+        title,
+        style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurface.withOpacity(0.68),
+            ),
+      ),
+      trailing: trailing ??
+          Icon(
+            Icons.arrow_forward_ios,
+            size: 16,
+            color: scheme.onSurface.withOpacity(0.45),
+          ),
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
     );
@@ -747,16 +813,22 @@ class _HelpItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,
-          style: const TextStyle(fontWeight: FontWeight.bold),
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
         ),
         Text(
           description,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: scheme.onSurface.withOpacity(0.68),
+              ),
         ),
         const SizedBox(height: 12),
       ],
@@ -773,6 +845,8 @@ class _ContactOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -783,11 +857,15 @@ class _ContactOption extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: const TextStyle(fontWeight: FontWeight.w500),
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                 ),
                 Text(
                   value,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurface.withOpacity(0.68),
+                      ),
                 ),
               ],
             ),

@@ -37,13 +37,14 @@ class _TaxSettingsScreenState extends State<TaxSettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Tax Settings'),
         elevation: 0,
         backgroundColor: Colors.transparent,
-        iconTheme: const IconThemeData(color: Colors.black),
+        iconTheme: IconThemeData(color: theme.iconTheme.color),
       ),
       body: Consumer<BusinessProvider>(
         builder: (context, businessProvider, _) {

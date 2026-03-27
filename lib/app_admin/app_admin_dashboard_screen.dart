@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../providers/admin_provider.dart';
 import '../providers/auth_provider.dart';
+import '../core/theme/app_theme.dart';
 import '../core/utils/currency.dart';
 import '../core/constants/routes.dart';
 import '../routes/app_router.dart';
@@ -14,7 +15,12 @@ import 'pages/marketers_page.dart';
 import '../providers/marketer_provider.dart';
 
 class AdminDashboardApp extends StatelessWidget {
-  const AdminDashboardApp({super.key});
+  final int initialIndex;
+
+  const AdminDashboardApp({
+    super.key,
+    this.initialIndex = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -28,51 +34,10 @@ class AdminDashboardApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'Manage Care ',
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF0F172A),
-            background: const Color(0xFFF8FAFC),
-            surface: Colors.white,
-          ),
-          scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-          fontFamily: 'Inter',
-          appBarTheme: const AppBarTheme(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            centerTitle: false,
-            titleTextStyle: TextStyle(
-              color: Color(0xFF0F172A),
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-            iconTheme: IconThemeData(color: Color(0xFF0F172A)),
-          ),
-          cardTheme: CardThemeData(
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            color: Colors.white,
-            margin: EdgeInsets.zero,
-          ),
-          inputDecorationTheme: InputDecorationTheme(
-            filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFF3B82F6), width: 1.5),
-            ),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          ),
-        ),
-        home: const DashboardHome(),
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: ThemeMode.system,
+        home: DashboardHome(initialIndex: initialIndex),
         onGenerateRoute: appRouter.onGenerateRoute,
         debugShowCheckedModeBanner: false,
       ),
@@ -81,14 +46,19 @@ class AdminDashboardApp extends StatelessWidget {
 }
 
 class DashboardHome extends StatefulWidget {
-  const DashboardHome({super.key});
+  final int initialIndex;
+
+  const DashboardHome({
+    super.key,
+    this.initialIndex = 0,
+  });
 
   @override
   State<DashboardHome> createState() => _DashboardHomeState();
 }
 
 class _DashboardHomeState extends State<DashboardHome> {
-  int _selectedIndex = 0;
+  late int _selectedIndex;
 
   final List<Widget> _pages = [
     const DashboardPage(),
@@ -98,6 +68,13 @@ class _DashboardHomeState extends State<DashboardHome> {
     const MarketersPage(),
     const SettingsPage(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex =
+        widget.initialIndex.clamp(0, _pages.length - 1).toInt();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -124,73 +101,44 @@ class _DashboardHomeState extends State<DashboardHome> {
         },
         child: Scaffold(
           body: _pages[_selectedIndex],
-          bottomNavigationBar: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(24),
-                topRight: Radius.circular(24),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: (index) =>
+                setState(() => _selectedIndex = index),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.dashboard_outlined),
+                selectedIcon: Icon(Icons.dashboard_rounded),
+                label: 'Dashboard',
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 20,
-                  offset: const Offset(0, -5),
-                ),
-              ],
-            ),
-            child: SafeArea(
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildNavItem(Icons.dashboard_rounded, 'Dashboard', 0),
-                    _buildNavItem(Icons.business_rounded, 'Business', 1),
-                    _buildNavItem(Icons.payment_rounded, 'Payments', 2),
-                    _buildNavItem(Icons.people_rounded, 'Users', 3),
-                    _buildNavItem(Icons.person_rounded, 'Marketers', 4),
-                    _buildNavItem(Icons.settings_rounded, 'Settings', 5),
-                  ],
-                ),
+              NavigationDestination(
+                icon: Icon(Icons.business_outlined),
+                selectedIcon: Icon(Icons.business_rounded),
+                label: 'Business',
               ),
-            ),
+              NavigationDestination(
+                icon: Icon(Icons.payments_outlined),
+                selectedIcon: Icon(Icons.payments_rounded),
+                label: 'Payments',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.groups_outlined),
+                selectedIcon: Icon(Icons.groups_rounded),
+                label: 'Users',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.campaign_outlined),
+                selectedIcon: Icon(Icons.campaign_rounded),
+                label: 'Marketers',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.settings_outlined),
+                selectedIcon: Icon(Icons.settings_rounded),
+                label: 'Settings',
+              ),
+            ],
           ),
         ));
-  }
-
-  Widget _buildNavItem(IconData icon, String label, int index) {
-    final isSelected = _selectedIndex == index;
-    return GestureDetector(
-      onTap: () => setState(() => _selectedIndex = index),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF0F172A).withOpacity(0.05) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
-              size: 24,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF94A3B8),
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 
@@ -247,11 +195,17 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: RefreshIndicator(
-        onRefresh: () => context.read<AdminProvider>().fetchAdminStats(),
+        onRefresh: () =>
+            context.read<AdminProvider>().fetchAdminStats(force: true),
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Consumer<AdminProvider>(
           builder: (context, admin, _) {
+            final activeBusinesses = admin.activeBusinessesCount;
+            final restrictedBusinesses = admin.restrictedBusinessesCount;
+            final activeSubscriptions = admin.activeSubscriptionsCount;
+            final pendingApprovals = admin.pendingSubscriptionApprovalsCount;
+            final marketers = admin.marketersCount;
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -421,8 +375,11 @@ class _DashboardPageState extends State<DashboardPage> {
                         admin.stats.totalBusinesses.toString(),
                         Icons.business_rounded,
                         const Color(0xFF3B82F6),
-                        '${admin.allBusinesses.where((b) => b['isActive'] == true).length} active',
-                        onTap: () => Navigator.pushNamed(context, Routes.allBusinessesAdmin),
+                        '$activeBusinesses active',
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          Routes.allBusinessesAdmin,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -430,10 +387,43 @@ class _DashboardPageState extends State<DashboardPage> {
                       child: _buildStatCard(
                         'Active Users',
                         admin.stats.activeUsers.toString(),
-                        Icons.trending_up_rounded,
+                        Icons.groups_rounded,
                         const Color(0xFF10B981),
                         '24h live',
-                        onTap: () => Navigator.pushNamed(context, Routes.adminUsersAndWorkers),
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          Routes.adminUsersAndWorkers,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildStatCard(
+                        'Pending Reviews',
+                        pendingApprovals.toString(),
+                        Icons.fact_check_rounded,
+                        const Color(0xFFF97316),
+                        pendingApprovals > 0 ? 'Needs action' : 'Clear',
+                        onTap: () =>
+                            Navigator.pushNamed(context, Routes.adminSubscriptions),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildStatCard(
+                        'Restricted',
+                        restrictedBusinesses.toString(),
+                        Icons.gpp_bad_rounded,
+                        const Color(0xFFEF4444),
+                        restrictedBusinesses > 0 ? 'Follow up' : 'Healthy',
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          Routes.allBusinessesAdmin,
+                        ),
                       ),
                     ),
                   ],
@@ -447,11 +437,28 @@ class _DashboardPageState extends State<DashboardPage> {
                         formatCurrency(admin.stats.totalRevenue.toDouble()),
                         Icons.attach_money_rounded,
                         const Color(0xFF8B5CF6),
-                        '${admin.stats.pendingPayments} pending',
-                        onTap: () => Navigator.pushNamed(context, Routes.adminPayments),
+                        '${admin.stats.pendingPayments} payment issues',
+                        onTap: () =>
+                            Navigator.pushNamed(context, Routes.adminPayments),
                       ),
                     ),
                     const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildStatCard(
+                        'Live Subscriptions',
+                        activeSubscriptions.toString(),
+                        Icons.workspace_premium_rounded,
+                        const Color(0xFF14B8A6),
+                        '$marketers marketers',
+                        onTap: () =>
+                            Navigator.pushNamed(context, Routes.adminPayments),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
                     Expanded(
                       child: _buildStatCard(
                         'Transactions',
@@ -459,11 +466,157 @@ class _DashboardPageState extends State<DashboardPage> {
                         Icons.receipt_long_rounded,
                         const Color(0xFFF59E0B),
                         'Platform-wide',
-                        onTap: () => Navigator.pushNamed(context, Routes.adminPayments),
+                        onTap: () =>
+                            Navigator.pushNamed(context, Routes.adminPayments),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildStatCard(
+                        'Marketers',
+                        marketers.toString(),
+                        Icons.campaign_rounded,
+                        const Color(0xFF6366F1),
+                        'Growth partners',
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) =>
+                                const AdminDashboardApp(initialIndex: 4),
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
+                const SizedBox(height: 24),
+                Text(
+                  'Admin Operations',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    _buildQuickActionTile(
+                      context,
+                      title: 'Subscription Queue',
+                      subtitle: 'Approve or decline pending requests',
+                      icon: Icons.fact_check_rounded,
+                      color: const Color(0xFFF97316),
+                      onTap: () =>
+                          Navigator.pushNamed(context, Routes.adminSubscriptions),
+                    ),
+                    _buildQuickActionTile(
+                      context,
+                      title: 'Business Control',
+                      subtitle: 'Edit details and restrict access',
+                      icon: Icons.business_center_rounded,
+                      color: const Color(0xFF3B82F6),
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        Routes.allBusinessesAdmin,
+                      ),
+                    ),
+                    _buildQuickActionTile(
+                      context,
+                      title: 'User Access',
+                      subtitle: 'Approve yearly access for teams',
+                      icon: Icons.groups_rounded,
+                      color: const Color(0xFF10B981),
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        Routes.adminUsersAndWorkers,
+                      ),
+                    ),
+                    _buildQuickActionTile(
+                      context,
+                      title: 'Marketer Hub',
+                      subtitle: 'Manage partners, payouts and activity',
+                      icon: Icons.campaign_rounded,
+                      color: const Color(0xFF6366F1),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) =>
+                                const AdminDashboardApp(initialIndex: 4),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildQuickActionTile(
+                      context,
+                      title: 'Notifications',
+                      subtitle: 'Broadcast admin notices quickly',
+                      icon: Icons.notifications_active_rounded,
+                      color: const Color(0xFF8B5CF6),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) => const AdminNotificationsPage(),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                if (pendingApprovals > 0 || restrictedBusinesses > 0) ...[
+                  const SizedBox(height: 20),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F172A),
+                      borderRadius: BorderRadius.circular(22),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.priority_high_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Needs Attention',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '$pendingApprovals subscription reviews and $restrictedBusinesses restricted businesses need admin follow-up.',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.78),
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 28),
 
                 // Recent Activity Section
@@ -480,12 +633,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                     TextButton(
                       onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (ctx) => const AllBusinessesPage(),
-                          ),
-                        );
+                        Navigator.pushNamed(context, Routes.allBusinessesAdmin);
                       },
                       child: const Text('See all', style: TextStyle(fontWeight: FontWeight.w600)),
                     ),
@@ -694,6 +842,77 @@ class _DashboardPageState extends State<DashboardPage> {
                 ],
               ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickActionTile(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    final width = MediaQuery.of(context).size.width;
+    final tileWidth = width > 760 ? (width - 64) / 2 : width - 40;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        width: tileWidth,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.1)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.08),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: color),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF64748B),
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.arrow_forward_rounded, color: color, size: 18),
           ],
         ),
       ),
@@ -1031,6 +1250,28 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        _buildBusinessesSummaryChip(
+                          'Active',
+                          admin.activeBusinessesCount.toString(),
+                          const Color(0xFF10B981),
+                        ),
+                        _buildBusinessesSummaryChip(
+                          'Restricted',
+                          admin.restrictedBusinessesCount.toString(),
+                          const Color(0xFFEF4444),
+                        ),
+                        _buildBusinessesSummaryChip(
+                          'Live Plans',
+                          admin.activeSubscriptionsCount.toString(),
+                          const Color(0xFF8B5CF6),
+                        ),
+                      ],
+                    ),
                   ],
                 );
               },
@@ -1061,7 +1302,7 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                 final filtered = _getFilteredBusinesses(admin.allBusinesses);
 
                 return RefreshIndicator(
-                  onRefresh: () => admin.fetchAdminStats(),
+                  onRefresh: () => admin.fetchAdminStats(force: true),
                   child: ListView(
                     padding: const EdgeInsets.all(20),
                     children: filtered.map((business) {
@@ -1114,6 +1355,36 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
     );
   }
 
+  Widget _buildBusinessesSummaryChip(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: color.withOpacity(0.9),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showBusinessInfoDialog(
       BuildContext context, Map<String, dynamic> business) {
     showDialog<void>(
@@ -1127,8 +1398,15 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Owner: ${business['ownerName'] ?? '-'}'),
+                Text('Email: ${business['email'] ?? '-'}'),
+                Text('Phone: ${business['phone'] ?? '-'}'),
                 Text('Type: ${business['businessType'] ?? '-'}'),
+                Text('Address: ${business['address'] ?? '-'}'),
                 Text('Tier: ${business['subscriptionTier'] ?? '-'}'),
+                Text('Subscription Status: ${business['subscriptionStatus'] ?? business['subscriptionReviewStatus'] ?? 'n/a'}'),
+                Text('Restricted: ${business['isRestricted'] == true ? 'Yes' : 'No'}'),
+                if ((business['restrictionReason'] ?? '').toString().isNotEmpty)
+                  Text('Restriction Reason: ${business['restrictionReason']}'),
                 Text('Active: ${business['isActive'] ?? true}'),
                 Text('Total Workers: ${business['totalWorkers'] ?? 0}'),
                 Text('Created: ${_formatTimestamp(business['createdAt'])}'),
@@ -1152,6 +1430,14 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
     final nameController = TextEditingController(text: business['name'] ?? '');
     final ownerController =
         TextEditingController(text: business['ownerName'] ?? '');
+    final emailController =
+        TextEditingController(text: business['email'] ?? '');
+    final phoneController =
+        TextEditingController(text: business['phone'] ?? '');
+    final typeController =
+        TextEditingController(text: business['businessType'] ?? '');
+    final addressController =
+        TextEditingController(text: business['address'] ?? '');
     String rawTier =
         business['subscriptionTier']?.toString().toLowerCase() ?? 'basic';
     // Normalize tier to valid values
@@ -1188,6 +1474,27 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                       controller: ownerController,
                       decoration:
                           const InputDecoration(labelText: 'Owner Name')),
+                  const SizedBox(height: 12),
+                  TextField(
+                      controller: emailController,
+                      decoration:
+                          const InputDecoration(labelText: 'Owner Email')),
+                  const SizedBox(height: 12),
+                  TextField(
+                      controller: phoneController,
+                      decoration:
+                          const InputDecoration(labelText: 'Phone Number')),
+                  const SizedBox(height: 12),
+                  TextField(
+                      controller: typeController,
+                      decoration:
+                          const InputDecoration(labelText: 'Business Type')),
+                  const SizedBox(height: 12),
+                  TextField(
+                      controller: addressController,
+                      maxLines: 2,
+                      decoration:
+                          const InputDecoration(labelText: 'Business Address')),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     initialValue: selectedClass,
@@ -1240,6 +1547,10 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
               final updates = {
                 'name': nameController.text.trim(),
                 'ownerName': ownerController.text.trim(),
+                'email': emailController.text.trim(),
+                'phone': phoneController.text.trim(),
+                'businessType': typeController.text.trim(),
+                'address': addressController.text.trim(),
                 'subscriptionTier': tier,
                 'businessClass': selectedClass,
                 'isActive': isActive,
@@ -1257,6 +1568,79 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
               }
             },
             child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRestrictionDialog(
+    BuildContext context,
+    AdminProvider admin,
+    Map<String, dynamic> business,
+  ) {
+    final isRestricted = business['isRestricted'] == true;
+    final reasonController = TextEditingController(
+      text: (business['restrictionReason'] ?? '').toString(),
+    );
+
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isRestricted ? 'Restore Business' : 'Restrict Business'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isRestricted
+                  ? 'Restore ${business['name'] ?? 'this business'} and allow access again.'
+                  : 'Restrict ${business['name'] ?? 'this business'} from using the app until admin review is complete.',
+            ),
+            if (!isRestricted) ...[
+              const SizedBox(height: 16),
+              TextField(
+                controller: reasonController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Restriction reason',
+                  hintText: 'Explain why access is being restricted',
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final ok = await admin.setBusinessRestriction(
+                businessId: business['id'] as String,
+                restricted: !isRestricted,
+                reason: reasonController.text.trim(),
+              );
+              if (!context.mounted) return;
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    ok
+                        ? isRestricted
+                            ? 'Business restored successfully'
+                            : 'Business restricted successfully'
+                        : 'Unable to update business restriction',
+                  ),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+                  isRestricted ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+            ),
+            child: Text(isRestricted ? 'Restore' : 'Restrict'),
           ),
         ],
       ),
@@ -1356,6 +1740,37 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                         fontSize: 13,
                         color: Colors.grey[600],
                       ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _buildBusinessesSummaryChip(
+                          'Access',
+                          business['isRestricted'] == true
+                              ? 'Locked'
+                              : isActive
+                                  ? 'Live'
+                                  : 'Paused',
+                          business['isRestricted'] == true
+                              ? const Color(0xFFEF4444)
+                              : isActive
+                                  ? const Color(0xFF10B981)
+                                  : const Color(0xFF64748B),
+                        ),
+                        _buildBusinessesSummaryChip(
+                          'Plan',
+                          (business['subscriptionStatus'] ??
+                                  business['subscriptionReviewStatus'] ??
+                                  (business['isSubscriptionActive'] == true
+                                      ? 'approved'
+                                      : 'inactive'))
+                              .toString()
+                              .toUpperCase(),
+                          const Color(0xFF8B5CF6),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -1503,8 +1918,59 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                   ),
                 ),
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    final admin = context.read<AdminProvider>();
+                    _showRestrictionDialog(context, admin, business);
+                  },
+                  icon: Icon(
+                    business['isRestricted'] == true
+                        ? Icons.lock_open_rounded
+                        : Icons.gpp_bad_rounded,
+                    size: 18,
+                  ),
+                  label: Text(
+                    business['isRestricted'] == true ? 'Restore' : 'Restrict',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: business['isRestricted'] == true
+                        ? const Color(0xFF10B981)
+                        : const Color(0xFFEF4444),
+                    side: BorderSide(
+                      color: business['isRestricted'] == true
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFFEF4444),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
+          if ((business['restrictionReason'] ?? '').toString().isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'Restriction note: ${business['restrictionReason']}',
+                style: const TextStyle(
+                  color: Color(0xFF991B1B),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1982,6 +2448,30 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 16),
+                Consumer<AdminProvider>(
+                  builder: (context, admin, _) => Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      _buildHeaderChip(
+                        label: 'Pending Reviews',
+                        value: admin.pendingSubscriptionApprovalsCount.toString(),
+                        color: const Color(0xFFF97316),
+                      ),
+                      _buildHeaderChip(
+                        label: 'Restricted Businesses',
+                        value: admin.restrictedBusinessesCount.toString(),
+                        color: const Color(0xFFEF4444),
+                      ),
+                      _buildHeaderChip(
+                        label: 'Active Users',
+                        value: admin.stats.activeUsers.toString(),
+                        color: const Color(0xFF10B981),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -2060,8 +2550,45 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
     );
   }
 
+  Widget _buildHeaderChip({
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: color.withOpacity(0.92),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildUserCard(BuildContext context, Map<String, dynamic> user) {
     final isWorker = user['role'] == 'worker' || user['type'] == 'worker';
+    final businessName = (user['businessName'] ?? user['businessId'] ?? 'No business')
+        .toString();
+    final businessRestricted = user['businessRestricted'] == true;
     // Handle isSubscriptionActive as either boolean or string
     final subscriptionValue = user['isSubscriptionActive'];
     final hasActiveSubscription = subscriptionValue == true || 
@@ -2150,6 +2677,27 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _buildHeaderChip(
+                            label: isWorker ? 'Worker' : 'User',
+                            value: businessRestricted ? 'Restricted' : 'Ready',
+                            color: businessRestricted
+                                ? const Color(0xFFEF4444)
+                                : const Color(0xFF10B981),
+                          ),
+                          _buildHeaderChip(
+                            label: 'Business',
+                            value: businessName.length > 12
+                                ? '${businessName.substring(0, 12)}...'
+                                : businessName,
+                            color: const Color(0xFF3B82F6),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -2211,9 +2759,12 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
             ),
             const SizedBox(height: 12),
             // Action Buttons
-            Row(
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                Expanded(
+                SizedBox(
+                  width: 150,
                   child: OutlinedButton.icon(
                     onPressed: () => _showUserDetails(context, user),
                     icon: const Icon(Icons.visibility, size: 16),
@@ -2224,18 +2775,61 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
+                SizedBox(
+                  width: 160,
                   child: ElevatedButton.icon(
-                    onPressed: hasActiveSubscription ? null : () => _showSubscriptionDialog(context, user),
+                    onPressed: hasActiveSubscription
+                        ? null
+                        : () => _showSubscriptionDialog(context, user),
                     icon: const Icon(Icons.card_giftcard, size: 16),
                     label: Text(hasActiveSubscription ? 'Active' : 'Approve 1Y'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: hasActiveSubscription ? Colors.grey[300] : const Color(0xFF10B981),
-                      foregroundColor: hasActiveSubscription ? Colors.grey[600] : Colors.white,
+                      backgroundColor:
+                          hasActiveSubscription ? Colors.grey[300] : const Color(0xFF10B981),
+                      foregroundColor:
+                          hasActiveSubscription ? Colors.grey[600] : Colors.white,
                     ),
                   ),
                 ),
+                if ((user['businessId'] ?? '').toString().isNotEmpty && !hasActiveSubscription)
+                  SizedBox(
+                    width: 150,
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          _showDeclineSubscriptionDialog(context, user),
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      label: const Text('Decline'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFEF4444),
+                        side: const BorderSide(color: Color(0xFFEF4444)),
+                      ),
+                    ),
+                  ),
+                if ((user['businessId'] ?? '').toString().isNotEmpty)
+                  SizedBox(
+                    width: 170,
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          _showUserRestrictionDialog(context, user),
+                      icon: Icon(
+                        businessRestricted
+                            ? Icons.lock_open_rounded
+                            : Icons.gpp_bad_rounded,
+                        size: 16,
+                      ),
+                      label: Text(businessRestricted ? 'Restore Biz' : 'Restrict Biz'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: businessRestricted
+                            ? const Color(0xFF10B981)
+                            : const Color(0xFFEF4444),
+                        side: BorderSide(
+                          color: businessRestricted
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFFEF4444),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ],
@@ -2387,6 +2981,150 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showDeclineSubscriptionDialog(
+    BuildContext context,
+    Map<String, dynamic> user,
+  ) {
+    final reasonController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Decline Subscription'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Business: ${user['businessName'] ?? user['name'] ?? 'Unknown'}'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Reason',
+                hintText: 'Tell the team why this approval was declined',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final businessId = (user['businessId'] ?? '').toString();
+              if (businessId.isEmpty) {
+                Navigator.of(ctx).pop();
+                return;
+              }
+              final ok = await context.read<AdminProvider>().declineOneYearSubscription(
+                    businessId: businessId,
+                    businessName:
+                        (user['businessName'] ?? user['name'] ?? 'Unknown').toString(),
+                    reason: reasonController.text.trim(),
+                  );
+              if (!context.mounted) return;
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    ok
+                        ? 'Subscription review declined'
+                        : 'Unable to decline subscription review',
+                  ),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+            ),
+            child: const Text('Decline'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showUserRestrictionDialog(
+    BuildContext context,
+    Map<String, dynamic> user,
+  ) {
+    final businessId = (user['businessId'] ?? '').toString();
+    if (businessId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No linked business found for this user')),
+      );
+      return;
+    }
+
+    final businessRestricted = user['businessRestricted'] == true;
+    final reasonController = TextEditingController(
+      text: (user['businessRestrictionReason'] ?? '').toString(),
+    );
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          businessRestricted ? 'Restore Business Access' : 'Restrict Business Access',
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Business: ${user['businessName'] ?? businessId}'),
+            if (!businessRestricted) ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Restriction reason',
+                  hintText: 'Explain why this business should be restricted',
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final ok = await context.read<AdminProvider>().setBusinessRestriction(
+                    businessId: businessId,
+                    restricted: !businessRestricted,
+                    reason: reasonController.text.trim(),
+                  );
+              if (!context.mounted) return;
+              Navigator.of(ctx).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    ok
+                        ? businessRestricted
+                            ? 'Business access restored'
+                            : 'Business restricted'
+                        : 'Unable to update business access',
+                  ),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: businessRestricted
+                  ? const Color(0xFF10B981)
+                  : const Color(0xFFEF4444),
+            ),
+            child: Text(businessRestricted ? 'Restore' : 'Restrict'),
+          ),
+        ],
       ),
     );
   }

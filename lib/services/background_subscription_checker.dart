@@ -18,6 +18,10 @@ class BackgroundSubscriptionChecker {
   Function(String businessId, bool isValid)? onSubscriptionStatusChanged;
   Function(String businessId, String message)? onFeatureAccessDenied;
   Function(String businessId, int daysLeft)? onSubscriptionExpiringSoon;
+  Function(String businessId, int daysLeft, String milestone)? onSubscriptionRenewalReminder;
+
+  // Keep latest reminder milestone per business to avoid repeated triggers
+  final Map<String, int> _lastReminderMilestoneSent = {};
 
   // Logging
   final _log = _SubscriptionCheckerLogger();
@@ -31,6 +35,7 @@ class BackgroundSubscriptionChecker {
     this.onSubscriptionStatusChanged,
     this.onFeatureAccessDenied,
     this.onSubscriptionExpiringSoon,
+    this.onSubscriptionRenewalReminder,
     Duration checkInterval = const Duration(minutes: 30),
   })  : _firestore = firestore,
         _localBusinessStorage = localBusinessStorage,
@@ -167,20 +172,54 @@ class BackgroundSubscriptionChecker {
     }
   }
 
-  /// Check if subscription expires in next 7 days
+  /// Check if subscription expires in next 7 days (and issue milestones)
   void _checkExpirationWarning(String businessId, String endDateStr) {
     try {
       final endDate = parseTimestamp(endDateStr);
       final now = DateTime.now();
-      final daysLeft = endDate.difference(now).inDays;
 
-      if (daysLeft >= 0 && daysLeft <= 7) {
+      final daysLeft = DateTime(endDate.year, endDate.month, endDate.day)
+          .difference(DateTime(now.year, now.month, now.day))
+          .inDays;
+
+      if (daysLeft < 0) {
+        // Already expired; nothing to do here (handled elsewhere)
+        return;
+      }
+
+      final reminderMilestones = [7, 3, 2, 1];
+
+      if (reminderMilestones.contains(daysLeft)) {
         _log.warn(
             'Subscription expiring in $daysLeft days for business: $businessId');
-        onSubscriptionExpiringSoon?.call(businessId, daysLeft);
+
+        // Avoid repeating same milestone notifications repeatedly
+        final lastSent = _lastReminderMilestoneSent[businessId];
+        if (lastSent != daysLeft) {
+          _lastReminderMilestoneSent[businessId] = daysLeft;
+          onSubscriptionExpiringSoon?.call(businessId, daysLeft);
+
+          final milestoneLabel = _milestoneLabel(daysLeft);
+          onSubscriptionRenewalReminder?.call(businessId, daysLeft, milestoneLabel);
+        }
       }
     } catch (e) {
       _log.error('Error parsing expiration date: $endDateStr', error: e);
+    }
+  }
+
+  String _milestoneLabel(int daysLeft) {
+    switch (daysLeft) {
+      case 7:
+        return '1 week';
+      case 3:
+        return '3 days';
+      case 2:
+        return '2 days';
+      case 1:
+        return '1 day';
+      default:
+        return '$daysLeft day(s)';
     }
   }
 
@@ -339,6 +378,17 @@ class BackgroundSubscriptionChecker {
       _log.error('Error parsing end date: $endDate', error: e);
       return false;
     }
+  }
+
+  /// Returns reminder milestone (number of days) when the given end date is
+  /// exactly 7, 3, 2 or 1 day ahead of the reference date.
+  static int? calculateReminderMilestone({required DateTime now, required DateTime endDate}) {
+    final daysLeft = DateTime(endDate.year, endDate.month, endDate.day)
+        .difference(DateTime(now.year, now.month, now.day))
+        .inDays;
+
+    const reminderMilestones = [7, 3, 2, 1];
+    return reminderMilestones.contains(daysLeft) ? daysLeft : null;
   }
 
   int? _getDaysUntilExpiration(BusinessModel business) {

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
-import '../core/theme/colors.dart';
 
 class CustomLoadingIndicator extends StatelessWidget {
   final double? size;
@@ -18,6 +17,8 @@ class CustomLoadingIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -34,9 +35,8 @@ class CustomLoadingIndicator extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             message!,
-            style: TextStyle(
-              fontSize: 14,
-              color: color ?? AppColors.textSecondary,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: color ?? theme.colorScheme.onSurface.withOpacity(0.72),
             ),
           ),
         ],
@@ -64,14 +64,16 @@ class LoadingOverlay extends StatelessWidget {
         child,
         if (isLoading)
           Container(
-            color: Colors.black.withOpacity(0.5),
+            color: Colors.black.withOpacity(
+              Theme.of(context).brightness == Brightness.dark ? 0.64 : 0.46,
+            ),
             child: Center(
               child: Card(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: CustomLoadingIndicator(
                     message: message,
-                    color: AppColors.primary,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
               ),

@@ -61,14 +61,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
     final user = authProvider.currentUser;
+    final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('My Profile'),
         elevation: 0,
         backgroundColor: Colors.transparent,
-        iconTheme: IconThemeData(color: Theme.of(context).iconTheme.color),
+        iconTheme: IconThemeData(color: theme.iconTheme.color),
         actions: [
           IconButton(
             icon: Icon(_isEditing ? Icons.check : Icons.edit_outlined),
@@ -385,29 +386,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return '${date.day}/${date.month}/${date.year}';
   }
 
+  Map<String, String>? _getSettingsContextOrNotify() {
+    final userId = context.read<AuthProvider>().currentUser?.id;
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+
+    if (userId == null || businessId == null) {
+      _safeShowSnackBar(
+        const SnackBar(
+          content: Text('Unable to access your account settings right now.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return null;
+    }
+
+    return {
+      'userId': userId,
+      'businessId': businessId,
+    };
+  }
+
   void _saveProfile(AuthProvider authProvider) async {
     try {
-      final settingsProvider = context.read<SettingsProvider>();
-      final businessProvider = context.read<BusinessProvider>();
+      final ids = _getSettingsContextOrNotify();
+      if (ids == null) return;
 
-      final businessId = businessProvider.currentBusiness?.id;
-      if (businessId == null) {
-        _safeShowSnackBar(
-          const SnackBar(
-            content: Text('Business not found'),
-            backgroundColor: AppColors.error,
-          ),
-        );
-        return;
-      }
+      final settingsProvider = context.read<SettingsProvider>();
 
       // Save profile changes using SettingsProvider
       final res = await runWithLottieErrorHandling<bool>(
         context,
         () async {
           return await settingsProvider.updateProfile(
-            businessId,
-            authProvider.currentUser?.id ?? 'user_id',
+            ids['businessId']!,
+            ids['userId']!,
             fullName: _nameController.text,
             email: _emailController.text,
             phoneNumber: _phoneController.text,
@@ -476,21 +488,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     Future.microtask(() async {
                       // Use the outer context to read providers (safe after sheet closed)
                       final authProvider = context.read<AuthProvider>();
-                      final businessProvider = context.read<BusinessProvider>();
                       final settingsProvider = context.read<SettingsProvider>();
 
                       try {
                         // Keep reference to existing photo so we can clear caches
                         final prevPhotoUrl = authProvider.currentUser?.photoUrl;
+                        final ids = _getSettingsContextOrNotify();
+                        if (ids == null) return;
 
                         // Update profile with null photo URL
-                        final userId = authProvider.currentUser?.id ?? 'user_id';
-                        final businessId =
-                            businessProvider.currentBusiness?.id ?? 'business_id';
-
                         await settingsProvider.updateProfile(
-                          businessId,
-                          userId,
+                          ids['businessId']!,
+                          ids['userId']!,
                           fullName: _nameController.text,
                           email: _emailController.text,
                           phoneNumber: _phoneController.text,
@@ -563,14 +572,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
         // Persist profile photo
         final authProvider = context.read<AuthProvider>();
-        final businessProvider = context.read<BusinessProvider>();
         final settingsProvider = context.read<SettingsProvider>();
-        final userId = authProvider.currentUser?.id ?? 'user_id';
-        final businessId = businessProvider.currentBusiness?.id ?? 'business_id';
+        final ids = _getSettingsContextOrNotify();
+        if (ids == null) {
+          setState(() => _isUploading = false);
+          return;
+        }
 
         await settingsProvider.updateProfile(
-          businessId,
-          userId,
+          ids['businessId']!,
+          ids['userId']!,
           fullName: _nameController.text,
           email: _emailController.text,
           phoneNumber: _phoneController.text,
@@ -581,7 +592,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
         // Persist to users collection (best-effort)
         try {
-          await FirebaseFirestore.instance.collection('users').doc(userId).set({'photoUrl': cachebustedUrl}, SetOptions(merge: true));
+          await FirebaseFirestore.instance.collection('users').doc(ids['userId']).set({'photoUrl': cachebustedUrl}, SetOptions(merge: true));
         } catch (e) {
           debugPrint('[ProfileScreen] Failed to write photoUrl to users doc: $e');
         }
@@ -621,10 +632,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     // Capture providers and ids early to avoid races
     final authProvider = context.read<AuthProvider>();
-    final businessProvider = context.read<BusinessProvider>();
     final settingsProvider = context.read<SettingsProvider>();
-    final userId = authProvider.currentUser?.id ?? 'user_id';
-    final businessId = businessProvider.currentBusiness?.id ?? 'business_id';
+    final ids = _getSettingsContextOrNotify();
+    if (ids == null) {
+      setState(() => _isUploading = false);
+      return;
+    }
 
     final bytes = _pendingUploadBytes!;
     final filename = _pendingUploadFilename ?? 'profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
@@ -663,8 +676,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
 
       final success = await settingsProvider.updateProfile(
-        businessId,
-        userId,
+        ids['businessId']!,
+        ids['userId']!,
         fullName: _nameController.text,
         email: _emailController.text,
         phoneNumber: _phoneController.text,
@@ -676,7 +689,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (success) {
         await authProvider.updateProfile(photoUrl: cachebustedUrl);
         try {
-          await FirebaseFirestore.instance.collection('users').doc(userId).set({'photoUrl': cachebustedUrl}, SetOptions(merge: true));
+          await FirebaseFirestore.instance.collection('users').doc(ids['userId']).set({'photoUrl': cachebustedUrl}, SetOptions(merge: true));
         } catch (e) {
           debugPrint('[ProfileScreen] Failed to write photoUrl to users doc: $e');
         }
@@ -791,14 +804,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               Navigator.pop(context);
                               final authProvider = context.read<AuthProvider>();
                               final settingsProvider = context.read<SettingsProvider>();
-                              final businessProvider = context.read<BusinessProvider>();
                               try {
                                 final prevPhotoUrl = authProvider.currentUser?.photoUrl;
-                                final userId = authProvider.currentUser?.id ?? 'user_id';
-                                final businessId = businessProvider.currentBusiness?.id ?? 'business_id';
+                                final ids = _getSettingsContextOrNotify();
+                                if (ids == null) return;
                                 await settingsProvider.updateProfile(
-                                  businessId,
-                                  userId,
+                                  ids['businessId']!,
+                                  ids['userId']!,
                                   fullName: _nameController.text,
                                   email: _emailController.text,
                                   phoneNumber: _phoneController.text,

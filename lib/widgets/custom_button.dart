@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../core/theme/colors.dart';
 import '../core/theme/text_styles.dart';
 import 'loading_indicator.dart';
 
@@ -36,6 +35,8 @@ class CustomButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDisabled = onPressed == null || isLoading;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     // Get button padding based on size
     EdgeInsets getPadding() {
@@ -57,8 +58,8 @@ class CustomButton extends StatelessWidget {
       return baseStyle.copyWith(
         color: textColor ??
             (type == ButtonType.outlined || type == ButtonType.text
-                ? AppColors.primary
-                : Colors.white),
+                ? scheme.primary
+                : scheme.onPrimary),
       );
     }
 
@@ -70,7 +71,7 @@ class CustomButton extends StatelessWidget {
           child: CustomLoadingIndicator(
             size: 16,
             color:
-                type == ButtonType.primary ? Colors.white : AppColors.primary,
+                type == ButtonType.primary ? scheme.onPrimary : scheme.primary,
           ),
         );
       }
@@ -96,14 +97,15 @@ class CustomButton extends StatelessWidget {
           child: ElevatedButton(
             onPressed: isDisabled ? null : onPressed,
             style: ElevatedButton.styleFrom(
-              backgroundColor: backgroundColor ?? AppColors.primary,
-              foregroundColor: textColor ?? Colors.white,
+              backgroundColor: backgroundColor ?? scheme.primary,
+              foregroundColor: textColor ?? scheme.onPrimary,
               padding: getPadding(),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(borderRadius ?? 12),
               ),
               elevation: 0,
-              disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
+              disabledBackgroundColor: (backgroundColor ?? scheme.primary)
+                  .withOpacity(0.45),
             ),
             child: buildButtonContent(),
           ),
@@ -115,15 +117,15 @@ class CustomButton extends StatelessWidget {
           child: ElevatedButton(
             onPressed: isDisabled ? null : onPressed,
             style: ElevatedButton.styleFrom(
-              backgroundColor: backgroundColor ?? AppColors.secondary,
-              foregroundColor: textColor ?? Colors.white,
+              backgroundColor: backgroundColor ?? scheme.secondary,
+              foregroundColor: textColor ?? scheme.onSecondary,
               padding: getPadding(),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(borderRadius ?? 12),
               ),
               elevation: 0,
               disabledBackgroundColor:
-                  AppColors.secondary.withOpacity(0.5),
+                  (backgroundColor ?? scheme.secondary).withOpacity(0.45),
             ),
             child: buildButtonContent(),
           ),
@@ -135,10 +137,10 @@ class CustomButton extends StatelessWidget {
           child: OutlinedButton(
             onPressed: isDisabled ? null : onPressed,
             style: OutlinedButton.styleFrom(
-              foregroundColor: textColor ?? AppColors.primary,
+              foregroundColor: textColor ?? scheme.primary,
               padding: getPadding(),
               side: BorderSide(
-                color: backgroundColor ?? AppColors.primary,
+                color: backgroundColor ?? scheme.primary.withOpacity(0.36),
                 width: 1.5,
               ),
               shape: RoundedRectangleBorder(
@@ -153,7 +155,7 @@ class CustomButton extends StatelessWidget {
         return TextButton(
           onPressed: isDisabled ? null : onPressed,
           style: TextButton.styleFrom(
-            foregroundColor: textColor ?? AppColors.primary,
+            foregroundColor: textColor ?? scheme.primary,
             padding: getPadding(),
           ),
           child: buildButtonContent(),

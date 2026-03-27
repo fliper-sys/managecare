@@ -37,6 +37,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
         onSubscriptionStatusChanged: _onSubscriptionStatusChanged,
         onFeatureAccessDenied: _onFeatureAccessDenied,
         onSubscriptionExpiringSoon: _onSubscriptionExpiringSoon,
+        onSubscriptionRenewalReminder: _onSubscriptionRenewalReminder,
       );
 
       _featureGuard = SubscriptionFeatureGuard(
@@ -58,6 +59,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
       onSubscriptionStatusChanged: _onSubscriptionStatusChanged,
       onFeatureAccessDenied: _onFeatureAccessDenied,
       onSubscriptionExpiringSoon: _onSubscriptionExpiringSoon,
+      onSubscriptionRenewalReminder: _onSubscriptionRenewalReminder,
     );
 
     _featureGuard = SubscriptionFeatureGuard(
@@ -395,6 +397,12 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
   void _onSubscriptionExpiringSoon(String businessId, int daysLeft) {
     debugPrint(
         '[EnhancedSubscriptionProvider] Subscription expiring in $daysLeft days for $businessId');
+    notifyListeners();
+  }
+
+  void _onSubscriptionRenewalReminder(String businessId, int daysLeft, String milestone) {
+    debugPrint(
+        '[EnhancedSubscriptionProvider] Renewal reminder: $milestone ($daysLeft days left) for $businessId');
     notifyListeners();
   }
 

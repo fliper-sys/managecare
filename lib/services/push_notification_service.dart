@@ -126,6 +126,8 @@ class PushNotificationService {
         'data': data ?? {},
         'createdAt': FieldValue.serverTimestamp(),
         'delivered': false, // Will be marked as delivered when read
+        'isRead': false,
+        'channel': 'push',
         'type': 'push',
       });
     } catch (e) {

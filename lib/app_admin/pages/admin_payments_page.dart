@@ -192,6 +192,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
   StreamSubscription<QuerySnapshot>? _approvalsSub;
   bool _isLoading = true;
   int _selectedTabIndex = 0;
+  String _paymentsSearch = '';
   final List<PaymentTransaction> _transactions = [];
   String _transactionsSearch = '';
   DateTime? _filterStartDate;
@@ -514,6 +515,14 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         print(
             '[AdminPaymentsPage] Warning: Failed to sync subscription to business ${payment.businessId}');
       }
+
+      await _firestore.collection('businesses').doc(payment.businessId).set({
+        'subscriptionStatus': 'approved',
+        'subscriptionReviewStatus': 'approved',
+        'subscriptionApprovedAt': now.toIso8601String(),
+        'subscriptionApprovedBy': 'admin',
+        'subscriptionDeclineReason': FieldValue.delete(),
+      }, SetOptions(merge: true));
     } catch (e) {
       print('[AdminPaymentsPage] Error applying subscription to business: $e');
     }
@@ -531,6 +540,15 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         'subscriptionDeclinedAt': DateTime.now().toIso8601String(),
         'subscriptionDeclineReason': reason,
       });
+
+      await _firestore.collection('businesses').doc(payment.businessId).set({
+        'isSubscriptionActive': false,
+        'subscriptionStatus': 'declined',
+        'subscriptionReviewStatus': 'declined',
+        'subscriptionDeclinedAt': DateTime.now().toIso8601String(),
+        'subscriptionDeclineReason': reason,
+        'subscriptionDeclinedBy': 'admin',
+      }, SetOptions(merge: true));
 
       // Log the decline action
       await _firestore.collection('subscription_approvals').add({
@@ -608,12 +626,12 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Review and approve user subscription payments and transactions',
+                  'Review subscription requests, approve or decline access, and trace payment records from one place.',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.white.withOpacity(0.7),
@@ -655,6 +673,50 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    _buildOverviewCard(
+                      title: 'Pending',
+                      value: _pendingPayments.length.toString(),
+                      color: Colors.orange,
+                    ),
+                    _buildOverviewCard(
+                      title: 'Approved',
+                      value: _approvedPayments.length.toString(),
+                      color: Colors.green,
+                    ),
+                    _buildOverviewCard(
+                      title: 'Declined',
+                      value: _declinedPayments.length.toString(),
+                      color: Colors.red,
+                    ),
+                    _buildOverviewCard(
+                      title: 'Transactions',
+                      value: _transactions.length.toString(),
+                      color: Colors.blue,
+                    ),
+                  ],
+                ),
+                if (_selectedTabIndex != 3) ...[
+                  const SizedBox(height: 16),
+                  TextField(
+                    onChanged: (value) =>
+                        setState(() => _paymentsSearch = value.trim().toLowerCase()),
+                    decoration: InputDecoration(
+                      hintText: 'Search user, business, plan, or transaction id',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -727,6 +789,44 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
     );
   }
 
+  Widget _buildOverviewCard({
+    required String title,
+    required String value,
+    required Color color,
+  }) {
+    return Container(
+      width: 150,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.72),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: TextStyle(
+              color: color,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPaymentList() {
     final payments = _selectedTabIndex == 0
         ? _pendingPayments
@@ -738,14 +838,22 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
       return _buildTransactionsList();
     }
 
-    if (payments.isEmpty) {
+    final filteredPayments = payments.where((payment) {
+      if (_paymentsSearch.isEmpty) return true;
+      final search = _paymentsSearch;
+      return payment.userName.toLowerCase().contains(search) ||
+          payment.userEmail.toLowerCase().contains(search) ||
+          payment.businessName.toLowerCase().contains(search) ||
+          payment.planName.toLowerCase().contains(search) ||
+          (payment.transactionId ?? '').toLowerCase().contains(search);
+    }).toList();
+
+    if (filteredPayments.isEmpty) {
       return Center(
         child: Text(
-          'No ${[
-            'pending',
-            'approved',
-            'declined'
-          ][_selectedTabIndex].toLowerCase()} subscriptions',
+          _paymentsSearch.isEmpty
+              ? 'No ${['pending', 'approved', 'declined'][_selectedTabIndex].toLowerCase()} subscriptions'
+              : 'No subscription requests match your search',
           style: TextStyle(color: Colors.grey[500]),
         ),
       );
@@ -753,9 +861,9 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
 
     return ListView.builder(
       padding: const EdgeInsets.all(20),
-      itemCount: payments.length,
+      itemCount: filteredPayments.length,
       itemBuilder: (context, index) {
-        final payment = payments[index];
+        final payment = filteredPayments[index];
         return _buildPaymentCard(payment);
       },
     );

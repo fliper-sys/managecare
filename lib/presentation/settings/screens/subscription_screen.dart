@@ -252,18 +252,23 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
     if (image == null) return;
 
+    final authProvider = context.read<AuthProvider>();
+    final currentUser = authProvider.currentUser;
+    if (currentUser == null) {
+      _showError('Please sign in again before uploading a receipt.');
+      return;
+    }
+
     // On web, ImagePicker returns an XFile that cannot be converted to dart:io File.
     // Upload bytes directly and pass the resulting URL to the activation flow.
     if (kIsWeb) {
       try {
         final bytes = await image.readAsBytes();
-        final authProvider = context.read<AuthProvider>();
-        final currentUser = authProvider.currentUser;
         final storageService = SubscriptionStorageService();
         final uploadResult = await storageService.uploadSubscriptionProofBytesWithProgress(
           bytes,
           image.name,
-          currentUser?.id ?? 'unknown',
+          currentUser.id,
           plan.id,
           onProgress: (progress) {
             if (mounted) {
@@ -272,14 +277,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           },
         );
 
-        final uploadResultMap = {
-          'success': uploadResult.success,
-          'serverUrl': uploadResult.downloadUrl,
-          'error': uploadResult.error,
-        };
+        if (!uploadResult.success || uploadResult.downloadUrl == null) {
+          _showError('Upload failed: ${uploadResult.error ?? 'Unknown error'}');
+          return;
+        }
 
         // Directly proceed with activation using the uploaded URL
-        await _uploadReceiptAndActivateOrRenewSubscription(plan, isRenew: isRenew, serverUrlOverride: uploadResultMap['serverUrl'] as String?);
+        await _uploadReceiptAndActivateOrRenewSubscription(
+          plan,
+          isRenew: isRenew,
+          serverUrlOverride: uploadResult.downloadUrl,
+        );
       } catch (e) {
         _showError('Upload failed: $e');
       }
@@ -294,7 +302,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
     Future<void> _uploadReceiptAndActivateOrRenewSubscription(
       SubscriptionPlan plan, {bool isRenew = false, String? serverUrlOverride}) async {
-    if (_selectedReceipt == null) {
+    if (_selectedReceipt == null && serverUrlOverride == null) {
       _showError('No receipt selected');
       return;
     }
@@ -339,12 +347,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       final businessProvider = context.read<BusinessProvider>();
       final currentBusiness = businessProvider.currentBusiness;
 
+      if (currentUser == null) {
+        if (mounted) {
+          Navigator.pop(context);
+          setState(() => _isLoading = false);
+        }
+        _showError('Please sign in again before updating your subscription.');
+        return;
+      }
+
       String? receiptUrl = serverUrlOverride;
       if (receiptUrl == null && _selectedReceipt != null) {
         final storageService = SubscriptionStorageService();
         final uploadResult = await storageService.uploadSubscriptionProofWithProgress(
           _selectedReceipt!,
-          currentUser?.id ?? 'unknown',
+          currentUser.id,
           plan.id,
           onProgress: (progress) {
             if (mounted) {
@@ -365,60 +382,59 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       }
 
       // Activate or renew subscription via SubscriptionService so events and logs are recorded
-      if (currentUser != null) {
-        final subscriptionService = SubscriptionService(firestore: FirebaseFirestore.instance);
-        final activationSuccess = await subscriptionService.activateOrRenewSubscription(
-          userId: currentUser.id,
-          planId: plan.id,
-          receiptUrl: receiptUrl!,
-          amount: plan.price,
-          businessId: currentBusiness?.id,
-        );
+      final subscriptionService = SubscriptionService(firestore: FirebaseFirestore.instance);
+      final activationSuccess = await subscriptionService.activateOrRenewSubscription(
+        userId: currentUser.id,
+        planId: plan.id,
+        receiptUrl: receiptUrl!,
+        amount: plan.price,
+        businessId: currentBusiness?.id,
+      );
 
-        if (!mounted) return;
+      if (!mounted) return;
+      Navigator.pop(context);
 
-        if (!activationSuccess) {
-          if (mounted) setState(() => _isLoading = false);
-          _showError(isRenew ? 'Failed to renew subscription' : 'Failed to activate subscription');
-          return;
-        }
+      if (!activationSuccess) {
+        if (mounted) setState(() => _isLoading = false);
+        _showError(isRenew ? 'Failed to renew subscription' : 'Failed to activate subscription');
+        return;
+      }
 
-        // Update local models to reflect new subscription (end date is handled by service)
-        final updatedUser = currentUser.copyWith(
+      // Update local models to reflect new subscription (end date is handled by service)
+      final updatedUser = currentUser.copyWith(
+        subscriptionPlan: plan.id,
+        hasActiveSubscription: true,
+        subscriptionStartDate: DateTime.now(),
+        subscriptionEndDate: DateTime.now().add(Duration(days: plan.durationInDays)),
+        subscriptionAmount: plan.price,
+      );
+
+      await context.read<AuthProvider>().updateUserModel(updatedUser);
+
+      if (currentBusiness != null) {
+        final updatedBusiness = currentBusiness.copyWith(
+          subscriptionTier: plan.id.split('_').first,
           subscriptionPlan: plan.id,
-          hasActiveSubscription: true,
-          subscriptionStartDate: DateTime.now(),
-          subscriptionEndDate: DateTime.now().add(Duration(days: plan.durationInDays)),
-          subscriptionAmount: plan.price,
+          isSubscriptionActive: true,
         );
+        await context.read<BusinessProvider>().updateBusiness(updatedBusiness);
+      }
 
-        await context.read<AuthProvider>().updateUserModel(updatedUser);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _currentPlan = plan.id;
+          _selectedReceipt = null;
+        });
+      }
 
-        if (currentBusiness != null) {
-          final updatedBusiness = currentBusiness.copyWith(
-            subscriptionTier: plan.id.split('_').first,
-            subscriptionPlan: plan.id,
-            isSubscriptionActive: true,
-          );
-          await context.read<BusinessProvider>().updateBusiness(updatedBusiness);
-        }
-
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _currentPlan = plan.id;
-            _selectedReceipt = null;
-          });
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(isRenew ? 'Subscription renewed successfully!' : 'Subscription upgraded successfully!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isRenew ? 'Subscription renewed successfully!' : 'Subscription upgraded successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -451,14 +467,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         final hasActiveSubscription = user?.hasActiveSubscription ?? false;
         final currentPlan = SubscriptionService.getPlanById(_currentPlan);
         final subscriptionEndDate = user?.subscriptionEndDate;
+        final theme = Theme.of(context);
 
         return Scaffold(
-          backgroundColor: AppColors.background,
+          backgroundColor: theme.scaffoldBackgroundColor,
           appBar: AppBar(
             title: const Text('Subscription'),
             elevation: 0,
             backgroundColor: Colors.transparent,
-            iconTheme: const IconThemeData(color: Colors.black),
+            iconTheme: IconThemeData(color: theme.iconTheme.color),
             actions: [
               TextButton(
                 onPressed: () {
@@ -468,7 +485,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     Navigator.of(context).pushReplacementNamed('/');
                   }
                 },
-                child: const Text('Skip', style: TextStyle(color: Colors.black)),
+                child: Text(
+                  'Skip',
+                  style: TextStyle(color: theme.textTheme.bodyMedium?.color),
+                ),
               ),
             ],
           ),

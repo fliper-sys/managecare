@@ -407,14 +407,19 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
   Widget build(BuildContext context) {
     final businessProvider = context.watch<BusinessProvider>();
     final business = businessProvider.currentBusiness;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: Text('Business Settings', style: AppTextStyles.heading4.copyWith(color: AppColors.textPrimary)),
+        title: Text(
+          'Business Settings',
+          style: AppTextStyles.heading4.copyWith(color: scheme.onSurface),
+        ),
         elevation: 0,
         backgroundColor: Colors.transparent,
-        iconTheme: const IconThemeData(color: AppColors.textPrimary),
+        iconTheme: IconThemeData(color: theme.iconTheme.color),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),

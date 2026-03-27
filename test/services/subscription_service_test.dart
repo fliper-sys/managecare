@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:business_manager/services/subscription_service.dart';
+import 'package:business_manager/services/background_subscription_checker.dart';
 import 'package:business_manager/data/models/user_model.dart';
 
 void main() {
@@ -96,4 +97,45 @@ void main() {
     });
   });
 
+  group('SubscriptionService.renewal end date calculation', () {
+    test('extends from existing end if not expired', () {
+      final now = DateTime(2026, 1, 1);
+      final existingEnd = DateTime(2026, 1, 5);
+      final newEnd = SubscriptionService.computeRenewalEndDate(
+        existingEnd: existingEnd,
+        durationInDays: 90,
+        now: now,
+      );
+
+      expect(newEnd, existingEnd.add(const Duration(days: 90)));
+    });
+
+    test('starts from now when existing end is in past', () {
+      final now = DateTime(2026, 1, 1);
+      final existingEnd = DateTime(2025, 12, 30);
+      final newEnd = SubscriptionService.computeRenewalEndDate(
+        existingEnd: existingEnd,
+        durationInDays: 30,
+        now: now,
+      );
+
+      expect(newEnd, now.add(const Duration(days: 30)));
+    });
+  });
+
+  group('BackgroundSubscriptionChecker.reminder milestones', () {
+    test('milestones for 7, 3, 2, 1 days exist', () {
+      final now = DateTime(2026, 1, 1);
+      expect(BackgroundSubscriptionChecker.calculateReminderMilestone(now: now, endDate: now.add(const Duration(days: 7))), 7);
+      expect(BackgroundSubscriptionChecker.calculateReminderMilestone(now: now, endDate: now.add(const Duration(days: 3))), 3);
+      expect(BackgroundSubscriptionChecker.calculateReminderMilestone(now: now, endDate: now.add(const Duration(days: 2))), 2);
+      expect(BackgroundSubscriptionChecker.calculateReminderMilestone(now: now, endDate: now.add(const Duration(days: 1))), 1);
+    });
+
+    test('no milestone for 5 days or 0 days', () {
+      final now = DateTime(2026, 1, 1);
+      expect(BackgroundSubscriptionChecker.calculateReminderMilestone(now: now, endDate: now.add(const Duration(days: 5))), isNull);
+      expect(BackgroundSubscriptionChecker.calculateReminderMilestone(now: now, endDate: now), isNull);
+    });
+  });
 }

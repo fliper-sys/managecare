@@ -236,6 +236,15 @@ class SubscriptionService {
   SubscriptionService({required FirebaseFirestore firestore})
       : _firestore = firestore;
 
+  /// Compute the next subscription end date when renewing/activating.
+  /// If existingEnd is in the future, the new end date extends from existingEnd.
+  /// Otherwise, it starts from now.
+  static DateTime computeRenewalEndDate({DateTime? existingEnd, required int durationInDays, DateTime? now}) {
+    final nowRef = now ?? DateTime.now();
+    final base = (existingEnd != null && existingEnd.isAfter(nowRef)) ? existingEnd : nowRef;
+    return base.add(Duration(days: durationInDays));
+  }
+
   /// Check if user has active subscription (owner must have valid subscription).
   /// Non-owners (workers) are always granted access even if subscription is inactive.
   static bool isSubscriptionActive(UserModel user) {
@@ -557,8 +566,11 @@ class SubscriptionService {
 
       // If existing end date is in future, extend from that date, otherwise start now
       final startDate = existingStart ?? now;
-      final baseStartForExtension = (existingEnd != null && existingEnd.isAfter(now)) ? existingEnd : now;
-      final newEndDate = baseStartForExtension.add(Duration(days: plan.durationInDays));
+      final newEndDate = computeRenewalEndDate(
+        existingEnd: existingEnd,
+        durationInDays: plan.durationInDays,
+        now: now,
+      );
 
       // Write to user doc
       await _firestore.collection('users').doc(userId).set({
@@ -587,10 +599,18 @@ class SubscriptionService {
         'createdAt': now.toIso8601String(),
       });
 
-      // Sync to business if provided
+      // Sync to business(es)
       if (businessId != null && businessId.isNotEmpty) {
         await syncSubscriptionToBusiness(
             businessId: businessId, planId: planId, startDate: startDate, endDate: newEndDate);
+      } else {
+        // If no specific businessId is given, apply to all businesses owned by this user
+        await syncSubscriptionForUserBusinesses(
+          userId: userId,
+          planId: planId,
+          startDate: startDate,
+          endDate: newEndDate,
+        );
       }
 
       print('[SubscriptionService] ✓ Activate/Renew completed; new end: ${newEndDate.toIso8601String()}');
@@ -637,6 +657,40 @@ class SubscriptionService {
     } catch (e) {
       print(
           '[SubscriptionService] ✗ Error syncing subscription to business: $e');
+      return false;
+    }
+  }
+
+  /// Sync subscription to all businesses owned by `userId`
+  /// Enables per-business renewal checking across user-owned portfolios.
+  Future<bool> syncSubscriptionForUserBusinesses({
+    required String userId,
+    required String planId,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    try {
+      final snapshot = await _firestore
+          .collection('businesses')
+          .where('ownerId', isEqualTo: userId)
+          .get();
+
+      for (final doc in snapshot.docs) {
+        await _firestore.collection('businesses').doc(doc.id).update({
+          'subscriptionTier': planId.split('_').first,
+          'subscriptionPlan': planId,
+          'subscriptionStartDate': startDate.toIso8601String(),
+          'subscriptionEndDate': endDate.toIso8601String(),
+          'isSubscriptionActive': true,
+          'subscriptionSyncedAt': DateTime.now().toIso8601String(),
+          'updatedAt': DateTime.now().toIso8601String(),
+        });
+      }
+
+      print('[SubscriptionService] ✓ Subscription synced to ${snapshot.docs.length} businesses for user: $userId');
+      return true;
+    } catch (e) {
+      print('[SubscriptionService] ✗ Error syncing subscription to user businesses: $e');
       return false;
     }
   }

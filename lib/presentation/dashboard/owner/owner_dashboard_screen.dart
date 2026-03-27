@@ -1411,6 +1411,9 @@ class _HomeTabState extends State<_HomeTab> {
     int workersCount = 0,
     bool isLoadingCounts = false,
   }) {
+    final averageTicket =
+        transactions > 0 ? revenue / transactions : 0.0;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1428,42 +1431,64 @@ class _HomeTabState extends State<_HomeTab> {
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildMetricTile(
-            'Sales',
-            isLoading ? '...' : formatCurrency(sales),
-            Icons.shopping_bag_rounded,
-            AppColors.primary,
-            isDark,
-            route: Routes.salesHistory,
-          ),
-          _buildMetricTile(
-            'Orders',
-            isLoading ? '...' : transactions.toString(),
-            Icons.receipt_rounded,
-            Colors.green,
-            isDark,
-            route: Routes.salesReport,
-          ),
-          _buildMetricTile(
-            'Customers',
-            isLoadingCounts ? '...' : customersCount.toString(),
-            Icons.people_rounded,
-            Colors.orange,
-            isDark,
-            route: Routes.customers,
-          ),
-          _buildMetricTile(
-            'Revenue',
-            isLoading ? '...' : formatCurrency(revenue),
-            Icons.trending_up_rounded,
-            Colors.blue,
-            isDark,
-            route: Routes.advancedAnalytics,
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 560;
+          final cardWidth = isCompact
+              ? (constraints.maxWidth - 12) / 2
+              : (constraints.maxWidth - 24) / 3;
+
+          final cards = [
+            _buildMetricTile(
+              'Sales',
+              isLoading ? '...' : formatCurrency(sales),
+              Icons.shopping_bag_rounded,
+              AppColors.primary,
+              isDark,
+              route: Routes.salesHistory,
+            ),
+            _buildMetricTile(
+              'Orders',
+              isLoading ? '...' : transactions.toString(),
+              Icons.receipt_rounded,
+              Colors.green,
+              isDark,
+              route: Routes.salesReport,
+            ),
+            _buildMetricTile(
+              'Customers',
+              isLoadingCounts ? '...' : customersCount.toString(),
+              Icons.people_rounded,
+              Colors.orange,
+              isDark,
+              route: Routes.customers,
+            ),
+            _buildMetricTile(
+              'Workers',
+              isLoadingCounts ? '...' : workersCount.toString(),
+              Icons.badge_rounded,
+              Colors.purple,
+              isDark,
+              route: Routes.workers,
+            ),
+            _buildMetricTile(
+              'Avg Ticket',
+              isLoading ? '...' : formatCurrency(averageTicket),
+              Icons.query_stats_rounded,
+              Colors.blue,
+              isDark,
+              route: Routes.advancedAnalytics,
+            ),
+          ];
+
+          return Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: cards
+                .map((card) => SizedBox(width: cardWidth, child: card))
+                .toList(),
+          );
+        },
       ),
     );
   }
@@ -1471,48 +1496,51 @@ class _HomeTabState extends State<_HomeTab> {
   Widget _buildMetricTile(
       String label, String value, IconData icon, Color color, bool isDark,
       {String? route}) {
-    return Expanded(
-      child: Column(
-        children: [
-          InkWell(
-            onTap: route != null
-                ? () => Navigator.pushNamed(context, route)
-                : null,
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
+    return InkWell(
+      onTap: route != null ? () => Navigator.pushNamed(context, route) : null,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        decoration: BoxDecoration(
+          color: color.withAlpha((0.08 * 255).toInt()),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: color.withAlpha((0.18 * 255).toInt()),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: color.withAlpha((0.12 * 255).toInt()),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: color.withAlpha((0.2 * 255).toInt()),
-                  width: 1,
-                ),
+                color: color.withAlpha((0.14 * 255).toInt()),
+                borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: color, size: 20),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: AppTextStyles.subtitle2.copyWith(
-              fontWeight: FontWeight.w700,
-              color: isDark ? Colors.white : AppColors.textPrimary,
+            const SizedBox(height: 10),
+            Text(
+              value,
+              style: AppTextStyles.subtitle2.copyWith(
+                fontWeight: FontWeight.w700,
+                color: isDark ? Colors.white : AppColors.textPrimary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: AppTextStyles.caption.copyWith(
-              color: isDark ? Colors.grey[400] : AppColors.textSecondary,
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: AppTextStyles.caption.copyWith(
+                color: isDark ? Colors.grey[400] : AppColors.textSecondary,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

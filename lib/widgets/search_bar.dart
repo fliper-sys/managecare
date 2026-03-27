@@ -17,15 +17,28 @@ class SearchBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return TextField(
       controller: controller,
       onChanged: onChanged,
+      style: theme.textTheme.bodyMedium,
       decoration: InputDecoration(
         hintText: hintText,
-        prefixIcon: const Icon(Icons.search),
+        hintStyle: theme.textTheme.bodyMedium?.copyWith(
+          color: scheme.onSurface.withOpacity(0.55),
+        ),
+        prefixIcon: Icon(
+          Icons.search,
+          color: scheme.onSurface.withOpacity(0.6),
+        ),
         suffixIcon: controller.text.isNotEmpty
             ? IconButton(
-                icon: const Icon(Icons.clear),
+                icon: Icon(
+                  Icons.clear,
+                  color: scheme.onSurface.withOpacity(0.6),
+                ),
                 onPressed: onClear ??
                     () {
                       controller.clear();
@@ -34,17 +47,19 @@ class SearchBar extends StatelessWidget {
               )
             : null,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+        filled: true,
+        fillColor: theme.inputDecorationTheme.fillColor ?? scheme.surface,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Colors.grey),
+          borderSide: BorderSide(color: scheme.outline.withOpacity(0.8)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Colors.grey),
+          borderSide: BorderSide(color: scheme.outline.withOpacity(0.8)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Colors.blue),
+          borderSide: BorderSide(color: scheme.primary, width: 1.5),
         ),
       ),
     );

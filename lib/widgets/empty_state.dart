@@ -17,6 +17,9 @@ class EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -24,19 +27,21 @@ class EmptyState extends StatelessWidget {
           Icon(
             icon,
             size: 80,
-            color: Colors.grey[400],
+            color: scheme.onSurface.withOpacity(0.34),
           ),
           const SizedBox(height: 16),
           Text(
             title,
-            style: Theme.of(context).textTheme.headlineSmall,
+            style: theme.textTheme.headlineSmall,
             textAlign: TextAlign.center,
           ),
           if (subtitle != null) ...[
             const SizedBox(height: 8),
             Text(
               subtitle!,
-              style: Theme.of(context).textTheme.bodyMedium,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurface.withOpacity(0.7),
+              ),
               textAlign: TextAlign.center,
             ),
           ],

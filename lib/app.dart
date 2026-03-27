@@ -1,30 +1,29 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:flutter/services.dart';
 import 'dart:async';
-import 'services/dunning_service.dart';
-import 'services/startup_notifications.dart';
-import 'services/push_service.dart';
 
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+
+import 'core/constants/routes.dart';
 import 'core/theme/app_theme.dart';
 import 'core/utils/context_extensions.dart';
-import 'providers/theme_provider.dart';
-import 'providers/connectivity_provider.dart';
-import 'providers/auth_provider.dart';
-import 'providers/enhanced_subscription_provider.dart';
-import 'routes/app_router.dart';
-import 'core/constants/routes.dart';
-import 'providers/business_provider.dart';
-import 'providers/receipt_settings_provider.dart';
-// Auto-initialization imports for industry providers
-import 'providers/retail_provider.dart';
-import 'presentation/industry_specific/restaurant/providers/restaurant_provider.dart';
-import 'providers/pharmacy_provider.dart';
-import 'presentation/industry_specific/wholesale/providers/wholesale_provider.dart';
-import 'providers/auto_provider.dart';
 import 'presentation/industry_specific/realestate/providers/real_estate_provider.dart';
+import 'presentation/industry_specific/restaurant/providers/restaurant_provider.dart';
+import 'presentation/industry_specific/wholesale/providers/wholesale_provider.dart';
+import 'providers/auth_provider.dart';
+import 'providers/auto_provider.dart';
+import 'providers/business_provider.dart';
+import 'providers/connectivity_provider.dart';
 import 'providers/drink_provider.dart';
+import 'providers/enhanced_subscription_provider.dart';
+import 'providers/pharmacy_provider.dart';
+import 'providers/receipt_settings_provider.dart';
+import 'providers/retail_provider.dart';
+import 'providers/theme_provider.dart';
+import 'routes/app_router.dart';
+import 'services/dunning_service.dart';
 import 'services/snackbar_service.dart';
+import 'services/startup_notifications.dart';
 
 class App extends StatefulWidget {
   const App({super.key});
@@ -34,192 +33,234 @@ class App extends StatefulWidget {
 }
 
 class _AppState extends State<App> {
-  final _appRouter = AppRouter();
+  final AppRouter _appRouter = AppRouter();
+  final DunningService _dunningService = DunningService();
+
+  Timer? _dunningTimer;
+  AuthProvider? _authProvider;
+  BusinessProvider? _businessProvider;
+  VoidCallback? _authListener;
+  VoidCallback? _businessListener;
+  String? _lastStartupNotificationKey;
 
   @override
   void initState() {
     super.initState();
-    // Initialize connectivity monitoring
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ConnectivityProvider>().initialize();
+      if (!mounted) return;
+      _attachProviderListeners();
+    });
 
-      // Initialize subscription checking for authenticated users (owners only).
-      // Workers and other non-owner users should not trigger background subscription checks
-      // on app start to avoid blocking or showing subscription enforcement during auto-login.
-      final authProvider = context.read<AuthProvider>();
-      if (authProvider.isAuthenticated && authProvider.currentUser != null) {
-        final user = authProvider.currentUser!;
-        final subscriptionProvider = context.read<EnhancedSubscriptionProvider>();
-        if (user.isOwner) {
-          subscriptionProvider.initializeForUser(
-            user.id,
-            userRole: user.role,
-          );
-          print('[App] Subscription background checking initialized for owner: ${user.id}');
-        } else {
-          // Skip background subscription checks for workers and other non-owner roles
-          print('[App] Skipping subscription background checks for non-owner user: ${user.id}');
-        }
+    _startDunningPoller();
+  }
 
-        // Initialize push notifications for the authenticated user
-        try {
-          PushService.initialize();
-        } catch (e) {
-          debugPrint('[App] PushService initialization failed: $e');
-        }
+  void _attachProviderListeners() {
+    context.read<ConnectivityProvider>().initialize();
 
-          // Also trigger on subsequent sign-ins
-          authProvider.addListener(() {
-            try {
-              if (authProvider.isAuthenticated) {
-                StartupNotifications.run(context);
-              }
-           
-        } catch (_) {}
-      });
+    _authProvider = context.read<AuthProvider>();
+    _businessProvider = context.read<BusinessProvider>();
 
-      // Listen for business selection changes and prefetch receipt settings
-      // and thermal preferences so receipt generation (print/email) can use
-      // them immediately without extra delays.
-      final businessProvider = context.read<BusinessProvider>();
-      businessProvider.addListener(() {
-        try {
-          final business = businessProvider.currentBusiness;
-          if (business != null) {
-            final receiptProvider = context.read<ReceiptSettingsProvider>();
-            // Only fetch main settings if they are for a different business
-            if (receiptProvider.receiptSettings?.businessId != business.id) {
-              receiptProvider.fetchReceiptSettings(business.id);
-            }
-            // Always refresh thermal preferences (small, cached doc)
-            receiptProvider.fetchReceiptPreferences(business.id);
+    _authListener = _handleAuthStateChanged;
+    _businessListener = _handleBusinessChanged;
 
-            // --- Auto-initialize common industry providers (best-effort) ---
-            // Perform asynchronously to avoid blocking the UI thread
-            Future.microtask(() async {
-              final bid = business.id;
+    _authProvider?.addListener(_authListener!);
+    _businessProvider?.addListener(_businessListener!);
 
-              try {
-                await context.read<RetailProvider>().initialize(bid);
-              } catch (e) {
-                debugPrint('[App] RetailProvider init failed: $e');
-              }
+    _handleAuthStateChanged();
+    _handleBusinessChanged();
+  }
 
-              try {
-                final rprov = context.read<RestaurantProvider>();
-                rprov.setBusinessId(bid);
-                await rprov.initializeMenu(businessId: bid);
-                await rprov.initializeTables(businessId: bid);
-                await rprov.initializeOrders(businessId: bid);
-              } catch (e) {
-                debugPrint('[App] RestaurantProvider init failed: $e');
-              }
+  void _handleAuthStateChanged() {
+    if (!mounted || _authProvider == null) return;
 
-              try {
-                context.read<PharmacyProvider>().setBusinessId(bid);
-              } catch (e) {
-                debugPrint('[App] PharmacyProvider setBusinessId failed: $e');
-              }
+    final authProvider = _authProvider!;
+    final user = authProvider.currentUser;
 
-              try {
-                context.read<WholesaleProvider>().initializeWithBusinessId(bid);
-              } catch (e) {
-                debugPrint('[App] WholesaleProvider init failed: $e');
-              }
+    if (!authProvider.isAuthenticated || user == null) {
+      _lastStartupNotificationKey = null;
+      return;
+    }
 
-              try {
-                // Use the safe helper to avoid throwing if provider not registered yet.
-                final reProv = context.tryRead<RealEstateProvider>();
-                if (reProv == null) {
-                  debugPrint('[App] RealEstateProvider not yet available (startup timing).');
-                } else {
-                  reProv.loadProperties();
-                  reProv.loadTenants();
-                }
-              } catch (e) {
-                debugPrint('[App] RealEstateProvider init failed: $e');
-              }
+    final subscriptionProvider = context.read<EnhancedSubscriptionProvider>();
+    if (user.isOwner) {
+      subscriptionProvider.initializeForUser(
+        user.id,
+        userRole: user.role,
+      );
+      debugPrint(
+        '[App] Subscription background checking initialized for owner: ${user.id}',
+      );
+    } else {
+      debugPrint(
+        '[App] Skipping subscription background checks for non-owner user: ${user.id}',
+      );
+    }
 
-              try {
-                // AutoProvider will be notified via ChangeNotifierProxyProvider when business changes.
-                // This avoids duplicating startup loads here and centralizes business wiring in `main.dart`.
-                final ap = context.tryRead<AutoProvider>();
-                if (ap == null) {
-                  debugPrint('[App] AutoProvider not available at startup (timing)');
-                }
-              } catch (e) {
-                debugPrint('[App] AutoProvider init check failed: $e');
-              }
+    _queueStartupNotificationsIfNeeded();
+  }
 
-              try {
-                context.read<DrinkProvider>().setBusinessId(bid);
-              } catch (e) {
-                // non-critical
-              }
+  void _handleBusinessChanged() {
+    if (!mounted || _businessProvider == null) return;
 
-              // Workers, Loyalty, Analytics and others are usually initialized via
-              // components like BusinessSwitcher when user actively changes context.
-            });
-          }
-        } catch (e) {
-          debugPrint('[App] Error prefetching receipt settings: $e');
-        }
-      });
-    }});
-    // Start periodic dunning trigger poller (runs in app while open).
-    // The poller will use the configured `dunningTriggerUrl` from receipt settings if available.
-    final dunningService = DunningService();
-    _dunningTimer = Timer.periodic(const Duration(minutes: 30), (timer) async {
+    final business = _businessProvider!.currentBusiness;
+    if (business == null) return;
+
+    final receiptProvider = context.read<ReceiptSettingsProvider>();
+    if (receiptProvider.receiptSettings?.businessId != business.id) {
+      unawaited(receiptProvider.fetchReceiptSettings(business.id));
+    }
+    unawaited(receiptProvider.fetchReceiptPreferences(business.id));
+
+    _queueStartupNotificationsIfNeeded();
+
+    Future.microtask(() async {
+      if (!mounted) return;
+
+      final bid = business.id;
+
       try {
-        final conn = context.read<ConnectivityProvider>();
-        if (!conn.isConnected) return;
+        await context.read<RetailProvider>().initialize(bid);
+      } catch (e) {
+        debugPrint('[App] RetailProvider init failed: $e');
+      }
 
-        final business = context.read<BusinessProvider>().currentBusiness;
-        String? triggerUrl;
-        if (business != null) {
-          final receiptProvider = context.read<ReceiptSettingsProvider>();
-          if (receiptProvider.receiptSettings == null) {
-            await receiptProvider.fetchReceiptSettings(business.id);
-          }
-          triggerUrl = receiptProvider.receiptSettings?.dunningTriggerUrl;
-        }
+      try {
+        final restaurantProvider = context.read<RestaurantProvider>();
+        restaurantProvider.setBusinessId(bid);
+        await restaurantProvider.initializeMenu(businessId: bid);
+        await restaurantProvider.initializeTables(businessId: bid);
+        await restaurantProvider.initializeOrders(businessId: bid);
+      } catch (e) {
+        debugPrint('[App] RestaurantProvider init failed: $e');
+      }
 
-        // Fallback to repo placeholder if not configured
-        final effectiveUrl = triggerUrl ??
-            'https://www.globalthrivealliance.com/emailtemplate/dunning_trigger.json';
+      try {
+        context.read<PharmacyProvider>().setBusinessId(bid);
+      } catch (e) {
+        debugPrint('[App] PharmacyProvider setBusinessId failed: $e');
+      }
 
-        if (effectiveUrl.isNotEmpty) {
-          await dunningService.checkAndRunRemoteTrigger(effectiveUrl);
+      try {
+        context.read<WholesaleProvider>().initializeWithBusinessId(bid);
+      } catch (e) {
+        debugPrint('[App] WholesaleProvider init failed: $e');
+      }
+
+      try {
+        final realEstateProvider = context.tryRead<RealEstateProvider>();
+        if (realEstateProvider == null) {
+          debugPrint(
+            '[App] RealEstateProvider not yet available (startup timing).',
+          );
+        } else {
+          realEstateProvider.loadProperties();
+          realEstateProvider.loadTenants();
         }
       } catch (e) {
-        // ignore poll errors
+        debugPrint('[App] RealEstateProvider init failed: $e');
+      }
+
+      try {
+        final autoProvider = context.tryRead<AutoProvider>();
+        if (autoProvider == null) {
+          debugPrint('[App] AutoProvider not available at startup (timing).');
+        }
+      } catch (e) {
+        debugPrint('[App] AutoProvider init check failed: $e');
+      }
+
+      try {
+        context.read<DrinkProvider>().setBusinessId(bid);
+      } catch (_) {
+        // Non-critical provider warm-up.
       }
     });
   }
 
+  void _queueStartupNotificationsIfNeeded() {
+    if (!mounted || _authProvider == null || _businessProvider == null) return;
+
+    final authProvider = _authProvider!;
+    final business = _businessProvider!.currentBusiness;
+    final user = authProvider.currentUser;
+
+    if (!authProvider.isAuthenticated || user == null || business == null) {
+      return;
+    }
+
+    final startupKey = '${user.id}:${business.id}';
+    if (_lastStartupNotificationKey == startupKey) return;
+
+    _lastStartupNotificationKey = startupKey;
+    unawaited(StartupNotifications.run(context));
+  }
+
+  void _startDunningPoller() {
+    _dunningTimer = Timer.periodic(
+      const Duration(minutes: 30),
+      (timer) async {
+        if (!mounted) return;
+
+        try {
+          final connectivity = context.read<ConnectivityProvider>();
+          if (!connectivity.isConnected) return;
+
+          final business = context.read<BusinessProvider>().currentBusiness;
+          String? triggerUrl;
+
+          if (business != null) {
+            final receiptProvider = context.read<ReceiptSettingsProvider>();
+            if (receiptProvider.receiptSettings == null) {
+              await receiptProvider.fetchReceiptSettings(business.id);
+            }
+            triggerUrl = receiptProvider.receiptSettings?.dunningTriggerUrl;
+          }
+
+          final effectiveUrl = triggerUrl ??
+              'https://www.globalthrivealliance.com/emailtemplate/dunning_trigger.json';
+
+          if (effectiveUrl.isNotEmpty) {
+            await _dunningService.checkAndRunRemoteTrigger(effectiveUrl);
+          }
+        } catch (_) {
+          // Ignore background poller failures.
+        }
+      },
+    );
+  }
+
   @override
   void dispose() {
+    if (_authProvider != null && _authListener != null) {
+      _authProvider!.removeListener(_authListener!);
+    }
+    if (_businessProvider != null && _businessListener != null) {
+      _businessProvider!.removeListener(_businessListener!);
+    }
+
     _appRouter.dispose();
     _dunningTimer?.cancel();
     super.dispose();
   }
 
-  Timer? _dunningTimer;
-
   @override
   Widget build(BuildContext context) {
     return Consumer<ThemeProvider>(
       builder: (context, themeProvider, child) {
-        // Update system UI overlays to match the current theme
         final isDark = themeProvider.isDarkMode;
-        SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
-          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-          systemNavigationBarColor:
-              isDark ? const Color(0xFF121212) : Colors.white,
-          systemNavigationBarIconBrightness:
-              isDark ? Brightness.light : Brightness.dark,
-        ));
+
+        SystemChrome.setSystemUIOverlayStyle(
+          SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness:
+                isDark ? Brightness.light : Brightness.dark,
+            systemNavigationBarColor:
+                isDark ? const Color(0xFF08101D) : Colors.white,
+            systemNavigationBarIconBrightness:
+                isDark ? Brightness.light : Brightness.dark,
+          ),
+        );
 
         return MaterialApp(
           title: 'Manage Care',
@@ -227,12 +268,14 @@ class _AppState extends State<App> {
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: themeProvider.themeMode,
+          themeAnimationDuration: const Duration(milliseconds: 280),
+          themeAnimationCurve: Curves.easeOutCubic,
           initialRoute: Routes.splash,
           onGenerateRoute: _appRouter.onGenerateRoute,
-          // Use a global scaffold messenger so SnackBars are safe across navigation
           scaffoldMessengerKey: scaffoldMessengerKey,
           builder: (context, child) {
-            return _ConnectivityBanner(child: child!);
+            if (child == null) return const SizedBox.shrink();
+            return _ConnectivityBanner(child: child);
           },
         );
       },
@@ -241,12 +284,14 @@ class _AppState extends State<App> {
 }
 
 class _ConnectivityBanner extends StatelessWidget {
-  final Widget child;
-
   const _ConnectivityBanner({required this.child});
+
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Consumer<ConnectivityProvider>(
       builder: (context, connectivity, _) {
         return Stack(
@@ -259,16 +304,22 @@ class _ConnectivityBanner extends StatelessWidget {
                 right: 0,
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  color: Colors.red,
-                  child: const Text(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: scheme.errorContainer,
+                    border: Border(
+                      bottom: BorderSide(
+                        color: scheme.error.withOpacity(0.18),
+                      ),
+                    ),
+                  ),
+                  child: Text(
                     'No Internet Connection - Working Offline',
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: scheme.onErrorContainer,
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                 ),
               ),
@@ -278,4 +329,3 @@ class _ConnectivityBanner extends StatelessWidget {
     );
   }
 }
-

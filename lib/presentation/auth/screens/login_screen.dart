@@ -472,7 +472,7 @@ class _LoginScreenState extends State<LoginScreen>
                         padding: const EdgeInsets.only(top: 16),
                         child: Center(
                           child: TextButton(
-                            onPressed: () => Navigator.of(context).pushNamed(Routes.adminLogin),
+                            onPressed: () => Navigator.of(context).pushNamed(Routes.marketerLogin),
                             child: Text(
                               'Marketers login',
                               style: AppTextStyles.body2.copyWith(

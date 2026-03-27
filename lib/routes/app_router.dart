@@ -38,7 +38,7 @@ import '../presentation/reports/screens/export_report_screen.dart';
 import '../presentation/reports/screens/customer_report_screen.dart';
 import '../presentation/settings/screens/settings_screen.dart';
 
-import '../presentation/settings/screens/notification_settings_screen.dart';
+import '../presentation/notifications/screens/notifications_screen.dart';
 import '../presentation/settings/screens/profile_screen.dart';
 import '../presentation/settings/screens/business_settings_screen.dart';
 import '../presentation/settings/screens/whatsapp_settings_screen.dart';
@@ -58,7 +58,6 @@ import '../app_admin/app_admin_dashboard_screen.dart';
 import '../app_admin/dunning_status_screen.dart';
 import '../widgets/error_widget.dart' as custom;
 import '../presentation/admin/installation_requests_admin_screen.dart';
-import '../presentation/admin/screens/admin_subscriptions_screen.dart';
 import '../presentation/dashboard/owner/my_installation_requests_screen.dart';
 import '../presentation/industry_specific/pharmacy/screens/prescription_screen.dart';
 import '../presentation/industry_specific/pharmacy/screens/prescription_detail_screen.dart';
@@ -173,10 +172,13 @@ import '../presentation/industry_specific/realestate/screens/maintenance_screen.
 import '../presentation/industry_specific/realestate/screens/property_documents_screen.dart';
 
 // Workers screens
-import 'package:provider/provider.dart';
 import '../presentation/workers/screens/workers_list_screen.dart';
 import '../presentation/marketer/marketer_dashboard_screen.dart';
-import '../providers/marketer_provider.dart';
+import '../presentation/marketer/marketer_login_screen.dart';
+import '../presentation/marketer/marketer_forgot_password_screen.dart';
+import '../presentation/marketer/marketer_change_password_screen.dart';
+import '../presentation/marketer/register_user_screen.dart';
+import '../presentation/marketer/register_business_screen.dart';
 import '../presentation/workers/screens/add_worker_screen.dart';
 import '../presentation/workers/screens/worker_details_screen.dart';
 import '../presentation/workers/screens/attendance_screen.dart';
@@ -345,7 +347,7 @@ class AppRouter {
         return _buildRoute(const ExportSalesHistoryScreen());
 
       case Routes.notifications:
-        return _buildRoute(const NotificationSettingsScreen());
+        return _buildRoute(const NotificationsScreen());
 
       case Routes.whatsappSettings:
         return _buildRoute(const WhatsAppSettingsScreen());
@@ -369,19 +371,19 @@ class AppRouter {
         return _buildRoute(const DunningStatusScreen());
 
       case Routes.adminSubscriptions:
-        return _buildRoute(const AdminSubscriptionsScreen());
+        return _buildRoute(const AdminDashboardApp(initialIndex: 2));
 
       case Routes.adminPayments:
-        return _buildRoute(const AdminDashboardApp());
+        return _buildRoute(const AdminDashboardApp(initialIndex: 2));
 
       case Routes.adminPaymentsApproval:
-        return _buildRoute(const AdminDashboardApp());
+        return _buildRoute(const AdminDashboardApp(initialIndex: 2));
 
       case Routes.allBusinessesAdmin:
-        return _buildRoute(const AdminDashboardApp());
+        return _buildRoute(const AdminDashboardApp(initialIndex: 1));
 
       case Routes.adminUsersAndWorkers:
-        return _buildRoute(const AdminDashboardApp());
+        return _buildRoute(const AdminDashboardApp(initialIndex: 3));
 
       case Routes.adminDashboard:
         return _buildRoute(const AdminDashboardApp());
@@ -425,11 +427,40 @@ class AppRouter {
       case Routes.adminLogin:
         return _buildRoute(const AdminLoginScreen());
 
+      case Routes.marketerLogin:
+        return _buildRoute(const MarketerLoginScreen());
+
+      case Routes.marketerForgotPassword:
+        return _buildRoute(const MarketerForgotPasswordScreen());
+
+      case Routes.marketerChangePassword:
+        return _buildRoute(const MarketerChangePasswordScreen());
+
+      case Routes.marketerRegisterUser:
+        return _buildRoute(const RegisterUserScreen());
+
+      case Routes.marketerRegisterBusiness:
+        final marketerArgs = settings.arguments;
+        if (marketerArgs is String) {
+          return _buildRoute(RegisterBusinessScreen(userId: marketerArgs));
+        }
+        if (marketerArgs is Map<String, dynamic>) {
+          return _buildRoute(
+            RegisterBusinessScreen(
+              userId: marketerArgs['userId'] ?? '',
+              userEmail: marketerArgs['userEmail'] as String?,
+              ownerName: marketerArgs['ownerName'] as String?,
+            ),
+          );
+        }
+        return _buildRoute(
+          const Scaffold(
+            body: Center(child: Text('Missing marketer registration details')),
+          ),
+        );
+
       case Routes.marketerDashboard:
         return _buildRoute(const MarketerDashboardScreen());
-
-      case Routes.adminDashboard:
-        return _buildRoute(const AdminDashboardApp());
 
       // Receipt Routes
       case Routes.receipt:

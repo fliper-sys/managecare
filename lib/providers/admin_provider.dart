@@ -13,6 +13,10 @@ class AdminStats {
   final int totalRevenue;
   final int pendingPayments;
   final int totalTransactions;
+  final int pendingSubscriptionApprovals;
+  final int activeSubscriptions;
+  final int restrictedBusinesses;
+  final int totalMarketers;
   final List<Map<String, dynamic>> recentActivities;
 
   AdminStats({
@@ -21,8 +25,40 @@ class AdminStats {
     this.totalRevenue = 0,
     this.pendingPayments = 0,
     this.totalTransactions = 0,
+    this.pendingSubscriptionApprovals = 0,
+    this.activeSubscriptions = 0,
+    this.restrictedBusinesses = 0,
+    this.totalMarketers = 0,
     this.recentActivities = const [],
   });
+
+  AdminStats copyWith({
+    int? totalBusinesses,
+    int? activeUsers,
+    int? totalRevenue,
+    int? pendingPayments,
+    int? totalTransactions,
+    int? pendingSubscriptionApprovals,
+    int? activeSubscriptions,
+    int? restrictedBusinesses,
+    int? totalMarketers,
+    List<Map<String, dynamic>>? recentActivities,
+  }) {
+    return AdminStats(
+      totalBusinesses: totalBusinesses ?? this.totalBusinesses,
+      activeUsers: activeUsers ?? this.activeUsers,
+      totalRevenue: totalRevenue ?? this.totalRevenue,
+      pendingPayments: pendingPayments ?? this.pendingPayments,
+      totalTransactions: totalTransactions ?? this.totalTransactions,
+      pendingSubscriptionApprovals:
+          pendingSubscriptionApprovals ?? this.pendingSubscriptionApprovals,
+      activeSubscriptions: activeSubscriptions ?? this.activeSubscriptions,
+      restrictedBusinesses:
+          restrictedBusinesses ?? this.restrictedBusinesses,
+      totalMarketers: totalMarketers ?? this.totalMarketers,
+      recentActivities: recentActivities ?? this.recentActivities,
+    );
+  }
 }
 
 /// Admin provider for managing admin-specific features
@@ -52,6 +88,92 @@ class AdminProvider extends ChangeNotifier {
   List<Map<String, dynamic>> get allUsers => _allUsers;
   List<Map<String, dynamic>> get allBusinesses => _allBusinesses;
   int get pendingInstallationRequestsCount => _pendingInstallationRequests;
+  int get pendingSubscriptionApprovalsCount =>
+      _stats.pendingSubscriptionApprovals;
+  int get activeSubscriptionsCount => _stats.activeSubscriptions;
+  int get restrictedBusinessesCount => _stats.restrictedBusinesses;
+  int get marketersCount => _stats.totalMarketers;
+  int get activeBusinessesCount =>
+      _allBusinesses.where(_isBusinessAvailable).length;
+
+  bool _readBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+
+    final normalized = value?.toString().trim().toLowerCase();
+    return normalized == 'true' ||
+        normalized == '1' ||
+        normalized == 'yes' ||
+        normalized == 'active';
+  }
+
+  bool _isBusinessAvailable(Map<String, dynamic> business) {
+    return !_isBusinessRestricted(business) &&
+        (business['isActive'] == null || _readBool(business['isActive']));
+  }
+
+  bool _isBusinessRestricted(Map<String, dynamic> business) {
+    final restrictionStatus =
+        (business['restrictionStatus'] ?? business['status'] ?? '')
+            .toString()
+            .toLowerCase();
+    return _readBool(business['isRestricted']) ||
+        restrictionStatus == 'restricted' ||
+        restrictionStatus == 'suspended' ||
+        restrictionStatus == 'blocked';
+  }
+
+  bool _isSubscriptionActive(Map<String, dynamic> business) {
+    if (_readBool(
+      business['isSubscriptionActive'] ?? business['hasActiveSubscription'],
+    )) {
+      return true;
+    }
+
+    final endDateRaw = business['subscriptionEndDate'];
+    if (endDateRaw == null) {
+      return false;
+    }
+
+    try {
+      final endDate = parseTimestamp(endDateRaw);
+      return endDate.isAfter(DateTime.now());
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _hasPendingSubscriptionReview(Map<String, dynamic> business) {
+    final pendingStates = {
+      'pending',
+      'submitted',
+      'awaiting_approval',
+      'awaiting-review',
+      'awaiting_review',
+    };
+    final reviewStatus = (business['subscriptionStatus'] ??
+            business['subscriptionReviewStatus'] ??
+            business['requestStatus'] ??
+            '')
+        .toString()
+        .toLowerCase();
+    return pendingStates.contains(reviewStatus);
+  }
+
+  void _refreshDerivedStatsFromCache() {
+    final pendingFromCache =
+        _allBusinesses.where(_hasPendingSubscriptionReview).length;
+    _stats = _stats.copyWith(
+      totalBusinesses: _allBusinesses.length,
+      activeSubscriptions:
+          _allBusinesses.where(_isSubscriptionActive).length,
+      restrictedBusinesses:
+          _allBusinesses.where(_isBusinessRestricted).length,
+      pendingSubscriptionApprovals: pendingFromCache > 0
+          ? pendingFromCache
+          : _stats.pendingSubscriptionApprovals,
+    );
+  }
 
   /// Load persisted admin settings.
   Future<Map<String, dynamic>> getAdminSettings() async {
@@ -89,7 +211,7 @@ class AdminProvider extends ChangeNotifier {
   }
 
   /// Fetch real-time admin statistics from Firestore
-  Future<void> fetchAdminStats() async {
+  Future<void> fetchAdminStats({bool force = false}) async {
     // Prevent duplicate simultaneous requests
     if (_isStatsLoadInProgress) {
       print('[AdminProvider] ⏭️ Stats load already in progress, skipping duplicate request');
@@ -97,7 +219,7 @@ class AdminProvider extends ChangeNotifier {
     }
 
     // Throttle: Don't reload if we loaded recently
-    if (_lastStatsLoadTime != null) {
+    if (!force && _lastStatsLoadTime != null) {
       final elapsed = DateTime.now().difference(_lastStatsLoadTime!);
       if (elapsed < _minStatsRefreshInterval) {
         print('[AdminProvider] ⏭️ Skipping reload - stats refreshed ${elapsed.inSeconds}s ago');
@@ -159,6 +281,8 @@ class AdminProvider extends ChangeNotifier {
       int totalRevenue = 0;
       int pendingPayments = 0;
       int totalTransactions = 0;
+      int pendingSubscriptionApprovals = 0;
+      int totalMarketers = 0;
 
       // Define subscription pricing in Naira
       final subscriptionPricing = {
@@ -187,10 +311,19 @@ class AdminProvider extends ChangeNotifier {
           .get();
       pendingPayments = paymentsSnapshot.docs.length;
 
+      final subscriptionRequestsSnapshot = await _firestore
+          .collection('subscription_requests')
+          .where('status', isEqualTo: 'pending')
+          .get();
+      pendingSubscriptionApprovals = subscriptionRequestsSnapshot.docs.length;
+
       // Count all transactions
       final transactionsSnapshot =
           await _firestore.collection('transactions').get();
       totalTransactions = transactionsSnapshot.docs.length;
+
+      final marketersSnapshot = await _firestore.collection('app_marketers').get();
+      totalMarketers = marketersSnapshot.docs.length;
 
       // Get recent activities (last 10)
       final activitiesSnapshot = await _firestore
@@ -220,6 +353,12 @@ class AdminProvider extends ChangeNotifier {
         totalRevenue: totalRevenue,
         pendingPayments: pendingPayments,
         totalTransactions: totalTransactions,
+        pendingSubscriptionApprovals: pendingSubscriptionApprovals,
+        activeSubscriptions:
+            _allBusinesses.where(_isSubscriptionActive).length,
+        restrictedBusinesses:
+            _allBusinesses.where(_isBusinessRestricted).length,
+        totalMarketers: totalMarketers,
         recentActivities: recentActivities,
       );
 
@@ -922,6 +1061,8 @@ class AdminProvider extends ChangeNotifier {
         _allBusinesses[idx] = {..._allBusinesses[idx], ...updates};
       }
 
+      _refreshDerivedStatsFromCache();
+
       _isLoading = false;
       notifyListeners();
       return true;
@@ -1030,14 +1171,7 @@ class AdminProvider extends ChangeNotifier {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      _stats = AdminStats(
-        totalBusinesses: _allBusinesses.length,
-        activeUsers: _stats.activeUsers,
-        totalRevenue: _stats.totalRevenue,
-        pendingPayments: _stats.pendingPayments,
-        totalTransactions: _stats.totalTransactions,
-        recentActivities: _stats.recentActivities,
-      );
+      _refreshDerivedStatsFromCache();
 
       _isLoading = false;
       notifyListeners();
@@ -1061,6 +1195,11 @@ class AdminProvider extends ChangeNotifier {
           totalRevenue: data['totalRevenue'] ?? 0,
           pendingPayments: data['pendingPayments'] ?? 0,
           totalTransactions: data['totalTransactions'] ?? 0,
+          pendingSubscriptionApprovals:
+              data['pendingSubscriptionApprovals'] ?? 0,
+          activeSubscriptions: data['activeSubscriptions'] ?? 0,
+          restrictedBusinesses: data['restrictedBusinesses'] ?? 0,
+          totalMarketers: data['totalMarketers'] ?? 0,
         );
       }
       return AdminStats();
@@ -1076,27 +1215,50 @@ class AdminProvider extends ChangeNotifier {
       // DON'T notify here - wait until async work is done
       final now = DateTime.now();
       final endDate = now.add(const Duration(days: 365));
+      final businessRef = _firestore.collection('businesses').doc(businessId);
 
       // Update business with subscription details using the exact same fields
       // that the subscription checker expects
       print('🔷 DEBUG: Approving subscription for business: $businessId');
       print('🔷 DEBUG: Setting isSubscriptionActive=true, tier=$tier');
       
-      await _firestore.collection('businesses').doc(businessId).update({
+      await businessRef.update({
         'subscriptionTier': tier.toLowerCase(),
         'subscriptionStartDate': Timestamp.fromDate(now),
         'subscriptionEndDate': Timestamp.fromDate(endDate),
         'isSubscriptionActive': true, // Use isSubscriptionActive, not subscriptionStatus
+        'subscriptionStatus': 'approved',
+        'subscriptionReviewStatus': 'approved',
         'subscriptionApprovedAt': Timestamp.now(),
         'subscriptionApprovedBy': _auth.currentUser?.uid ?? 'system',
+        'subscriptionDeclineReason': FieldValue.delete(),
+        'subscriptionDeclinedAt': FieldValue.delete(),
         'updatedAt': Timestamp.now(),
       });
       
       print('🔷 DEBUG: Business updated successfully');
       
       // Verify the update was successful by reading it back
-      final businessDoc = await _firestore.collection('businesses').doc(businessId).get();
+      final businessDoc = await businessRef.get();
       print('🔷 DEBUG: Business data after update: ${businessDoc.data()}');
+
+      try {
+        final pendingRequests = await _firestore
+            .collection('subscription_requests')
+            .where('businessId', isEqualTo: businessId)
+            .where('status', isEqualTo: 'pending')
+            .get();
+
+        for (final doc in pendingRequests.docs) {
+          await doc.reference.set({
+            'status': 'approved',
+            'subscriptionStatus': 'approved',
+            'approvedAt': FieldValue.serverTimestamp(),
+            'approvedBy': _auth.currentUser?.uid ?? 'system',
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      } catch (_) {}
 
       // Create subscription record for audit trail
       await _firestore.collection('subscriptions').add({
@@ -1118,8 +1280,12 @@ class AdminProvider extends ChangeNotifier {
           ..._allBusinesses[idx],
           'subscriptionTier': tier.toLowerCase(),
           'isSubscriptionActive': true,
+          'subscriptionStatus': 'approved',
+          'subscriptionReviewStatus': 'approved',
           'subscriptionEndDate': Timestamp.fromDate(endDate),
           'subscriptionStartDate': Timestamp.fromDate(now),
+          'subscriptionDeclineReason': null,
+          'subscriptionDeclinedAt': null,
         };
       }
 
@@ -1129,6 +1295,7 @@ class AdminProvider extends ChangeNotifier {
           _allUsers[i] = {
             ..._allUsers[i],
             'isSubscriptionActive': true,
+            'subscriptionStatus': 'approved',
             'subscriptionTier': tier.toLowerCase(),
             'subscriptionEndDate': Timestamp.fromDate(endDate),
             'subscriptionStartDate': Timestamp.fromDate(now),
@@ -1136,8 +1303,201 @@ class AdminProvider extends ChangeNotifier {
         }
       }
 
+      _refreshDerivedStatsFromCache();
+      if (_stats.pendingSubscriptionApprovals > 0) {
+        _stats = _stats.copyWith(
+          pendingSubscriptionApprovals:
+              (_stats.pendingSubscriptionApprovals - 1).clamp(0, 999999),
+        );
+      }
+
       _isLoading = false;
       notifyListeners(); // Single notification at the end
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> declineOneYearSubscription({
+    required String businessId,
+    required String businessName,
+    String? reason,
+  }) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      final declineReason = (reason?.trim().isNotEmpty ?? false)
+          ? reason!.trim()
+          : 'Declined by admin review.';
+      final businessRef = _firestore.collection('businesses').doc(businessId);
+
+      await businessRef.set({
+        'isSubscriptionActive': false,
+        'subscriptionStatus': 'declined',
+        'subscriptionReviewStatus': 'declined',
+        'subscriptionDeclineReason': declineReason,
+        'subscriptionDeclinedAt': FieldValue.serverTimestamp(),
+        'subscriptionDeclinedBy': _auth.currentUser?.uid ?? 'system',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      try {
+        final pendingRequests = await _firestore
+            .collection('subscription_requests')
+            .where('businessId', isEqualTo: businessId)
+            .where('status', isEqualTo: 'pending')
+            .get();
+
+        for (final doc in pendingRequests.docs) {
+          await doc.reference.set({
+            'status': 'rejected',
+            'subscriptionStatus': 'declined',
+            'rejectedAt': FieldValue.serverTimestamp(),
+            'rejectedBy': _auth.currentUser?.uid ?? 'system',
+            'rejectedReason': declineReason,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+
+        if (pendingRequests.docs.isNotEmpty) {
+          _stats = _stats.copyWith(
+            pendingSubscriptionApprovals:
+                (_stats.pendingSubscriptionApprovals -
+                        pendingRequests.docs.length)
+                    .clamp(0, 999999),
+          );
+        }
+      } catch (_) {}
+
+      await _firestore.collection('subscription_approvals').add({
+        'businessId': businessId,
+        'businessName': businessName,
+        'declineReason': declineReason,
+        'declinedAt': FieldValue.serverTimestamp(),
+        'declinedBy': _auth.currentUser?.uid ?? 'system',
+        'status': 'declined',
+        'type': 'one_year',
+      });
+
+      final businessIndex =
+          _allBusinesses.indexWhere((b) => b['id'] == businessId);
+      if (businessIndex != -1) {
+        _allBusinesses[businessIndex] = {
+          ..._allBusinesses[businessIndex],
+          'isSubscriptionActive': false,
+          'subscriptionStatus': 'declined',
+          'subscriptionReviewStatus': 'declined',
+          'subscriptionDeclineReason': declineReason,
+          'subscriptionDeclinedAt': Timestamp.now(),
+        };
+      }
+
+      for (var i = 0; i < _allUsers.length; i++) {
+        if (_allUsers[i]['businessId'] == businessId) {
+          _allUsers[i] = {
+            ..._allUsers[i],
+            'isSubscriptionActive': false,
+            'subscriptionStatus': 'declined',
+            'subscriptionDeclineReason': declineReason,
+          };
+        }
+      }
+
+      _refreshDerivedStatsFromCache();
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> setBusinessRestriction({
+    required String businessId,
+    required bool restricted,
+    String? reason,
+  }) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      final trimmedReason = (reason?.trim().isNotEmpty ?? false)
+          ? reason!.trim()
+          : restricted
+              ? 'Access restricted by admin.'
+              : null;
+      final businessRef = _firestore.collection('businesses').doc(businessId);
+      final businessSnap = await businessRef.get();
+      final businessName =
+          (businessSnap.data() ?? const {})['name']?.toString() ?? businessId;
+
+      await businessRef.set({
+        'isRestricted': restricted,
+        'restrictionStatus': restricted ? 'restricted' : 'active',
+        'restrictionReason':
+            restricted ? trimmedReason : FieldValue.delete(),
+        'restrictedAt':
+            restricted ? FieldValue.serverTimestamp() : FieldValue.delete(),
+        'restrictedBy': restricted
+            ? (_auth.currentUser?.uid ?? 'system')
+            : FieldValue.delete(),
+        'restrictionLiftedAt':
+            restricted ? FieldValue.delete() : FieldValue.serverTimestamp(),
+        'isActive': restricted ? false : true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      final businessIndex =
+          _allBusinesses.indexWhere((b) => b['id'] == businessId);
+      if (businessIndex != -1) {
+        _allBusinesses[businessIndex] = {
+          ..._allBusinesses[businessIndex],
+          'isRestricted': restricted,
+          'restrictionStatus': restricted ? 'restricted' : 'active',
+          'restrictionReason': restricted ? trimmedReason : null,
+          'restrictedAt': restricted ? Timestamp.now() : null,
+          'restrictionLiftedAt': restricted ? null : Timestamp.now(),
+          'isActive': restricted ? false : true,
+        };
+      }
+
+      for (var i = 0; i < _allUsers.length; i++) {
+        if (_allUsers[i]['businessId'] == businessId) {
+          _allUsers[i] = {
+            ..._allUsers[i],
+            'businessRestricted': restricted,
+            'businessRestrictionReason': restricted ? trimmedReason : null,
+          };
+        }
+      }
+
+      await _firestore.collection('admin_notifications').add({
+        'type': 'business_restriction',
+        'title': restricted ? 'Business Restricted' : 'Business Restored',
+        'message': restricted
+            ? '$businessName was restricted by admin.'
+            : '$businessName access was restored by admin.',
+        'data': {
+          'businessId': businessId,
+          'businessName': businessName,
+          'restricted': restricted,
+          'reason': trimmedReason,
+        },
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      _refreshDerivedStatsFromCache();
+      _isLoading = false;
+      notifyListeners();
       return true;
     } catch (e) {
       _errorMessage = e.toString();

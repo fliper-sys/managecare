@@ -23,6 +23,11 @@ class MarketerProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
+  void clearError() {
+    _errorMessage = null;
+    notifyListeners();
+  }
+
   /// Fetch all marketers
   Future<void> fetchMarketers() async {
     try {
@@ -35,9 +40,8 @@ class MarketerProvider extends ChangeNotifier {
           .orderBy('createdAt', descending: true)
           .get();
 
-      _marketers = snapshot.docs
-          .map((doc) => MarketerModel.fromFirestore(doc))
-          .toList();
+      _marketers =
+          snapshot.docs.map((doc) => MarketerModel.fromFirestore(doc)).toList();
 
       notifyListeners();
     } catch (e) {
@@ -65,11 +69,12 @@ class MarketerProvider extends ChangeNotifier {
 
       // Hash the password
       final hashedPassword = _hashPassword(password);
+      final normalizedEmail = email.trim().toLowerCase();
 
       // Check if email already exists
       final existing = await _firestore
           .collection('app_marketers')
-          .where('email', isEqualTo: email)
+          .where('email', isEqualTo: normalizedEmail)
           .get();
 
       if (existing.docs.isNotEmpty) {
@@ -81,7 +86,7 @@ class MarketerProvider extends ChangeNotifier {
       // Create new marketer document
       final newMarketer = MarketerModel(
         id: _firestore.collection('app_marketers').doc().id,
-        email: email,
+        email: normalizedEmail,
         fullName: fullName,
         password: hashedPassword,
         phoneNumber: phoneNumber,
@@ -133,7 +138,8 @@ class MarketerProvider extends ChangeNotifier {
 
       if (fullName != null) updateData['fullName'] = fullName;
       if (phoneNumber != null) updateData['phoneNumber'] = phoneNumber;
-      if (profilePhotoUrl != null) updateData['profilePhotoUrl'] = profilePhotoUrl;
+      if (profilePhotoUrl != null)
+        updateData['profilePhotoUrl'] = profilePhotoUrl;
       if (isActive != null) updateData['isActive'] = isActive;
 
       await _firestore
@@ -194,10 +200,11 @@ class MarketerProvider extends ChangeNotifier {
       _isLoading = true;
       _errorMessage = null;
       notifyListeners();
+      final normalizedEmail = email.trim().toLowerCase();
 
       final snapshot = await _firestore
           .collection('app_marketers')
-          .where('email', isEqualTo: email)
+          .where('email', isEqualTo: normalizedEmail)
           .get();
 
       if (snapshot.docs.isEmpty) {
@@ -209,6 +216,12 @@ class MarketerProvider extends ChangeNotifier {
       final marketerDoc = snapshot.docs.first;
       final marketerData = MarketerModel.fromFirestore(marketerDoc);
 
+      if (!marketerData.isActive) {
+        _errorMessage = 'This marketer account is currently disabled';
+        notifyListeners();
+        return null;
+      }
+
       // Verify password
       final hashedPassword = _hashPassword(password);
       if (marketerData.password != hashedPassword) {
@@ -218,10 +231,7 @@ class MarketerProvider extends ChangeNotifier {
       }
 
       // Update last login
-      await _firestore
-          .collection('app_marketers')
-          .doc(marketerData.id)
-          .update({
+      await _firestore.collection('app_marketers').doc(marketerData.id).update({
         'lastLoginAt': FieldValue.serverTimestamp(),
       });
 
@@ -245,7 +255,120 @@ class MarketerProvider extends ChangeNotifier {
   /// Logout current marketer
   void logoutMarketer() {
     _currentMarketer = null;
+    _referrals = [];
     notifyListeners();
+  }
+
+  Future<bool> resetMarketerPassword({
+    required String email,
+    required String phoneNumber,
+    required String newPassword,
+  }) async {
+    try {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      final normalizedEmail = email.trim().toLowerCase();
+      final normalizedPhone = phoneNumber.trim();
+      final snapshot = await _firestore
+          .collection('app_marketers')
+          .where('email', isEqualTo: normalizedEmail)
+          .limit(1)
+          .get();
+
+      if (snapshot.docs.isEmpty) {
+        _errorMessage = 'No marketer account found for that email';
+        notifyListeners();
+        return false;
+      }
+
+      final marketer = MarketerModel.fromFirestore(snapshot.docs.first);
+      final savedPhone = (marketer.phoneNumber ?? '').trim();
+      if (savedPhone.isEmpty || savedPhone != normalizedPhone) {
+        _errorMessage = 'Phone number does not match this marketer account';
+        notifyListeners();
+        return false;
+      }
+
+      await snapshot.docs.first.reference.update({
+        'password': _hashPassword(newPassword),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      final index = _marketers.indexWhere((m) => m.id == marketer.id);
+      if (index != -1) {
+        _marketers[index] = _marketers[index].copyWith(
+          password: _hashPassword(newPassword),
+        );
+      }
+
+      if (_currentMarketer?.id == marketer.id) {
+        _currentMarketer = _currentMarketer!.copyWith(
+          password: _hashPassword(newPassword),
+        );
+      }
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Error resetting password: $e';
+      notifyListeners();
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> changeCurrentMarketerPassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      if (_currentMarketer == null) {
+        _errorMessage = 'No marketer is currently logged in';
+        notifyListeners();
+        return false;
+      }
+
+      final currentHash = _hashPassword(currentPassword);
+      if (_currentMarketer!.password != currentHash) {
+        _errorMessage = 'Current password is incorrect';
+        notifyListeners();
+        return false;
+      }
+
+      final newHash = _hashPassword(newPassword);
+      await _firestore
+          .collection('app_marketers')
+          .doc(_currentMarketer!.id)
+          .update({
+        'password': newHash,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      _currentMarketer = _currentMarketer!.copyWith(password: newHash);
+
+      final index = _marketers.indexWhere((m) => m.id == _currentMarketer!.id);
+      if (index != -1) {
+        _marketers[index] = _marketers[index].copyWith(password: newHash);
+      }
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Error changing password: $e';
+      notifyListeners();
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   /// Fetch all referrals for a specific marketer
@@ -310,7 +433,8 @@ class MarketerProvider extends ChangeNotifier {
         // Update marketer balance and stats
         batch.update(marketerDoc.reference, {
           'balance': currentMarketer.balance + commissionAmount,
-          'totalCommissionEarned': currentMarketer.totalCommissionEarned + commissionAmount,
+          'totalCommissionEarned':
+              currentMarketer.totalCommissionEarned + commissionAmount,
           'totalReferralsApproved': currentMarketer.totalReferralsApproved + 1,
           'totalReferralsPending': currentMarketer.totalReferralsPending - 1,
           'updatedAt': FieldValue.serverTimestamp(),
@@ -320,7 +444,8 @@ class MarketerProvider extends ChangeNotifier {
         if (_currentMarketer?.email == marketerEmail) {
           _currentMarketer = _currentMarketer!.copyWith(
             balance: currentMarketer.balance + commissionAmount,
-            totalCommissionEarned: currentMarketer.totalCommissionEarned + commissionAmount,
+            totalCommissionEarned:
+                currentMarketer.totalCommissionEarned + commissionAmount,
             totalReferralsApproved: currentMarketer.totalReferralsApproved + 1,
             totalReferralsPending: currentMarketer.totalReferralsPending - 1,
           );
@@ -395,6 +520,192 @@ class MarketerProvider extends ChangeNotifier {
       _errorMessage = 'Error updating balance: $e';
       print(_errorMessage);
       return false;
+    }
+  }
+
+  /// Register a new user on behalf of the marketer
+  Future<String?> registerNewUser({
+    required String email,
+    required String password,
+    required String fullName,
+    String? phoneNumber,
+  }) async {
+    try {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      if (_currentMarketer == null) {
+        throw Exception('No marketer logged in');
+      }
+
+      final normalizedEmail = email.trim().toLowerCase();
+
+      // Create Firebase Auth user
+      final result = await _auth.createUserWithEmailAndPassword(
+        email: normalizedEmail,
+        password: password,
+      );
+
+      final userId = result.user!.uid;
+
+      // Create user document in Firestore
+      await _firestore.collection('users').doc(userId).set({
+        'email': normalizedEmail,
+        'name': fullName,
+        'fullName': fullName,
+        'phone': phoneNumber,
+        'phoneNumber': phoneNumber,
+        'role': 'owner', // Assuming marketers register business owners
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'isActive': true,
+        'referredBy': _currentMarketer!.email,
+      });
+
+      // Create referral record
+      await _firestore.collection('referrals').add({
+        'marketerEmail': _currentMarketer!.email,
+        'userId': userId,
+        'userEmail': normalizedEmail,
+        'commissionAmount': 0.0, // To be set when business is registered
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      await _firestore.collection('app_marketers').doc(_currentMarketer!.id).update({
+        'referredUserIds': FieldValue.arrayUnion([userId]),
+        'totalReferralsPending': FieldValue.increment(1),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      final updatedUserIds = [..._currentMarketer!.referredUserIds, userId];
+      _currentMarketer = _currentMarketer!.copyWith(
+        referredUserIds: updatedUserIds,
+        totalReferralsPending: _currentMarketer!.totalReferralsPending + 1,
+      );
+
+      final marketerIndex =
+          _marketers.indexWhere((marketer) => marketer.id == _currentMarketer!.id);
+      if (marketerIndex != -1) {
+        _marketers[marketerIndex] = _marketers[marketerIndex].copyWith(
+          referredUserIds: updatedUserIds,
+          totalReferralsPending:
+              _marketers[marketerIndex].totalReferralsPending + 1,
+        );
+      }
+
+      await _auth.signOut();
+
+      // Refresh referrals
+      await fetchMarketerReferrals(_currentMarketer!.email);
+
+      notifyListeners();
+      return userId;
+    } catch (e) {
+      _errorMessage = 'Error registering user: $e';
+      print(_errorMessage);
+      notifyListeners();
+      return null;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Register a business for an existing user
+  Future<bool> registerBusinessForUser({
+    required String userId,
+    required Map<String, dynamic> businessData,
+  }) async {
+    try {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      if (_currentMarketer == null) {
+        throw Exception('No marketer logged in');
+      }
+
+      // Get user data to associate
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        throw Exception('User not found');
+      }
+
+      final userData = userDoc.data()!;
+      final businessName = businessData['businessName'] as String;
+      final businessType = businessData['businessType'] as String;
+      final businessPhone =
+          (businessData['phone'] as String?)?.trim().isNotEmpty == true
+              ? (businessData['phone'] as String).trim()
+              : null;
+      final userPhone =
+          businessPhone ?? userData['phoneNumber'] ?? userData['phone'] ?? '';
+      final ownerName = userData['fullName'] ?? userData['name'] ?? '';
+
+      // Create business document
+      final businessRef = await _firestore.collection('businesses').add({
+        'ownerId': userId,
+        'ownerName': ownerName,
+        'name': businessName,
+        'businessName': businessName,
+        'type': businessType,
+        'businessType': businessType,
+        'email': userData['email'],
+        'phone': userPhone,
+        'phoneNumber': userPhone,
+        'address': businessData['address'],
+        'landmark': businessData['landmark'],
+        'businessClass': businessData['businessClass'] ?? 'small',
+        'businessTier': businessData['businessTier'] ?? 'starter',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'isActive': true,
+        'subscriptionStatus': 'inactive', // Will be activated later
+        'referredBy': _currentMarketer!.email,
+        'referralEmail': _currentMarketer!.email,
+      });
+
+      final businessId = businessRef.id;
+
+      await _firestore.collection('users').doc(userId).set({
+        'businessId': businessId,
+        'currentBusinessId': businessId,
+        'businessName': businessName,
+        'businessType': businessType,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // Update referral record with business ID and commission
+      final referralQuery = await _firestore
+          .collection('referrals')
+          .where('userId', isEqualTo: userId)
+          .where('marketerEmail', isEqualTo: _currentMarketer!.email)
+          .get();
+
+      if (referralQuery.docs.isNotEmpty) {
+        final referralDoc = referralQuery.docs.first;
+        await referralDoc.reference.update({
+          'businessId': businessId,
+          'commissionAmount': 5000.0, // Example commission amount
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      // Refresh referrals
+      await fetchMarketerReferrals(_currentMarketer!.email);
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Error registering business: $e';
+      print(_errorMessage);
+      notifyListeners();
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
   }
 }

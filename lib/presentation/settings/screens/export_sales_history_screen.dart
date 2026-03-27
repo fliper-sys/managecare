@@ -56,14 +56,15 @@ class _ExportSalesHistoryScreenState extends State<ExportSalesHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final theme = Theme.of(context);
     if (!auth.isOwnerUser) {
       return Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: theme.scaffoldBackgroundColor,
         appBar: AppBar(
           title: const Text('Export Sales History'),
           elevation: 0,
           backgroundColor: Colors.transparent,
-          iconTheme: const IconThemeData(color: Colors.black),
+          iconTheme: IconThemeData(color: theme.iconTheme.color),
         ),
         body: Center(
           child: Padding(
@@ -75,12 +76,12 @@ class _ExportSalesHistoryScreenState extends State<ExportSalesHistoryScreen> {
     }
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Export Sales History'),
         elevation: 0,
         backgroundColor: Colors.transparent,
-        iconTheme: const IconThemeData(color: Colors.black),
+        iconTheme: IconThemeData(color: theme.iconTheme.color),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -874,15 +875,20 @@ class _ExportSalesHistoryScreenState extends State<ExportSalesHistoryScreen> {
   }
 
   Future<void> _updateAutoBackup(bool value) async {
+    final authProvider = context.read<AuthProvider>();
     final settingsProvider = context.read<SettingsProvider>();
     final businessProvider = context.read<BusinessProvider>();
+    final businessId = businessProvider.currentBusiness?.id;
+    final userId = authProvider.currentUser?.id;
 
-    if (businessProvider.currentBusiness?.id != null) {
+    if (businessId != null && userId != null) {
       await settingsProvider.updateExportSettings(
-        businessProvider.currentBusiness!.id,
-        'current_user_id', // Replace with actual user ID
+        businessId,
+        userId,
         autoBackup: value,
       );
+    } else {
+      _showErrorSnackBar('Unable to save backup preference right now.');
     }
   }
 

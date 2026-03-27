@@ -33,6 +33,7 @@ import 'providers/notification_provider.dart';
 import 'providers/currency_provider.dart';
 import 'providers/backup_provider.dart';
 import 'services/email_service.dart';
+import 'services/push_service.dart';
 import 'providers/agri_provider.dart';
 import 'data/repositories/industry_specific/agri_repository_impl.dart';
 import 'providers/auto_provider.dart';
@@ -105,18 +106,25 @@ void main() async {
   if (!kIsWeb) {
     try {
       await NotificationService.instance.initialize();
+      await PushService.initialize();
     } catch (e) {
       // If notifications fail to initialize on the device, log and continue
     }
   }
 
   // Set system UI overlay style
+  final prefersDarkMode =
+      WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+          Brightness.dark;
   SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
+    SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: Colors.white,
-      systemNavigationBarIconBrightness: Brightness.dark,
+      statusBarIconBrightness:
+          prefersDarkMode ? Brightness.light : Brightness.dark,
+      systemNavigationBarColor:
+          prefersDarkMode ? const Color(0xFF08101D) : Colors.white,
+      systemNavigationBarIconBrightness:
+          prefersDarkMode ? Brightness.light : Brightness.dark,
     ),
   );
 

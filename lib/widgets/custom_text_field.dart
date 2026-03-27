@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../core/theme/colors.dart';
 import '../core/theme/text_styles.dart';
 
 class CustomTextField extends StatelessWidget {
@@ -51,13 +50,20 @@ class CustomTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final baseFillColor = theme.inputDecorationTheme.fillColor ?? scheme.surface;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (label != null) ...[
           Text(
             label!,
-            style: AppTextStyles.label,
+            style: theme.textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ) ??
+                AppTextStyles.label,
           ),
           const SizedBox(height: 8),
         ],
@@ -67,47 +73,52 @@ class CustomTextField extends StatelessWidget {
           focusNode: focusNode,
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: AppTextStyles.body1.copyWith(
-              color: AppColors.textSecondary,
+            hintStyle: theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurface.withOpacity(0.56),
             ),
             prefixIcon: prefixIcon != null
-                ? Icon(prefixIcon, color: AppColors.textSecondary)
+                ? Icon(
+                    prefixIcon,
+                    color: scheme.onSurface.withOpacity(0.62),
+                  )
                 : null,
             suffixIcon: suffixIcon,
             filled: true,
-            fillColor: enabled ? Colors.grey[100] : Colors.grey[200],
+            fillColor: enabled
+                ? baseFillColor
+                : baseFillColor.withOpacity(0.72),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
+              borderSide: BorderSide(color: scheme.outline.withOpacity(0.82)),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
+              borderSide: BorderSide(color: scheme.outline.withOpacity(0.82)),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(
-                color: AppColors.primary,
-                width: 2,
+              borderSide: BorderSide(
+                color: scheme.primary,
+                width: 1.6,
               ),
             ),
             errorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(
-                color: AppColors.error,
-                width: 1,
+              borderSide: BorderSide(
+                color: scheme.error,
+                width: 1.2,
               ),
             ),
             focusedErrorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(
-                color: AppColors.error,
-                width: 2,
+              borderSide: BorderSide(
+                color: scheme.error,
+                width: 1.6,
               ),
             ),
             disabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
+              borderSide: BorderSide(color: scheme.outline.withOpacity(0.5)),
             ),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 16,
@@ -116,7 +127,7 @@ class CustomTextField extends StatelessWidget {
             errorStyle: AppTextStyles.error,
             counterText: '',
           ),
-          style: AppTextStyles.body1,
+          style: theme.textTheme.bodyLarge ?? AppTextStyles.body1,
           keyboardType: keyboardType,
           obscureText: obscureText,
           enabled: enabled,

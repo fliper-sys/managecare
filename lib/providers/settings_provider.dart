@@ -312,14 +312,14 @@ class SettingsProvider extends ChangeNotifier {
           .doc(businessId)
           .collection('settings')
           .doc(userId)
-          .update({
+          .set({
         'emailNotificationsEnabled': _emailNotificationsEnabled,
         'smsNotificationsEnabled': _smsNotificationsEnabled,
         'pushNotificationsEnabled': _pushNotificationsEnabled,
         'notificationFrequency': _notificationFrequency,
         'notificationTypes': _notificationTypes,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
 
       _error = null;
       notifyListeners();
@@ -367,7 +367,7 @@ class SettingsProvider extends ChangeNotifier {
           .doc(businessId)
           .collection('settings')
           .doc(userId)
-          .update({
+          .set({
         'printerEnabled': _printerEnabled,
         'printerModel': _printerModel,
         'paperWidth': _paperWidth,
@@ -379,8 +379,9 @@ class SettingsProvider extends ChangeNotifier {
         'footerText': _footerText,
         'selectedPrinterMac': _selectedPrinterMac,
         'selectedPrinterName': _selectedPrinterName,
+        'selectedUsbDeviceId': _selectedUsbDeviceId,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
 
       _error = null;
       notifyListeners();
@@ -410,12 +411,12 @@ class SettingsProvider extends ChangeNotifier {
           .doc(businessId)
           .collection('settings')
           .doc(userId)
-          .update({
+          .set({
         'currentPlan': _currentPlan,
         'autoRenew': _autoRenew,
         'billingCycleMonths': _billingCycleMonths,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
 
       _error = null;
       notifyListeners();
@@ -445,12 +446,12 @@ class SettingsProvider extends ChangeNotifier {
           .doc(businessId)
           .collection('settings')
           .doc(userId)
-          .update({
+          .set({
         'defaultExportFormat': _defaultExportFormat,
         'includeImages': _includeImages,
         'autoBackup': _autoBackup,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
 
       _error = null;
       notifyListeners();
@@ -484,14 +485,14 @@ class SettingsProvider extends ChangeNotifier {
           .doc(businessId)
           .collection('settings')
           .doc(userId)
-          .update({
+          .set({
         'theme': _theme,
         'language': _language,
         'currency': _currency,
         'offlineModeEnabled': _offlineModeEnabled,
         'syncOnWifi': _syncOnWifi,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
 
       _error = null;
       notifyListeners();
@@ -512,9 +513,9 @@ class SettingsProvider extends ChangeNotifier {
           .doc(businessId)
           .collection('settings')
           .doc(userId)
-          .update({
+          .set({
         'lastBackupDate': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
       notifyListeners();
     } catch (e) {
       _error = 'Failed to update backup date: $e';
@@ -531,9 +532,9 @@ class SettingsProvider extends ChangeNotifier {
           .doc(businessId)
           .collection('settings')
           .doc(userId)
-          .update({
+          .set({
         'lastExportDate': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
       notifyListeners();
     } catch (e) {
       _error = 'Failed to update export date: $e';

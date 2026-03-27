@@ -84,6 +84,7 @@ class MarketerModel {
 
   /// Create a copy with modified fields
   MarketerModel copyWith({
+    String? password,
     String? fullName,
     String? phoneNumber,
     double? balance,
@@ -101,7 +102,7 @@ class MarketerModel {
       email: email,
       fullName: fullName ?? this.fullName,
       phoneNumber: phoneNumber ?? this.phoneNumber,
-      password: password,
+      password: password ?? this.password,
       balance: balance ?? this.balance,
       referredUserIds: referredUserIds ?? this.referredUserIds,
       referrals: referrals ?? this.referrals,

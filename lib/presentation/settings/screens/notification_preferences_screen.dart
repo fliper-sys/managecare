@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../core/constants/routes.dart';
 import '../../../providers/notification_provider.dart';
 import 'manage_devices_screen.dart';
-import '../../../core/theme/colors.dart';
 import '../../../widgets/custom_app_bar.dart';
 
 class NotificationPreferencesScreen extends StatelessWidget {
@@ -10,7 +10,11 @@ class NotificationPreferencesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: const CustomAppBar(
         title: 'Notification Preferences',
         showBackButton: true,
@@ -22,9 +26,48 @@ class NotificationPreferencesScreen extends StatelessWidget {
           }
 
           return SingleChildScrollView(
+            padding: const EdgeInsets.only(bottom: 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          scheme.primary,
+                          Color.lerp(scheme.primary, scheme.secondary, 0.5)!,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Stay in control',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Choose how alerts show up across your device, email, and in-app workspace.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: Colors.white.withOpacity(0.9),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
                 // Notification Channels
                 _buildSection(
                   context,
@@ -199,18 +242,37 @@ class NotificationPreferencesScreen extends StatelessWidget {
                   ],
                 ),
 
-                // Manage devices
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const ManageDevicesScreen()));
-                      },
-                      icon: const Icon(Icons.devices),
-                      label: const Text('Manage Devices'),
-                    ),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      SizedBox(
+                        width: MediaQuery.of(context).size.width > 640
+                            ? (MediaQuery.of(context).size.width - 56) / 2
+                            : MediaQuery.of(context).size.width - 32,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.pushNamed(context, Routes.notifications);
+                          },
+                          icon: const Icon(Icons.notifications_active_outlined),
+                          label: const Text('Open Notification Center'),
+                        ),
+                      ),
+                      SizedBox(
+                        width: MediaQuery.of(context).size.width > 640
+                            ? (MediaQuery.of(context).size.width - 56) / 2
+                            : MediaQuery.of(context).size.width - 32,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => const ManageDevicesScreen()));
+                          },
+                          icon: const Icon(Icons.devices),
+                          label: const Text('Manage Devices'),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
 
@@ -246,7 +308,7 @@ class NotificationPreferencesScreen extends StatelessWidget {
                       icon: const Icon(Icons.refresh),
                       label: const Text('Reset to Defaults'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey[600],
+                        backgroundColor: scheme.onSurface.withOpacity(0.68),
                       ),
                     ),
                   ),
@@ -264,6 +326,10 @@ class NotificationPreferencesScreen extends StatelessWidget {
     required String title,
     required List<Widget> children,
   }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -271,18 +337,21 @@ class NotificationPreferencesScreen extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
           child: Text(
             title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
+            style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
           ),
         ),
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            color: AppColors.surface,
+            color: Color.alphaBlend(
+              scheme.primary.withOpacity(isDark ? 0.08 : 0.02),
+              theme.cardColor,
+            ),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: Colors.grey.withOpacity(0.1),
+              color: scheme.outline.withOpacity(0.68),
             ),
           ),
           child: Column(children: children),
@@ -297,12 +366,14 @@ class NotificationPreferencesScreen extends StatelessWidget {
     bool value,
     Function(bool) onChanged,
   ) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: Colors.grey.withOpacity(0.1),
+            color: scheme.outline.withOpacity(0.45),
           ),
         ),
       ),
@@ -326,12 +397,15 @@ class NotificationPreferencesScreen extends StatelessWidget {
     bool value,
     Function(bool) onChanged,
   ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: Colors.grey.withOpacity(0.1),
+            color: scheme.outline.withOpacity(0.45),
           ),
         ),
       ),
@@ -351,8 +425,8 @@ class NotificationPreferencesScreen extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   subtitle,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[500],
+                  style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurface.withOpacity(0.68),
                       ),
                 ),
               ],
@@ -373,6 +447,8 @@ class NotificationPreferencesScreen extends StatelessWidget {
     TimeOfDay time,
     Function(TimeOfDay) onTimeChanged,
   ) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Row(
       children: [
         Text(
@@ -394,7 +470,7 @@ class NotificationPreferencesScreen extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                border: Border.all(color: scheme.outline.withOpacity(0.55)),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
@@ -415,6 +491,9 @@ class NotificationPreferencesScreen extends StatelessWidget {
     bool isSelected,
     VoidCallback onTap,
   ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -422,13 +501,14 @@ class NotificationPreferencesScreen extends StatelessWidget {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           border: Border.all(
-            color:
-                isSelected ? Colors.blue : Colors.grey.withOpacity(0.3),
+            color: isSelected
+                ? scheme.primary
+                : scheme.outline.withOpacity(0.55),
             width: isSelected ? 2 : 1,
           ),
           borderRadius: BorderRadius.circular(8),
           color: isSelected
-              ? Colors.blue.withOpacity(0.05)
+              ? scheme.primary.withOpacity(0.08)
               : Colors.transparent,
         ),
         child: Row(
@@ -451,8 +531,8 @@ class NotificationPreferencesScreen extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   subtitle,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[500],
+                  style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurface.withOpacity(0.68),
                       ),
                 ),
               ],

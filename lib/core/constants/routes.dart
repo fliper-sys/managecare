@@ -248,6 +248,11 @@ class Routes {
   static const String installationRequestsMy = '/install/my-requests';
 
   // Marketer/worker dashboard
+  static const String marketerLogin = '/marketer/login';
+  static const String marketerForgotPassword = '/marketer/forgot-password';
+  static const String marketerChangePassword = '/marketer/change-password';
+  static const String marketerRegisterUser = '/marketer/register-user';
+  static const String marketerRegisterBusiness = '/marketer/register-business';
   static const String marketerDashboard = '/marketer/dashboard';
 }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../../widgets/empty_state.dart';
 import '../../../widgets/loading_indicator.dart';
 
 class ManageDevicesScreen extends StatefulWidget {
@@ -24,7 +25,10 @@ class _ManageDevicesScreenState extends State<ManageDevicesScreen> {
   Future<void> _loadTokens() async {
     setState(() => _loading = true);
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      setState(() => _loading = false);
+      return;
+    }
     final snap = await _firestore.collection('users').doc(user.uid).collection('fcmTokens').get();
     setState(() {
       _tokens = snap.docs;
@@ -42,38 +46,95 @@ class _ManageDevicesScreenState extends State<ManageDevicesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Manage Devices')),
+      backgroundColor: theme.scaffoldBackgroundColor,
+      appBar: AppBar(
+        title: const Text('Manage Devices'),
+        backgroundColor: Colors.transparent,
+      ),
       body: _loading
           ? const Center(child: CustomLoadingIndicator())
           : _tokens.isEmpty
-              ? const Center(child: Text('No registered devices'))
+              ? const EmptyState(
+                  title: 'No registered devices',
+                  subtitle:
+                      'Once this account signs in on a device and accepts push permissions, it will appear here.',
+                  icon: Icons.devices_other_outlined,
+                )
               : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                   itemCount: _tokens.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
                   itemBuilder: (context, i) {
                     final t = _tokens[i].data();
                     final id = _tokens[i].id;
                     final platform = t['platform'] ?? 'unknown';
                     final token = t['token'] ?? '';
-                    return ListTile(
-                      title: Text(platform.toString()),
-                      subtitle: Text('${token.substring(0, token.length > 20 ? 20 : token.length)}...'),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () async {
-                          final ok = await showDialog<bool>(
+                    final previewLength = token.length > 28 ? 28 : token.length;
+
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: theme.cardColor,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: scheme.outline.withOpacity(0.65),
+                        ),
+                      ),
+                      child: ListTile(
+                        leading: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: scheme.primary.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            platform.toString().toLowerCase().contains('ios')
+                                ? Icons.phone_iphone
+                                : Icons.android,
+                            color: scheme.primary,
+                          ),
+                        ),
+                        title: Text(
+                          platform.toString().toUpperCase(),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        subtitle: Text(
+                          '${token.substring(0, previewLength)}...',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurface.withOpacity(0.68),
+                          ),
+                        ),
+                        trailing: IconButton(
+                          icon: Icon(Icons.delete_outline, color: scheme.error),
+                          onPressed: () async {
+                            final ok = await showDialog<bool>(
                               context: context,
                               builder: (ctx) => AlertDialog(
-                                    title: const Text('Remove device'),
-                                    content: const Text('Remove this device from receiving push notifications?'),
-                                    actions: [
-                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                                      TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove')),
-                                    ],
-                                  ));
-                          if (ok == true) await _removeToken(id);
-                        },
+                                title: const Text('Remove device'),
+                                content: const Text(
+                                  'Remove this device from receiving push notifications?',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    child: const Text('Remove'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (ok == true) await _removeToken(id);
+                          },
+                        ),
                       ),
                     );
                   },

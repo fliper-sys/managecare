@@ -2,8 +2,25 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/push_service.dart';
 
 class NotificationProvider extends ChangeNotifier {
+  static const List<String> _notificationPreferenceKeys = [
+    'push_enabled',
+    'email_enabled',
+    'sms_enabled',
+    'in_app_enabled',
+    'sales_alerts',
+    'inventory_alerts',
+    'payment_alerts',
+    'customer_alerts',
+    'system_alerts',
+    'quiet_hours_enabled',
+    'quiet_hours_start',
+    'quiet_hours_end',
+    'frequency',
+  ];
+
   late SharedPreferences _prefs;
   bool _isInitialized = false;
 
@@ -109,6 +126,16 @@ class NotificationProvider extends ChangeNotifier {
   Future<void> setPushNotifications(bool enabled) async {
     _isPushEnabled = enabled;
     await _prefs.setBool('push_enabled', enabled);
+
+    try {
+      if (enabled) {
+        await PushService.enableCurrentDevicePush();
+      } else {
+        await PushService.disableCurrentDevicePush();
+      }
+    } catch (e) {
+      print('Error updating local push registration: $e');
+    }
 
     // Persist preference to Firestore for server-side filtering
     try {
@@ -218,7 +245,24 @@ class NotificationProvider extends ChangeNotifier {
     _quietHoursEnd = const TimeOfDay(hour: 8, minute: 0);
     _frequency = NotificationFrequency.realTime;
 
-    await _prefs.clear();
+    for (final key in _notificationPreferenceKeys) {
+      await _prefs.remove(key);
+    }
+
+    try {
+      await PushService.enableCurrentDevicePush();
+
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'pushEnabled': true,
+          'pushPreferencesUpdatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    } catch (e) {
+      print('Error restoring default push registration: $e');
+    }
+
     notifyListeners();
   }
 

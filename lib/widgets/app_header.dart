@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 // Text styles are now derived from Theme; specific AppTextStyles import removed
 
 import '../providers/auth_provider.dart';
@@ -104,12 +105,80 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
               ],
             ),
           ),
-          IconButton(
-            onPressed: () => Navigator.pushNamed(context, Routes.notifications),
-            icon: Icon(Icons.notifications_rounded, color: colorScheme.primary),
-          ),
+          _HeaderNotificationButton(userId: user?.id),
         ],
       ),
+    );
+  }
+}
+
+class _HeaderNotificationButton extends StatelessWidget {
+  const _HeaderNotificationButton({required this.userId});
+
+  final String? userId;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+
+    if (userId == null || userId!.isEmpty) {
+      return IconButton(
+        onPressed: () => Navigator.pushNamed(context, Routes.notifications),
+        icon: Icon(Icons.notifications_rounded, color: color),
+      );
+    }
+
+    final stream = FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('notifications')
+        .orderBy('createdAt', descending: true)
+        .limit(25)
+        .snapshots();
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        final docs =
+            snapshot.data?.docs ??
+            <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        final unreadCount = docs.where((doc) {
+          final data = doc.data();
+          return data['isRead'] != true && data['readAt'] == null;
+        }).length;
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            IconButton(
+              onPressed: () => Navigator.pushNamed(context, Routes.notifications),
+              icon: Icon(Icons.notifications_rounded, color: color),
+            ),
+            if (unreadCount > 0)
+              Positioned(
+                right: 6,
+                top: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.error,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    unreadCount > 9 ? '9+' : '$unreadCount',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }

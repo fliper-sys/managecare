@@ -85,10 +85,20 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
         final settings = Provider.of<SettingsProvider>(context, listen: false);
         final auth = Provider.of<AuthProvider>(context, listen: false);
         final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
-        
+        final businessId = business?.id;
+        final userId = auth.currentUser?.id;
+
+        if (businessId == null || userId == null) {
+          _showStatus(
+            'Printer connected locally, but your settings could not be saved yet.',
+            Colors.orange,
+          );
+          return;
+        }
+
         await settings.updatePrinterSettings(
-          business?.id ?? 'unknown',
-          auth.currentUser?.id ?? 'unknown',
+          businessId,
+          userId,
           selectedPrinterMac: device.address,
           paperWidth: _paperWidth.toString(),
         );
@@ -191,10 +201,20 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
     final settings = Provider.of<SettingsProvider>(context, listen: false);
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
-    
+    final businessId = business?.id;
+    final userId = auth.currentUser?.id;
+
+    if (businessId == null || userId == null) {
+      _showStatus(
+        'Paper width updated for this session, but settings could not be saved yet.',
+        Colors.orange,
+      );
+      return;
+    }
+
     await settings.updatePrinterSettings(
-      business?.id ?? 'unknown',
-      auth.currentUser?.id ?? 'unknown',
+      businessId,
+      userId,
       paperWidth: width.toString(),
     );
     

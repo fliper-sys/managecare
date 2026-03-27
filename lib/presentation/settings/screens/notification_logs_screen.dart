@@ -86,7 +86,9 @@ class _NotificationLogsScreenState extends State<NotificationLogsScreen> {
                 title: const Text('Notification Logs'),
                 elevation: 0,
                 backgroundColor: Colors.transparent,
-                iconTheme: const IconThemeData(color: Colors.black),
+                iconTheme: IconThemeData(
+                  color: Theme.of(context).iconTheme.color,
+                ),
               ),
               body: Column(
                 children: [
