@@ -8,6 +8,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/reports_provider.dart';
 import '../../../core/constants/routes.dart';
 import '../widgets/report_card.dart';
+import '../widgets/report_theme.dart';
 
 class InventoryReportScreen extends StatefulWidget {
   const InventoryReportScreen({super.key});
@@ -86,7 +87,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       }
     }
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.reportBackground,
       appBar: AppBar(
         title: const Text('Inventory Report'),
         elevation: 0,
@@ -336,7 +337,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
               Text(
                 'P${topItems[index].productId}',
                 style: AppTextStyles.caption
-                    .copyWith(color: AppColors.textSecondary, fontSize: 8),
+                    .copyWith(color: context.reportMutedText, fontSize: 8),
               ),
             ],
           ),

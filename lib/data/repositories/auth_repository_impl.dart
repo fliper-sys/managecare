@@ -89,7 +89,21 @@ class AuthRepositoryImpl implements AuthRepository {
           .get();
       if (doc.exists && doc.data() != null) {
         final data = doc.data() as Map<String, dynamic>;
-        return UserModel.fromJson(data);
+        // Always trust the document id as the canonical user id. Some legacy
+        // records were created without an `id` field, which leaves the app with
+        // an empty `currentUser.id` after sign-in.
+        if ((data['id']?.toString().trim().isEmpty ?? true)) {
+          try {
+            await doc.reference.set({'id': doc.id}, SetOptions(merge: true));
+          } catch (_) {
+            // Non-fatal: the in-memory user can still be repaired even if the
+            // backfill write fails.
+          }
+        }
+        return UserModel.fromJson({
+          ...data,
+          'id': doc.id,
+        });
       }
 
       // Fallback to Firebase Auth basic mapping

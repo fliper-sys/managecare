@@ -15,6 +15,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../services/report_export_service.dart';
+import '../widgets/report_theme.dart';
 
 class ExportReportScreen extends StatefulWidget {
   const ExportReportScreen({super.key});
@@ -68,7 +69,7 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
               decoration: BoxDecoration(
                 color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.border),
+                border: Border.all(color: context.reportBorder),
               ),
               child: Column(
                 children: [
@@ -149,7 +150,7 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
               decoration: BoxDecoration(
                 color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.border),
+                border: Border.all(color: context.reportBorder),
               ),
               child: Column(
                 children: [
@@ -183,7 +184,7 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
               decoration: BoxDecoration(
                 color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.border),
+                border: Border.all(color: context.reportBorder),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -262,7 +263,7 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
                                 border: Border.all(
                                   color: isSelected
                                       ? AppColors.primary
-                                      : AppColors.border,
+                                      : context.reportBorder,
                                 ),
                               ),
                               child: Center(
@@ -272,7 +273,7 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
                                     fontWeight: FontWeight.w600,
                                     color: isSelected
                                         ? AppColors.primary
-                                        : AppColors.textSecondary,
+                                        : context.reportMutedText,
                                   ),
                                 ),
                               ),
@@ -299,12 +300,12 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
                     decoration: BoxDecoration(
                       color: Theme.of(context).cardColor,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.border),
+                      border: Border.all(color: context.reportBorder),
                     ),
                     child: Text(
                       'No exports yet. Your generated report files will appear here.',
                       style: AppTextStyles.body2.copyWith(
-                        color: AppColors.textSecondary,
+                        color: context.reportMutedText,
                       ),
                     ),
                   );
@@ -621,7 +622,7 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
                     ? 'Scheduled export: ${_scheduleFrequency[0].toUpperCase()}${_scheduleFrequency.substring(1)}'
                     : 'Scheduled export: Off',
                 style: AppTextStyles.caption.copyWith(
-                  color: AppColors.textSecondary,
+                  color: context.reportMutedText,
                 ),
               ),
             ],
@@ -649,7 +650,7 @@ class _SectionHeader extends StatelessWidget {
       title,
       style: AppTextStyles.heading5.copyWith(
         fontWeight: FontWeight.w600,
-        color: AppColors.textPrimary,
+        color: Theme.of(context).textTheme.titleMedium?.color,
       ),
     );
   }
@@ -704,7 +705,7 @@ class _ExportFormatCard extends StatelessWidget {
                   Text(
                     description,
                     style: AppTextStyles.caption
-                        .copyWith(color: AppColors.textSecondary),
+                        .copyWith(color: context.reportMutedText),
                   ),
                 ],
               ),
@@ -714,7 +715,7 @@ class _ExportFormatCard extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: isSelected ? color : AppColors.border,
+                  color: isSelected ? color : context.reportBorder,
                   width: isSelected ? 2 : 1,
                 ),
               ),
@@ -747,9 +748,9 @@ class _DatePickerButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: context.reportSurface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.border),
+          border: Border.all(color: context.reportBorder),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -757,7 +758,7 @@ class _DatePickerButton extends StatelessWidget {
             Text(
               label,
               style: AppTextStyles.caption
-                  .copyWith(color: AppColors.textSecondary),
+                  .copyWith(color: context.reportMutedText),
             ),
             const SizedBox(height: 4),
             Row(
@@ -773,8 +774,8 @@ class _DatePickerButton extends StatelessWidget {
                     style: AppTextStyles.bodySmall.copyWith(
                       fontWeight: FontWeight.w600,
                       color: date != null
-                          ? AppColors.textPrimary
-                          : AppColors.textSecondary,
+                          ? Theme.of(context).textTheme.bodyMedium?.color
+                          : context.reportMutedText,
                     ),
                   ),
                 ),
@@ -825,7 +826,7 @@ class _CheckboxOption extends StatelessWidget {
                 Text(
                   subtitle,
                   style: AppTextStyles.caption
-                      .copyWith(color: AppColors.textSecondary),
+                      .copyWith(color: context.reportMutedText),
                 ),
               ],
             ),
@@ -858,9 +859,9 @@ class _ExportHistoryItem extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.reportSurface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.reportBorder),
       ),
       child: Row(
         children: [
@@ -906,13 +907,13 @@ class _ExportHistoryItem extends StatelessWidget {
                     Text(
                       date,
                       style: AppTextStyles.caption
-                          .copyWith(color: AppColors.textSecondary),
+                          .copyWith(color: context.reportMutedText),
                     ),
                     const SizedBox(width: 8),
                     Text(
                       size,
                       style: AppTextStyles.caption
-                          .copyWith(color: AppColors.textSecondary),
+                          .copyWith(color: context.reportMutedText),
                     ),
                   ],
                 ),

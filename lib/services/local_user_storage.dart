@@ -71,6 +71,7 @@ class LocalUserStorage {
   /// Update only specific user fields in local storage
   /// Supports adding businessIds and setting currentBusinessId
   Future<bool> updateCachedUser({
+    String? email,
     String? fullName,
     String? phoneNumber,
     String? photoUrl,
@@ -92,6 +93,7 @@ class LocalUserStorage {
       }
 
       final updated = cached.copyWith(
+        email: email,
         fullName: fullName,
         phoneNumber: phoneNumber,
         photoUrl: photoUrl,

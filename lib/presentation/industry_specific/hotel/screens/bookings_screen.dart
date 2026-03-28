@@ -403,6 +403,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
     Room room,
     HotelProvider provider,
   ) {
+    final folioTotal = provider.getReservationBalance(reservation);
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -465,6 +467,42 @@ class _BookingsScreenState extends State<BookingsScreen> {
                         'Party Size',
                         '${reservation.adults} Adults, ${reservation.children} Kids',
                         Icons.group_outlined),
+                    _buildDetailRow(
+                        'Address',
+                        _displayValue(reservation.guestAddress),
+                        Icons.home_outlined),
+                    _buildDetailRow(
+                        'Booking Source',
+                        _displayValue(reservation.bookingSource),
+                        Icons.source_outlined),
+
+                    const SizedBox(height: 24),
+
+                    _buildSectionHeader('Identity & Emergency Contact'),
+                    _buildDetailRow(
+                        'Nationality',
+                        _displayValue(reservation.guestNationality),
+                        Icons.flag_outlined),
+                    _buildDetailRow(
+                        'ID Type',
+                        _displayValue(reservation.guestIdType),
+                        Icons.badge_outlined),
+                    _buildDetailRow(
+                        'ID Number',
+                        _displayValue(reservation.guestIdNumber),
+                        Icons.credit_card_outlined),
+                    _buildDetailRow(
+                        'Next of Kin',
+                        _displayValue(reservation.nextOfKinName),
+                        Icons.person_2_outlined),
+                    _buildDetailRow(
+                        'Next of Kin Phone',
+                        _displayValue(reservation.nextOfKinPhone),
+                        Icons.call_outlined),
+                    _buildDetailRow(
+                        'Relationship',
+                        _displayValue(reservation.nextOfKinRelationship),
+                        Icons.family_restroom_outlined),
 
                     const SizedBox(height: 24),
 
@@ -537,7 +575,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                       fontWeight: FontWeight.bold,
                                       fontSize: 16)),
                               Text(
-                                  formatCurrency(reservation.totalPrice),
+                                  formatCurrency(folioTotal),
                                   style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 18,
@@ -579,9 +617,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12)),
                           ),
-                          onPressed: () {
-                            provider.updateReservationStatus(
+                          onPressed: () async {
+                            await provider.updateReservationStatus(
                                 reservation.id, 'checked-in');
+                            if (!context.mounted) return;
                             Navigator.pop(context);
                           },
                           icon: const Icon(Icons.login, color: Colors.white),
@@ -607,45 +646,20 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             await provider.updateReservationStatus(
                                 reservation.id, 'checked-out');
 
-                            // Prepare Sale Map
-                            final saleMap = {
-                              'id': reservation.id,
-                              'saleId': reservation.id,
-                              'items': [
-                                {
-                                  'name': 'Room ${room.number} (${room.type})',
-                                  'quantity': reservation.nights,
-                                  'price': room.pricePerNight,
-                                }
-                              ],
-                              'subtotal': reservation.totalPrice,
-                              'total': reservation.totalPrice,
-                              'totalAmount': reservation.totalPrice,
-                              'finalAmount': reservation.totalPrice,
-                              'paymentMethod':
-                                  reservation.paymentStatus == 'paid'
-                                      ? 'Card'
-                                      : 'Cash',
-                              'paymentBreakdown': [
-                                {
-                                  'method': reservation.paymentStatus == 'paid'
-                                      ? 'Card'
-                                      : 'Cash',
-                                  'amount': reservation.totalPrice,
-                                }
-                              ],
-                              'status': 'completed',
-                              'category': 'Hotel',
-                              'date': DateTime.now().toIso8601String(),
-                              'customer': {
-                                'name': reservation.guestName,
-                                'email': reservation.guestEmail,
-                                'phone': reservation.guestPhone,
-                              },
-                              'customerName': reservation.guestName,
-                              'numberOfPersons':
-                                  reservation.adults + reservation.children,
-                            };
+                            final updatedReservation =
+                                provider.reservations.firstWhere(
+                              (item) => item.id == reservation.id,
+                              orElse: () =>
+                                  reservation.copyWith(status: 'checked-out'),
+                            );
+                            final saleMap = provider.buildReservationSalePayload(
+                              updatedReservation,
+                              room: room,
+                              paymentMethod:
+                                  updatedReservation.paymentStatus == 'paid'
+                                      ? 'hotel_checkout'
+                                      : 'pay_at_checkout',
+                            );
 
                             await ReceiptManager.handlePostSale(
                                 context, saleMap);
@@ -700,6 +714,21 @@ class _BookingsScreenState extends State<BookingsScreen> {
                           onPressed: () async {
                             await provider.updatePaymentStatus(
                                 reservation.id, 'paid');
+                            final updatedReservation =
+                                provider.reservations.firstWhere(
+                              (item) => item.id == reservation.id,
+                              orElse: () =>
+                                  reservation.copyWith(paymentStatus: 'paid'),
+                            );
+                            final saleMap =
+                                provider.buildReservationSalePayload(
+                              updatedReservation,
+                              room: room,
+                              paymentMethod: 'hotel_billing',
+                            );
+                            if (!context.mounted) return;
+                            await ReceiptManager.handlePostSale(
+                                context, saleMap);
                             if (!context.mounted) return;
                             Navigator.pop(context);
                           },
@@ -750,15 +779,17 @@ class _BookingsScreenState extends State<BookingsScreen> {
             child: Icon(icon, size: 20, color: Colors.grey[600]),
           ),
           const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              Text(value,
-                  style: const TextStyle(
-                      fontSize: 14, fontWeight: FontWeight.w500)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                Text(value,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w500)),
+              ],
+            ),
           ),
         ],
       ),
@@ -800,11 +831,24 @@ class _BookingsScreenState extends State<BookingsScreen> {
     );
   }
 
+  String _displayValue(String? value, {String fallback = 'Not provided'}) {
+    final trimmed = value?.trim() ?? '';
+    return trimmed.isEmpty ? fallback : trimmed;
+  }
+
   void _showNewReservationDialog(BuildContext context, HotelProvider provider) {
     final _formKey = GlobalKey<FormState>();
     final guestNameCtrl = TextEditingController();
     final guestEmailCtrl = TextEditingController();
     final guestPhoneCtrl = TextEditingController();
+    final guestAddressCtrl = TextEditingController();
+    final guestNationalityCtrl = TextEditingController();
+    final guestIdTypeCtrl = TextEditingController();
+    final guestIdNumberCtrl = TextEditingController();
+    final nextOfKinNameCtrl = TextEditingController();
+    final nextOfKinPhoneCtrl = TextEditingController();
+    final nextOfKinRelationshipCtrl = TextEditingController();
+    final bookingSourceCtrl = TextEditingController(text: 'walk-in');
     final adultsCtrl = TextEditingController(text: '1');
     final childrenCtrl = TextEditingController(text: '0');
     final requestsCtrl = TextEditingController();
@@ -855,6 +899,12 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        const Text(
+                          'Primary Guest',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                        const SizedBox(height: 12),
                         TextFormField(
                           controller: guestNameCtrl,
                           decoration:
@@ -888,6 +938,93 @@ class _BookingsScreenState extends State<BookingsScreen> {
                           validator: (value) => value == null || value.isEmpty
                               ? 'Phone is required'
                               : null,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: guestAddressCtrl,
+                          decoration:
+                              const InputDecoration(labelText: 'Guest Address'),
+                          validator: (value) => value == null || value.isEmpty
+                              ? 'Address is required'
+                              : null,
+                        ),
+                        const SizedBox(height: 20),
+                        const Text(
+                          'Identity & Emergency Contact',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: guestNationalityCtrl,
+                          decoration:
+                              const InputDecoration(labelText: 'Nationality'),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: guestIdTypeCtrl,
+                                decoration: const InputDecoration(
+                                    labelText: 'ID Type'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                controller: guestIdNumberCtrl,
+                                decoration: const InputDecoration(
+                                    labelText: 'ID Number'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: nextOfKinNameCtrl,
+                          decoration: const InputDecoration(
+                              labelText: 'Next of Kin Name'),
+                          validator: (value) => value == null || value.isEmpty
+                              ? 'Next of kin name is required'
+                              : null,
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: nextOfKinPhoneCtrl,
+                                decoration: const InputDecoration(
+                                    labelText: 'Next of Kin Phone'),
+                                keyboardType: TextInputType.phone,
+                                validator: (value) =>
+                                    value == null || value.isEmpty
+                                        ? 'Phone is required'
+                                        : null,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                controller: nextOfKinRelationshipCtrl,
+                                decoration: const InputDecoration(
+                                    labelText: 'Relationship'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: bookingSourceCtrl,
+                          decoration:
+                              const InputDecoration(labelText: 'Booking Source'),
+                        ),
+                        const SizedBox(height: 20),
+                        const Text(
+                          'Stay Details',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14),
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
@@ -1032,6 +1169,23 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                         guestName: guestNameCtrl.text.trim(),
                                         guestEmail: guestEmailCtrl.text.trim(),
                                         guestPhone: guestPhoneCtrl.text.trim(),
+                                        guestAddress:
+                                            guestAddressCtrl.text.trim(),
+                                        guestNationality:
+                                            guestNationalityCtrl.text.trim(),
+                                        guestIdType:
+                                            guestIdTypeCtrl.text.trim(),
+                                        guestIdNumber:
+                                            guestIdNumberCtrl.text.trim(),
+                                        nextOfKinName:
+                                            nextOfKinNameCtrl.text.trim(),
+                                        nextOfKinPhone:
+                                            nextOfKinPhoneCtrl.text.trim(),
+                                        nextOfKinRelationship:
+                                            nextOfKinRelationshipCtrl.text
+                                                .trim(),
+                                        bookingSource:
+                                            bookingSourceCtrl.text.trim(),
                                         checkIn: checkIn,
                                         checkOut: checkOut,
                                         adults: int.tryParse(

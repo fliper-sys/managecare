@@ -129,7 +129,6 @@ import '../presentation/industry_specific/hotel/screens/bookings_screen.dart'
 import '../presentation/industry_specific/hotel/screens/check_in_screen.dart';
 import '../presentation/industry_specific/hotel/screens/check_out_screen.dart';
 import '../presentation/industry_specific/hotel/screens/front_desk_screen.dart';
-import '../presentation/industry_specific/hotel/screens/services_screen.dart';
 import '../presentation/industry_specific/hotel/screens/guest_management_screen.dart';
 import '../presentation/industry_specific/hotel/screens/housekeeping_screen.dart';
 import '../presentation/industry_specific/hotel/screens/billing_screen.dart';
@@ -154,6 +153,7 @@ import '../presentation/industry_specific/gym/screens/gym_calendar_screen.dart';
 
 import '../presentation/industry_specific/restaurant/screens/restaurant_owner_dashboard.dart';
 import '../presentation/industry_specific/restaurant/screens/create_order_screen.dart';
+import '../presentation/industry_specific/restaurant/screens/kitchen_orders_screen.dart';
 import '../presentation/industry_specific/restaurant/screens/manage_menu_screen.dart';
 import '../presentation/industry_specific/restaurant/screens/pending_orders_checkout_screen.dart';
 
@@ -702,7 +702,10 @@ class AppRouter {
         return _buildRoute(const FrontDeskScreen());
 
       case Routes.hotelRestaurant:
-        return _buildRoute(const HotelServicesScreen());
+        return _buildRoute(const RestaurantDashboardScreen());
+
+      case Routes.hotelBar:
+        return _buildRoute(const BarPosScreenDrink());
 
       case Routes.hotelGuests:
         return _buildRoute(const GuestManagementScreen());
@@ -788,7 +791,7 @@ class AppRouter {
         return _buildRoute(const ManageStaffScreen());
 
       case Routes.restaurantKitchen:
-        return _buildRoute(const RestaurantDashboardScreen());
+        return _buildRoute(const KitchenOrdersScreen());
 
       case Routes.gasDashboard:
         return _buildRoute(const GasDashboardScreen());

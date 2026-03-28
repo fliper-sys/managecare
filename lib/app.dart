@@ -22,6 +22,7 @@ import 'providers/retail_provider.dart';
 import 'providers/theme_provider.dart';
 import 'routes/app_router.dart';
 import 'services/dunning_service.dart';
+import 'services/business_reminder_service.dart';
 import 'services/snackbar_service.dart';
 import 'services/startup_notifications.dart';
 
@@ -37,6 +38,7 @@ class _AppState extends State<App> {
   final DunningService _dunningService = DunningService();
 
   Timer? _dunningTimer;
+  Timer? _businessReminderTimer;
   AuthProvider? _authProvider;
   BusinessProvider? _businessProvider;
   VoidCallback? _authListener;
@@ -53,6 +55,7 @@ class _AppState extends State<App> {
     });
 
     _startDunningPoller();
+    _startBusinessReminderPoller();
   }
 
   void _attachProviderListeners() {
@@ -98,6 +101,7 @@ class _AppState extends State<App> {
     }
 
     _queueStartupNotificationsIfNeeded();
+    unawaited(_syncBusinessReminders());
   }
 
   void _handleBusinessChanged() {
@@ -196,6 +200,26 @@ class _AppState extends State<App> {
     unawaited(StartupNotifications.run(context));
   }
 
+  Future<void> _syncBusinessReminders() async {
+    if (!mounted || _authProvider == null || _businessProvider == null) return;
+
+    final authProvider = _authProvider!;
+    final user = authProvider.currentUser;
+    final business = _businessProvider!.currentBusiness;
+
+    if (!authProvider.isAuthenticated || user == null || business == null) {
+      return;
+    }
+
+    await BusinessReminderService.instance.syncBusinessReminders(
+      businessId: business.id,
+      businessName: business.name,
+      businessType: business.businessType,
+      currentUserId: user.id,
+      ownerUserId: business.ownerId,
+    );
+  }
+
   void _startDunningPoller() {
     _dunningTimer = Timer.periodic(
       const Duration(minutes: 30),
@@ -230,6 +254,19 @@ class _AppState extends State<App> {
     );
   }
 
+  void _startBusinessReminderPoller() {
+    _businessReminderTimer = Timer.periodic(
+      const Duration(minutes: 20),
+      (_) async {
+        try {
+          await _syncBusinessReminders();
+        } catch (e) {
+          debugPrint('[App] Business reminder poller failed: $e');
+        }
+      },
+    );
+  }
+
   @override
   void dispose() {
     if (_authProvider != null && _authListener != null) {
@@ -241,6 +278,7 @@ class _AppState extends State<App> {
 
     _appRouter.dispose();
     _dunningTimer?.cancel();
+    _businessReminderTimer?.cancel();
     super.dispose();
   }
 

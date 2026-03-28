@@ -4,6 +4,7 @@ import '../../../providers/reports_provider.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/utils/formatters.dart';
+import '../widgets/report_theme.dart';
 
 class CustomerReportScreen extends StatefulWidget {
   const CustomerReportScreen({super.key});
@@ -35,7 +36,7 @@ class _CustomerReportScreenState extends State<CustomerReportScreen> {
           title: const Text('Customer Report'),
           elevation: 0,
           backgroundColor: Colors.transparent),
-      backgroundColor: AppColors.background,
+      backgroundColor: context.reportBackground,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : Padding(

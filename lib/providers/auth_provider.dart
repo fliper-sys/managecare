@@ -850,6 +850,7 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> updateProfile({
+    String? email,
     String? fullName,
     String? phoneNumber,
     String? photoUrl,
@@ -866,6 +867,7 @@ class AuthProvider with ChangeNotifier {
           : _currentUser!.businessIds;
 
       final updatedUser = _currentUser!.copyWith(
+        email: email,
         fullName: fullName,
         phoneNumber: phoneNumber,
         photoUrl: photoUrl,
@@ -881,6 +883,7 @@ class AuthProvider with ChangeNotifier {
       // Update cached user in local storage
       if (_localStorage != null) {
         await _localStorage!.updateCachedUser(
+          email: email,
           fullName: fullName,
           phoneNumber: phoneNumber,
           photoUrl: photoUrl,
@@ -900,6 +903,68 @@ class AuthProvider with ChangeNotifier {
     } catch (e) {
       _errorMessage = 'Failed to update profile. Please try again.';
       notifyListeners();
+    }
+  }
+
+  Future<bool> changeEmail(
+      String currentPassword, String newEmail) async {
+    if (_currentUser == null) {
+      _errorMessage = 'No user logged in';
+      notifyListeners();
+      return false;
+    }
+
+    final normalizedEmail = newEmail.trim().toLowerCase();
+    if (normalizedEmail.isEmpty || !normalizedEmail.contains('@')) {
+      _errorMessage = 'Enter a valid email address.';
+      notifyListeners();
+      return false;
+    }
+
+    final firebaseUser = FirebaseAuth.instance.currentUser;
+    if (firebaseUser == null || firebaseUser.email == null) {
+      _errorMessage = 'No authenticated email account found.';
+      notifyListeners();
+      return false;
+    }
+
+    if (firebaseUser.email!.trim().toLowerCase() == normalizedEmail) {
+      _errorMessage = null;
+      notifyListeners();
+      return true;
+    }
+
+    try {
+      await _authService.reauthenticateWithCredential(
+        email: firebaseUser.email!,
+        password: currentPassword,
+      );
+
+      await _authService.updateEmail(normalizedEmail);
+
+      final updatedUser = _currentUser!.copyWith(
+        email: normalizedEmail,
+        updatedAt: DateTime.now(),
+      );
+
+      await _authRepository.updateUser(updatedUser);
+      _currentUser = updatedUser;
+
+      if (_localStorage != null) {
+        await _localStorage!.saveUser(updatedUser);
+      }
+
+      _errorMessage = null;
+      notifyListeners();
+      return true;
+    } on FirebaseAuthException catch (e) {
+      _errorMessage = _getFirebaseAuthErrorMessage(e.code);
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _errorMessage = 'Failed to update email: $e';
+      notifyListeners();
+      return false;
     }
   }
 

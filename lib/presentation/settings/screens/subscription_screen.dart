@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import '../../../services/subscription_storage_service.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -26,6 +27,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   bool _isLoading = false;
   File? _selectedReceipt;
   double _uploadProgress = 0.0;
+
+  String _resolveCurrentUserId(AuthProvider authProvider) {
+    final userId = authProvider.currentUser?.id.trim() ?? '';
+    if (userId.isNotEmpty) return userId;
+    return FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+  }
 
   @override
   void initState() {
@@ -254,8 +261,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
     final authProvider = context.read<AuthProvider>();
     final currentUser = authProvider.currentUser;
+    final currentUserId = _resolveCurrentUserId(authProvider);
     if (currentUser == null) {
       _showError('Please sign in again before uploading a receipt.');
+      return;
+    }
+    if (currentUserId.isEmpty) {
+      _showError('We could not resolve your account ID. Please sign in again.');
       return;
     }
 
@@ -268,7 +280,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         final uploadResult = await storageService.uploadSubscriptionProofBytesWithProgress(
           bytes,
           image.name,
-          currentUser.id,
+          currentUserId,
           plan.id,
           onProgress: (progress) {
             if (mounted) {
@@ -344,6 +356,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       // Upload receipt using Firebase Storage
       final authProvider = context.read<AuthProvider>();
       final currentUser = authProvider.currentUser;
+      final currentUserId = _resolveCurrentUserId(authProvider);
       final businessProvider = context.read<BusinessProvider>();
       final currentBusiness = businessProvider.currentBusiness;
 
@@ -355,13 +368,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         _showError('Please sign in again before updating your subscription.');
         return;
       }
+      if (currentUserId.isEmpty) {
+        if (mounted) {
+          Navigator.pop(context);
+          setState(() => _isLoading = false);
+        }
+        _showError('We could not resolve your account ID. Please sign in again.');
+        return;
+      }
 
       String? receiptUrl = serverUrlOverride;
       if (receiptUrl == null && _selectedReceipt != null) {
         final storageService = SubscriptionStorageService();
         final uploadResult = await storageService.uploadSubscriptionProofWithProgress(
           _selectedReceipt!,
-          currentUser.id,
+          currentUserId,
           plan.id,
           onProgress: (progress) {
             if (mounted) {
@@ -384,7 +405,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       // Activate or renew subscription via SubscriptionService so events and logs are recorded
       final subscriptionService = SubscriptionService(firestore: FirebaseFirestore.instance);
       final activationSuccess = await subscriptionService.activateOrRenewSubscription(
-        userId: currentUser.id,
+        userId: currentUserId,
         planId: plan.id,
         receiptUrl: receiptUrl!,
         amount: plan.price,

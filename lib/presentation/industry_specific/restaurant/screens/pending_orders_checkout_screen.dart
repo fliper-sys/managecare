@@ -448,6 +448,7 @@ class _PendingOrdersAndCheckoutScreenState
           'total': item.subtotal,
         };
       }).toList();
+      String? paymentTransactionId;
 
       // If payment method is card, attempt to process payment first
       if (_paymentMethod == 'card') {
@@ -472,6 +473,9 @@ class _PendingOrdersAndCheckoutScreenState
             );
             return;
           }
+          paymentTransactionId =
+              (pmResult['transactionId'] ?? pmResult['txRef'] ?? txRef)
+                  .toString();
         } catch (e) {
           debugPrint('[RestaurantPOS] Payment error during checkout: $e');
           if (!mounted) return;
@@ -485,6 +489,9 @@ class _PendingOrdersAndCheckoutScreenState
       final saleData = {
         'businessId': businessId,
         'orderId': order.id,
+        'customerName': order.customerName,
+        'customerEmail': order.customerEmail,
+        'customerPhone': order.customerPhone,
         'items': itemsList,
         'tableNumber': order.tableNumber,
         'orderType': order.orderType,
@@ -494,7 +501,16 @@ class _PendingOrdersAndCheckoutScreenState
         'total': order.total,
         'totalAmount': order.total,
         'finalAmount': order.total,
+        'paymentStatus': 'paid',
         'paymentMethod': _paymentMethod,
+        'paymentMethods': [_paymentMethod],
+        'paymentBreakdown': [
+          {
+            'method': _paymentMethod,
+            'amount': order.total,
+            'transactionId': paymentTransactionId ?? order.id,
+          }
+        ],
         'category': 'Restaurant',
         'status': 'completed',
         if ((_dialogSelectedStore ?? '').isNotEmpty)
@@ -524,10 +540,20 @@ class _PendingOrdersAndCheckoutScreenState
 
       final isOffline = result['mode'] == 'offline';
 
-      // Update order status to completed
-      context
-          .read<RestaurantProvider>()
-          .updateOrderStatus(_selectedOrderId!, 'completed');
+      // Update order status and payment state
+      await context.read<RestaurantProvider>().updateOrderPaymentStatus(
+            _selectedOrderId!,
+            paymentStatus: 'paid',
+            status: 'completed',
+            paymentMethods: [_paymentMethod],
+            paymentBreakdown: [
+              {
+                'method': _paymentMethod,
+                'amount': order.total,
+                'transactionId': paymentTransactionId ?? order.id,
+              }
+            ],
+          );
 
       // Attempt to deduct inventory where menu items map to inventory products
       try {
@@ -562,6 +588,8 @@ class _PendingOrdersAndCheckoutScreenState
       // Show receipt with options
       final saleMap = {
         'id': order.id,
+        'orderId': order.id,
+        'customerName': order.customerName,
         'items': itemsList,
         'subtotal': order.subtotal,
         'tax': order.tax,
@@ -569,7 +597,18 @@ class _PendingOrdersAndCheckoutScreenState
         'total': order.total,
         'totalAmount': order.total,
         'finalAmount': order.total,
+        'paymentStatus': 'paid',
         'paymentMethod': _paymentMethod,
+        'paymentMethods': [_paymentMethod],
+        'paymentBreakdown': [
+          {
+            'method': _paymentMethod,
+            'amount': order.total,
+            'transactionId': paymentTransactionId ?? order.id,
+          }
+        ],
+        'category': 'Restaurant',
+        'tableNumber': order.tableNumber,
         'timestamp': DateTime.now().toIso8601String(),
         if ((_dialogSelectedStore ?? '').isNotEmpty)
           'storeId': _dialogSelectedStore!,
@@ -584,6 +623,12 @@ class _PendingOrdersAndCheckoutScreenState
         await ReceiptManager.handlePostSale(context, saleMap);
       } catch (e) {
         debugPrint('[RestaurantPOS] Receipt error: $e');
+      }
+
+      if (mounted) {
+        setState(() {
+          _selectedOrderId = null;
+        });
       }
 
       // Close dialog
@@ -619,9 +664,13 @@ class _PendingOrdersAndCheckoutScreenState
       ),
       body: Consumer<RestaurantProvider>(
         builder: (context, provider, _) {
-          final pendingOrders = provider.getOrdersByStatus('pending');
-          final preparingOrders = provider.getOrdersByStatus('preparing');
-          final readyOrders = provider.getOrdersByStatus('ready');
+          final unpaidOrders = provider.pendingPaymentOrders;
+          final pendingOrders =
+              unpaidOrders.where((o) => o.status == 'pending').toList();
+          final preparingOrders =
+              unpaidOrders.where((o) => o.status == 'preparing').toList();
+          final readyOrders =
+              unpaidOrders.where((o) => o.status == 'ready').toList();
 
           return Row(
             children: [
@@ -642,13 +691,19 @@ class _PendingOrdersAndCheckoutScreenState
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Active Orders',
+                            const Text('Active Orders Awaiting Payment',
                                 style: AppTextStyles.heading3),
                             const SizedBox(height: 16),
                             SingleChildScrollView(
                               scrollDirection: Axis.horizontal,
                               child: Row(
                                 children: [
+                                  _OrderStatusBadge(
+                                    label: 'Payment Queue',
+                                    count: unpaidOrders.length,
+                                    color: AppColors.error,
+                                  ),
+                                  const SizedBox(width: 12),
                                   _OrderStatusBadge(
                                     label: 'Pending',
                                     count: pendingOrders.length,
@@ -715,7 +770,7 @@ class _PendingOrdersAndCheckoutScreenState
                               child: Padding(
                                 padding: const EdgeInsets.all(32),
                                 child: Text(
-                                  'No active orders',
+                                  'No unpaid active orders',
                                   style: AppTextStyles.body1
                                       .copyWith(color: AppColors.textSecondary),
                                 ),
@@ -775,6 +830,9 @@ class _PendingOrdersAndCheckoutScreenState
                                   _DetailRow(
                                       label: 'Status',
                                       value: order.status.toUpperCase()),
+                                  _DetailRow(
+                                      label: 'Payment',
+                                      value: order.paymentStatus.toUpperCase()),
                                   const Divider(),
                                   const SizedBox(height: 12),
                                   Text('Items',
@@ -892,24 +950,47 @@ class _PendingOrdersAndCheckoutScreenState
                 Text('Table ${order.tableNumber ?? 'N/A'}',
                     style: AppTextStyles.body1
                         .copyWith(fontWeight: FontWeight.w600)),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(order.status).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    order.status,
-                    style: AppTextStyles.caption
-                        .copyWith(color: _getStatusColor(order.status)),
-                  ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _getStatusColor(order.status).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        order.status,
+                        style: AppTextStyles.caption
+                            .copyWith(color: _getStatusColor(order.status)),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: order.paymentStatus == 'paid'
+                            ? AppColors.success.withOpacity(0.12)
+                            : AppColors.warning.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        order.paymentStatus,
+                        style: AppTextStyles.caption.copyWith(
+                          color: order.paymentStatus == 'paid'
+                              ? AppColors.success
+                              : AppColors.warning,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
             const SizedBox(height: 8),
             Text(
-                '${order.items.length} items • \$${order.total.toStringAsFixed(2)}',
+                '${order.items.length} items • ${order.customerName ?? 'Walk-in'} • \$${order.total.toStringAsFixed(2)}',
                 style: AppTextStyles.caption
                     .copyWith(color: AppColors.textSecondary)),
           ],

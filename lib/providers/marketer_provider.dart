@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
+import '../data/models/user_model.dart';
 import '../models/marketer_model.dart';
 
 /// Provider for managing App Marketers
@@ -549,18 +550,34 @@ class MarketerProvider extends ChangeNotifier {
 
       final userId = result.user!.uid;
 
-      // Create user document in Firestore
+      final trimmedFullName = fullName.trim();
+      final normalizedPhone =
+          phoneNumber?.trim().isNotEmpty == true ? phoneNumber!.trim() : null;
+      final newUser = UserModel(
+        id: userId,
+        email: normalizedEmail,
+        fullName: trimmedFullName,
+        phoneNumber: normalizedPhone,
+        role: 'owner',
+        businessId: '',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        isActive: true,
+        isOwner: true,
+        pin: '1234',
+        referralEmail: _currentMarketer!.email,
+      );
+
+      // Create user document in Firestore using the same shape as the standard
+      // owner registration flow, while preserving legacy alias fields used by
+      // some admin screens.
       await _firestore.collection('users').doc(userId).set({
-        'email': normalizedEmail,
-        'name': fullName,
-        'fullName': fullName,
-        'phone': phoneNumber,
-        'phoneNumber': phoneNumber,
-        'role': 'owner', // Assuming marketers register business owners
+        ...newUser.toJson(),
+        'name': trimmedFullName,
+        'phone': normalizedPhone,
+        'referredBy': _currentMarketer!.email,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-        'isActive': true,
-        'referredBy': _currentMarketer!.email,
       });
 
       // Create referral record
@@ -671,9 +688,17 @@ class MarketerProvider extends ChangeNotifier {
 
       await _firestore.collection('users').doc(userId).set({
         'businessId': businessId,
+        'businessIds': FieldValue.arrayUnion([businessId]),
         'currentBusinessId': businessId,
+        'preferredBusinessId': businessId,
         'businessName': businessName,
         'businessType': businessType,
+        'name': ownerName,
+        'fullName': ownerName,
+        'phone': userPhone,
+        'phoneNumber': userPhone,
+        'isOwner': true,
+        'referralEmail': _currentMarketer!.email,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 

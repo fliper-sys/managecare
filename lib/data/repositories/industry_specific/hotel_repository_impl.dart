@@ -57,7 +57,7 @@ class HotelRepositoryImpl implements HotelRepository {
           ? firestore
               .collection('businesses')
               .doc(businessId)
-              .collection('bookings')
+              .collection('reservations')
           : firestore.collection('bookings');
       final docRef = col.doc();
       final data = Map<String, dynamic>.from(booking);

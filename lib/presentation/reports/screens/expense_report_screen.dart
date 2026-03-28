@@ -16,6 +16,7 @@ import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/reports_provider.dart';
 import '../../../core/constants/routes.dart';
+import '../widgets/report_theme.dart';
 
 class ExpenseReportScreen extends StatefulWidget {
   const ExpenseReportScreen({super.key});
@@ -107,7 +108,7 @@ class _ExpenseReportScreenState extends State<ExpenseReportScreen> {
       }
     }
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.reportBackground,
       appBar: AppBar(
         title: const Text('Expense Reports'),
         elevation: 0,
@@ -217,11 +218,11 @@ class _ExpenseReportScreenState extends State<ExpenseReportScreen> {
                       child: Column(
                         children: [
                           Icon(Icons.receipt_long,
-                              size: 48, color: Colors.grey[300]),
+                              size: 48, color: Theme.of(context).dividerColor),
                           const SizedBox(height: 16),
                           Text('No expenses found',
                               style: AppTextStyles.body2
-                                  .copyWith(color: Colors.grey[500])),
+                                  .copyWith(color: context.reportMutedText)),
                         ],
                       ),
                     ),
@@ -253,17 +254,18 @@ class _ExpenseReportScreenState extends State<ExpenseReportScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected ? AppColors.primary : Colors.white,
+            color:
+                isSelected ? AppColors.primary : context.reportChipSurface,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: isSelected ? AppColors.primary : AppColors.border,
+              color: isSelected ? AppColors.primary : context.reportBorder,
             ),
           ),
           child: Text(
             label,
             style: AppTextStyles.bodySmall.copyWith(
               fontWeight: FontWeight.w600,
-              color: isSelected ? Colors.white : AppColors.textSecondary,
+              color: isSelected ? Colors.white : context.reportMutedText,
             ),
           ),
         ),
@@ -276,9 +278,9 @@ class _ExpenseReportScreenState extends State<ExpenseReportScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.reportSurface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.reportBorder),
       ),
       child: Row(
         children: [
@@ -329,7 +331,7 @@ class _ExpenseReportScreenState extends State<ExpenseReportScreen> {
                     Text(
                       _formatExpenseDate(expense['date']),
                       style: AppTextStyles.caption.copyWith(
-                        color: AppColors.textSecondary,
+                        color: context.reportMutedText,
                       ),
                     ),
                   ],
@@ -366,7 +368,7 @@ class _ExpenseReportScreenState extends State<ExpenseReportScreen> {
                 margin: const EdgeInsets.only(right: 12),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(color: context.reportBorder),
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
@@ -391,9 +393,13 @@ class _ExpenseReportScreenState extends State<ExpenseReportScreen> {
               ),
               GestureDetector(
                 onTap: () => _showDeleteConfirmation(context, expense),
-                child: const Padding(
+                child: Padding(
                   padding: EdgeInsets.only(top: 4),
-                  child: Icon(Icons.close, size: 16, color: Colors.grey),
+                  child: Icon(
+                    Icons.close,
+                    size: 16,
+                    color: Theme.of(context).iconTheme.color?.withOpacity(0.72),
+                  ),
                 ),
               ),
             ],
@@ -603,7 +609,7 @@ class _SummaryCard extends StatelessWidget {
                 child: Text(
                   title,
                   style: AppTextStyles.body2.copyWith(
-                    color: AppColors.textSecondary,
+                    color: context.reportMutedText,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -1043,7 +1049,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? AppColors.primary : AppColors.textSecondary,
+            color: isSelected ? AppColors.primary : context.reportMutedText,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
           ),
         ),
@@ -1336,7 +1342,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 _uploadedReceiptUrl != null
                     ? 'Ready to save expense'
                     : 'Tap to select or take receipt photo',
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                style: TextStyle(color: context.reportMutedText, fontSize: 12),
               ),
               const SizedBox(height: 16),
               if (_receiptUploadErrorMessage != null) ...[

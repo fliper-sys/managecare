@@ -132,6 +132,11 @@ class _GuestManagementScreenState extends State<GuestManagementScreen> {
                 Text(guest['guestEmail'] as String),
                 const SizedBox(height: 4),
                 Text(guest['guestPhone'] as String),
+                if ((guest['guestAddress'] as String?)?.trim().isNotEmpty ??
+                    false) ...[
+                  const SizedBox(height: 4),
+                  Text(guest['guestAddress'] as String),
+                ],
                 const SizedBox(height: 18),
                 Row(
                   children: [
@@ -184,6 +189,18 @@ class _GuestManagementScreenState extends State<GuestManagementScreen> {
                         ),
                         Text('Status: ${reservation.status}'),
                         Text('Payment: ${reservation.paymentStatus}'),
+                        if (reservation.guestNationality.trim().isNotEmpty)
+                          Text('Nationality: ${reservation.guestNationality}'),
+                        if (reservation.guestIdType.trim().isNotEmpty ||
+                            reservation.guestIdNumber.trim().isNotEmpty)
+                          Text(
+                              'ID: ${reservation.guestIdType} ${reservation.guestIdNumber}'.trim()),
+                        if (reservation.nextOfKinName.trim().isNotEmpty)
+                          Text(
+                              'Next of kin: ${reservation.nextOfKinName} (${reservation.nextOfKinRelationship})'),
+                        if (reservation.nextOfKinPhone.trim().isNotEmpty)
+                          Text(
+                              'Emergency phone: ${reservation.nextOfKinPhone}'),
                         if (reservation.specialRequests.isNotEmpty) ...[
                           const SizedBox(height: 8),
                           Text(

@@ -10,6 +10,7 @@ import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import 'package:intl/intl.dart';
 import '../../../core/utils/formatters.dart';
+import '../widgets/report_theme.dart';
 
 class ReportsDashboardScreen extends StatefulWidget {
   const ReportsDashboardScreen({super.key});
@@ -144,7 +145,7 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
     }
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.reportBackground,
       appBar: AppBar(
         title: const Text('Reports & Analytics'),
         elevation: 0,
@@ -208,10 +209,14 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       margin: const EdgeInsets.symmetric(horizontal: 4),
                       decoration: BoxDecoration(
-                        color: isSelected ? AppColors.primary : Colors.white,
+                        color: isSelected
+                            ? AppColors.primary
+                            : context.reportChipSurface,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: isSelected ? AppColors.primary : AppColors.border.withOpacity(0.5),
+                          color: isSelected
+                              ? AppColors.primary
+                              : context.reportBorder,
                         ),
                       ),
                       child: Center(
@@ -221,7 +226,7 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
                             fontWeight: FontWeight.w600,
                             color: isSelected
                                 ? Colors.white
-                                : AppColors.textSecondary,
+                                : context.reportMutedText,
                           ),
                         ),
                       ),
@@ -466,13 +471,7 @@ class _MetricCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: context.reportCardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -506,13 +505,13 @@ class _MetricCard extends StatelessWidget {
                 child: Text(
                   title,
                   style: AppTextStyles.caption
-                      .copyWith(color: AppColors.textSecondary),
+                      .copyWith(color: context.reportMutedText),
                 ),
               ),
               if (tooltip != null)
                 Tooltip(
                   message: tooltip!,
-                  child: Icon(Icons.info_outline, size: 16, color: AppColors.textSecondary),
+                  child: Icon(Icons.info_outline, size: 16, color: context.reportMutedText),
                 ),
             ],
           ),
@@ -548,17 +547,11 @@ class _ReportCategoryCard extends StatelessWidget {
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.03),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: context.reportCardShadow,
+      ),
         child: Row(
           children: [
             Container(
@@ -583,13 +576,13 @@ class _ReportCategoryCard extends StatelessWidget {
                   Text(
                     description,
                     style: AppTextStyles.caption.copyWith(
-                      color: AppColors.textSecondary,
+                      color: context.reportMutedText,
                     ),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary.withOpacity(0.5)),
+            Icon(Icons.chevron_right_rounded, color: context.reportMutedText.withOpacity(0.8)),
           ],
         ),
       ),
@@ -630,13 +623,7 @@ class _RecentReportItem extends StatelessWidget {
         decoration: BoxDecoration(
           color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.02),
-              blurRadius: 6,
-              offset: const Offset(0, 3),
-            ),
-          ],
+          boxShadow: context.reportCardShadow,
         ),
         child: Row(
           children: [
@@ -656,13 +643,13 @@ class _RecentReportItem extends StatelessWidget {
                   Text(title, style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 4),
                   Row(children: [
-                    Text(date, style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary)),
+                    Text(date, style: AppTextStyles.caption.copyWith(color: context.reportMutedText)),
                     if (cashier != null && cashier!.isNotEmpty) ...[
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.grey.withOpacity(0.08),
+                          color: context.reportChipSurface,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text('Cashier: $cashier', style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w600)),

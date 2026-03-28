@@ -7,6 +7,7 @@ import '../../../core/constants/routes.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/analytics_provider.dart';
 import 'package:fl_chart/fl_chart.dart';
+import '../widgets/report_theme.dart';
 
 class AggregatedReportsScreen extends StatefulWidget {
   const AggregatedReportsScreen({super.key});
@@ -180,7 +181,7 @@ class _AggregatedReportsScreenState extends State<AggregatedReportsScreen> {
                                                 .textTheme
                                                 .bodySmall
                                                 ?.color ??
-                                            Colors.grey)),
+                                            context.reportMutedText)),
                             ],
                           ),
                         );

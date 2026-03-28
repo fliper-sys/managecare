@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/constants/routes.dart';
+import '../../core/theme/colors.dart';
 import '../../providers/marketer_provider.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -30,26 +31,85 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
   final _landmarkController = TextEditingController();
 
   String? _selectedBusinessType;
-  String _selectedBusinessClass = 'small';
-  String _selectedBusinessTier = 'starter';
+  String _selectedBusinessClass = 'small'; // small, medium, enterprise
+  String _selectedSubscriptionTier = 'basic'; // basic, pro
+  String _selectedPlanDuration = '3m'; // 3m, 6m, 12m
   bool _isLoading = false;
 
   final List<String> _businessTypes = const [
     'pharmacy',
     'retail',
+    'wholesale',
     'agriculture',
     'auto_repair',
     'salon',
+    'barbershop',
     'hotel',
     'restaurant',
     'bar',
+    'gas',
     'real_estate',
+    'apartment',
+    'gym',
   ];
+
+  // Map business class to tier prefix for plan IDs
+  final Map<String, String> _classToPlanPrefix = {
+    'small': 't1',
+    'medium': 't2',
+    'enterprise': 't3',
+  };
+
+  // Helper to get available tiers based on business class
+  List<String> _getAvailableTiers(String businessClass) {
+    if (businessClass == 'small') {
+      return ['basic']; // Tier 1 only has basic
+    }
+    return ['basic', 'pro']; // Tier 2 and 3 have both
+  }
+
+  // Helper to get subscription plan options
+  Map<String, Map<String, String>> _getSubscriptionPlans() {
+    return {
+      'small': {
+        'basic_3m': 'Basic - 3 Months (₦23,750)',
+        'basic_6m': 'Basic - 6 Months (₦42,250)',
+        'basic_12m': 'Basic - 12 Months (₦77,850)',
+      },
+      'medium': {
+        'basic_3m': 'Basic - 3 Months (₦28,980)',
+        'basic_6m': 'Basic - 6 Months (₦48,480)',
+        'basic_12m': 'Basic - 12 Months (₦88,180)',
+        'pro_3m': 'Pro - 3 Months (₦32,780)',
+        'pro_6m': 'Pro - 6 Months (₦81,880)',
+        'pro_12m': 'Pro - 12 Months (₦91,900)',
+      },
+      'enterprise': {
+        'basic_3m': 'Basic - 3 Months (₦36,580)',
+        'basic_6m': 'Basic - 6 Months (₦53,980)',
+        'basic_12m': 'Basic - 12 Months (₦93,780)',
+        'pro_3m': 'Pro - 3 Months (₦37,900)',
+        'pro_6m': 'Pro - 6 Months (₦56,100)',
+        'pro_12m': 'Pro - 12 Months (₦97,780)',
+      },
+    };
+  }
+
+  String _getSelectedPlanKey() {
+    return '${_selectedSubscriptionTier}_${_selectedPlanDuration}';
+  }
+
+  String _getPlanIdFromSelection() {
+    final prefix = _classToPlanPrefix[_selectedBusinessClass] ?? 't1';
+    return '${prefix}_${_selectedSubscriptionTier}_${_selectedPlanDuration}';
+  }
 
   @override
   void initState() {
     super.initState();
     context.read<MarketerProvider>().clearError();
+    // Set default tier based on business class
+    _selectedSubscriptionTier = _getAvailableTiers(_selectedBusinessClass).first;
   }
 
   @override
@@ -65,12 +125,18 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedBusinessType == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select business type')),
+        const SnackBar(
+          content: Text('Please select business type'),
+          backgroundColor: AppColors.error,
+        ),
       );
       return;
     }
 
     setState(() => _isLoading = true);
+
+    // Extract subscription tier from selection
+    final subscriptionTier = _selectedSubscriptionTier;
 
     final success =
         await context.read<MarketerProvider>().registerBusinessForUser(
@@ -82,7 +148,9 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
         'phone': _contactPhoneController.text.trim(),
         'landmark': _landmarkController.text.trim(),
         'businessClass': _selectedBusinessClass,
-        'businessTier': _selectedBusinessTier,
+        'businessTier': subscriptionTier,
+        'subscriptionPlan': _getPlanIdFromSelection(),
+        'subscriptionTier': subscriptionTier,
       },
     );
 
@@ -93,13 +161,19 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
     if (!success) {
       final error = context.read<MarketerProvider>().errorMessage;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error ?? 'Failed to register business')),
+        SnackBar(
+          content: Text(error ?? 'Failed to register business'),
+          backgroundColor: AppColors.error,
+        ),
       );
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Business registered successfully')),
+      const SnackBar(
+        content: Text('Business registered successfully'),
+        backgroundColor: Colors.green,
+      ),
     );
 
     Navigator.of(context).pushNamedAndRemoveUntil(
@@ -236,6 +310,7 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
                                   decoration: const InputDecoration(
                                     labelText: 'Business class',
                                     border: OutlineInputBorder(),
+                                    helperText: 'Small, Medium, or Enterprise',
                                   ),
                                   items: const [
                                     DropdownMenuItem(
@@ -253,7 +328,12 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
                                   ],
                                   onChanged: (value) {
                                     if (value != null) {
-                                      setState(() => _selectedBusinessClass = value);
+                                      setState(() {
+                                        _selectedBusinessClass = value;
+                                        // Reset tier to first available for this class
+                                        _selectedSubscriptionTier =
+                                            _getAvailableTiers(value).first;
+                                      });
                                     }
                                   },
                                 ),
@@ -261,33 +341,55 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: DropdownButtonFormField<String>(
-                                  value: _selectedBusinessTier,
+                                  value: _selectedSubscriptionTier,
                                   decoration: const InputDecoration(
-                                    labelText: 'Suggested tier',
+                                    labelText: 'Subscription tier',
                                     border: OutlineInputBorder(),
+                                    helperText: 'Basic or Pro',
                                   ),
-                                  items: const [
-                                    DropdownMenuItem(
-                                      value: 'starter',
-                                      child: Text('Starter'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'growth',
-                                      child: Text('Growth'),
-                                    ),
-                                    DropdownMenuItem(
-                                      value: 'premium',
-                                      child: Text('Premium'),
-                                    ),
-                                  ],
+                                  items: _getAvailableTiers(_selectedBusinessClass)
+                                      .map((tier) {
+                                    return DropdownMenuItem(
+                                      value: tier,
+                                      child: Text(_display(tier)),
+                                    );
+                                  }).toList(),
                                   onChanged: (value) {
                                     if (value != null) {
-                                      setState(() => _selectedBusinessTier = value);
+                                      setState(() => _selectedSubscriptionTier = value);
                                     }
                                   },
                                 ),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 16),
+                          DropdownButtonFormField<String>(
+                            value: _selectedPlanDuration,
+                            decoration: const InputDecoration(
+                              labelText: 'Plan duration',
+                              border: OutlineInputBorder(),
+                              helperText: '3, 6, or 12 months',
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: '3m',
+                                child: Text('3 Months'),
+                              ),
+                              DropdownMenuItem(
+                                value: '6m',
+                                child: Text('6 Months'),
+                              ),
+                              DropdownMenuItem(
+                                value: '12m',
+                                child: Text('12 Months'),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() => _selectedPlanDuration = value);
+                              }
+                            },
                           ),
                           const SizedBox(height: 16),
                           CustomTextField(
@@ -338,12 +440,16 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
                     decoration: BoxDecoration(
                       color: Theme.of(context).cardColor,
                       borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: Colors.grey.withOpacity(0.2),
+                        width: 1,
+                      ),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Registration summary',
+                          'Registration Summary',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
@@ -363,12 +469,30 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
                               : 'Saved on owner profile',
                         ),
                         _SummaryRow(
-                          label: 'Class',
+                          label: 'Business Type',
+                          value: _selectedBusinessType != null
+                              ? _display(_selectedBusinessType!)
+                              : 'Not selected',
+                        ),
+                        _SummaryRow(
+                          label: 'Business Class',
                           value: _display(_selectedBusinessClass),
                         ),
                         _SummaryRow(
-                          label: 'Tier',
-                          value: _display(_selectedBusinessTier),
+                          label: 'Subscription Tier',
+                          value: _display(_selectedSubscriptionTier),
+                        ),
+                        _SummaryRow(
+                          label: 'Plan Duration',
+                          value: _selectedPlanDuration == '3m'
+                              ? '3 Months'
+                              : _selectedPlanDuration == '6m'
+                                  ? '6 Months'
+                                  : '12 Months',
+                        ),
+                        _SummaryRow(
+                          label: 'Plan ID',
+                          value: _getPlanIdFromSelection(),
                         ),
                       ],
                     ),

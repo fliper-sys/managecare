@@ -12,6 +12,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/constants/routes.dart';
 import '../widgets/date_range_picker.dart';
 import '../widgets/report_card.dart';
+import '../widgets/report_theme.dart';
 
 class SalesReportScreen extends StatefulWidget {
   const SalesReportScreen({super.key});
@@ -91,7 +92,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
       }
     }
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.reportBackground,
       appBar: AppBar(
         title: const Text('Sales Report'),
         elevation: 0,
@@ -374,7 +375,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                         child: LinearProgressIndicator(
                           value: entry.value / totalAmount,
                           minHeight: 8,
-                          backgroundColor: Colors.grey[300],
+                          backgroundColor: Theme.of(context).dividerColor,
                           valueColor:
                               const AlwaysStoppedAnimation(AppColors.primary),
                         ),
@@ -679,9 +680,9 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: AppColors.surface,
+                                color: context.reportSurface,
                                 borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: AppColors.border),
+                                border: Border.all(color: context.reportBorder),
                               ),
                               child: Text('Remaining: $stock',
                                   style: AppTextStyles.caption),
@@ -751,7 +752,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                           child: LinearProgressIndicator(
                             value: entry.value / totalAmount,
                             minHeight: 8,
-                            backgroundColor: Colors.grey[300],
+                            backgroundColor: Theme.of(context).dividerColor,
                             valueColor: AlwaysStoppedAnimation(
                               entry.key.toLowerCase().contains('cash')
                                   ? Colors.green[600]

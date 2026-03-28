@@ -136,12 +136,12 @@ class UserModel {
     }
 
     return UserModel(
-      id: json['id'] ?? '',
+      id: (json['id'] ?? json['uid'] ?? '').toString(),
       email: json['email'] ?? '',
       fullName: json['fullName'] ?? json['name'] ?? '',
       photoUrl: json['photoUrl'],
       role: json['role'] ?? 'staff',
-      phoneNumber: json['phoneNumber'],
+      phoneNumber: json['phoneNumber']?.toString() ?? json['phone']?.toString(),
       businessId: rawBusinessId,
       businessIds: parsedBusinessIds,
       currentBusinessId: current,
@@ -164,7 +164,8 @@ class UserModel {
       subscriptionPaymentRequired: json['subscriptionPaymentRequired'] ?? true,
       subscriptionTransactionId: json['subscriptionTransactionId'],
       subscriptionAmount: (json['subscriptionAmount'] as num?)?.toDouble(),
-      referralEmail: json['referralEmail']?.toString(),
+      referralEmail:
+          json['referralEmail']?.toString() ?? json['referredBy']?.toString(),
     );
   }
 

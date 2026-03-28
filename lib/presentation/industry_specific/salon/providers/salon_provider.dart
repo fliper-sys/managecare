@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:business_manager/core/utils/datetime_utils.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../../../../../../services/notification_service.dart';
-import '../../../../../services/whatsapp_service.dart';
+import 'package:business_manager/services/business_reminder_service.dart';
+import 'package:business_manager/services/whatsapp_service.dart';
 
 // ==================== MODELS ====================
 
@@ -399,7 +398,7 @@ final snapshot = await _firestore!
           .doc(appointment.id)
           .set(appointment.toJson());
       _appointments.insert(0, appointment);
-      // Schedule appointment reminders (24 hours and 1 hour before)
+      // Schedule a fuller reminder set for operational follow-up.
       try {
         await _scheduleAppointmentReminders(appointment);
       } catch (_) {}
@@ -413,34 +412,14 @@ final snapshot = await _firestore!
 
   Future<void> _scheduleAppointmentReminders(SalonAppointment appointment) async {
     if (_businessId == null) return;
-    final now = DateTime.now();
-    final reminders = [
-      appointment.appointmentTime.subtract(Duration(hours: 24)),
-      appointment.appointmentTime.subtract(Duration(hours: 1)),
-    ];
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final key = 'notification_scheduled_alerts';
-      final existing = prefs.getStringList(key) ?? [];
-
-      for (final t in reminders) {
-        if (!t.isAfter(now)) continue;
-        final suffix = t.difference(appointment.appointmentTime).inHours.abs();
-        final id = _businessId.hashCode ^ ('${appointment.id}-$suffix').hashCode;
-        final title = 'Appointment Reminder';
-        final body = 'You have an appointment with ${appointment.clientName} at ${appointment.appointmentTime.toLocal()}';
-        try {
-          await NotificationService.instance.scheduleNotificationAt(id: id, title: title, body: body, at: t);
-        } catch (_) {}
-
-        final entry = '$_businessId|$id|${appointment.id}|${appointment.clientName.replaceAll('|', '_')}|${t.toUtc().toIso8601String()}';
-        existing.removeWhere((e) => e.split('|').length >= 2 && int.tryParse(e.split('|')[1]) == id);
-        existing.add(entry);
-      }
-
-      await prefs.setStringList(key, existing);
-    } catch (_) {}
+    await BusinessReminderService.instance.scheduleSalonBookingReminders(
+      businessId: _businessId!,
+      appointmentId: appointment.id,
+      clientName: appointment.clientName,
+      serviceName: appointment.serviceName,
+      stylistName: appointment.stylistName,
+      appointmentTime: appointment.appointmentTime,
+    );
   }
 
   /// Build per-customer messages for pending bookings that can be sent via

@@ -9,7 +9,6 @@ import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/retail_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -17,9 +16,9 @@ import '../../../services/thermal_printing_service.dart';
 import 'package:pdf/pdf.dart';
 import '../../../services/email_receipt_service.dart';
 import 'package:pdf/widgets.dart' as pw;
+import '../../../core/utils/receipt_utility.dart';
 import '../../../providers/settings_provider.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import '../../../services/web_share_service.dart';
 
 class ReceiptDetailScreen extends StatefulWidget {
   final Map<String, dynamic> saleData;
@@ -383,29 +382,35 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       if (file == null) throw Exception('Failed to create PDF');
 
       final bytes = await file.readAsBytes();
-      final filename = 'receipt_${widget.saleData['id'] ?? DateTime.now().millisecondsSinceEpoch}.pdf';
+      final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+      final filename = ReceiptUtility.generateReceiptFileName(
+        businessName: business?.name ?? 'Receipt',
+        orderId: widget.saleData['id']?.toString(),
+      );
 
-      if (kIsWeb) {
-        // Web: show download/preview dialog
-        WebShareService.showDownloadDialog(
-          context: context,
-          filename: filename,
-          fileType: 'PDF',
-          onDownload: () {
-            WebShareService.downloadPdf(bytes: bytes, filename: filename);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Receipt PDF downloaded')),
-              );
-            }
-          },
-          onPreview: () {
-            WebShareService.previewPdf(bytes: bytes, filename: filename);
-          },
+      final saved = kIsWeb
+          ? false
+          : await ReceiptUtility.downloadReceiptAsPDF(
+              pdfData: bytes,
+              fileName: filename,
+            );
+      final shared = await ReceiptUtility.shareReceiptAsPDF(
+        pdfData: bytes,
+        businessName: business?.name ?? 'Receipt',
+        fileName: filename,
+      );
+
+      if (mounted) {
+        final message = saved && shared
+            ? 'PDF saved and shared'
+            : saved
+                ? 'PDF saved to downloads'
+                : shared
+                    ? 'PDF shared successfully'
+                    : 'Failed to share receipt PDF';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
         );
-      } else {
-        // Mobile: native share
-        await Share.shareXFiles([XFile(file.path)], text: 'Receipt - ${widget.saleData['id']}');
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -427,41 +432,39 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
 
       final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
       if (byteData == null) throw Exception('Failed to convert image to bytes');
 
       final bytes = byteData.buffer.asUint8List();
-      final filename = 'receipt_${widget.saleData['id'] ?? 'receipt'}_${DateTime.now().millisecondsSinceEpoch}.png';
+      final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+      final filename = ReceiptUtility.generateReceiptFileName(
+        businessName: business?.name ?? 'Receipt',
+        orderId: widget.saleData['id']?.toString(),
+      );
 
-      if (kIsWeb) {
-        // Web: show download/preview dialog
-        WebShareService.showDownloadDialog(
-          context: context,
-          filename: filename,
-          fileType: 'image',
-          onDownload: () {
-            WebShareService.downloadImage(bytes: bytes, filename: filename);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Receipt image downloaded')),
-              );
-            }
-          },
-          onPreview: () {
-            WebShareService.previewImage(bytes: bytes, filename: filename);
-          },
+      final saved = kIsWeb
+          ? false
+          : await ReceiptUtility.downloadReceiptAsImage(
+              imageData: bytes,
+              fileName: filename,
+            );
+      final shared = await ReceiptUtility.shareReceiptAsImage(
+        imageData: bytes,
+        businessName: business?.name ?? 'Receipt',
+        fileName: filename,
+      );
+
+      if (mounted) {
+        final message = saved && shared
+            ? 'Receipt image saved and shared'
+            : saved
+                ? 'Receipt image saved to downloads'
+                : shared
+                    ? 'Receipt image shared successfully'
+                    : 'Failed to share receipt image';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
         );
-      } else {
-        // Mobile: native share
-        final dir = await getTemporaryDirectory();
-        final file = File('${dir.path}/$filename');
-        await file.writeAsBytes(bytes);
-
-        final res = await Share.shareXFiles([XFile(file.path)], text: 'Receipt - ${widget.saleData['id'] ?? ''}');
-        if (res.status == ShareResultStatus.success) {
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt image shared')));
-        } else {
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Share cancelled or failed')));
-        }
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1107,7 +1110,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                       child: ElevatedButton.icon(
                         onPressed: _isGeneratingPDF ? null : _generateAndSharePDF,
                         icon: const Icon(Icons.download),
-                        label: Text(_isGeneratingPDF ? 'Generating PDF...' : 'Download as PDF'),
+                        label: Text(_isGeneratingPDF ? 'Generating PDF...' : 'Save / Share PDF'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primary,
                           foregroundColor: Colors.white,
@@ -1129,7 +1132,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                       child: OutlinedButton.icon(
                         onPressed: _isSharingImage ? null : _shareAsImage,
                         icon: const Icon(Icons.image),
-                        label: Text(_isSharingImage ? 'Sharing...' : 'Share Image'),
+                        label: Text(_isSharingImage ? 'Sharing...' : 'Share / Save Image'),
                         style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
                       ),
                     ),

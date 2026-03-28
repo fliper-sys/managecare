@@ -15,13 +15,10 @@ import '../../../core/utils/receipt_utility.dart';
 import '../../../providers/settings_provider.dart';
 import '../../../services/thermal_printing_service.dart';
 import '../../../services/pdf_receipt_generator.dart';
+import '../../../services/receipt_asset_service.dart';
 import '../../../services/web_download.dart' as web_download;
-import '../../../services/web_share_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:io';
-import 'package:share_plus/share_plus.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 
 class ReceiptScreen extends StatefulWidget {
   final Map<String, dynamic> sale;
@@ -344,46 +341,79 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   }
 
   Future<void> _shareReceipt() async {
-    final receiptText = _generateReceiptText();
-    final business = context.read<BusinessProvider>().currentBusiness;
-
-    final success = await ReceiptUtility.shareReceiptAsText(
-      receiptText: receiptText,
-      businessName: business?.name ?? 'Receipt',
-    );
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success
-              ? 'Receipt shared successfully'
-              : 'Failed to share receipt'),
-        ),
+    try {
+      final receiptText = _generateReceiptText();
+      final business = context.read<BusinessProvider>().currentBusiness;
+      final fileName = ReceiptUtility.generateReceiptFileName(
+        businessName: business?.name ?? 'Receipt',
+        orderId: widget.sale['id']?.toString(),
       );
+
+      final imageBytes = await ReceiptAssetService.generateReceiptImage(
+        businessName: business?.name ?? 'Receipt',
+        receiptText: receiptText,
+        receiptNumber: widget.sale['id']?.toString(),
+      );
+
+      final success = await ReceiptUtility.shareReceiptAsImage(
+        imageData: imageBytes,
+        businessName: business?.name ?? 'Receipt',
+        fileName: fileName,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success
+                ? 'Receipt shared successfully'
+                : 'Failed to share receipt'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error sharing receipt: $e')),
+        );
+      }
     }
   }
 
   Future<void> _downloadReceipt() async {
-    final receiptText = _generateReceiptText();
-    final business = context.read<BusinessProvider>().currentBusiness;
-    final fileName = ReceiptUtility.generateReceiptFileName(
-      businessName: business?.name ?? 'Receipt',
-      orderId: widget.sale['id'],
-    );
-
-    final success = await ReceiptUtility.downloadReceiptAsText(
-      receiptText: receiptText,
-      fileName: fileName,
-    );
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success
-              ? 'Receipt saved to downloads'
-              : 'Failed to save receipt'),
-        ),
+    try {
+      final receiptText = _generateReceiptText();
+      final business = context.read<BusinessProvider>().currentBusiness;
+      final fileName = ReceiptUtility.generateReceiptFileName(
+        businessName: business?.name ?? 'Receipt',
+        orderId: widget.sale['id']?.toString(),
       );
+
+      final imageBytes = await ReceiptAssetService.generateReceiptImage(
+        businessName: business?.name ?? 'Receipt',
+        receiptText: receiptText,
+        receiptNumber: widget.sale['id']?.toString(),
+      );
+
+      final success = await ReceiptUtility.downloadReceiptAsImage(
+        imageData: imageBytes,
+        fileName: fileName,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success
+                ? 'Receipt saved to downloads'
+                : 'Failed to save receipt'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving receipt: $e')),
+        );
+      }
     }
   }
 
@@ -828,33 +858,13 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 
       final business = context.read<BusinessProvider>().currentBusiness;
       final sale = widget.sale;
-      final filename = 'receipt_${sale['id'] ?? DateTime.now().millisecondsSinceEpoch}.png';
-
-      if (kIsWeb) {
-        // Web: offer download or preview
-        WebShareService.showDownloadDialog(
-          context: context,
-          filename: filename,
-          fileType: 'image',
-          onDownload: () {
-            WebShareService.downloadImage(bytes: pngBytes, filename: filename);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Receipt image downloaded')),
-              );
-            }
-          },
-          onPreview: () {
-            WebShareService.previewImage(bytes: pngBytes, filename: filename);
-          },
-        );
-        return;
-      }
-
-      // Mobile: use native share
       final success = await ReceiptUtility.shareReceiptAsImage(
         imageData: pngBytes,
         businessName: business?.name ?? 'Receipt',
+        fileName: ReceiptUtility.generateReceiptFileName(
+          businessName: business?.name ?? 'Receipt',
+          orderId: sale['id']?.toString(),
+        ),
       );
 
       if (mounted) {
@@ -922,41 +932,30 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         orderId: sale['id']?.toString(),
       );
 
-      if (kIsWeb) {
-        // Web: show download/preview dialog
-        WebShareService.showDownloadDialog(
-          context: context,
-          filename: fileName,
-          fileType: 'PDF',
-          onDownload: () {
-            WebShareService.downloadPdf(bytes: pdfBytes, filename: fileName);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Receipt PDF downloaded')),
-              );
-            }
-          },
-          onPreview: () {
-            WebShareService.previewPdf(bytes: pdfBytes, filename: fileName);
-          },
-        );
-        return;
-      }
+      final saved = kIsWeb
+          ? false
+          : await ReceiptUtility.downloadReceiptAsPDF(
+              pdfData: pdfBytes,
+              fileName: fileName,
+            );
+      final shared = await ReceiptUtility.shareReceiptAsPDF(
+        pdfData: pdfBytes,
+        businessName: business?.name ?? 'Business',
+        fileName: fileName,
+      );
 
-      // Mobile: traditional download and share
-      final saved = await ReceiptUtility.downloadReceiptAsPDF(pdfData: pdfBytes, fileName: fileName);
       if (mounted) {
+        final message = saved && !kIsWeb
+            ? (shared
+                ? 'PDF saved and ready to share'
+                : 'PDF saved to downloads')
+            : (shared
+                ? 'PDF shared successfully'
+                : 'Failed to share PDF');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(saved ? 'PDF saved to downloads' : 'Failed to save PDF')),
+          SnackBar(content: Text(message)),
         );
       }
-      // Also offer to share
-      try {
-        final temp = await getTemporaryDirectory();
-        final tempFile = File('${temp.path}/$fileName.pdf');
-        await tempFile.writeAsBytes(pdfBytes);
-        await Share.shareXFiles([XFile(tempFile.path)], text: 'Receipt PDF from ${business?.name ?? 'Business'}');
-      } catch (_) {}
     } catch (e) {
       debugPrint('PDF export error: $e');
       if (mounted) {

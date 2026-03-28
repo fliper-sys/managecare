@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/theme/colors.dart';
 import '../../../../providers/hotel_provider.dart';
+import '../../../../services/receipt_manager.dart';
 import '../widgets/folio_widget.dart';
 
 class BillingScreen extends StatelessWidget {
@@ -139,6 +140,28 @@ class BillingScreen extends StatelessWidget {
                                       await provider.updateReservationStatus(
                                         reservation.id,
                                         'checked-out',
+                                      );
+                                    }
+                                    final updatedReservation = provider.reservations
+                                        .firstWhere(
+                                      (item) => item.id == reservation.id,
+                                      orElse: () => reservation.copyWith(
+                                        paymentStatus: 'paid',
+                                        status: reservation.status == 'checked-in'
+                                            ? 'checked-out'
+                                            : reservation.status,
+                                      ),
+                                    );
+                                    final saleMap =
+                                        provider.buildReservationSalePayload(
+                                      updatedReservation,
+                                      room: room,
+                                      paymentMethod: 'hotel_billing',
+                                    );
+                                    if (context.mounted) {
+                                      await ReceiptManager.handlePostSale(
+                                        context,
+                                        saleMap,
                                       );
                                     }
                                     if (context.mounted) {

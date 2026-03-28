@@ -445,9 +445,41 @@ class HotelDashboardScreen extends StatelessWidget {
       actions.add(_buildActionCard(
         context,
         icon: Icons.room_service,
-        label: 'Room Services',
+        label: 'Front Desk',
         color: Colors.purple,
         onTap: () => Navigator.pushNamed(context, Routes.hotelFrontDesk),
+      ));
+
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.restaurant_menu,
+        label: 'Restaurant',
+        color: Colors.redAccent,
+        onTap: () => Navigator.pushNamed(context, Routes.hotelRestaurant),
+      ));
+
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.kitchen_outlined,
+        label: 'Kitchen',
+        color: Colors.deepOrange,
+        onTap: () => Navigator.pushNamed(context, Routes.restaurantKitchen),
+      ));
+
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.local_bar_outlined,
+        label: 'Bar POS',
+        color: Colors.indigo,
+        onTap: () => Navigator.pushNamed(context, Routes.hotelBar),
+      ));
+
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.receipt,
+        label: 'Bar Orders',
+        color: Colors.cyan,
+        onTap: () => Navigator.pushNamed(context, Routes.drinkOrders),
       ));
 
     // Printer Settings (general quick action)

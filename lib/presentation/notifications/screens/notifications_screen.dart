@@ -89,6 +89,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (value.contains('customer') || value.contains('booking')) {
       return Icons.people_alt_rounded;
     }
+    if (value.contains('appointment')) {
+      return Icons.event_available_rounded;
+    }
+    if (value.contains('checkout') || value.contains('arrival')) {
+      return Icons.hotel_rounded;
+    }
     if (value.contains('system') || value.contains('admin')) {
       return Icons.settings_suggest_rounded;
     }

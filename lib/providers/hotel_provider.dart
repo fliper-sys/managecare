@@ -1,5 +1,9 @@
 import 'package:flutter/foundation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' as fs;
 import '../data/repositories/industry_specific/hotel_repository.dart';
+import '../services/business_reminder_service.dart';
+import '../services/business_notification_manager.dart';
+import '../services/notification_and_email_service.dart';
 
 // Room Models
 class Room {
@@ -61,6 +65,16 @@ class Reservation {
   final String guestName;
   final String guestEmail;
   final String guestPhone;
+  final String guestAddress;
+  final String guestNationality;
+  final String guestIdType;
+  final String guestIdNumber;
+  final String nextOfKinName;
+  final String nextOfKinPhone;
+  final String nextOfKinRelationship;
+  final String bookingSource;
+  final String companyName;
+  final String vehiclePlateNumber;
   final DateTime checkIn;
   final DateTime checkOut;
   final int adults;
@@ -69,6 +83,7 @@ class Reservation {
   final double totalPrice;
   final List<String> specialRequests;
   final String paymentStatus; // unpaid, partial, paid
+  final DateTime createdAt;
 
   Reservation({
     required this.id,
@@ -76,6 +91,16 @@ class Reservation {
     required this.guestName,
     required this.guestEmail,
     required this.guestPhone,
+    this.guestAddress = '',
+    this.guestNationality = '',
+    this.guestIdType = '',
+    this.guestIdNumber = '',
+    this.nextOfKinName = '',
+    this.nextOfKinPhone = '',
+    this.nextOfKinRelationship = '',
+    this.bookingSource = 'walk-in',
+    this.companyName = '',
+    this.vehiclePlateNumber = '',
     required this.checkIn,
     required this.checkOut,
     required this.adults,
@@ -84,7 +109,8 @@ class Reservation {
     required this.totalPrice,
     required this.specialRequests,
     required this.paymentStatus,
-  });
+    DateTime? createdAt,
+  }) : createdAt = createdAt ?? DateTime.now();
 
   Reservation copyWith({
     String? id,
@@ -92,6 +118,16 @@ class Reservation {
     String? guestName,
     String? guestEmail,
     String? guestPhone,
+    String? guestAddress,
+    String? guestNationality,
+    String? guestIdType,
+    String? guestIdNumber,
+    String? nextOfKinName,
+    String? nextOfKinPhone,
+    String? nextOfKinRelationship,
+    String? bookingSource,
+    String? companyName,
+    String? vehiclePlateNumber,
     DateTime? checkIn,
     DateTime? checkOut,
     int? adults,
@@ -100,6 +136,7 @@ class Reservation {
     double? totalPrice,
     List<String>? specialRequests,
     String? paymentStatus,
+    DateTime? createdAt,
   }) {
     return Reservation(
       id: id ?? this.id,
@@ -107,6 +144,17 @@ class Reservation {
       guestName: guestName ?? this.guestName,
       guestEmail: guestEmail ?? this.guestEmail,
       guestPhone: guestPhone ?? this.guestPhone,
+      guestAddress: guestAddress ?? this.guestAddress,
+      guestNationality: guestNationality ?? this.guestNationality,
+      guestIdType: guestIdType ?? this.guestIdType,
+      guestIdNumber: guestIdNumber ?? this.guestIdNumber,
+      nextOfKinName: nextOfKinName ?? this.nextOfKinName,
+      nextOfKinPhone: nextOfKinPhone ?? this.nextOfKinPhone,
+      nextOfKinRelationship:
+          nextOfKinRelationship ?? this.nextOfKinRelationship,
+      bookingSource: bookingSource ?? this.bookingSource,
+      companyName: companyName ?? this.companyName,
+      vehiclePlateNumber: vehiclePlateNumber ?? this.vehiclePlateNumber,
       checkIn: checkIn ?? this.checkIn,
       checkOut: checkOut ?? this.checkOut,
       adults: adults ?? this.adults,
@@ -115,6 +163,7 @@ class Reservation {
       totalPrice: totalPrice ?? this.totalPrice,
       specialRequests: specialRequests ?? this.specialRequests,
       paymentStatus: paymentStatus ?? this.paymentStatus,
+      createdAt: createdAt ?? this.createdAt,
     );
   }
 
@@ -146,6 +195,10 @@ class ServiceOrder {
 
 class HotelProvider extends ChangeNotifier {
   final HotelRepository? repository;
+  final BusinessNotificationManager _notificationManager =
+      BusinessNotificationManager.instance;
+  final NotificationAndEmailService _notificationLogger =
+      NotificationAndEmailService();
   String? _businessId;
 
   List<Room> _rooms = [];
@@ -241,11 +294,21 @@ class HotelProvider extends ChangeNotifier {
         'guestName': reservation.guestName,
         'guestEmail': reservation.guestEmail,
         'guestPhone': reservation.guestPhone,
+        'guestAddress': reservation.guestAddress,
+        'guestNationality': reservation.guestNationality,
+        'guestIdType': reservation.guestIdType,
+        'guestIdNumber': reservation.guestIdNumber,
+        'nextOfKinName': reservation.nextOfKinName,
+        'nextOfKinPhone': reservation.nextOfKinPhone,
+        'nextOfKinRelationship': reservation.nextOfKinRelationship,
+        'bookingSource': reservation.bookingSource,
+        'companyName': reservation.companyName,
+        'vehiclePlateNumber': reservation.vehiclePlateNumber,
         'reservationCount': (current?['reservationCount'] ?? 0) + 1,
         'checkedInCount': (current?['checkedInCount'] ?? 0) +
             (reservation.status == 'checked-in' ? 1 : 0),
         'totalSpend':
-            (current?['totalSpend'] ?? 0.0) + reservation.totalPrice,
+            (current?['totalSpend'] ?? 0.0) + getReservationBalance(reservation),
         'lastReservation': reservation,
         'roomNumber': room?.number ?? '',
       };
@@ -353,6 +416,262 @@ class HotelProvider extends ChangeNotifier {
     );
   }
 
+  bool _sameCalendarDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  DateTime? _parseDynamicDate(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    if (value is fs.Timestamp) return value.toDate();
+    if (value is String) return DateTime.tryParse(value);
+    if (value is int) {
+      return DateTime.fromMillisecondsSinceEpoch(value);
+    }
+    return null;
+  }
+
+  bool _matchesGuestIdentity(Reservation a, Reservation b) {
+    final aEmail = a.guestEmail.trim().toLowerCase();
+    final bEmail = b.guestEmail.trim().toLowerCase();
+    if (aEmail.isNotEmpty && bEmail.isNotEmpty) {
+      return aEmail == bEmail;
+    }
+
+    final aPhone = a.guestPhone.trim();
+    final bPhone = b.guestPhone.trim();
+    if (aPhone.isNotEmpty && bPhone.isNotEmpty) {
+      return aPhone == bPhone;
+    }
+
+    return a.guestName.trim().toLowerCase() == b.guestName.trim().toLowerCase();
+  }
+
+  String _buildGuestDocumentId(Reservation reservation) {
+    final raw = reservation.guestEmail.trim().isNotEmpty
+        ? reservation.guestEmail.trim().toLowerCase()
+        : reservation.guestPhone.trim().isNotEmpty
+            ? reservation.guestPhone.trim()
+            : reservation.guestName.trim().toLowerCase();
+    final sanitized = raw.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '_');
+    return sanitized.isEmpty ? reservation.id : sanitized;
+  }
+
+  String _shortCode(String value) {
+    if (value.length <= 6) return value.toUpperCase();
+    return value.substring(value.length - 6).toUpperCase();
+  }
+
+  String _defaultHotelPaymentMethod(Reservation reservation) {
+    if (reservation.paymentStatus == 'paid') {
+      return 'hotel_billing';
+    }
+    if (reservation.paymentStatus == 'partial') {
+      return 'deposit_pending';
+    }
+    return 'pay_at_checkout';
+  }
+
+  Future<void> _syncGuestProfile(Reservation reservation) async {
+    if (_businessId == null || _businessId!.isEmpty) return;
+
+    try {
+      final relatedReservations = _reservations
+          .where((item) => _matchesGuestIdentity(item, reservation))
+          .toList();
+      final room = getRoomById(reservation.roomId);
+      final totalSpend = relatedReservations.fold<double>(
+        0.0,
+        (sum, item) => sum + getReservationBalance(item),
+      );
+      final checkedInCount = relatedReservations
+          .where((item) => item.status == 'checked-in')
+          .length;
+
+      await fs.FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(_businessId!)
+          .collection('guests')
+          .doc(_buildGuestDocumentId(reservation))
+          .set({
+        'guestName': reservation.guestName,
+        'guestEmail': reservation.guestEmail,
+        'guestPhone': reservation.guestPhone,
+        'guestAddress': reservation.guestAddress,
+        'guestNationality': reservation.guestNationality,
+        'guestIdType': reservation.guestIdType,
+        'guestIdNumber': reservation.guestIdNumber,
+        'nextOfKinName': reservation.nextOfKinName,
+        'nextOfKinPhone': reservation.nextOfKinPhone,
+        'nextOfKinRelationship': reservation.nextOfKinRelationship,
+        'bookingSource': reservation.bookingSource,
+        'companyName': reservation.companyName,
+        'vehiclePlateNumber': reservation.vehiclePlateNumber,
+        'reservationCount': relatedReservations.length,
+        'checkedInCount': checkedInCount,
+        'totalSpend': totalSpend,
+        'activeReservationId': reservation.id,
+        'currentRoomId': reservation.roomId,
+        'currentRoomNumber': room?.number,
+        'lastCheckIn': reservation.checkIn.toIso8601String(),
+        'lastCheckOut': reservation.checkOut.toIso8601String(),
+        'lastUpdatedAt': fs.FieldValue.serverTimestamp(),
+      }, fs.SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('[HotelProvider] syncGuestProfile error: $e');
+    }
+  }
+
+  Map<String, dynamic> buildReservationSalePayload(
+    Reservation reservation, {
+    Room? room,
+    String? saleId,
+    String? paymentMethod,
+  }) {
+    final resolvedRoom = room ?? getRoomById(reservation.roomId);
+    final charges = buildFolioCharges(reservation);
+    final total = getReservationBalance(reservation);
+    final resolvedPaymentMethod =
+        paymentMethod ?? _defaultHotelPaymentMethod(reservation);
+    final resolvedSaleId = saleId ?? 'hotel_${reservation.id}';
+    final now = DateTime.now();
+
+    final items = charges.map((charge) {
+      final amount = ((charge['amount'] as num?)?.toDouble() ?? 0.0);
+      final description = charge['description']?.toString() ?? 'Hotel charge';
+      return {
+        'name': description,
+        'productName': description,
+        'quantity': 1,
+        'price': amount,
+        'unitPrice': amount,
+        'total': amount,
+        'type': charge['type']?.toString() ?? 'charge',
+      };
+    }).toList();
+
+    return {
+      'id': resolvedSaleId,
+      'saleId': resolvedSaleId,
+      'businessId': _businessId,
+      'linkedReservationId': reservation.id,
+      'orderId': reservation.id,
+      'bookingId': reservation.id,
+      'receiptNumber': 'HOTEL-${_shortCode(reservation.id)}',
+      'category': 'Hotel',
+      'status':
+          reservation.paymentStatus == 'paid' ? 'completed' : 'pending-payment',
+      'paymentStatus': reservation.paymentStatus,
+      'paymentMethod': resolvedPaymentMethod,
+      'paymentMethods': [resolvedPaymentMethod],
+      'items': items,
+      'subtotal': total,
+      'tax': 0.0,
+      'discount': 0.0,
+      'total': total,
+      'totalAmount': total,
+      'finalAmount': total,
+      'timestamp': now.toIso8601String(),
+      'date': now.toIso8601String(),
+      'customerName': reservation.guestName,
+      'customerDisplayName': reservation.guestName,
+      'customerEmail': reservation.guestEmail,
+      'customerPhone': reservation.guestPhone,
+      'customerAddress': reservation.guestAddress,
+      'numberOfPersons': reservation.adults + reservation.children,
+      'roomId': reservation.roomId,
+      'roomNumber': resolvedRoom?.number ?? reservation.roomId,
+      'roomType': resolvedRoom?.type ?? '',
+      'checkIn': reservation.checkIn.toIso8601String(),
+      'checkOut': reservation.checkOut.toIso8601String(),
+      'stayNights': reservation.nights,
+      'bookingSource': reservation.bookingSource,
+      'specialRequests': reservation.specialRequests,
+      'customer': {
+        'name': reservation.guestName,
+        'email': reservation.guestEmail,
+        'phone': reservation.guestPhone,
+        'address': reservation.guestAddress,
+      },
+      'guestDetails': {
+        'nationality': reservation.guestNationality,
+        'idType': reservation.guestIdType,
+        'idNumber': reservation.guestIdNumber,
+        'companyName': reservation.companyName,
+        'vehiclePlateNumber': reservation.vehiclePlateNumber,
+      },
+      'nextOfKin': {
+        'name': reservation.nextOfKinName,
+        'phone': reservation.nextOfKinPhone,
+        'relationship': reservation.nextOfKinRelationship,
+      },
+    };
+  }
+
+  Future<Map<String, dynamic>> persistReservationSale(
+    String reservationId, {
+    String? paymentMethod,
+    bool sendNotifications = true,
+  }) async {
+    final reservation = _reservations.firstWhere(
+      (item) => item.id == reservationId,
+      orElse: () => throw Exception('Reservation not found'),
+    );
+
+    final saleId = 'hotel_${reservation.id}';
+    final saleMap = buildReservationSalePayload(
+      reservation,
+      saleId: saleId,
+      paymentMethod: paymentMethod,
+    );
+
+    if (_businessId == null || _businessId!.isEmpty) {
+      return saleMap;
+    }
+
+    final firestorePayload = Map<String, dynamic>.from(saleMap)
+      ..['createdAt'] = fs.FieldValue.serverTimestamp()
+      ..['updatedAt'] = fs.FieldValue.serverTimestamp()
+      ..['timestamp'] = fs.FieldValue.serverTimestamp();
+
+    await fs.FirebaseFirestore.instance
+        .collection('businesses')
+        .doc(_businessId!)
+        .collection('sales')
+        .doc(saleId)
+        .set(firestorePayload, fs.SetOptions(merge: true));
+
+    if (sendNotifications) {
+      try {
+        await _notificationManager.notifyPaymentReceived(
+          businessId: _businessId!,
+          customerName: reservation.guestName,
+          amount: (saleMap['finalAmount'] as num?)?.toDouble() ?? 0.0,
+          transactionId: saleId,
+        );
+        await _notificationManager.notifySaleCompleted(
+          businessId: _businessId!,
+          customerName: reservation.guestName,
+          amount: (saleMap['finalAmount'] as num?)?.toDouble() ?? 0.0,
+          paymentMethod:
+              (saleMap['paymentMethod'] as String?) ?? 'hotel_billing',
+        );
+        await _notificationLogger.logNotificationEvent(
+          businessId: _businessId!,
+          type: 'hotel_payment_recorded',
+          channel: 'local',
+          recipient: reservation.guestName,
+          success: true,
+          orderId: reservation.id,
+        );
+      } catch (e) {
+        debugPrint('[HotelProvider] hotel payment notification error: $e');
+      }
+    }
+
+    return saleMap;
+  }
+
   List<Reservation> getReservationsByStatuses(List<String> statuses) {
     return _reservations.where((r) => statuses.contains(r.status)).toList();
   }
@@ -451,6 +770,14 @@ class HotelProvider extends ChangeNotifier {
         guestName: 'John Smith',
         guestEmail: 'john@example.com',
         guestPhone: '555-0101',
+        guestAddress: '12 Palm Avenue',
+        guestNationality: 'Nigerian',
+        guestIdType: 'National ID',
+        guestIdNumber: 'NIN-001',
+        nextOfKinName: 'Mary Smith',
+        nextOfKinPhone: '555-1101',
+        nextOfKinRelationship: 'Spouse',
+        bookingSource: 'walk-in',
         checkIn: DateTime.now(),
         checkOut: DateTime.now().add(const Duration(days: 2)),
         adults: 2,
@@ -466,6 +793,14 @@ class HotelProvider extends ChangeNotifier {
         guestName: 'Sarah Johnson',
         guestEmail: 'sarah@example.com',
         guestPhone: '555-0102',
+        guestAddress: '22 Marina Road',
+        guestNationality: 'Ghanaian',
+        guestIdType: 'Passport',
+        guestIdNumber: 'P-7788',
+        nextOfKinName: 'Daniel Johnson',
+        nextOfKinPhone: '555-1102',
+        nextOfKinRelationship: 'Brother',
+        bookingSource: 'online',
         checkIn: DateTime.now(),
         checkOut: DateTime.now().add(const Duration(days: 3)),
         adults: 1,
@@ -481,6 +816,15 @@ class HotelProvider extends ChangeNotifier {
         guestName: 'Michael Brown',
         guestEmail: 'michael@example.com',
         guestPhone: '555-0103',
+        guestAddress: '7 Allen Avenue',
+        guestNationality: 'Kenyan',
+        guestIdType: 'Driver License',
+        guestIdNumber: 'DL-0092',
+        nextOfKinName: 'Angela Brown',
+        nextOfKinPhone: '555-1103',
+        nextOfKinRelationship: 'Sister',
+        bookingSource: 'corporate',
+        companyName: 'Acme Travels',
         checkIn: DateTime.now().add(const Duration(days: 5)),
         checkOut: DateTime.now().add(const Duration(days: 7)),
         adults: 4,
@@ -632,6 +976,16 @@ class HotelProvider extends ChangeNotifier {
     required String guestName,
     required String guestEmail,
     required String guestPhone,
+    String guestAddress = '',
+    String guestNationality = '',
+    String guestIdType = '',
+    String guestIdNumber = '',
+    String nextOfKinName = '',
+    String nextOfKinPhone = '',
+    String nextOfKinRelationship = '',
+    String bookingSource = 'walk-in',
+    String companyName = '',
+    String vehiclePlateNumber = '',
     required DateTime checkIn,
     required DateTime checkOut,
     required int adults,
@@ -666,6 +1020,16 @@ class HotelProvider extends ChangeNotifier {
       guestName: guestName,
       guestEmail: guestEmail,
       guestPhone: guestPhone,
+      guestAddress: guestAddress,
+      guestNationality: guestNationality,
+      guestIdType: guestIdType,
+      guestIdNumber: guestIdNumber,
+      nextOfKinName: nextOfKinName,
+      nextOfKinPhone: nextOfKinPhone,
+      nextOfKinRelationship: nextOfKinRelationship,
+      bookingSource: bookingSource,
+      companyName: companyName,
+      vehiclePlateNumber: vehiclePlateNumber,
       checkIn: checkIn,
       checkOut: checkOut,
       adults: adults,
@@ -682,9 +1046,20 @@ class HotelProvider extends ChangeNotifier {
       final saved = await repository!.createBooking({
         'businessId': _businessId,
         'roomId': reservation.roomId,
+        'roomNumber': room.number,
         'guestName': reservation.guestName,
         'guestEmail': reservation.guestEmail,
         'guestPhone': reservation.guestPhone,
+        'guestAddress': reservation.guestAddress,
+        'guestNationality': reservation.guestNationality,
+        'guestIdType': reservation.guestIdType,
+        'guestIdNumber': reservation.guestIdNumber,
+        'nextOfKinName': reservation.nextOfKinName,
+        'nextOfKinPhone': reservation.nextOfKinPhone,
+        'nextOfKinRelationship': reservation.nextOfKinRelationship,
+        'bookingSource': reservation.bookingSource,
+        'companyName': reservation.companyName,
+        'vehiclePlateNumber': reservation.vehiclePlateNumber,
         'checkIn': reservation.checkIn.toIso8601String(),
         'checkOut': reservation.checkOut.toIso8601String(),
         'adults': reservation.adults,
@@ -693,12 +1068,51 @@ class HotelProvider extends ChangeNotifier {
         'totalPrice': reservation.totalPrice,
         'specialRequests': reservation.specialRequests,
         'paymentStatus': reservation.paymentStatus,
+        'createdAt': reservation.createdAt.toIso8601String(),
       });
 
       if (saved['id'] != null) {
         reservationId = saved['id'].toString();
         _reservations[_reservations.length - 1] =
             reservation.copyWith(id: reservationId);
+      }
+    }
+
+    final persistedReservation = _reservations.last;
+    await _syncGuestProfile(persistedReservation);
+
+    if (_businessId != null && _businessId!.isNotEmpty) {
+      try {
+        await _notificationManager.notifyBookingConfirmed(
+          businessId: _businessId!,
+          bookingId: reservationId,
+          guestName: guestName,
+        );
+        await _notificationLogger.logNotificationEvent(
+          businessId: _businessId!,
+          type: 'hotel_booking_confirmed',
+          channel: 'local',
+          recipient: guestName,
+          success: true,
+          orderId: reservationId,
+        );
+      } catch (e) {
+        debugPrint('[HotelProvider] booking notification failed: $e');
+      }
+    }
+
+    if (_businessId != null && _businessId!.isNotEmpty) {
+      try {
+        await BusinessReminderService.instance.scheduleHotelReservationReminders(
+          businessId: _businessId!,
+          reservationId: reservationId,
+          guestName: guestName,
+          roomLabel: room.number,
+          checkIn: checkIn,
+          checkOut: checkOut,
+        );
+      } catch (e) {
+        debugPrint('[HotelProvider] reminder scheduling failed: $e');
       }
     }
 
@@ -727,6 +1141,21 @@ class HotelProvider extends ChangeNotifier {
               _businessId!, reservationId, {'status': newStatus});
         } catch (e) {
           debugPrint('[HotelProvider] updateReservationStatus error: $e');
+        }
+      }
+
+      await _syncGuestProfile(_reservations[index]);
+
+      if (newStatus == 'checked-out' &&
+          _reservations[index].paymentStatus == 'paid') {
+        try {
+          await persistReservationSale(
+            reservationId,
+            sendNotifications: false,
+          );
+        } catch (e) {
+          debugPrint(
+              '[HotelProvider] persistReservationSale on checkout error: $e');
         }
       }
 
@@ -767,6 +1196,20 @@ class HotelProvider extends ChangeNotifier {
               _businessId!, reservationId, {'paymentStatus': paymentStatus});
         } catch (e) {
           debugPrint('[HotelProvider] updatePaymentStatus error: $e');
+        }
+      }
+
+      await _syncGuestProfile(_reservations[index]);
+
+      if (paymentStatus == 'paid') {
+        try {
+          await persistReservationSale(
+            reservationId,
+            paymentMethod: 'hotel_billing',
+          );
+        } catch (e) {
+          debugPrint(
+              '[HotelProvider] persistReservationSale on payment error: $e');
         }
       }
 
@@ -906,10 +1349,19 @@ class HotelProvider extends ChangeNotifier {
               guestName: m['guestName']?.toString() ?? '',
               guestEmail: m['guestEmail']?.toString() ?? '',
               guestPhone: m['guestPhone']?.toString() ?? '',
-              checkIn: DateTime.tryParse(m['checkIn']?.toString() ?? '') ??
-                  DateTime.now(),
-              checkOut: DateTime.tryParse(m['checkOut']?.toString() ?? '') ??
-                  DateTime.now(),
+              guestAddress: m['guestAddress']?.toString() ?? '',
+              guestNationality: m['guestNationality']?.toString() ?? '',
+              guestIdType: m['guestIdType']?.toString() ?? '',
+              guestIdNumber: m['guestIdNumber']?.toString() ?? '',
+              nextOfKinName: m['nextOfKinName']?.toString() ?? '',
+              nextOfKinPhone: m['nextOfKinPhone']?.toString() ?? '',
+              nextOfKinRelationship:
+                  m['nextOfKinRelationship']?.toString() ?? '',
+              bookingSource: m['bookingSource']?.toString() ?? 'walk-in',
+              companyName: m['companyName']?.toString() ?? '',
+              vehiclePlateNumber: m['vehiclePlateNumber']?.toString() ?? '',
+              checkIn: _parseDynamicDate(m['checkIn']) ?? DateTime.now(),
+              checkOut: _parseDynamicDate(m['checkOut']) ?? DateTime.now(),
               adults: (m['adults'] is int)
                   ? m['adults'] as int
                   : int.tryParse(m['adults']?.toString() ?? '0') ?? 0,
@@ -922,6 +1374,8 @@ class HotelProvider extends ChangeNotifier {
                   : double.tryParse(m['totalPrice']?.toString() ?? '0') ?? 0.0,
               specialRequests: List<String>.from(m['specialRequests'] ?? []),
               paymentStatus: m['paymentStatus']?.toString() ?? 'unpaid',
+              createdAt:
+                  _parseDynamicDate(m['createdAt']) ?? DateTime.now(),
             );
           }).toList();
           notifyListeners();
@@ -936,16 +1390,37 @@ class HotelProvider extends ChangeNotifier {
   Future<double> getTodaysSalesTotal() async {
     try {
       final today = DateTime.now();
+
+      if (_businessId != null && _businessId!.isNotEmpty) {
+        final snap = await fs.FirebaseFirestore.instance
+            .collection('businesses')
+            .doc(_businessId!)
+            .collection('sales')
+            .where('category', isEqualTo: 'Hotel')
+            .get();
+
+        double total = 0.0;
+        for (final doc in snap.docs) {
+          final data = doc.data();
+          final createdAt =
+              _parseDynamicDate(data['createdAt'] ?? data['timestamp']);
+          if (createdAt != null && _sameCalendarDay(createdAt, today)) {
+            total += ((data['finalAmount'] ??
+                        data['totalAmount'] ??
+                        data['total'] ??
+                        0) as num)
+                    .toDouble();
+          }
+        }
+
+        return total;
+      }
+
       double total = 0.0;
 
       for (final reservation in _reservations) {
-        final touchesToday =
-            (reservation.checkIn.year == today.year &&
-                    reservation.checkIn.month == today.month &&
-                    reservation.checkIn.day == today.day) ||
-                (reservation.checkOut.year == today.year &&
-                    reservation.checkOut.month == today.month &&
-                    reservation.checkOut.day == today.day);
+        final touchesToday = _sameCalendarDay(reservation.checkIn, today) ||
+            _sameCalendarDay(reservation.checkOut, today);
 
         if (!touchesToday) continue;
         if (reservation.paymentStatus == 'paid' ||

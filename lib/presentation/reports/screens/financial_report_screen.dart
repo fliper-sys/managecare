@@ -11,6 +11,7 @@ import '../../../core/constants/routes.dart';
 import '../../../core/utils/formatters.dart';
 import '../widgets/date_range_picker.dart';
 import '../widgets/report_card.dart';
+import '../widgets/report_theme.dart';
 
 class FinancialReportScreen extends StatefulWidget {
   const FinancialReportScreen({super.key});
@@ -106,7 +107,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
       }
     }
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.reportBackground,
       appBar: AppBar(
         title: const Text('Financial Report'),
         elevation: 0,
@@ -502,14 +503,14 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
             child: LinearProgressIndicator(
               value: percentage / 100,
               minHeight: 6,
-              backgroundColor: AppColors.border,
+              backgroundColor: Theme.of(context).dividerColor,
               valueColor: const AlwaysStoppedAnimation<Color>(AppColors.error),
             ),
           ),
           const SizedBox(height: 2),
           Text('${percentage.toStringAsFixed(1)}%',
               style: AppTextStyles.caption
-                  .copyWith(color: AppColors.textSecondary)),
+                  .copyWith(color: context.reportMutedText)),
         ],
       ),
     );
@@ -600,12 +601,16 @@ class LineChartPainter extends CustomPainter {
   final List<FinancialReport> data;
   final double maxRevenue;
   final double chartHeight;
+  final Color gridColor;
+  final Color labelColor;
 
   LineChartPainter({
     required this.points,
     required this.data,
     required this.maxRevenue,
     required this.chartHeight,
+    this.gridColor = const Color(0x1A94A3B8),
+    this.labelColor = const Color(0xFF64748B),
   });
 
   @override
@@ -622,7 +627,7 @@ class LineChartPainter extends CustomPainter {
 
     // Draw grid lines
     final gridPaint = Paint()
-      ..color = Colors.grey.withOpacity(0.1)
+      ..color = gridColor
       ..strokeWidth = 0.5;
 
     for (int i = 0; i <= 4; i++) {
@@ -666,7 +671,7 @@ class LineChartPainter extends CustomPainter {
       final label = 'M${data[i].month}';
       textPainter.text = TextSpan(
         text: label,
-        style: const TextStyle(color: Colors.grey, fontSize: 10),
+        style: TextStyle(color: labelColor, fontSize: 10),
       );
       textPainter.layout();
       textPainter.paint(

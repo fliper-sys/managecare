@@ -432,12 +432,15 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         businessId: businessId ?? 'unknown',
         tableId: _selectedTableId,
         tableNumber: _selectedTableNumber,
+        customerName: customerName.isNotEmpty ? customerName : null,
+        customerEmail: customerEmail.isNotEmpty ? customerEmail : null,
         items: _selectedItems.toList(),
         subtotal: _subtotal,
         tax: tax,
         discount: _discount,
         total: total,
         status: 'completed',
+        paymentStatus: 'paid',
         assignedWaiterId: selectedServerId,
         paymentMethods: selectedPaymentMethods,
         paymentBreakdown: paymentBreakdown,
@@ -469,11 +472,14 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           'total': order.total,
           'totalAmount': order.total,
           'finalAmount': order.total,
+          'paymentStatus': 'paid',
           'status': 'completed',
           'paymentMethods': selectedPaymentMethods,
           'paymentMethod': selectedPaymentMethods.isNotEmpty ? selectedPaymentMethods.first : 'cash',
           'paymentBreakdown': paymentBreakdown,
           'category': 'Restaurant',
+          if (order.customerName != null) 'customerName': order.customerName,
+          if (order.customerEmail != null) 'customerEmail': order.customerEmail,
           'createdAt': FieldValue.serverTimestamp(),
           if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
           if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
@@ -489,7 +495,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         await docRef.update({'saleId': docRef.id});
 
         // Add completed order to provider
-        context.read<RestaurantProvider>().createOrder(order);
+        await context.read<RestaurantProvider>().createOrder(order);
 
         // Deduct inventory where applicable
         try {
@@ -536,12 +542,15 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           'total': order.total,
           'totalAmount': order.total,
           'finalAmount': order.total,
+          'paymentStatus': 'paid',
           'status': 'completed',
           'paymentMethods': selectedPaymentMethods,
           'paymentBreakdown': paymentBreakdown,
           'paymentMethod': selectedPaymentMethods.isNotEmpty ? selectedPaymentMethods.first : 'cash',
           'paymentTransactionId': firstTx,
           'category': 'Restaurant',
+          if (order.customerName != null) 'customerName': order.customerName,
+          if (order.customerEmail != null) 'customerEmail': order.customerEmail,
           if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
           if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
           'timestamp': DateTime.now().toIso8601String(),
@@ -597,6 +606,25 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
     // Save sale using offline-aware service
     try {
+      final order = RestaurantOrder(
+        id: 'order_${DateTime.now().millisecondsSinceEpoch}',
+        businessId: businessId,
+        tableId: _selectedTableId,
+        tableNumber: _selectedTableNumber,
+        customerName: auth.currentUser?.fullName ?? 'Walk-in',
+        customerEmail: auth.currentUser?.email,
+        items: _selectedItems.toList(),
+        subtotal: _subtotal,
+        tax: tax,
+        discount: _discount,
+        total: total,
+        status: 'completed',
+        paymentStatus: 'paid',
+        paymentMethods: const ['confirmed'],
+        paymentBreakdown: const [],
+        orderType: _selectedTableId != null ? 'dine-in' : 'takeaway',
+      );
+
       final firestore = FirebaseFirestore.instance;
       final connectivityProvider = Provider.of<ConnectivityProvider>(context, listen: false);
       final salesRepository = SalesRepositoryImpl(firestore: firestore);
@@ -607,6 +635,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
       final saleData = {
         'businessId': businessId,
+        'orderId': order.id,
         'items': itemsList,
         'subtotal': _subtotal,
         'tax': tax,
@@ -614,9 +643,16 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         'total': total,
         'totalAmount': total,
         'finalAmount': total,
+        'paymentStatus': 'paid',
         'paymentMethod': 'confirmed',
+        'paymentMethods': const ['confirmed'],
+        'paymentBreakdown': [
+          {'method': 'confirmed', 'amount': total, 'transactionId': order.id}
+        ],
         'category': 'Restaurant',
         'status': 'completed',
+        'customerName': order.customerName,
+        'customerEmail': order.customerEmail,
         if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
         if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
         if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
@@ -633,6 +669,18 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       final isOffline = result['mode'] == 'offline';
 
       final receiptNumber = 'RCPT-${_safeIdSuffix(saleId)}';
+
+      await context.read<RestaurantProvider>().createOrder(
+            order.copyWith(
+              paymentBreakdown: [
+                {
+                  'method': 'confirmed',
+                  'amount': total,
+                  'transactionId': saleId,
+                }
+              ],
+            ),
+          );
 
       // Send notification email to admin/owner (only if online)
       if (!isOffline) {
@@ -672,6 +720,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         'id': saleId,
         'saleId': saleId,
         'businessId': businessId,
+        'orderId': order.id,
         'items': itemsList,
         'subtotal': _subtotal,
         'tax': tax,
@@ -680,10 +729,20 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         'totalAmount': total,
         'finalAmount': total,
         'status': 'completed',
+        'paymentStatus': 'paid',
         'paymentMethod': 'Confirmed',
         'paymentMethods': const ['Confirmed'],
+        'paymentBreakdown': [
+          {
+            'method': 'Confirmed',
+            'amount': total,
+            'transactionId': saleId,
+          }
+        ],
         'category': 'Restaurant',
         'receiptNumber': receiptNumber,
+        'customerName': order.customerName,
+        'customerEmail': order.customerEmail,
         if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
         if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
         if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
@@ -1135,6 +1194,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       discount: _discount,
       total: total,
       status: 'pending',
+      paymentStatus: 'pending',
       orderType: 'dine-in',
     );
 

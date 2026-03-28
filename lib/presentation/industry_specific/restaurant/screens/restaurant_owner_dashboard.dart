@@ -45,13 +45,15 @@ class RestaurantDashboardScreen extends StatelessWidget {
         builder: (context, provider, _) {
           // --- Calculations ---
           final pendingOrders = provider.orders.where((o) => o.status == 'pending').length;
+          final pendingPaymentOrders = provider.pendingPaymentOrders;
+          final readyToBill = pendingPaymentOrders.where((o) => o.status == 'ready').length;
           final totalOrders = provider.orders.length;
           final occupiedTables = provider.tables.where((t) => t.status == 'occupied').length;
+          final recentOrders = provider.recentOrders.take(5).toList();
           
-          final avgOrderValue = totalOrders > 0
-              ? provider.orders
-                  .where((o) => o.status == 'completed')
-                  .fold<double>(0, (sum, order) => sum + order.total) / totalOrders
+          final paidOrders = provider.orders.where((o) => o.paymentStatus == 'paid').toList();
+          final avgOrderValue = paidOrders.isNotEmpty
+              ? paidOrders.fold<double>(0, (sum, order) => sum + order.total) / paidOrders.length
               : 0.0;
 
           // Placeholder for logic since MenuItem usually doesn't have a direct stock int in some models, 
@@ -95,20 +97,20 @@ class RestaurantDashboardScreen extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _LiveStatusCard(
-                        title: 'Total Orders',
-                        value: '$totalOrders',
-                        icon: Icons.receipt_long,
-                        color: Colors.green,
+                        title: 'Pending Payment',
+                        value: '${pendingPaymentOrders.length}',
+                        icon: Icons.payments_outlined,
+                        color: Colors.redAccent,
                         isSecondary: true,
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _LiveStatusCard(
-                        title: 'Avg. Value',
-                        value: '₦${avgOrderValue.toStringAsFixed(0)}',
-                        icon: Icons.analytics,
-                        color: Colors.purple,
+                        title: 'Ready to Bill',
+                        value: '$readyToBill',
+                        icon: Icons.receipt_long,
+                        color: Colors.green,
                         isSecondary: true,
                       ),
                     ),
@@ -146,9 +148,19 @@ class RestaurantDashboardScreen extends StatelessWidget {
                       _ActionTile(
                         icon: Icons.menu_book,
                         color: AppColors.primary,
-                        label: 'Menu Manager',
-                        subtitle: 'Update items & prices',
+                        label: 'Create Order',
+                        subtitle: 'Take a new restaurant order',
                         onTap: () => Navigator.pushNamed(context, Routes.restaurantMenu),
+                      ),
+                    );
+
+                    actions.add(
+                      _ActionTile(
+                        icon: Icons.payments_outlined,
+                        color: Colors.green,
+                        label: 'Pending Payment',
+                        subtitle: 'Process open restaurant bills',
+                        onTap: () => Navigator.pushNamed(context, Routes.restaurantOrders),
                       ),
                     );
                   }
@@ -176,6 +188,44 @@ class RestaurantDashboardScreen extends StatelessWidget {
                     );
                   }
 
+                  if (auth.isOwnerUser ||
+                      WorkerPermissions.hasPermission(role, 'bookings')) {
+                    actions.add(
+                      _ActionTile(
+                        icon: Icons.event_seat,
+                        color: Colors.indigo,
+                        label: 'Reservations',
+                        subtitle: 'Manage seating reservations',
+                        onTap: () => Navigator.pushNamed(context, Routes.restaurantReservations),
+                      ),
+                    );
+                  }
+
+                  if (auth.isOwnerUser ||
+                      WorkerPermissions.canManageSales(role)) {
+                    actions.add(
+                      _ActionTile(
+                        icon: Icons.table_restaurant,
+                        color: Colors.brown,
+                        label: 'Tables',
+                        subtitle: 'Track occupied and open tables',
+                        onTap: () => Navigator.pushNamed(context, Routes.restaurantTables),
+                      ),
+                    );
+                  }
+
+                  if (auth.isOwnerUser || WorkerPermissions.canManageStaff(role)) {
+                    actions.add(
+                      _ActionTile(
+                        icon: Icons.groups_2_outlined,
+                        color: Colors.deepOrange,
+                        label: 'Staff',
+                        subtitle: 'Assign kitchen and floor staff',
+                        onTap: () => Navigator.pushNamed(context, Routes.restaurantWaiters),
+                      ),
+                    );
+                  }
+
                   if (actions.isEmpty) {
                     return Container(
                       padding: const EdgeInsets.all(16),
@@ -194,7 +244,49 @@ class RestaurantDashboardScreen extends StatelessWidget {
                   );
                 }),
 
-                // 3. Low Stock Alerts
+                const SizedBox(height: 24),
+
+                // 3. Recent Orders
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Recent Orders', style: AppTextStyles.heading5),
+                      const SizedBox(height: 8),
+                      Text(
+                        '$totalOrders total orders | NGN ${avgOrderValue.toStringAsFixed(0)} average paid ticket',
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                      ),
+                      const SizedBox(height: 16),
+                      if (recentOrders.isEmpty)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            'No restaurant orders yet.',
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                        )
+                      else
+                        ...recentOrders.map((order) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _RecentOrderTile(order: order),
+                            )),
+                    ],
+                  ),
+                ),
+
+                // 4. Low Stock Alerts
                 if (lowStockItems.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Row(
@@ -211,7 +303,7 @@ class RestaurantDashboardScreen extends StatelessWidget {
 
                 const SizedBox(height: 24),
 
-                // 4. Menu Summary
+                // 5. Menu Summary
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
@@ -373,6 +465,81 @@ class _ActionTile extends StatelessWidget {
             Icon(Icons.chevron_right, color: Colors.grey.shade400),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _RecentOrderTile extends StatelessWidget {
+  final RestaurantOrder order;
+
+  const _RecentOrderTile({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = order.paymentStatus == 'paid'
+        ? AppColors.success
+        : order.status == 'ready'
+            ? Colors.orange
+            : AppColors.primary;
+    final timeLabel =
+        '${order.createdAt.hour.toString().padLeft(2, '0')}:${order.createdAt.minute.toString().padLeft(2, '0')}';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.receipt_long, color: statusColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  order.customerName ?? 'Walk-in order',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Table ${order.tableNumber ?? 'N/A'} | ${order.items.length} items | $timeLabel',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                'NGN ${order.total.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${order.status.toUpperCase()} | ${order.paymentStatus.toUpperCase()}',
+                style: TextStyle(color: statusColor, fontSize: 11),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

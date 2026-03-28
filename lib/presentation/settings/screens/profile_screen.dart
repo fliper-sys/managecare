@@ -62,6 +62,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final authProvider = context.watch<AuthProvider>();
     final user = authProvider.currentUser;
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final mutedText =
+        theme.textTheme.bodyMedium?.color?.withOpacity(0.68) ??
+            AppColors.textSecondary;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -76,8 +80,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onPressed: () {
               if (_isEditing) {
                 _saveProfile(authProvider);
+              } else {
+                setState(() => _isEditing = true);
               }
-              setState(() => _isEditing = !_isEditing);
             },
           ),
         ],
@@ -92,8 +97,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
+                gradient: LinearGradient(
+                  colors: [
+                    Color.alphaBlend(
+                      scheme.primary.withOpacity(0.10),
+                      theme.cardColor,
+                    ),
+                    theme.cardColor,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
                 borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: scheme.outline.withOpacity(0.12),
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.04),
@@ -104,6 +122,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: Column(
                 children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: scheme.primary.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          _isEditing
+                              ? 'Editing account details'
+                              : 'Account overview',
+                          style: theme.textTheme.labelLarge?.copyWith(
+                            color: scheme.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
                   // Profile Photo Section (mirrors Business Settings behavior)
                   _buildPhotoSection(),
                   const SizedBox(height: 20),
@@ -111,7 +153,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   if (!_isEditing) ...[
                     Text(
                       user?.fullName ?? 'User Name',
-                      style: AppTextStyles.heading3
+                      style: (theme.textTheme.headlineSmall ??
+                              AppTextStyles.heading3)
                           .copyWith(fontWeight: FontWeight.w800),
                       textAlign: TextAlign.center,
                     ),
@@ -119,33 +162,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     Text(
                       user?.email ?? 'user@email.com',
                       style: AppTextStyles.body2.copyWith(
-                        color: AppColors.textSecondary,
+                        color: mutedText,
                         fontWeight: FontWeight.w500,
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    if (user?.phoneNumber?.isNotEmpty == true) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: AppColors.background,
-                          borderRadius: BorderRadius.circular(12),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        _ProfilePill(
+                          icon: Icons.badge_outlined,
+                          label: (user?.role ?? 'Owner').toUpperCase(),
+                          tint: scheme.primary,
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.phone_rounded,
-                                size: 14, color: AppColors.textSecondary),
-                            const SizedBox(width: 6),
-                            Text(
-                              user?.phoneNumber ?? '',
-                              style: AppTextStyles.caption.copyWith(
-                                  color: AppColors.textSecondary,
-                                  fontWeight: FontWeight.w600),
-                            ),
-                          ],
+                        const _ProfilePill(
+                          icon: Icons.check_circle_outline,
+                          label: 'ACTIVE',
+                          tint: AppColors.success,
+                        ),
+                        if (user?.phoneNumber?.isNotEmpty == true)
+                          _ProfilePill(
+                            icon: Icons.phone_rounded,
+                            label: user!.phoneNumber!,
+                            tint: scheme.secondary,
+                          ),
+                      ],
+                    ),
+                    if (user?.phoneNumber?.isNotEmpty == true) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        'Keep these details current so receipts, reminders, and notifications reach you quickly.',
+                        textAlign: TextAlign.center,
+                        style: AppTextStyles.caption.copyWith(
+                          color: mutedText,
+                          height: 1.45,
                         ),
                       ),
                     ],
@@ -160,18 +213,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 16),
                     CustomTextField(
+                      label: 'Email Address',
+                      controller: _emailController,
+                      prefixIcon: Icons.email_outlined,
+                      keyboardType: TextInputType.emailAddress,
+                      hint: 'Enter your sign-in email',
+                    ),
+                    const SizedBox(height: 16),
+                    CustomTextField(
                       label: 'Phone Number',
                       controller: _phoneController,
                       prefixIcon: Icons.phone_outlined,
                       keyboardType: TextInputType.phone,
                       hint: 'Enter your phone number',
                     ),
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: scheme.primary.withOpacity(0.12),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.verified_user_outlined,
+                            size: 18,
+                            color: scheme.primary,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Changing your email triggers a secure verification flow. We will ask for your current password before the update is applied.',
+                              style: AppTextStyles.caption.copyWith(
+                                color: mutedText,
+                                height: 1.45,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(height: 24),
                     SizedBox(
                       width: double.infinity,
-                      height: 48,
+                      height: 50,
                       child: CustomButton(
-                        text: 'Save Changes',
+                        text: 'Save Profile Changes',
                         onPressed: () {
                           _saveProfile(authProvider);
                         },
@@ -180,13 +273,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
-                      height: 48,
-                      child: TextButton(
+                      height: 50,
+                      child: OutlinedButton(
                         onPressed: () {
+                          _nameController.text = user?.fullName ?? '';
+                          _emailController.text = user?.email ?? '';
+                          _phoneController.text = user?.phoneNumber ?? '';
                           setState(() => _isEditing = false);
                         },
-                        child: Text('Cancel',
-                            style: TextStyle(color: AppColors.textSecondary)),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(
+                            color: scheme.outline.withOpacity(0.55),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: Text(
+                          'Cancel',
+                          style: TextStyle(color: mutedText),
+                        ),
                       ),
                     ),
                   ],
@@ -406,10 +512,132 @@ class _ProfileScreenState extends State<ProfileScreen> {
     };
   }
 
+  Future<String?> _promptForCurrentPassword(String newEmail) async {
+    final controller = TextEditingController();
+    bool obscureText = true;
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) => AlertDialog(
+            title: const Text('Verify Email Change'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'To change your sign-in email to $newEmail, enter your current password.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  obscureText: obscureText,
+                  decoration: InputDecoration(
+                    labelText: 'Current Password',
+                    border: const OutlineInputBorder(),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscureText
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
+                      onPressed: () {
+                        setState(() => obscureText = !obscureText);
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () =>
+                    Navigator.pop(dialogContext, controller.text.trim()),
+                child: const Text('Continue'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    controller.dispose();
+    return result;
+  }
+
   void _saveProfile(AuthProvider authProvider) async {
     try {
       final ids = _getSettingsContextOrNotify();
       if (ids == null) return;
+
+      final fullName = _nameController.text.trim();
+      final email = _emailController.text.trim().toLowerCase();
+      final phoneNumber = _phoneController.text.trim();
+
+      if (fullName.isEmpty) {
+        _safeShowSnackBar(
+          const SnackBar(
+            content: Text('Full name is required'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
+
+      if (email.isEmpty || !email.contains('@')) {
+        _safeShowSnackBar(
+          const SnackBar(
+            content: Text('Enter a valid email address'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
+
+      final currentEmail =
+          (authProvider.currentUser?.email ?? '').trim().toLowerCase();
+      final emailChanged = email != currentEmail;
+
+      if (emailChanged) {
+        final currentPassword = await _promptForCurrentPassword(email);
+        if (currentPassword == null) return;
+        if (currentPassword.isEmpty) {
+          _safeShowSnackBar(
+            const SnackBar(
+              content: Text('Current password is required to change email'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+          return;
+        }
+
+        final emailUpdateOk = await runWithLottieErrorHandling<bool>(
+              context,
+              () => authProvider.changeEmail(currentPassword, email),
+              errorTitle: 'Email Update Failed',
+            ) ??
+            false;
+
+        if (!mounted) return;
+        if (!emailUpdateOk) {
+          _safeShowSnackBar(
+            SnackBar(
+              content: Text(
+                authProvider.errorMessage ??
+                    'Unable to update your sign-in email.',
+              ),
+              backgroundColor: AppColors.error,
+            ),
+          );
+          return;
+        }
+      }
 
       final settingsProvider = context.read<SettingsProvider>();
 
@@ -420,9 +648,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           return await settingsProvider.updateProfile(
             ids['businessId']!,
             ids['userId']!,
-            fullName: _nameController.text,
-            email: _emailController.text,
-            phoneNumber: _phoneController.text,
+            fullName: fullName,
+            email: email,
+            phoneNumber: phoneNumber,
           );
         },
         errorTitle: 'Profile Save Failed',
@@ -433,12 +661,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (res == true) {
         // Update auth provider cache so UI reflects changes immediately
         await authProvider.updateProfile(
-          fullName: _nameController.text,
-          phoneNumber: _phoneController.text,
+          email: email,
+          fullName: fullName,
+          phoneNumber: phoneNumber,
         );
 
-        await showSuccessLottieDialog(context,
-            title: 'Profile Updated', message: 'Your profile was saved');
+        await showSuccessLottieDialog(
+          context,
+          title: 'Profile Updated',
+          message: emailChanged
+              ? 'Your profile was saved. Check your inbox to verify the new email address if prompted.'
+              : 'Your profile was saved',
+        );
         setState(() => _isEditing = false);
       } else {
         _safeShowSnackBar(
@@ -1228,6 +1462,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
+class _ProfilePill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color tint;
+
+  const _ProfilePill({
+    required this.icon,
+    required this.label,
+    required this.tint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: tint.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: tint),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: tint,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 
 class _InfoTile extends StatelessWidget {
   final String label;
@@ -1244,6 +1515,10 @@ class _InfoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mutedText =
+        Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.68) ??
+            AppColors.textSecondary;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -1252,13 +1527,13 @@ class _InfoTile extends StatelessWidget {
           Row(
             children: [
               if (icon != null) ...[
-                Icon(icon, size: 16, color: AppColors.textSecondary.withOpacity(0.7)),
+                Icon(icon, size: 16, color: mutedText),
                 const SizedBox(width: 8),
               ],
               Text(
                 label,
                 style: AppTextStyles.body2.copyWith(
-                  color: AppColors.textSecondary,
+                  color: mutedText,
                 ),
               ),
             ],
@@ -1310,9 +1585,20 @@ class _SecurityOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final mutedText =
+        Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.68) ??
+            AppColors.textSecondary;
+
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(8)), child: Icon(icon, color: AppColors.primary, size: 20)),
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, color: AppColors.primary, size: 20),
+      ),
       title: Text(
         title,
         style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600),
@@ -1320,10 +1606,14 @@ class _SecurityOption extends StatelessWidget {
       subtitle: Text(
         subtitle,
         style: AppTextStyles.caption.copyWith(
-          color: AppColors.textSecondary,
+          color: mutedText,
         ),
       ),
-      trailing: trailing ?? Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary.withOpacity(0.5)),
+      trailing: trailing ??
+          Icon(
+            Icons.chevron_right_rounded,
+            color: mutedText,
+          ),
       onTap: onTap,
     );
   }

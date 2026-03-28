@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../providers/retail_provider.dart';
+import '../../../../services/business_notification_manager.dart';
+import '../../../../services/notification_and_email_service.dart';
 
 // Helper to parse DateTime values from Firestore documents (strings, Timestamps, ints)
 DateTime? _parseNullableDate(dynamic v) {
@@ -245,6 +247,7 @@ class RestaurantOrder {
   final double total;
   final String
       status; // pending, confirmed, preparing, ready, served, completed, cancelled
+  final String paymentStatus; // pending, partial, paid, refunded
   final String? assignedChefId;
   final String? assignedWaiterId;
   final List<String> paymentMethods; // e.g., ['cash','card']
@@ -269,6 +272,7 @@ class RestaurantOrder {
     this.discount = 0,
     required this.total,
     this.status = 'pending',
+    this.paymentStatus = 'pending',
     this.assignedChefId,
     this.assignedWaiterId,
     this.paymentMethods = const [],
@@ -298,6 +302,8 @@ class RestaurantOrder {
         discount: (json['discount'] as num?)?.toDouble() ?? 0,
         total: (json['total'] as num).toDouble(),
         status: json['status'] as String? ?? 'pending',
+        paymentStatus: json['paymentStatus'] as String? ??
+            ((json['status'] as String?) == 'completed' ? 'paid' : 'pending'),
         assignedChefId: json['assignedChefId'] as String?,
         assignedWaiterId: json['assignedWaiterId'] as String?,
         paymentMethods: (json['paymentMethods'] as List<dynamic>?)?.map((e) => e as String).toList() ?? [],
@@ -323,6 +329,7 @@ class RestaurantOrder {
         'discount': discount,
         'total': total,
         'status': status,
+        'paymentStatus': paymentStatus,
         'assignedChefId': assignedChefId,
         'assignedWaiterId': assignedWaiterId,
         'paymentMethods': paymentMethods,
@@ -332,6 +339,58 @@ class RestaurantOrder {
         'notes': notes,
         'orderType': orderType,
       };
+
+  RestaurantOrder copyWith({
+    String? id,
+    String? businessId,
+    String? tableId,
+    int? tableNumber,
+    String? customerId,
+    String? customerName,
+    String? customerPhone,
+    String? customerEmail,
+    List<OrderItem>? items,
+    double? subtotal,
+    double? tax,
+    double? discount,
+    double? total,
+    String? status,
+    String? paymentStatus,
+    String? assignedChefId,
+    String? assignedWaiterId,
+    List<String>? paymentMethods,
+    List<Map<String, dynamic>>? paymentBreakdown,
+    DateTime? createdAt,
+    DateTime? completedAt,
+    String? notes,
+    String? orderType,
+  }) {
+    return RestaurantOrder(
+      id: id ?? this.id,
+      businessId: businessId ?? this.businessId,
+      tableId: tableId ?? this.tableId,
+      tableNumber: tableNumber ?? this.tableNumber,
+      customerId: customerId ?? this.customerId,
+      customerName: customerName ?? this.customerName,
+      customerPhone: customerPhone ?? this.customerPhone,
+      customerEmail: customerEmail ?? this.customerEmail,
+      items: items ?? this.items,
+      subtotal: subtotal ?? this.subtotal,
+      tax: tax ?? this.tax,
+      discount: discount ?? this.discount,
+      total: total ?? this.total,
+      status: status ?? this.status,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
+      assignedChefId: assignedChefId ?? this.assignedChefId,
+      assignedWaiterId: assignedWaiterId ?? this.assignedWaiterId,
+      paymentMethods: paymentMethods ?? this.paymentMethods,
+      paymentBreakdown: paymentBreakdown ?? this.paymentBreakdown,
+      createdAt: createdAt ?? this.createdAt,
+      completedAt: completedAt ?? this.completedAt,
+      notes: notes ?? this.notes,
+      orderType: orderType ?? this.orderType,
+    );
+  }
 }
 
 class Reservation {
@@ -431,6 +490,10 @@ class Server {
 }
 
 class RestaurantProvider extends ChangeNotifier {
+  final BusinessNotificationManager _notificationManager =
+      BusinessNotificationManager.instance;
+  final NotificationAndEmailService _notificationLogger =
+      NotificationAndEmailService();
   // State
   List<MenuItem> _menuItems = [];
   List<RestaurantOrder> _orders = [];
@@ -459,10 +522,54 @@ class RestaurantProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
   List<String> get availablePaymentMethods => RestaurantProvider.supportedPaymentMethods;
+  List<RestaurantOrder> get recentOrders {
+    final items = [..._orders];
+    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return items;
+  }
+
+  List<RestaurantOrder> get pendingPaymentOrders {
+    return _orders.where((order) {
+      return order.paymentStatus != 'paid' &&
+          order.status != 'completed' &&
+          order.status != 'cancelled';
+    }).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
 
   // Initialize
   void setBusinessId(String businessId) {
     _businessId = businessId;
+  }
+
+  String _resolveBusinessId(RestaurantOrder order) {
+    if (order.businessId.isNotEmpty) return order.businessId;
+    return _businessId;
+  }
+
+  String _shortOrderId(String orderId) {
+    if (orderId.length <= 6) return orderId.toUpperCase();
+    return orderId.substring(orderId.length - 6).toUpperCase();
+  }
+
+  Future<void> _logOrderNotification({
+    required String businessId,
+    required String type,
+    required String recipient,
+    String? orderId,
+  }) async {
+    try {
+      await _notificationLogger.logNotificationEvent(
+        businessId: businessId,
+        type: type,
+        channel: 'local',
+        recipient: recipient,
+        success: true,
+        orderId: orderId,
+      );
+    } catch (e) {
+      debugPrint('[RestaurantProvider] notification log failed: $e');
+    }
   }
 
   // Menu Management
@@ -599,14 +706,16 @@ class RestaurantProvider extends ChangeNotifier {
   }
 
   Future<void> createOrder(RestaurantOrder order) async {
+    RestaurantOrder persistedOrder = order;
+
     if (_businessId.isNotEmpty) {
       final data = order.toJson();
       data['businessId'] = _businessId;
 
       if (order.id.isEmpty) {
         final docRef = await FirebaseFirestore.instance.collection('restaurant_orders').add(data);
-        final created = RestaurantOrder.fromJson({...data, 'id': docRef.id});
-        _orders.insert(0, created);
+        persistedOrder = RestaurantOrder.fromJson({...data, 'id': docRef.id});
+        _orders.insert(0, persistedOrder);
       } else {
         await FirebaseFirestore.instance.collection('restaurant_orders').doc(order.id).set(data, SetOptions(merge: true));
         final index = _orders.indexWhere((o) => o.id == order.id);
@@ -615,10 +724,53 @@ class RestaurantProvider extends ChangeNotifier {
         } else {
           _orders.insert(0, order);
         }
+        persistedOrder = order;
       }
     } else {
       _orders.insert(0, order);
+      persistedOrder = order;
     }
+
+    final businessId = _resolveBusinessId(persistedOrder);
+    if (businessId.isNotEmpty) {
+      try {
+        await _notificationManager.notifyOrderPlaced(
+          businessId: businessId,
+          orderId: _shortOrderId(persistedOrder.id),
+          itemCount: persistedOrder.items.fold<int>(
+            0,
+            (sum, item) => sum + item.quantity,
+          ),
+          total: persistedOrder.total,
+        );
+        await _logOrderNotification(
+          businessId: businessId,
+          type: 'restaurant_order_created',
+          recipient: persistedOrder.customerName ??
+              'Table ${persistedOrder.tableNumber ?? 'N/A'}',
+          orderId: persistedOrder.id,
+        );
+        if (persistedOrder.paymentStatus == 'paid') {
+          await _notificationManager.notifyPaymentReceived(
+            businessId: businessId,
+            customerName: persistedOrder.customerName ??
+                'Table ${persistedOrder.tableNumber ?? 'N/A'}',
+            amount: persistedOrder.total,
+            transactionId: persistedOrder.id,
+          );
+          await _logOrderNotification(
+            businessId: businessId,
+            type: 'restaurant_payment_received',
+            recipient: persistedOrder.customerName ??
+                'Table ${persistedOrder.tableNumber ?? 'N/A'}',
+            orderId: persistedOrder.id,
+          );
+        }
+      } catch (e) {
+        debugPrint('[RestaurantProvider] createOrder notification error: $e');
+      }
+    }
+
     notifyListeners();
   }
 
@@ -626,35 +778,53 @@ class RestaurantProvider extends ChangeNotifier {
     final index = _orders.indexWhere((order) => order.id == orderId);
     if (index != -1) {
       final order = _orders[index];
-      final updatedOrder = RestaurantOrder(
-        id: order.id,
-        businessId: order.businessId,
-        tableId: order.tableId,
-        tableNumber: order.tableNumber,
-        customerId: order.customerId,
-        customerName: order.customerName,
-        customerPhone: order.customerPhone,
-        items: order.items,
-        subtotal: order.subtotal,
-        tax: order.tax,
-        discount: order.discount,
-        total: order.total,
+      final updatedOrder = order.copyWith(
         status: newStatus,
-        assignedChefId: order.assignedChefId,
-        assignedWaiterId: order.assignedWaiterId,
-        paymentMethods: order.paymentMethods,
-        paymentBreakdown: order.paymentBreakdown,
-        createdAt: order.createdAt,
-        completedAt:
-            newStatus == 'completed' ? DateTime.now() : order.completedAt,
-        notes: order.notes,
-        orderType: order.orderType,
+        completedAt: newStatus == 'completed' ? DateTime.now() : order.completedAt,
       );
 
       _orders[index] = updatedOrder;
 
       if (_businessId.isNotEmpty && order.id.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('restaurant_orders').doc(order.id).set({'status': newStatus, 'completedAt': updatedOrder.completedAt?.toIso8601String()}, SetOptions(merge: true));
+        await FirebaseFirestore.instance.collection('restaurant_orders').doc(order.id).set({
+          'status': newStatus,
+          'completedAt': updatedOrder.completedAt?.toIso8601String(),
+          'paymentStatus': updatedOrder.paymentStatus,
+        }, SetOptions(merge: true));
+      }
+
+      final businessId = _resolveBusinessId(updatedOrder);
+      if (businessId.isNotEmpty) {
+        try {
+          if (newStatus == 'preparing') {
+            await _notificationManager.notifyOrderBeingPrepared(
+              businessId: businessId,
+              orderId: _shortOrderId(updatedOrder.id),
+            );
+          } else if (newStatus == 'ready') {
+            await _notificationManager.notifyOrderReady(
+              businessId: businessId,
+              orderId: _shortOrderId(updatedOrder.id),
+              orderType: updatedOrder.orderType,
+            );
+          } else if (newStatus == 'cancelled') {
+            await _notificationManager.notifyOrderCancelled(
+              businessId: businessId,
+              orderId: _shortOrderId(updatedOrder.id),
+              reason: 'Order cancelled',
+            );
+          }
+
+          await _logOrderNotification(
+            businessId: businessId,
+            type: 'restaurant_order_${newStatus.replaceAll('-', '_')}',
+            recipient:
+                updatedOrder.customerName ?? 'Table ${updatedOrder.tableNumber ?? 'N/A'}',
+            orderId: updatedOrder.id,
+          );
+        } catch (e) {
+          debugPrint('[RestaurantProvider] updateOrderStatus notification error: $e');
+        }
       }
 
       notifyListeners();
@@ -665,29 +835,7 @@ class RestaurantProvider extends ChangeNotifier {
     final index = _orders.indexWhere((order) => order.id == orderId);
     if (index != -1) {
       final order = _orders[index];
-      _orders[index] = RestaurantOrder(
-        id: order.id,
-        businessId: order.businessId,
-        tableId: order.tableId,
-        tableNumber: order.tableNumber,
-        customerId: order.customerId,
-        customerName: order.customerName,
-        customerPhone: order.customerPhone,
-        items: order.items,
-        subtotal: order.subtotal,
-        tax: order.tax,
-        discount: order.discount,
-        total: order.total,
-        status: order.status,
-        assignedChefId: chefId,
-        assignedWaiterId: order.assignedWaiterId,
-        paymentMethods: order.paymentMethods,
-        paymentBreakdown: order.paymentBreakdown,
-        createdAt: order.createdAt,
-        completedAt: order.completedAt,
-        notes: order.notes,
-        orderType: order.orderType,
-      );
+      _orders[index] = order.copyWith(assignedChefId: chefId);
       notifyListeners();
     }
   }
@@ -696,31 +844,70 @@ class RestaurantProvider extends ChangeNotifier {
     final index = _orders.indexWhere((order) => order.id == orderId);
     if (index != -1) {
       final order = _orders[index];
-      _orders[index] = RestaurantOrder(
-        id: order.id,
-        businessId: order.businessId,
-        tableId: order.tableId,
-        tableNumber: order.tableNumber,
-        customerId: order.customerId,
-        customerName: order.customerName,
-        customerPhone: order.customerPhone,
-        items: order.items,
-        subtotal: order.subtotal,
-        tax: order.tax,
-        discount: order.discount,
-        total: order.total,
-        status: order.status,
-        assignedChefId: order.assignedChefId,
-        assignedWaiterId: waiterId,
-        paymentMethods: order.paymentMethods,
-        paymentBreakdown: order.paymentBreakdown,
-        createdAt: order.createdAt,
-        completedAt: order.completedAt,
-        notes: order.notes,
-        orderType: order.orderType,
-      );
+      _orders[index] = order.copyWith(assignedWaiterId: waiterId);
       notifyListeners();
     }
+  }
+
+  Future<void> updateOrderPaymentStatus(
+    String orderId, {
+    required String paymentStatus,
+    String? status,
+    List<String>? paymentMethods,
+    List<Map<String, dynamic>>? paymentBreakdown,
+  }) async {
+    final index = _orders.indexWhere((order) => order.id == orderId);
+    if (index == -1) return;
+
+    final order = _orders[index];
+    final updatedOrder = order.copyWith(
+      paymentStatus: paymentStatus,
+      status: status ?? order.status,
+      paymentMethods: paymentMethods ?? order.paymentMethods,
+      paymentBreakdown: paymentBreakdown ?? order.paymentBreakdown,
+      completedAt: (status ?? order.status) == 'completed'
+          ? DateTime.now()
+          : order.completedAt,
+    );
+
+    _orders[index] = updatedOrder;
+
+    if (_businessId.isNotEmpty && order.id.isNotEmpty) {
+      await FirebaseFirestore.instance
+          .collection('restaurant_orders')
+          .doc(order.id)
+          .set({
+        'paymentStatus': updatedOrder.paymentStatus,
+        'status': updatedOrder.status,
+        'paymentMethods': updatedOrder.paymentMethods,
+        'paymentBreakdown': updatedOrder.paymentBreakdown,
+        'completedAt': updatedOrder.completedAt?.toIso8601String(),
+      }, SetOptions(merge: true));
+    }
+
+    final businessId = _resolveBusinessId(updatedOrder);
+    if (businessId.isNotEmpty && paymentStatus == 'paid') {
+      try {
+        await _notificationManager.notifyPaymentReceived(
+          businessId: businessId,
+          customerName: updatedOrder.customerName ??
+              'Table ${updatedOrder.tableNumber ?? 'N/A'}',
+          amount: updatedOrder.total,
+          transactionId: updatedOrder.id,
+        );
+        await _logOrderNotification(
+          businessId: businessId,
+          type: 'restaurant_payment_received',
+          recipient: updatedOrder.customerName ??
+              'Table ${updatedOrder.tableNumber ?? 'N/A'}',
+          orderId: updatedOrder.id,
+        );
+      } catch (e) {
+        debugPrint('[RestaurantProvider] updateOrderPaymentStatus notification error: $e');
+      }
+    }
+
+    notifyListeners();
   }
 
   List<RestaurantOrder> getOrdersByStatus(String status) {
@@ -1023,6 +1210,7 @@ class RestaurantProvider extends ChangeNotifier {
       'ready': _orders.where((o) => o.status == 'ready').length,
       'served': _orders.where((o) => o.status == 'served').length,
       'completed': _orders.where((o) => o.status == 'completed').length,
+      'pendingPayment': pendingPaymentOrders.length,
     };
   }
 

@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:business_manager/core/utils/datetime_utils.dart';
+import 'package:business_manager/services/business_reminder_service.dart';
+import 'package:business_manager/services/whatsapp_service.dart';
 import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../data/local/database_helper.dart';
-import '../../../../../services/notification_service.dart';
-import '../../../../../services/whatsapp_service.dart';
 
 // ==================== MODELS ====================
 
@@ -457,7 +456,7 @@ class BarberShopProvider extends ChangeNotifier {
       // Refresh authoritative list from server to avoid timezone/order mismatches
       await loadAppointments();
 
-      // Schedule appointment reminders (24 hours and 1 hour before)
+      // Schedule a fuller reminder set for operational follow-up.
       try {
         await _scheduleAppointmentReminders(appointment);
       } catch (_) {}
@@ -473,34 +472,14 @@ class BarberShopProvider extends ChangeNotifier {
 
   Future<void> _scheduleAppointmentReminders(BarberShopAppointment appointment) async {
     if (_businessId == null) return;
-    final now = DateTime.now();
-    final reminders = [
-      appointment.appointmentTime.subtract(Duration(hours: 24)),
-      appointment.appointmentTime.subtract(Duration(hours: 1)),
-    ];
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final key = 'notification_scheduled_alerts';
-      final existing = prefs.getStringList(key) ?? [];
-
-      for (final t in reminders) {
-        if (!t.isAfter(now)) continue;
-        final suffix = t.difference(appointment.appointmentTime).inHours.abs();
-        final id = _businessId.hashCode ^ ('${appointment.id}-$suffix').hashCode;
-        final title = 'Appointment Reminder';
-        final body = 'You have an appointment with ${appointment.clientName} at ${appointment.appointmentTime.toLocal()}';
-        try {
-          await NotificationService.instance.scheduleNotificationAt(id: id, title: title, body: body, at: t);
-        } catch (_) {}
-
-        final entry = '$_businessId|$id|${appointment.id}|${appointment.clientName.replaceAll('|', '_')}|${t.toUtc().toIso8601String()}';
-        existing.removeWhere((e) => e.split('|').length >= 2 && int.tryParse(e.split('|')[1]) == id);
-        existing.add(entry);
-      }
-
-      await prefs.setStringList(key, existing);
-    } catch (_) {}
+    await BusinessReminderService.instance.scheduleBarberBookingReminders(
+      businessId: _businessId!,
+      appointmentId: appointment.id,
+      clientName: appointment.clientName,
+      serviceName: appointment.serviceName,
+      barberName: appointment.barberName,
+      appointmentTime: appointment.appointmentTime,
+    );
   }
 
   /// Build and return per-customer messages for pending barber bookings.

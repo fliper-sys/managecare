@@ -247,14 +247,6 @@ class _MarketerLoginScreenState extends State<MarketerLoginScreen> {
                                     },
                                     child: const Text('Forgot password?'),
                                   ),
-                                  const Spacer(),
-                                  TextButton(
-                                    onPressed: () {
-                                      Navigator.of(context)
-                                          .pushNamed(Routes.adminLogin);
-                                    },
-                                    child: const Text('Admin portal'),
-                                  ),
                                 ],
                               ),
                             ],
