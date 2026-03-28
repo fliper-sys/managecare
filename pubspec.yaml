@@ -99,6 +99,8 @@ dependencies:
   geolocator: ^10.1.1
   geocoding: ^4.0.0
 
+  # Native Splash Screen
+  flutter_native_splash: ^2.3.11
 
   flutter_cache_manager: any
   http_parser: any
@@ -109,7 +111,6 @@ dev_dependencies:
   flutter_lints: ^3.0.1
   build_runner: ^2.4.7
   hive_generator: ^2.0.1
-  flutter_native_splash: ^2.3.11
   fake_cloud_firestore: ^4.0.1
 
 flutter:

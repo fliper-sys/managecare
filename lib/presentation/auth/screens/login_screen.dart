@@ -229,7 +229,7 @@ class _LoginScreenState extends State<LoginScreen>
                             child: isWide
                                 ? Row(
                                     crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Expanded(
                                         flex: 11,

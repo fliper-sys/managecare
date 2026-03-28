@@ -471,7 +471,7 @@ class HotelDashboardScreen extends StatelessWidget {
         icon: Icons.local_bar_outlined,
         label: 'Bar POS',
         color: Colors.indigo,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelBar),
+        onTap: () => Navigator.pushNamed(context, Routes.sales),
       ));
 
       actions.add(_buildActionCard(
@@ -479,7 +479,7 @@ class HotelDashboardScreen extends StatelessWidget {
         icon: Icons.receipt,
         label: 'Bar Orders',
         color: Colors.cyan,
-        onTap: () => Navigator.pushNamed(context, Routes.drinkOrders),
+        onTap: () => Navigator.pushNamed(context, Routes.salesHistory),
       ));
 
     // Printer Settings (general quick action)

@@ -617,19 +617,312 @@ class _HomeTabState extends State<_HomeTab> {
                   final bp = ctx.watch<BusinessProvider>();
                   final current = bp.currentBusiness;
                   final actions = List<_QuickActionItem>.from(_filteredItems);
-                  if (current != null && current.businessType.toLowerCase().contains('gas')) {
-                    // Prepend Pump Sale action for Gas businesses
-                    actions.insert(
-                      0,
-                      _QuickActionItem(
-                        title: 'Pump Sale',
-                        subtitle: 'Quick fuel sale',
-                        icon: Icons.local_gas_station,
-                        color: Colors.amber,
-                        route: Routes.gasPump,
-                      ),
-                    );
+
+                  // Add industry-specific quick actions based on business type
+                  if (current != null) {
+                    final businessType = current.businessType.toLowerCase();
+
+                    if (businessType.contains('gas')) {
+                      // Prepend Pump Sale action for Gas businesses
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'Pump Sale',
+                          subtitle: 'Quick fuel sale',
+                          icon: Icons.local_gas_station,
+                          color: Colors.amber,
+                          route: Routes.gasPump,
+                        ),
+                      );
+                    } else if (businessType.contains('pharmacy')) {
+                      // Pharmacy specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'New Prescription',
+                          subtitle: 'Add patient prescription',
+                          icon: Icons.medical_services,
+                          color: AppColors.pharmacy,
+                          route: Routes.pharmacyAddPrescription,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Drug Inventory',
+                          subtitle: 'Manage medications',
+                          icon: Icons.inventory_2,
+                          color: AppColors.pharmacy,
+                          route: Routes.pharmacyDrugInventory,
+                        ),
+                      );
+                    } else if (businessType.contains('retail')) {
+                      // Retail specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'Quick Sale',
+                          subtitle: 'Fast checkout',
+                          icon: Icons.point_of_sale,
+                          color: AppColors.retail,
+                          route: Routes.retailPos,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Product Catalog',
+                          subtitle: 'Manage products',
+                          icon: Icons.inventory,
+                          color: AppColors.retail,
+                          route: Routes.retailCatalog,
+                        ),
+                      );
+                    } else if (businessType.contains('wholesale')) {
+                      // Wholesale specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'Purchase Order',
+                          subtitle: 'Create bulk order',
+                          icon: Icons.shopping_cart,
+                          color: AppColors.primary,
+                          route: Routes.wholesalePurchaseOrders,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Stock Transfer',
+                          subtitle: 'Move inventory',
+                          icon: Icons.swap_horiz,
+                          color: AppColors.primary,
+                          route: Routes.wholesaleTransfers,
+                        ),
+                      );
+                    } else if (businessType.contains('agri') || businessType.contains('agriculture')) {
+                      // Agriculture specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'Add Livestock',
+                          subtitle: 'Record new animal',
+                          icon: Icons.pets,
+                          color: AppColors.agri,
+                          route: Routes.agriAddLivestock,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Farm Overview',
+                          subtitle: 'View all farms',
+                          icon: Icons.agriculture,
+                          color: AppColors.agri,
+                          route: Routes.agriFarms,
+                        ),
+                      );
+                    } else if (businessType.contains('auto')) {
+                      // Auto service specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'New Service',
+                          subtitle: 'Create service order',
+                          icon: Icons.build,
+                          color: AppColors.auto,
+                          route: Routes.autoCreateServiceOrder,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Parts Inventory',
+                          subtitle: 'Manage auto parts',
+                          icon: Icons.settings,
+                          color: AppColors.auto,
+                          route: Routes.autoPartsInventory,
+                        ),
+                      );
+                    } else if (businessType.contains('salon')) {
+                      // Salon specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'Book Appointment',
+                          subtitle: 'Schedule service',
+                          icon: Icons.calendar_today,
+                          color: AppColors.salon,
+                          route: Routes.salonBookAppointment,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Services',
+                          subtitle: 'Manage offerings',
+                          icon: Icons.spa,
+                          color: AppColors.salon,
+                          route: Routes.salonServices,
+                        ),
+                      );
+                    } else if (businessType.contains('barber')) {
+                      // Barbershop specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'New Appointment',
+                          subtitle: 'Book haircut',
+                          icon: Icons.content_cut,
+                          color: AppColors.salon,
+                          route: Routes.barberShopAppointments,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Services',
+                          subtitle: 'Manage styles',
+                          icon: Icons.style,
+                          color: AppColors.salon,
+                          route: Routes.barberShopServices,
+                        ),
+                      );
+                    } else if (businessType.contains('hotel')) {
+                      // Hotel specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'Check-in Guest',
+                          subtitle: 'Room assignment',
+                          icon: Icons.hotel,
+                          color: AppColors.hotel,
+                          route: Routes.hotelCheckIn,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'New Booking',
+                          subtitle: 'Reserve room',
+                          icon: Icons.calendar_month,
+                          color: AppColors.hotel,
+                          route: Routes.hotelCreateBooking,
+                        ),
+                      );
+                    } else if (businessType.contains('restaurant')) {
+                      // Restaurant specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'New Order',
+                          subtitle: 'Take customer order',
+                          icon: Icons.restaurant_menu,
+                          color: AppColors.restaurant,
+                          route: Routes.restaurantOrders,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Table Management',
+                          subtitle: 'Manage seating',
+                          icon: Icons.table_restaurant,
+                          color: AppColors.restaurant,
+                          route: Routes.restaurantTables,
+                        ),
+                      );
+                    } else if (businessType.contains('drink') || businessType.contains('bar')) {
+                      // Bar/Drink specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'Bar Order',
+                          subtitle: 'Quick drink sale',
+                          icon: Icons.local_bar,
+                          color: AppColors.drink,
+                          route: Routes.drinkPos,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Bottle Tracking',
+                          subtitle: 'Monitor inventory',
+                          icon: Icons.liquor,
+                          color: AppColors.drink,
+                          route: Routes.drinkBottleTracking,
+                        ),
+                      );
+                    } else if (businessType.contains('real') && businessType.contains('estate')) {
+                      // Real Estate specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'Add Property',
+                          subtitle: 'List new property',
+                          icon: Icons.add_home,
+                          color: AppColors.realEstate,
+                          route: Routes.realEstateAddProperty,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Rent Collection',
+                          subtitle: 'Collect payments',
+                          icon: Icons.payments,
+                          color: AppColors.realEstate,
+                          route: Routes.realEstateRentCollection,
+                        ),
+                      );
+                    } else if (businessType.contains('apartment')) {
+                      // Apartment specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'New Booking',
+                          subtitle: 'Reserve unit',
+                          icon: Icons.home,
+                          color: AppColors.realEstate,
+                          route: Routes.ownerDashboard, // Navigate to main dashboard which will show apartment dashboard
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Unit Management',
+                          subtitle: 'Manage properties',
+                          icon: Icons.business,
+                          color: AppColors.realEstate,
+                          route: Routes.ownerDashboard, // Navigate to main dashboard which will show apartment dashboard
+                        ),
+                      );
+                    } else if (businessType.contains('gym')) {
+                      // Gym specific actions
+                      actions.insert(
+                        0,
+                        _QuickActionItem(
+                          title: 'New Member',
+                          subtitle: 'Register client',
+                          icon: Icons.person_add,
+                          color: AppColors.primary,
+                          route: Routes.gymMembers,
+                        ),
+                      );
+                      actions.insert(
+                        1,
+                        _QuickActionItem(
+                          title: 'Class Schedule',
+                          subtitle: 'Manage sessions',
+                          icon: Icons.schedule,
+                          color: AppColors.primary,
+                          route: Routes.gymClasses,
+                        ),
+                      );
+                    }
                   }
+
                   return _buildQuickActionsGrid(isDark, actions)
                       .animate()
                       .fadeIn(duration: 500.ms, delay: 450.ms);
