@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../services/email_service.dart';
+import '../../../../core/utils/inventory_utils.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/localization/app_localization.dart';
@@ -33,6 +34,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   Uint8List? _pendingImageBytes;
   String? _pendingImageFilename;
   String? _selectedStoreId;
+  late String _selectedUnit;
 
   @override
   void initState() {
@@ -51,6 +53,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _emojiController =
         TextEditingController(text: widget.product?.emoji ?? '📦');
     _imageUrl = widget.product?.imageUrl;
+    _selectedUnit = canonicalizeInventoryUnit(widget.product?.unit);
   }
 
   @override
@@ -186,6 +189,33 @@ class _AddProductScreenState extends State<AddProductScreen> {
       return;
     }
 
+    if (widget.product == null) {
+      final businessProvider =
+          Provider.of<BusinessProvider>(context, listen: false);
+      final retailProvider =
+          Provider.of<RetailProvider>(context, listen: false);
+      final currentCount = retailProvider.products.length;
+
+      if (!businessProvider.isWithinLimit('products', currentCount)) {
+        await showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Product limit reached'),
+            content: Text(
+              businessProvider.getLimitReachedMessage('products'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
+    }
+
     setState(() => _isLoading = true);
 
     try {
@@ -204,6 +234,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
             _barcodeController.text.isEmpty ? null : _barcodeController.text,
         emoji: _emojiController.text.isEmpty ? '📦' : _emojiController.text,
         imageUrl: _imageUrl,
+        unit: _selectedUnit,
       );
 
       if (widget.product == null) {
@@ -506,6 +537,32 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   fontWeight: FontWeight.w700,
                 )),
             const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _selectedUnit,
+              decoration: InputDecoration(
+                labelText: 'Inventory Unit',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+              ),
+              items: getInventoryUnitOptions(selectedUnit: _selectedUnit)
+                  .map(
+                    (unit) => DropdownMenuItem<String>(
+                      value: unit,
+                      child: Text(inventoryUnitLabel(unit)),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _selectedUnit = canonicalizeInventoryUnit(value));
+              },
+            ),
+            const SizedBox(height: 12),
             // If this is a Gas business and the category contains Fuel, show a short tip about units/pricing
             Consumer<BusinessProvider>(builder: (context, bp, _) {
               final businessType = bp.currentBusiness?.businessType ?? '';

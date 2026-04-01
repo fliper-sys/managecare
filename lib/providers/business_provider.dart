@@ -8,6 +8,7 @@ import '../data/repositories/apartment_repository_impl.dart';
 import '../data/repositories/worker_repository_impl.dart';
 import '../services/local_business_storage.dart';
 import '../services/local_user_storage.dart';
+import '../services/subscription_service.dart';
 
 class BusinessProvider with ChangeNotifier {
   final BusinessRepository _repository;
@@ -902,6 +903,106 @@ class BusinessProvider with ChangeNotifier {
 
   // Subscription management
 
+  String get normalizedSubscriptionTier {
+    return _normalizeSubscriptionTier(_currentBusiness);
+  }
+
+  String get normalizedBusinessClass {
+    return _normalizeBusinessClass(_currentBusiness);
+  }
+
+  String _normalizeSubscriptionTier(BusinessModel? business) {
+    if (business == null) return 'basic';
+    return SubscriptionService.normalizeStoredPlanLevel(
+      subscriptionTier: business.subscriptionTier,
+      subscriptionPlan: business.subscriptionPlan,
+    );
+  }
+
+  String _normalizeBusinessClass(BusinessModel? business) {
+    if (business == null) return 'tier1';
+    return SubscriptionService.normalizeStoredBusinessClass(
+      businessClass: business.businessClass,
+      subscriptionPlan: business.subscriptionPlan,
+    );
+  }
+
+  int? getLimitFor(String limitType) {
+    if (_currentBusiness == null) return null;
+
+    final tier = normalizedSubscriptionTier;
+    final businessClass = normalizedBusinessClass;
+
+    switch (limitType) {
+      case 'workers':
+        if (tier == 'pro') {
+          if (businessClass == 'tier2') return 50;
+          if (businessClass == 'tier3') return null;
+          return 5;
+        }
+        switch (businessClass) {
+          case 'tier2':
+            return 10;
+          case 'tier3':
+            return 100;
+          case 'tier1':
+          default:
+            return 5;
+        }
+
+      case 'products':
+        switch (businessClass) {
+          case 'tier2':
+            return 1000;
+          case 'tier3':
+            return null;
+          case 'tier1':
+          default:
+            return 400;
+        }
+
+      case 'monthly_transactions':
+        switch (businessClass) {
+          case 'tier2':
+            return 5000;
+          case 'tier3':
+            return null;
+          case 'tier1':
+          default:
+            return 1000;
+        }
+
+      default:
+        return null;
+    }
+  }
+
+  String getLimitReachedMessage(String limitType) {
+    final limit = getLimitFor(limitType);
+    String noun;
+    switch (limitType) {
+      case 'workers':
+        noun = 'workers';
+        break;
+      case 'products':
+        noun = 'products';
+        break;
+      case 'monthly_transactions':
+        noun = 'monthly transactions';
+        break;
+      default:
+        noun = limitType;
+    }
+    final tier = normalizedSubscriptionTier.toUpperCase();
+    final businessClassLabel = normalizedBusinessClass.toUpperCase();
+
+    if (limit == null) {
+      return 'Your $businessClassLabel $tier plan has no fixed $noun limit.';
+    }
+
+    return 'Your $businessClassLabel $tier plan allows up to $limit $noun. Upgrade before adding more.';
+  }
+
   /// Check if feature is available in current subscription tier
   /// NOTE: For enhanced checking including expiration validation,
   /// use EnhancedSubscriptionProvider.canAccessFeature() instead
@@ -916,20 +1017,21 @@ class BusinessProvider with ChangeNotifier {
 
     if (_currentBusiness == null) return false;
 
-    final tier = _currentBusiness!.subscriptionTier;
+    final tier = normalizedSubscriptionTier;
+    final businessClass = normalizedBusinessClass;
 
     // Define feature access based on subscription tier
     switch (feature) {
       case 'unlimited_workers':
-        return tier == 'professional' || tier == 'enterprise';
+        return tier == 'basic' || tier == 'pro';
       case 'advanced_analytics':
-        return tier == 'professional' || tier == 'enterprise';
+        return tier == 'basic' || tier == 'pro';
       case 'multi_location':
-        return tier == 'enterprise';
+        return tier == 'pro' || businessClass == 'tier3';
       case 'api_access':
-        return tier == 'enterprise';
+        return tier == 'pro';
       case 'priority_support':
-        return tier == 'professional' || tier == 'enterprise';
+        return tier == 'pro';
       default:
         return true; // Basic features available to all
     }
@@ -970,34 +1072,50 @@ class BusinessProvider with ChangeNotifier {
     }
 
     // Check tier-based access
-    final tier = _currentBusiness!.subscriptionTier;
+    final tier = normalizedSubscriptionTier;
+    final businessClass = normalizedBusinessClass;
     switch (feature) {
       case 'unlimited_workers':
       case 'advanced_analytics':
       case 'email_receipts':
       case 'sms_notifications':
-        if (tier == 'free') {
-          return {'ok': false, 'message': 'Feature available in Basic tier and above'};
+        if (!(tier == 'basic' || tier == 'pro')) {
+          return {
+            'ok': false,
+            'message': 'Feature available in Basic tier and above'
+          };
         }
         return {'ok': true, 'message': null};
 
       case 'multi_location':
+        if (tier == 'pro' || businessClass == 'tier3') {
+          return {'ok': true, 'message': null};
+        }
+        return {
+          'ok': false,
+          'message': 'Feature available in Tier 3 Basic or Pro plans'
+        };
+
       case 'api_access':
       case 'payment_processing':
       case 'custom_reports':
       case 'priority_support':
-        if (!(tier == 'professional' ||
-            tier == 'pro' ||
-            tier == 'enterprise')) {
-          return {'ok': false, 'message': 'Feature available in Professional tier and above'};
+        if (tier != 'pro') {
+          return {
+            'ok': false,
+            'message': 'Feature available in Pro plans'
+          };
         }
         return {'ok': true, 'message': null};
 
       case 'white_label':
       case 'sso_login':
       case 'dedicated_support':
-        if (tier != 'enterprise') {
-          return {'ok': false, 'message': 'Feature available in Enterprise tier only'};
+        if (!(tier == 'pro' && businessClass == 'tier3')) {
+          return {
+            'ok': false,
+            'message': 'Feature available in Tier 3 Pro plans only'
+          };
         }
         return {'ok': true, 'message': null};
 
@@ -1009,27 +1127,9 @@ class BusinessProvider with ChangeNotifier {
   bool isWithinLimit(String limitType, int currentCount) {
     if (_currentBusiness == null) return false;
 
-    final tier = _currentBusiness!.subscriptionTier;
-
-    switch (limitType) {
-      case 'workers':
-        if (tier == 'free') return currentCount < 2;
-        if (tier == 'basic') return currentCount < 5;
-        return true; // Unlimited for professional and enterprise
-
-      case 'products':
-        if (tier == 'free') return currentCount < 50;
-        if (tier == 'basic') return currentCount < 500;
-        return true; // Unlimited for professional and enterprise
-
-      case 'monthly_transactions':
-        if (tier == 'free') return currentCount < 100;
-        if (tier == 'basic') return currentCount < 1000;
-        return true; // Unlimited for professional and enterprise
-
-      default:
-        return true;
-    }
+    final limit = getLimitFor(limitType);
+    if (limit == null) return true;
+    return currentCount < limit;
   }
 
   String getBusinessTypeName() {
@@ -1133,17 +1233,9 @@ class BusinessProvider with ChangeNotifier {
   bool isSubscriptionValid() {
     final b = _currentBusiness;
     if (b == null) return false;
-    final tierRaw = b.subscriptionTier.toLowerCase();
-    // Normalize older tier names to the new allowed tiers
-    final tier = (tierRaw == 'professional' || tierRaw == 'pro')
-        ? 'pro'
-        : (tierRaw == 'starter' || tierRaw == 'basic')
-            ? 'basic'
-            : tierRaw;
+    final tier = _normalizeSubscriptionTier(b);
 
-    // Only 'basic' and 'pro' (and enterprise) are treated as paid tiers.
-    if (!(tier == 'basic' || tier == 'pro' || tier == 'enterprise'))
-      return false;
+    if (!(tier == 'basic' || tier == 'pro')) return false;
     if (!b.isSubscriptionActive) return false;
     final end = b.subscriptionEndDate;
     if (end != null && DateTime.now().isAfter(end)) return false;

@@ -5,6 +5,7 @@ import '../../../../core/theme/text_styles.dart';
 
 import '../../../../data/repositories/procurement_repository.dart';
 import '../../../../core/utils/datetime_utils.dart';
+import '../../../../core/utils/inventory_utils.dart';
 
 class ProductProcurementsScreen extends StatelessWidget {
   final String businessId;
@@ -35,13 +36,13 @@ class ProductProcurementsScreen extends StatelessWidget {
             itemBuilder: (context, idx) {
               final d = docs[idx];
               final createdAt = parseTimestamp(d['createdAt'] ?? DateTime.now());
-              final qty = d['quantity'] ?? 0;
+              final qty = (d['quantity'] as num?) ?? 0;
               final cost = ((d['cost'] ?? 0) as num).toDouble();
-              final total = ((d['total'] ?? (qty * cost)) as num).toDouble();
+              final total = ((d['total'] ?? (qty.toDouble() * cost)) as num).toDouble();
               final procurementId = d['procurementId'] ?? '';
 
               return ListTile(
-                title: Text('Qty: $qty • ₦${cost.toStringAsFixed(2)}'),
+                title: Text('Qty: ${formatInventoryQuantity(qty)} • ₦${cost.toStringAsFixed(2)}'),
                 subtitle: Text('${procurementId.isNotEmpty ? 'Batch: $procurementId • ' : ''}${dateFmt.format(createdAt)}'),
                 trailing: Text('₦${total.toStringAsFixed(2)}'),
                 onTap: () {
@@ -87,7 +88,7 @@ class _ProcurementDetailViewer extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Total Quantity: ${d['totalQuantity'] ?? ''}'),
+                Text('Total Quantity: ${formatInventoryQuantity((d['totalQuantity'] as num?) ?? 0)}'),
                 const SizedBox(height: 8),
                 Text('Total Cost: ₦${(d['totalCost'] ?? 0).toStringAsFixed(2)}'),
                 const SizedBox(height: 8),
@@ -96,7 +97,7 @@ class _ProcurementDetailViewer extends StatelessWidget {
                 ...(d['items'] as List? ?? []).map((it) => ListTile(
                       dense: true,
                       title: Text(it['name'] ?? ''),
-                      subtitle: Text('Qty: ${it['quantity']} • Unit Cost: ₦${(it['cost'] ?? 0).toStringAsFixed(2)}'),
+                      subtitle: Text('Qty: ${formatInventoryQuantity((it['quantity'] as num?) ?? 0)} • Unit Cost: ₦${(it['cost'] ?? 0).toStringAsFixed(2)}'),
                       trailing: Text('₦${(it['total'] ?? 0).toStringAsFixed(2)}'),
                     )),
                 const SizedBox(height: 8),

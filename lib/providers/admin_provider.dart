@@ -71,6 +71,8 @@ class AdminProvider extends ChangeNotifier {
   String? _errorMessage;
   List<Map<String, dynamic>> _allUsers = [];
   List<Map<String, dynamic>> _allBusinesses = [];
+  int _usersCollectionCount = 0;
+  int _workersCollectionCount = 0;
 
   // Installation requests pending count
   int _pendingInstallationRequests = 0;
@@ -93,6 +95,8 @@ class AdminProvider extends ChangeNotifier {
   int get activeSubscriptionsCount => _stats.activeSubscriptions;
   int get restrictedBusinessesCount => _stats.restrictedBusinesses;
   int get marketersCount => _stats.totalMarketers;
+  int get usersTableCount => _usersCollectionCount;
+  int get workersTableCount => _workersCollectionCount;
   int get activeBusinessesCount =>
       _allBusinesses.where(_isBusinessAvailable).length;
 
@@ -105,6 +109,171 @@ class AdminProvider extends ChangeNotifier {
         normalized == '1' ||
         normalized == 'yes' ||
         normalized == 'active';
+  }
+
+  double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value == null) return 0.0;
+
+    final normalized = value.toString().replaceAll(',', '').trim();
+    return double.tryParse(normalized) ?? 0.0;
+  }
+
+  String _readString(dynamic value) {
+    return value?.toString().trim() ?? '';
+  }
+
+  String _buildMergedUserKey(String docId, Map<String, dynamic> data) {
+    final email = _readString(data['email']).toLowerCase();
+    if (email.isNotEmpty) return 'email:$email';
+
+    final workerId = _readString(data['workerId']);
+    if (workerId.isNotEmpty) return 'worker:$workerId';
+
+    return 'id:$docId';
+  }
+
+  String _buildRevenueKey(String docId, Map<String, dynamic> data) {
+    final transactionId =
+        _readString(data['transactionId'] ?? data['processorTransactionId']);
+    if (transactionId.isNotEmpty) return 'tx:$transactionId';
+
+    final requestId = _readString(data['requestId'] ?? data['uploadId']);
+    if (requestId.isNotEmpty) return 'request:$requestId';
+
+    return 'doc:$docId';
+  }
+
+  List<Map<String, dynamic>> _mergeAdminAccessibleUsers(
+    QuerySnapshot<Map<String, dynamic>> usersSnapshot,
+    QuerySnapshot<Map<String, dynamic>> workersSnapshot,
+  ) {
+    final mergedUsers = <String, Map<String, dynamic>>{};
+
+    void mergeDoc(
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+      String tableName,
+    ) {
+      final data = <String, dynamic>{'id': doc.id, ...doc.data()};
+      final fullName = _readString(data['fullName']);
+      if (_readString(data['name']).isEmpty && fullName.isNotEmpty) {
+        data['name'] = fullName;
+      }
+
+      if (tableName == 'workers') {
+        data['workerDocumentId'] = doc.id;
+        if (_readString(data['type']).isEmpty) {
+          data['type'] = 'worker';
+        }
+        if (_readString(data['role']).isEmpty) {
+          data['role'] = 'worker';
+        }
+      }
+
+      final mergeKey = _buildMergedUserKey(doc.id, data);
+      final existing = mergedUsers[mergeKey];
+
+      Map<String, dynamic> merged;
+      if (existing == null) {
+        merged = {...data};
+      } else if (tableName == 'users') {
+        merged = {...existing, ...data};
+      } else {
+        merged = {...data, ...existing};
+      }
+
+      final tableSources = <String>{
+        if (existing != null && existing['tableSources'] is List)
+          ...List<String>.from(
+            (existing['tableSources'] as List)
+                .map((entry) => entry.toString()),
+          ),
+        tableName,
+      }.toList()
+        ..sort();
+
+      merged['tableSources'] = tableSources;
+      merged['tableSource'] =
+          tableSources.length > 1 ? 'users+workers' : tableName;
+      merged['isWorker'] =
+          _readBool(merged['isWorker']) ||
+          _readString(merged['role']).toLowerCase() == 'worker' ||
+          _readString(merged['type']).toLowerCase() == 'worker' ||
+          tableSources.contains('workers');
+
+      mergedUsers[mergeKey] = merged;
+    }
+
+    for (final doc in usersSnapshot.docs) {
+      mergeDoc(doc, 'users');
+    }
+
+    for (final doc in workersSnapshot.docs) {
+      mergeDoc(doc, 'workers');
+    }
+
+    final result = mergedUsers.values.toList();
+    result.sort((a, b) {
+      final left = _readString(a['name']).isNotEmpty
+          ? _readString(a['name']).toLowerCase()
+          : _readString(a['email']).toLowerCase();
+      final right = _readString(b['name']).isNotEmpty
+          ? _readString(b['name']).toLowerCase()
+          : _readString(b['email']).toLowerCase();
+      return left.compareTo(right);
+    });
+    return result;
+  }
+
+  Future<int> _computeRecognizedRevenue() async {
+    double totalRevenue = 0.0;
+    final recognizedKeys = <String>{};
+
+    final approvalsSnapshot =
+        await _firestore.collection('subscription_approvals').get();
+    for (final doc in approvalsSnapshot.docs) {
+      final data = doc.data();
+      final status = _readString(data['status']).toLowerCase();
+      if (status != 'approved' &&
+          status != 'recognized' &&
+          status != 'processed') {
+        continue;
+      }
+
+      final amount = _readDouble(data['amount']);
+      if (amount <= 0) continue;
+
+      final revenueKey = _buildRevenueKey(doc.id, data);
+      if (recognizedKeys.add(revenueKey)) {
+        totalRevenue += amount;
+      }
+    }
+
+    final transactionsSnapshot =
+        await _firestore.collection('payment_transactions').get();
+    for (final doc in transactionsSnapshot.docs) {
+      final data = doc.data();
+      final approvalStatus = _readString(data['approvalStatus']).toLowerCase();
+      final status = _readString(data['status']).toLowerCase();
+      final recognized = _readBool(data['revenueRecognized']) ||
+          approvalStatus == 'approved' ||
+          approvalStatus == 'recognized' ||
+          approvalStatus == 'processed' ||
+          status == 'approved' ||
+          status == 'recognized' ||
+          status == 'processed';
+      if (!recognized) continue;
+
+      final amount = _readDouble(data['amount']);
+      if (amount <= 0) continue;
+
+      final revenueKey = _buildRevenueKey(doc.id, data);
+      if (recognizedKeys.add(revenueKey)) {
+        totalRevenue += amount;
+      }
+    }
+
+    return totalRevenue.round();
   }
 
   bool _isBusinessAvailable(Map<String, dynamic> business) {
@@ -277,6 +446,55 @@ class AdminProvider extends ChangeNotifier {
         return userData;
       }).toList();
 
+      // Merge in the separate workers table so admin can inspect every user
+      // record source from one consolidated list.
+      final workersSnapshot = await _firestore.collection('workers').get();
+      _usersCollectionCount = usersSnapshot.docs.length;
+      _workersCollectionCount = workersSnapshot.docs.length;
+      _allUsers = _mergeAdminAccessibleUsers(usersSnapshot, workersSnapshot)
+          .map((userData) {
+        final resolvedBusinessId = _readString(userData['currentBusinessId'])
+                .isNotEmpty
+            ? _readString(userData['currentBusinessId'])
+            : _readString(userData['businessId']);
+
+        if (resolvedBusinessId.isNotEmpty) {
+          final matchingBusiness = _allBusinesses.firstWhere(
+            (b) => b['id'] == resolvedBusinessId,
+            orElse: () => {},
+          );
+          if (matchingBusiness.isNotEmpty) {
+            userData['businessId'] = resolvedBusinessId;
+            userData['isSubscriptionActive'] =
+                matchingBusiness['isSubscriptionActive'] ?? false;
+            userData['subscriptionTier'] =
+                matchingBusiness['subscriptionTier'] ?? 'basic';
+            userData['subscriptionEndDate'] =
+                matchingBusiness['subscriptionEndDate'];
+            userData['subscriptionStartDate'] =
+                matchingBusiness['subscriptionStartDate'];
+            userData['businessName'] =
+                matchingBusiness['name'] ??
+                matchingBusiness['businessName'] ??
+                'N/A';
+            userData['businessRestricted'] =
+                _isBusinessRestricted(matchingBusiness);
+            userData['businessRestrictionReason'] =
+                matchingBusiness['restrictionReason'];
+          } else {
+            userData['isSubscriptionActive'] =
+                userData['isSubscriptionActive'] ?? false;
+            userData['subscriptionTier'] =
+                userData['subscriptionTier'] ?? 'basic';
+          }
+        } else {
+          userData['isSubscriptionActive'] = false;
+          userData['subscriptionTier'] = 'basic';
+        }
+
+        return userData;
+      }).toList();
+
       // Calculate statistics from subscription tiers
       int totalRevenue = 0;
       int pendingPayments = 0;
@@ -304,6 +522,10 @@ class AdminProvider extends ChangeNotifier {
         }
       }
 
+      // Use approved and recognized payment records as the revenue source of
+      // truth instead of estimating revenue from active subscription tiers.
+      totalRevenue = await _computeRecognizedRevenue();
+
       // Fetch payments for pending status
       final paymentsSnapshot = await _firestore
           .collection('payments')
@@ -321,6 +543,10 @@ class AdminProvider extends ChangeNotifier {
       final transactionsSnapshot =
           await _firestore.collection('transactions').get();
       totalTransactions = transactionsSnapshot.docs.length;
+
+      final paymentTransactionsSnapshot =
+          await _firestore.collection('payment_transactions').get();
+      totalTransactions = paymentTransactionsSnapshot.docs.length;
 
       final marketersSnapshot = await _firestore.collection('app_marketers').get();
       totalMarketers = marketersSnapshot.docs.length;
@@ -707,11 +933,33 @@ class AdminProvider extends ChangeNotifier {
   /// Get user details
   Future<Map<String, dynamic>?> getUserDetails(String userId) async {
     try {
-      final doc = await _firestore.collection('users').doc(userId).get();
-      if (doc.exists) {
-        return {'id': doc.id, ...doc.data() ?? {}};
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      final workerDoc = await _firestore.collection('workers').doc(userId).get();
+
+      if (!userDoc.exists && !workerDoc.exists) {
+        return null;
       }
-      return null;
+
+      final merged = <String, dynamic>{
+        'id': userId,
+        if (workerDoc.exists) ...?workerDoc.data(),
+        if (userDoc.exists) ...?userDoc.data(),
+      };
+
+      final fullName = _readString(merged['fullName']);
+      if (_readString(merged['name']).isEmpty && fullName.isNotEmpty) {
+        merged['name'] = fullName;
+      }
+
+      final sources = <String>[
+        if (userDoc.exists) 'users',
+        if (workerDoc.exists) 'workers',
+      ];
+      merged['tableSources'] = sources;
+      merged['tableSource'] =
+          sources.length > 1 ? 'users+workers' : sources.first;
+
+      return merged;
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
@@ -1436,8 +1684,25 @@ class AdminProvider extends ChangeNotifier {
               : null;
       final businessRef = _firestore.collection('businesses').doc(businessId);
       final businessSnap = await businessRef.get();
+      final adminSettings =
+          await _firestore.collection('system').doc('admin_settings').get();
+      final adminSettingsData = adminSettings.data() ?? const <String, dynamic>{};
+      final customerCareWhatsapp = _readString(
+        adminSettingsData['customerCareWhatsapp'] ??
+            adminSettingsData['supportWhatsapp'] ??
+            adminSettingsData['customerCarePhone'],
+      );
       final businessName =
           (businessSnap.data() ?? const {})['name']?.toString() ?? businessId;
+      final userNotificationMessage = restricted
+          ? [
+              '$businessName has been restricted by admin.',
+              if (trimmedReason != null && trimmedReason.isNotEmpty)
+                'Reason: $trimmedReason',
+              if (customerCareWhatsapp.isNotEmpty)
+                'Contact customer care on WhatsApp: $customerCareWhatsapp',
+            ].join('\n')
+          : '$businessName access has been restored. You can continue using the app.';
 
       await businessRef.set({
         'isRestricted': restricted,
@@ -1479,6 +1744,13 @@ class AdminProvider extends ChangeNotifier {
         }
       }
 
+      final affectedUsers = await _firestore
+          .collection('users')
+          .where('businessId', isEqualTo: businessId)
+          .get();
+      final affectedUserIds =
+          affectedUsers.docs.map((doc) => doc.id).toList(growable: false);
+
       await _firestore.collection('admin_notifications').add({
         'type': 'business_restriction',
         'title': restricted ? 'Business Restricted' : 'Business Restored',
@@ -1494,6 +1766,26 @@ class AdminProvider extends ChangeNotifier {
         'isRead': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
+
+      await _firestore.collection('notifications').add({
+        'title': restricted ? 'Business Restricted' : 'Business Restored',
+        'body': userNotificationMessage,
+        'type': 'business_restriction',
+        'targetUsers': affectedUserIds,
+        'businessId': businessId,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      for (final userDoc in affectedUsers.docs) {
+        await userDoc.reference.collection('notifications').add({
+          'title': restricted ? 'Business Restricted' : 'Business Restored',
+          'body': userNotificationMessage,
+          'read': false,
+          'type': 'business_restriction',
+          'businessId': businessId,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
 
       _refreshDerivedStatsFromCache();
       _isLoading = false;

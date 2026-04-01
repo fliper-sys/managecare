@@ -12,6 +12,9 @@ import '../../../../services/business_notification_manager.dart';
 import '../../../../providers/drink_provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../providers/customer_provider.dart';
+import '../../../../data/models/customer_model.dart';
+import '../../../../core/constants/routes.dart';
 import '../../../../widgets/custom_button.dart';
 
 class BarPosScreenDrink extends StatefulWidget {
@@ -27,6 +30,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
   bool _showCart = false;
 
   String? _selectedStoreId;
+  CustomerModel? _selectedCustomer;
+  final TextEditingController _tableLabelController = TextEditingController();
+  final TextEditingController _notesController = TextEditingController();
 
   @override
   void initState() {
@@ -35,10 +41,21 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
       try {
         final retail = Provider.of<RetailProvider>(context, listen: false);
         final auth = Provider.of<AuthProvider>(context, listen: false);
+        final customers = Provider.of<CustomerProvider>(context, listen: false);
         if (retail.stores.isEmpty) retail.loadStores();
+        if (customers.customers.isEmpty && !customers.isLoading) {
+          customers.loadCustomers();
+        }
         _selectedStoreId = auth.currentUser?.storeId;
       } catch (_) {}
     });
+  }
+
+  @override
+  void dispose() {
+    _tableLabelController.dispose();
+    _notesController.dispose();
+    super.dispose();
   }
 
   void _addToCart(String drinkId, {int qty = 1}) {
@@ -66,6 +83,179 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
     });
   }
 
+  List<OrderLine> _buildOrderLines(DrinkProvider provider) {
+    return _cart.entries
+        .map((entry) {
+          final drink = provider.getDrinkById(entry.key);
+          if (drink == null) return null;
+          return OrderLine(
+            drinkId: drink.id,
+            quantityBottles: entry.value,
+            unitPrice: drink.pricePerBottle,
+          );
+        })
+        .whereType<OrderLine>()
+        .toList();
+  }
+
+  String _resolvedCustomerName() =>
+      _selectedCustomer?.name ?? 'Walk-in Customer';
+
+  String _resolvedInvoiceType() {
+    if (_tableLabelController.text.trim().isNotEmpty) return 'table';
+    if (_selectedCustomer != null) return 'tab';
+    return 'invoice';
+  }
+
+  Future<CustomerModel?> _showCreateCustomerDialog() async {
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    bool isSaving = false;
+
+    return showDialog<CustomerModel?>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Add customer'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Customer name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Phone number',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email address',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      if (nameCtrl.text.trim().isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Customer name is required'),
+                          ),
+                        );
+                        return;
+                      }
+
+                      setDialogState(() => isSaving = true);
+                      final customerProvider =
+                          Provider.of<CustomerProvider>(context, listen: false);
+                      final created = await customerProvider.createCustomer(
+                        name: nameCtrl.text.trim(),
+                        phone: phoneCtrl.text.trim(),
+                        email: emailCtrl.text.trim(),
+                      );
+                      if (!dialogContext.mounted) return;
+                      Navigator.of(dialogContext).pop(created);
+                    },
+              child: isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveInvoice(DrinkProvider provider) async {
+    if (_cart.isEmpty) return;
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final businessId =
+        Provider.of<BusinessProvider>(context, listen: false)
+                .currentBusiness
+                ?.id ??
+            authProvider.currentUser?.businessId ??
+            '';
+    if (businessId.isNotEmpty) {
+      provider.setBusinessId(businessId);
+    }
+    final lines = _buildOrderLines(provider);
+    if (lines.isEmpty) return;
+
+    try {
+      final invoice = await provider.createInvoice(
+        lines: lines,
+        invoiceType: _resolvedInvoiceType(),
+        customerId: _selectedCustomer?.id,
+        customerName: _selectedCustomer?.name,
+        customerPhone: _selectedCustomer?.phone,
+        customerEmail: _selectedCustomer?.email,
+        tableLabel: _tableLabelController.text.trim().isEmpty
+            ? null
+            : _tableLabelController.text.trim(),
+        notes: _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
+        workerId: authProvider.currentUser?.id,
+        workerName: authProvider.currentUser?.fullName,
+        storeId: _selectedStoreId ?? authProvider.currentUser?.storeId,
+      );
+
+      _clearCart();
+      _tableLabelController.clear();
+      _notesController.clear();
+
+      if (!mounted) return;
+      setState(() {
+        _selectedCustomer = null;
+        _showCart = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'Invoice ${invoice.invoiceNumber} saved to Tabs & Invoices'),
+          backgroundColor: Colors.brown.shade700,
+        ),
+      );
+      Navigator.pushNamed(context, Routes.drinkTabs);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save invoice: $e')),
+      );
+    }
+  }
+
   Future<void> _checkout(DrinkProvider provider) async {
     if (_cart.isEmpty) return;
 
@@ -83,30 +273,12 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         );
         return;
       }
+      provider.setBusinessId(businessId);
 
       // Build order lines
-      final lines = _cart.entries
-          .map((e) {
-            final d = provider.getDrinkById(e.key);
-            if (d == null) return null;
-            return OrderLine(
-              drinkId: d.id,
-              quantityBottles: e.value,
-              unitPrice: d.pricePerBottle,
-            );
-          })
-          .whereType<OrderLine>()
-          .toList();
+      final lines = _buildOrderLines(provider);
 
       if (lines.isEmpty) return;
-
-      final order = Order(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        lines: lines,
-      );
-
-      // Deduct from provider inventory
-      provider.createOrder(order);
 
       // Create sale record in Firestore
       final itemsList = lines.map((line) {
@@ -125,16 +297,35 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
       // Ask user for payment method
       final paymentMethod = await _selectPaymentMethod();
+      if (paymentMethod == null) return;
+
+      final order = Order(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        lines: lines,
+      );
+
+      // Deduct from provider inventory only after payment is confirmed
+      provider.createOrder(order);
 
       final saleData = {
+        'businessId': businessId,
         'items': itemsList,
         'subtotal': totalAmount,
         'total': totalAmount,
         'totalAmount': totalAmount,
         'finalAmount': totalAmount,
+        'status': 'completed',
         'paymentMethod': paymentMethod,
         'category': 'Drinks/Bar',
         'createdAt': FieldValue.serverTimestamp(),
+        'customerId': _selectedCustomer?.id,
+        'customerName': _resolvedCustomerName(),
+        'customerPhone': _selectedCustomer?.phone,
+        'customerEmail': _selectedCustomer?.email,
+        if (_tableLabelController.text.trim().isNotEmpty)
+          'tableLabel': _tableLabelController.text.trim(),
+        if (_notesController.text.trim().isNotEmpty)
+          'notes': _notesController.text.trim(),
         if (authProvider.currentUser?.id != null)
           'workerId': authProvider.currentUser!.id,
         if (authProvider.currentUser?.fullName != null)
@@ -158,6 +349,15 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         'paymentMethod': paymentMethod,
         if ((_selectedStoreId ?? authProvider.currentUser?.storeId) != null) 'storeId': (_selectedStoreId ?? authProvider.currentUser?.storeId),
       });
+
+      if (_selectedCustomer != null) {
+        try {
+          await Provider.of<CustomerProvider>(context, listen: false)
+              .updateCustomerAfterPurchase(_selectedCustomer!.id, totalAmount);
+        } catch (e) {
+          debugPrint('[BarPOS] Failed to update customer stats: $e');
+        }
+      }
 
       // Update inventory in Firestore for each drink
       for (final line in lines) {
@@ -193,6 +393,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         'finalAmount': totalAmount,
         'paymentMethod': paymentMethod,
         'timestamp': DateTime.now().toIso8601String(),
+        'customerName': _resolvedCustomerName(),
+        if (_tableLabelController.text.trim().isNotEmpty)
+          'tableLabel': _tableLabelController.text.trim(),
         if (authProvider.currentUser?.id != null)
           'workerId': authProvider.currentUser!.id,
         if (authProvider.currentUser?.fullName != null)
@@ -209,8 +412,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
           final success = await notif.sendSalesNotification(
             ownerEmail: ownerEmail,
             businessName: business?.name ?? '',
-            customerName: 'Walk-in Customer',
-            customerEmail: '',
+            customerName: _resolvedCustomerName(),
+            customerEmail: _selectedCustomer?.email ?? '',
             totalAmount: totalAmount,
             items: itemsList
                 .map((it) => {
@@ -246,7 +449,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
       try {
         await BusinessNotificationManager.instance.notifySaleCompleted(
           businessId: businessId,
-          customerName: 'Walk-in Customer',
+          customerName: _resolvedCustomerName(),
           amount: totalAmount,
           paymentMethod: paymentMethod,
         );
@@ -254,7 +457,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         if (totalAmount > 100) {
           await BusinessNotificationManager.instance.notifyLargeSale(
             businessId: businessId,
-            customerName: 'Walk-in Customer',
+            customerName: _resolvedCustomerName(),
             amount: totalAmount,
           );
         }
@@ -268,24 +471,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         debugPrint('[BarPOS] Receipt error: $e');
       }
 
-      // Trigger business notifications (low/large sale hooks)
-      try {
-        await BusinessNotificationManager.instance.notifySaleCompleted(
-          businessId: businessId,
-          customerName: 'Customer',
-          amount: totalAmount,
-          paymentMethod: 'Cash',
-        );
-        if (totalAmount > 100) {
-          await BusinessNotificationManager.instance.notifyLargeSale(
-            businessId: businessId,
-            customerName: 'Customer',
-            amount: totalAmount,
-          );
-        }
-      } catch (e) {
-        debugPrint('[BarPOS] Notification hooks failed: $e');
-      }
+      setState(() {
+        _selectedCustomer = null;
+      });
+      _tableLabelController.clear();
+      _notesController.clear();
 
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('✓ Sale completed and inventory updated'),
@@ -301,7 +491,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
     }
   }
 
-  Future<String> _selectPaymentMethod() async {
+  Future<String?> _selectPaymentMethod() async {
     final selection = await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) => SafeArea(
@@ -322,13 +512,13 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
             ),
             ListTile(
               title: const Text('Cancel'),
-              onTap: () => Navigator.pop(ctx, 'Cash'),
+              onTap: () => Navigator.pop(ctx),
             ),
           ],
         ),
       ),
     );
-    return selection ?? 'Cash';
+    return selection;
   }
 
   @override
@@ -345,6 +535,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         backgroundColor: Colors.brown.shade700,
         elevation: 2,
         actions: [
+          IconButton(
+            tooltip: 'Tabs & Invoices',
+            onPressed: () => Navigator.pushNamed(context, Routes.drinkTabs),
+            icon: const Icon(Icons.receipt_long),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Center(
@@ -712,6 +907,122 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
             const SizedBox(height: 24),
 
+            Consumer<CustomerProvider>(
+              builder: (context, customerProvider, _) {
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Assign Invoice',
+                        style: AppTextStyles.subtitle1.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      DropdownButtonFormField<String>(
+                        value: _selectedCustomer?.id,
+                        decoration: const InputDecoration(
+                          labelText: 'Customer / Tab owner',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: '',
+                            child: Text('Walk-in customer'),
+                          ),
+                          ...customerProvider.customers.map(
+                            (customer) => DropdownMenuItem<String>(
+                              value: customer.id,
+                              child: Text(customer.name),
+                            ),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            if (value == null || value.isEmpty) {
+                              _selectedCustomer = null;
+                            } else {
+                              try {
+                                _selectedCustomer =
+                                    customerProvider.customers.firstWhere(
+                                  (customer) => customer.id == value,
+                                );
+                              } catch (_) {
+                                _selectedCustomer = null;
+                              }
+                            }
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed: customerProvider.isLoading
+                                ? null
+                                : () => customerProvider.loadCustomers(),
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Refresh customers'),
+                          ),
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: () async {
+                              final created = await _showCreateCustomerDialog();
+                              if (!mounted || created == null) return;
+                              setState(() => _selectedCustomer = created);
+                            },
+                            icon: const Icon(Icons.person_add_alt_1),
+                            label: const Text('Add new'),
+                          ),
+                        ],
+                      ),
+                      if (_selectedCustomer != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          _selectedCustomer!.phone?.isNotEmpty == true
+                              ? _selectedCustomer!.phone!
+                              : (_selectedCustomer!.email?.isNotEmpty == true
+                                  ? _selectedCustomer!.email!
+                                  : 'No saved contact info'),
+                          style: AppTextStyles.caption.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _tableLabelController,
+                        decoration: const InputDecoration(
+                          labelText: 'Table number or tab label',
+                          hintText: 'e.g. Table 4, Lounge Left',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _notesController,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'Notes',
+                          hintText: 'Optional note for staff or invoice record',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 24),
+
             // Order Summary
             Container(
               padding: const EdgeInsets.all(16),
@@ -750,6 +1061,14 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
             // Action Buttons
             CustomButton(
+              text: 'Save Invoice / Open Tab',
+              backgroundColor: Colors.brown.shade700,
+              onPressed: () => _saveInvoice(
+                Provider.of<DrinkProvider>(context, listen: false),
+              ),
+            ),
+            const SizedBox(height: 8),
+            CustomButton(
               text: 'Proceed to Payment',
               backgroundColor: Colors.green.shade600,
               onPressed: () async {
@@ -779,6 +1098,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                       TextButton(
                         onPressed: () {
                           _clearCart();
+                          _tableLabelController.clear();
+                          _notesController.clear();
+                          setState(() => _selectedCustomer = null);
                           Navigator.pop(context);
                           setState(() => _showCart = false);
                         },

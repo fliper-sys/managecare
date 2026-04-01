@@ -1576,18 +1576,21 @@ class _HomeTabState extends State<_HomeTab> {
               children: [
                 Expanded(
                   child: _smallStatChip(
-                      '${business.totalProducts ?? 0}', 'Products'),
+                      '${business.totalProducts ?? 0}', 'Products',
+                      onTap: () => Navigator.pushNamed(context, Routes.inventory)),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _smallStatChip(
-                      '${business.totalCustomers ?? 0}', 'Customers'),
+                      '${business.totalCustomers ?? 0}', 'Customers',
+                      onTap: () => Navigator.pushNamed(context, Routes.customers)),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _smallStatChip(
                       _loadingCounts ? '...' : '${_workersCount > 0 ? _workersCount : (business.totalWorkers ?? 0)}',
-                      'Staff'),
+                      'Staff',
+                      onTap: () => Navigator.pushNamed(context, Routes.workers)),
                 ),
               ],
             ),
@@ -1838,25 +1841,36 @@ class _HomeTabState extends State<_HomeTab> {
     );
   }
 
-  Widget _smallStatChip(String value, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha((0.12 * 255).toInt()),
+  Widget _smallStatChip(String value, String label, {VoidCallback? onTap}) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white.withAlpha((0.06 * 255).toInt())),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(value,
-              style: AppTextStyles.caption
-                  .copyWith(color: Colors.white, fontWeight: FontWeight.w800)),
-          const SizedBox(width: 6),
-          Text(label,
-              style: AppTextStyles.caption
-                  .copyWith(color: Colors.white.withAlpha((0.9 * 255).toInt()))),
-        ],
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.white.withAlpha((0.12 * 255).toInt()),
+            borderRadius: BorderRadius.circular(8),
+            border:
+                Border.all(color: Colors.white.withAlpha((0.06 * 255).toInt())),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              Text(value,
+                  style: AppTextStyles.caption
+                      .copyWith(color: Colors.white, fontWeight: FontWeight.w800)),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(label,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.caption.copyWith(
+                        color: Colors.white.withAlpha((0.9 * 255).toInt()))),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

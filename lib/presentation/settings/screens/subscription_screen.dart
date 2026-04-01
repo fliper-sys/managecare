@@ -402,61 +402,69 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         receiptUrl = uploadResult.downloadUrl;
       }
 
-      // Activate or renew subscription via SubscriptionService so events and logs are recorded
-      final subscriptionService = SubscriptionService(firestore: FirebaseFirestore.instance);
-      final activationSuccess = await subscriptionService.activateOrRenewSubscription(
+      final pendingRequestService =
+          SubscriptionService(firestore: FirebaseFirestore.instance);
+      final submittedForApproval =
+          await pendingRequestService.submitManualSubscriptionForApproval(
         userId: currentUserId,
         planId: plan.id,
         receiptUrl: receiptUrl!,
         amount: plan.price,
         businessId: currentBusiness?.id,
+        currency: currentBusiness?.currency ?? 'NGN',
+        userEmail: currentUser.email,
+        userName: currentUser.fullName,
       );
 
       if (!mounted) return;
       Navigator.pop(context);
 
-      if (!activationSuccess) {
+      if (!submittedForApproval) {
         if (mounted) setState(() => _isLoading = false);
-        _showError(isRenew ? 'Failed to renew subscription' : 'Failed to activate subscription');
+        _showError(
+            isRenew ? 'Failed to submit renewal request' : 'Failed to submit upgrade request');
         return;
       }
 
-      // Update local models to reflect new subscription (end date is handled by service)
-      final updatedUser = currentUser.copyWith(
-        subscriptionPlan: plan.id,
-        hasActiveSubscription: true,
-        subscriptionStartDate: DateTime.now(),
-        subscriptionEndDate: DateTime.now().add(Duration(days: plan.durationInDays)),
-        subscriptionAmount: plan.price,
-      );
-
-      await context.read<AuthProvider>().updateUserModel(updatedUser);
-
-      if (currentBusiness != null) {
-        final updatedBusiness = currentBusiness.copyWith(
-          subscriptionTier: plan.id.split('_').first,
-          subscriptionPlan: plan.id,
-          isSubscriptionActive: true,
-        );
-        await context.read<BusinessProvider>().updateBusiness(updatedBusiness);
-      }
+      final stillHasActiveAccess = currentUser.isSubscriptionValid;
 
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _currentPlan = plan.id;
           _selectedReceipt = null;
+          _uploadProgress = 0.0;
         });
       }
 
+      if (stillHasActiveAccess) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                isRenew
+                    ? 'Renewal request submitted for approval.'
+                    : 'Upgrade request submitted for approval.',
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        return;
+      }
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(isRenew ? 'Subscription renewed successfully!' : 'Subscription upgraded successfully!'),
-            backgroundColor: Colors.green,
-          ),
+        Navigator.of(context).pushReplacementNamed(
+          '/subscription-status',
+          arguments: {
+            'userId': currentUserId,
+            'userEmail': currentUser.email,
+            'userName': currentUser.fullName,
+            'subscriptionPlan': plan.id,
+            'subscriptionAmount': plan.price,
+          },
         );
       }
+      return;
     } catch (e) {
       if (mounted) {
         try {

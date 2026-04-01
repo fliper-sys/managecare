@@ -4,6 +4,30 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/whatsapp_service.dart';
 import '../services/notification_and_email_service.dart';
 
+DateTime? _parseDrinkNullableDate(dynamic value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is Timestamp) return value.toDate();
+  if (value is String) return DateTime.tryParse(value);
+  if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+  return null;
+}
+
+DateTime _parseDrinkDateOrNow(dynamic value) =>
+    _parseDrinkNullableDate(value) ?? DateTime.now();
+
+double _readDrinkDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value is String) return double.tryParse(value) ?? 0.0;
+  return 0.0;
+}
+
+int _readDrinkInt(dynamic value) {
+  if (value is num) return value.toInt();
+  if (value is String) return int.tryParse(value) ?? 0;
+  return 0;
+}
+
 // Models
 class DrinkItem {
   final String id;
@@ -63,6 +87,37 @@ class OrderLine {
     final mod = modifiers.fold<double>(0.0, (p, m) => p + m.price);
     return (unitPrice + mod) * quantityBottles;
   }
+
+  factory OrderLine.fromJson(Map<String, dynamic> json) {
+    return OrderLine(
+      drinkId: (json['drinkId'] ?? json['productId'] ?? '').toString(),
+      quantityBottles:
+          _readDrinkInt(json['quantityBottles'] ?? json['quantity']),
+      modifiers: (json['modifiers'] as List<dynamic>?)
+              ?.map((item) {
+                final map = Map<String, dynamic>.from(item as Map);
+                return Modifier(
+                  id: (map['id'] ?? '').toString(),
+                  name: (map['name'] ?? '').toString(),
+                  price: _readDrinkDouble(map['price']),
+                );
+              })
+              .toList() ??
+          const [],
+      unitPrice: _readDrinkDouble(json['unitPrice'] ?? json['price']),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'drinkId': drinkId,
+      'quantityBottles': quantityBottles,
+      'unitPrice': unitPrice,
+      'modifiers': modifiers
+          .map((mod) => {'id': mod.id, 'name': mod.name, 'price': mod.price})
+          .toList(),
+    };
+  }
 }
 
 class Order {
@@ -79,6 +134,168 @@ class Order {
       : createdAt = createdAt ?? DateTime.now();
 
   double total() => lines.fold<double>(0.0, (sum, l) => sum + l.lineTotal());
+}
+
+class BarInvoice {
+  final String id;
+  final String businessId;
+  final String invoiceNumber;
+  final String invoiceType; // invoice, tab, table
+  final String status; // open, converted, cancelled
+  final String? customerId;
+  final String customerName;
+  final String? customerPhone;
+  final String? customerEmail;
+  final String? tableLabel;
+  final String? notes;
+  final List<OrderLine> lines;
+  final double subtotal;
+  final double tax;
+  final double discount;
+  final double total;
+  final DateTime createdAt;
+  final DateTime? convertedAt;
+  final String? linkedSaleId;
+  final String? paymentMethod;
+  final String? workerId;
+  final String? workerName;
+  final String? storeId;
+
+  const BarInvoice({
+    required this.id,
+    required this.businessId,
+    required this.invoiceNumber,
+    required this.invoiceType,
+    required this.status,
+    this.customerId,
+    required this.customerName,
+    this.customerPhone,
+    this.customerEmail,
+    this.tableLabel,
+    this.notes,
+    this.lines = const [],
+    required this.subtotal,
+    this.tax = 0.0,
+    this.discount = 0.0,
+    required this.total,
+    required this.createdAt,
+    this.convertedAt,
+    this.linkedSaleId,
+    this.paymentMethod,
+    this.workerId,
+    this.workerName,
+    this.storeId,
+  });
+
+  int get itemCount =>
+      lines.fold<int>(0, (sum, line) => sum + line.quantityBottles);
+
+  factory BarInvoice.fromJson(Map<String, dynamic> json) {
+    return BarInvoice(
+      id: (json['id'] ?? '').toString(),
+      businessId: (json['businessId'] ?? '').toString(),
+      invoiceNumber: (json['invoiceNumber'] ?? '').toString(),
+      invoiceType: (json['invoiceType'] ?? 'invoice').toString(),
+      status: (json['status'] ?? 'open').toString(),
+      customerId: json['customerId']?.toString(),
+      customerName: (json['customerName'] ?? 'Walk-in Customer').toString(),
+      customerPhone: json['customerPhone']?.toString(),
+      customerEmail: json['customerEmail']?.toString(),
+      tableLabel: json['tableLabel']?.toString(),
+      notes: json['notes']?.toString(),
+      lines: (json['lines'] as List<dynamic>?)
+              ?.map((item) =>
+                  OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
+              .toList() ??
+          (json['items'] as List<dynamic>?)
+                  ?.map((item) =>
+                      OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
+                  .toList() ??
+              const [],
+      subtotal: _readDrinkDouble(json['subtotal']),
+      tax: _readDrinkDouble(json['tax']),
+      discount: _readDrinkDouble(json['discount']),
+      total: _readDrinkDouble(json['total']),
+      createdAt: _parseDrinkDateOrNow(json['createdAt']),
+      convertedAt: _parseDrinkNullableDate(json['convertedAt']),
+      linkedSaleId: json['linkedSaleId']?.toString(),
+      paymentMethod: json['paymentMethod']?.toString(),
+      workerId: json['workerId']?.toString(),
+      workerName: json['workerName']?.toString(),
+      storeId: json['storeId']?.toString(),
+    );
+  }
+
+  BarInvoice copyWith({
+    String? status,
+    DateTime? convertedAt,
+    String? linkedSaleId,
+    String? paymentMethod,
+  }) {
+    return BarInvoice(
+      id: id,
+      businessId: businessId,
+      invoiceNumber: invoiceNumber,
+      invoiceType: invoiceType,
+      status: status ?? this.status,
+      customerId: customerId,
+      customerName: customerName,
+      customerPhone: customerPhone,
+      customerEmail: customerEmail,
+      tableLabel: tableLabel,
+      notes: notes,
+      lines: lines,
+      subtotal: subtotal,
+      tax: tax,
+      discount: discount,
+      total: total,
+      createdAt: createdAt,
+      convertedAt: convertedAt ?? this.convertedAt,
+      linkedSaleId: linkedSaleId ?? this.linkedSaleId,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      workerId: workerId,
+      workerName: workerName,
+      storeId: storeId,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'businessId': businessId,
+      'source': 'drink',
+      'category': 'Drinks/Bar',
+      'invoiceNumber': invoiceNumber,
+      'invoiceType': invoiceType,
+      'status': status,
+      'customerId': customerId,
+      'customerName': customerName,
+      'customerPhone': customerPhone,
+      'customerEmail': customerEmail,
+      'tableLabel': tableLabel,
+      'notes': notes,
+      'lines': lines.map((line) => line.toJson()).toList(),
+      'items': lines
+          .map((line) => {
+                'productId': line.drinkId,
+                'quantity': line.quantityBottles,
+                'unitPrice': line.unitPrice,
+                'total': line.lineTotal(),
+              })
+          .toList(),
+      'subtotal': subtotal,
+      'tax': tax,
+      'discount': discount,
+      'total': total,
+      'createdAt': createdAt,
+      'convertedAt': convertedAt,
+      'linkedSaleId': linkedSaleId,
+      'paymentMethod': paymentMethod,
+      'workerId': workerId,
+      'workerName': workerName,
+      'storeId': storeId,
+    };
+  }
 }
 
 class Shift {
@@ -100,6 +317,7 @@ class Shift {
 // Optional repository interface class placeholder (injected for persistence)
 abstract class DrinkRepository {
   Future<void> saveOrder(Map<String, dynamic> data);
+  Future<void> saveInvoice(Map<String, dynamic> data);
 
   Future<List<DrinkItem>> fetchDrinks();
 
@@ -108,6 +326,7 @@ abstract class DrinkRepository {
   Future<void> updateStock(String drinkId, StockItem stock);
 
   Future<List<Order>> fetchOrders();
+  Future<List<BarInvoice>> fetchInvoices();
 
   Future<void> startShift(Shift shift);
 
@@ -121,6 +340,7 @@ abstract class DrinkRepository {
   Stream<List<DrinkItem>> streamDrinks();
   Stream<List<StockItem>> streamInventory();
   Stream<List<Order>> streamOrders();
+  Stream<List<BarInvoice>> streamInvoices();
 }
 
 class DrinkProvider extends ChangeNotifier {
@@ -128,6 +348,7 @@ class DrinkProvider extends ChangeNotifier {
   StreamSubscription<List<DrinkItem>>? _drinksSub;
   StreamSubscription<List<StockItem>>? _inventorySub;
   StreamSubscription<List<Order>>? _ordersSub;
+  StreamSubscription<List<BarInvoice>>? _invoicesSub;
 
   String? _businessId;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -136,6 +357,7 @@ class DrinkProvider extends ChangeNotifier {
   final List<Modifier> modifiers = [];
   final List<StockItem> inventory = [];
   final List<Order> orders = [];
+  final List<BarInvoice> invoices = [];
   final List<Shift> shifts = [];
 
   DrinkProvider({this.repository}) {
@@ -169,6 +391,11 @@ class DrinkProvider extends ChangeNotifier {
         ..clear()
         ..addAll(fetchedOrders);
 
+      final fetchedInvoices = await repository.fetchInvoices();
+      invoices
+        ..clear()
+        ..addAll(fetchedInvoices);
+
       notifyListeners();
 
       // subscribe to real-time updates if repository exposes streams
@@ -196,6 +423,14 @@ class DrinkProvider extends ChangeNotifier {
             ..addAll(list);
           notifyListeners();
         });
+
+        _invoicesSub?.cancel();
+        _invoicesSub = repository.streamInvoices().listen((list) {
+          invoices
+            ..clear()
+            ..addAll(list);
+          notifyListeners();
+        });
       } catch (_) {
         // repository may not support streams; ignore
       }
@@ -209,6 +444,7 @@ class DrinkProvider extends ChangeNotifier {
     _drinksSub?.cancel();
     _inventorySub?.cancel();
     _ordersSub?.cancel();
+    _invoicesSub?.cancel();
     super.dispose();
   }
 
@@ -371,7 +607,10 @@ class DrinkProvider extends ChangeNotifier {
           'id': o.id,
           'total': o.total(),
           'status': o.status,
-          'createdAt': o.createdAt.toIso8601String()
+          'createdAt': o.createdAt,
+          'lines': o.lines.map((line) => line.toJson()).toList(),
+          'itemCount':
+              o.lines.fold<int>(0, (sum, line) => sum + line.quantityBottles),
         });
 
         // update stock documents for any modified stock items
@@ -410,6 +649,25 @@ class DrinkProvider extends ChangeNotifier {
       .where((o) => o.status == 'pending' || o.status == 'served')
       .toList();
 
+  List<BarInvoice> getOpenInvoices() => invoices
+      .where((invoice) => invoice.status == 'open')
+      .toList()
+    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+  List<BarInvoice> getInvoiceHistory() {
+    final all = List<BarInvoice>.from(invoices);
+    all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return all;
+  }
+
+  BarInvoice? getInvoiceById(String invoiceId) {
+    try {
+      return invoices.firstWhere((invoice) => invoice.id == invoiceId);
+    } catch (_) {
+      return null;
+    }
+  }
+
   void updateOrderStatus(String orderId, String status) {
     final o = orders.firstWhere((x) => x.id == orderId);
     o.status = status;
@@ -436,12 +694,14 @@ class DrinkProvider extends ChangeNotifier {
 
     final subtotal = o.total();
     final saleData = {
+      'businessId': _businessId,
       'items': items,
       'subtotal': subtotal,
       'discount': 0.0,
       'total': subtotal,
       'totalAmount': subtotal,
       'finalAmount': subtotal,
+      'status': 'completed',
       'paymentMethod': paymentMethod,
       'category': 'Drinks/Bar',
       'createdAt': FieldValue.serverTimestamp(),
@@ -505,12 +765,258 @@ class DrinkProvider extends ChangeNotifier {
           'id': o.id,
           'total': o.total(),
           'status': o.status,
-          'createdAt': o.createdAt.toIso8601String(),
+          'createdAt': o.createdAt,
+          'lines': o.lines.map((line) => line.toJson()).toList(),
         });
       }
     } catch (e) {
       if (kDebugMode) print('Failed to persist order status change: $e');
     }
+  }
+
+  Future<BarInvoice> createInvoice({
+    required List<OrderLine> lines,
+    String invoiceType = 'invoice',
+    String? customerId,
+    String? customerName,
+    String? customerPhone,
+    String? customerEmail,
+    String? tableLabel,
+    String? notes,
+    String? workerId,
+    String? workerName,
+    String? storeId,
+    double tax = 0.0,
+    double discount = 0.0,
+  }) async {
+    final businessId = _businessId;
+    if (businessId == null || businessId.isEmpty) {
+      throw StateError('Business ID not found');
+    }
+    if (lines.isEmpty) {
+      throw StateError('Cannot create an invoice without items');
+    }
+
+    final now = DateTime.now();
+    final subtotal = lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
+    final total = subtotal + tax - discount;
+    final invoice = BarInvoice(
+      id: 'bar_invoice_${now.microsecondsSinceEpoch}',
+      businessId: businessId,
+      invoiceNumber:
+          'INV-${now.millisecondsSinceEpoch.toString().substring(5)}',
+      invoiceType: invoiceType,
+      status: 'open',
+      customerId: customerId,
+      customerName: (customerName == null || customerName.trim().isEmpty)
+          ? 'Walk-in Customer'
+          : customerName.trim(),
+      customerPhone: customerPhone,
+      customerEmail: customerEmail,
+      tableLabel: tableLabel,
+      notes: notes,
+      lines: lines,
+      subtotal: subtotal,
+      tax: tax,
+      discount: discount,
+      total: total,
+      createdAt: now,
+      workerId: workerId,
+      workerName: workerName,
+      storeId: storeId,
+    );
+
+    if (repository != null) {
+      await repository!.saveInvoice(invoice.toJson());
+    } else {
+      await _firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('invoices')
+          .doc(invoice.id)
+          .set(invoice.toJson(), SetOptions(merge: true));
+    }
+
+    final index = invoices.indexWhere((item) => item.id == invoice.id);
+    if (index >= 0) {
+      invoices[index] = invoice;
+    } else {
+      invoices.insert(0, invoice);
+    }
+    notifyListeners();
+    return invoice;
+  }
+
+  Future<Map<String, dynamic>> convertInvoiceToSale(
+    String invoiceId,
+    String paymentMethod, {
+    String? workerId,
+    String? workerName,
+  }) async {
+    final businessId = _businessId;
+    if (businessId == null || businessId.isEmpty) {
+      throw StateError('Business ID not found');
+    }
+
+    final invoice = getInvoiceById(invoiceId);
+    if (invoice == null) {
+      throw StateError('Invoice not found');
+    }
+    if (invoice.status == 'converted') {
+      throw StateError('Invoice has already been converted to a sale');
+    }
+    if (invoice.status == 'cancelled') {
+      throw StateError('Cancelled invoices cannot be converted');
+    }
+
+    final items = invoice.lines.map((line) {
+      final drink = getDrinkById(line.drinkId);
+      return {
+        'productId': line.drinkId,
+        'productName': drink?.name ?? 'Unknown',
+        'quantity': line.quantityBottles,
+        'unitPrice': line.unitPrice,
+        'total': line.lineTotal(),
+      };
+    }).toList();
+
+    final saleData = {
+      'businessId': businessId,
+      'items': items,
+      'subtotal': invoice.subtotal,
+      'tax': invoice.tax,
+      'discount': invoice.discount,
+      'total': invoice.total,
+      'totalAmount': invoice.total,
+      'finalAmount': invoice.total,
+      'status': 'completed',
+      'paymentMethod': paymentMethod,
+      'category': 'Drinks/Bar',
+      'createdAt': FieldValue.serverTimestamp(),
+      'invoiceId': invoice.id,
+      'invoiceNumber': invoice.invoiceNumber,
+      'sourceInvoiceType': invoice.invoiceType,
+      'customerId': invoice.customerId,
+      'customerName': invoice.customerName,
+      'customerPhone': invoice.customerPhone,
+      'customerEmail': invoice.customerEmail,
+      'tableLabel': invoice.tableLabel,
+      'notes': invoice.notes,
+      'workerId': workerId ?? invoice.workerId,
+      'workerName': workerName ?? invoice.workerName,
+      'storeId': invoice.storeId,
+    };
+
+    final saleRef = await _firestore
+        .collection('businesses')
+        .doc(businessId)
+        .collection('sales')
+        .add(saleData);
+    await saleRef.update({'orderId': saleRef.id});
+
+    final convertedInvoice = invoice.copyWith(
+      status: 'converted',
+      convertedAt: DateTime.now(),
+      linkedSaleId: saleRef.id,
+      paymentMethod: paymentMethod,
+    );
+
+    if (repository != null) {
+      await repository!.saveInvoice(convertedInvoice.toJson());
+    } else {
+      await _firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('invoices')
+          .doc(invoice.id)
+          .set(convertedInvoice.toJson(), SetOptions(merge: true));
+    }
+
+    final invoiceIndex = invoices.indexWhere((item) => item.id == invoice.id);
+    if (invoiceIndex >= 0) {
+      invoices[invoiceIndex] = convertedInvoice;
+    }
+
+    if (invoice.customerId != null && invoice.customerId!.isNotEmpty) {
+      await _updateCustomerAfterSale(invoice.customerId!, invoice.total);
+    }
+
+    notifyListeners();
+
+    return {
+      'id': saleRef.id,
+      'items': items,
+      'subtotal': invoice.subtotal,
+      'tax': invoice.tax,
+      'discount': invoice.discount,
+      'total': invoice.total,
+      'totalAmount': invoice.total,
+      'finalAmount': invoice.total,
+      'paymentMethod': paymentMethod,
+      'timestamp': DateTime.now().toIso8601String(),
+      'customerName': invoice.customerName,
+      'tableLabel': invoice.tableLabel,
+      'invoiceId': invoice.id,
+      'invoiceNumber': invoice.invoiceNumber,
+      if ((workerId ?? invoice.workerId) != null)
+        'workerId': workerId ?? invoice.workerId,
+      if ((workerName ?? invoice.workerName) != null)
+        'workerName': workerName ?? invoice.workerName,
+    };
+  }
+
+  Future<void> cancelInvoice(String invoiceId) async {
+    final invoice = getInvoiceById(invoiceId);
+    if (invoice == null || invoice.status == 'converted') return;
+    if (_businessId == null || _businessId!.isEmpty) return;
+
+    final cancelledInvoice = invoice.copyWith(status: 'cancelled');
+    if (repository != null) {
+      await repository!.saveInvoice(cancelledInvoice.toJson());
+    } else {
+      await _firestore
+          .collection('businesses')
+          .doc(_businessId)
+          .collection('invoices')
+          .doc(invoice.id)
+          .set(cancelledInvoice.toJson(), SetOptions(merge: true));
+    }
+
+    final index = invoices.indexWhere((item) => item.id == invoice.id);
+    if (index >= 0) {
+      invoices[index] = cancelledInvoice;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _updateCustomerAfterSale(
+      String customerId, double purchaseAmount) async {
+    if (_businessId == null || _businessId!.isEmpty) return;
+
+    final customerRef = _firestore
+        .collection('businesses')
+        .doc(_businessId)
+        .collection('customers')
+        .doc(customerId);
+    final currentDoc = await customerRef.get();
+    if (!currentDoc.exists) return;
+
+    final data = currentDoc.data() ?? <String, dynamic>{};
+    final previousTransactions =
+        (data['totalTransactions'] as num?)?.toInt() ?? 0;
+    final previousSpent = (data['totalSpent'] as num?)?.toDouble() ?? 0.0;
+    final newTransactionCount = previousTransactions + 1;
+    final newTotalSpent = previousSpent + purchaseAmount;
+    final newAverageOrderValue =
+        newTransactionCount == 0 ? 0.0 : newTotalSpent / newTransactionCount;
+
+    await customerRef.set({
+      'totalTransactions': newTransactionCount,
+      'totalSpent': newTotalSpent,
+      'averageOrderValue': newAverageOrderValue,
+      'lastPurchaseDate': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   double getTotalSales() {
@@ -528,13 +1034,18 @@ class DrinkProvider extends ChangeNotifier {
       final snapshot = await _firestore
           .collection('businesses')
           .doc(_businessId)
-          .collection('orders')
-          .where('status', isEqualTo: 'paid')
+          .collection('sales')
           .get();
 
       double totalSales = 0.0;
       for (final doc in snapshot.docs) {
-        final amount = (doc['total'] as num?)?.toDouble() ?? 0.0;
+        final data = doc.data();
+        final status = (data['status'] ?? 'completed').toString().toLowerCase();
+        if (status == 'cancelled' || status == 'refunded') continue;
+        final amount = (data['finalAmount'] as num?)?.toDouble() ??
+            (data['totalAmount'] as num?)?.toDouble() ??
+            (data['total'] as num?)?.toDouble() ??
+            0.0;
         totalSales += amount;
       }
 
@@ -577,12 +1088,18 @@ class DrinkProvider extends ChangeNotifier {
             .collection('sales')
             .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
             .where('createdAt', isLessThanOrEqualTo: endOfDay)
-            .where('status', isEqualTo: 'completed')
             .get();
 
         double totalSales = 0.0;
         for (final doc in snapshot.docs) {
-          final amount = (doc['finalAmount'] as num?)?.toDouble() ?? 0.0;
+          final data = doc.data();
+          final status =
+              (data['status'] ?? 'completed').toString().toLowerCase();
+          if (status == 'cancelled' || status == 'refunded') continue;
+          final amount = (data['finalAmount'] as num?)?.toDouble() ??
+              (data['totalAmount'] as num?)?.toDouble() ??
+              (data['total'] as num?)?.toDouble() ??
+              0.0;
           totalSales += amount;
         }
 
@@ -606,8 +1123,14 @@ class DrinkProvider extends ChangeNotifier {
 
             double totalSales = 0.0;
             for (final doc in fallback.docs) {
-              if ((doc['status'] as String?)?.toLowerCase() != 'completed') continue;
-              final amount = (doc['finalAmount'] as num?)?.toDouble() ?? 0.0;
+              final data = doc.data();
+              final status =
+                  (data['status'] ?? 'completed').toString().toLowerCase();
+              if (status == 'cancelled' || status == 'refunded') continue;
+              final amount = (data['finalAmount'] as num?)?.toDouble() ??
+                  (data['totalAmount'] as num?)?.toDouble() ??
+                  (data['total'] as num?)?.toDouble() ??
+                  0.0;
               totalSales += amount;
             }
 

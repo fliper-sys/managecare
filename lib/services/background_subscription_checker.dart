@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../core/utils/datetime_utils.dart';
 import '../data/models/business_model.dart';
 import 'local_business_storage.dart';
+import 'subscription_service.dart';
 
 /// Background subscription status checker
 /// Monitors subscription expiry, status changes, and enforces feature access
@@ -123,7 +124,10 @@ class BackgroundSubscriptionChecker {
       final data = docSnapshot.data() ?? {};
 
       // Extract subscription info
-      final subscriptionTier = data['subscriptionTier'] as String? ?? 'free';
+      final subscriptionTier = SubscriptionService.normalizeStoredPlanLevel(
+        subscriptionTier: data['subscriptionTier'] as String?,
+        subscriptionPlan: data['subscriptionPlan'] as String?,
+      );
       final isSubscriptionActive =
           data['isSubscriptionActive'] as bool? ?? false;
       final subscriptionEndDateStr = data['subscriptionEndDate'] as String?;
@@ -306,8 +310,15 @@ class BackgroundSubscriptionChecker {
       }
 
       // Check feature availability for tier
-      final tier = business.subscriptionTier.toLowerCase();
-      final tierResult = _checkFeatureForTier(tier, feature);
+      final tier = SubscriptionService.normalizeStoredPlanLevel(
+        subscriptionTier: business.subscriptionTier,
+        subscriptionPlan: business.subscriptionPlan,
+      );
+      final businessClass = SubscriptionService.normalizeStoredBusinessClass(
+        businessClass: business.businessClass,
+        subscriptionPlan: business.subscriptionPlan,
+      );
+      final tierResult = _checkFeatureForTier(tier, businessClass, feature);
       final hasAccess = tierResult['ok'] as bool;
       final reason = tierResult['message'] as String?;
 
@@ -331,11 +342,15 @@ class BackgroundSubscriptionChecker {
   SubscriptionStatus getSubscriptionStatus(BusinessModel business) {
     final isValid = _isSubscriptionValid(business);
     final daysLeft = _getDaysUntilExpiration(business);
+    final normalizedTier = SubscriptionService.normalizeStoredPlanLevel(
+      subscriptionTier: business.subscriptionTier,
+      subscriptionPlan: business.subscriptionPlan,
+    );
 
     return SubscriptionStatus(
       businessId: business.id,
       businessName: business.name,
-      tier: business.subscriptionTier,
+      tier: normalizedTier,
       isActive: business.isSubscriptionActive,
       isValid: isValid,
       startDate: business.subscriptionStartDate,
@@ -396,8 +411,13 @@ class BackgroundSubscriptionChecker {
     return business.subscriptionEndDate!.difference(DateTime.now()).inDays;
   }
 
-  Map<String, dynamic> _checkFeatureForTier(String tier, String feature) {
+  Map<String, dynamic> _checkFeatureForTier(
+    String tier,
+    String businessClass,
+    String feature,
+  ) {
     final normalizedTier = tier.toLowerCase();
+    final normalizedBusinessClass = businessClass.toLowerCase();
 
     switch (feature) {
       // Free tier features
@@ -422,6 +442,16 @@ class BackgroundSubscriptionChecker {
 
       // Pro features
       case 'multi_location':
+        if (normalizedBusinessClass == 'tier3') {
+          return {'ok': true, 'message': null};
+        }
+        return {
+          'ok': normalizedTier == 'pro' || normalizedTier == 'professional',
+          'message': normalizedTier == 'pro' || normalizedTier == 'professional'
+              ? null
+              : 'Available in Tier 3 Basic or Pro plans'
+        };
+
       case 'api_access':
       case 'payment_processing':
       case 'custom_reports':

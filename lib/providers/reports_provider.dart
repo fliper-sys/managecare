@@ -1208,6 +1208,7 @@ class ReportsProvider extends ChangeNotifier {
           quantity: (data['quantity'] as num?)?.toInt() ?? 0,
           reorderLevel: (data['reorderLevel'] as num?)?.toInt() ?? 10,
           unitPrice: (data['price'] as num?)?.toDouble() ?? 0.0,
+          unit: (data['unit'] ?? 'pc').toString(),
         );
       }).toList();
 
@@ -1248,6 +1249,7 @@ class ReportsProvider extends ChangeNotifier {
                         0,
                     reorderLevel: (raw['reorderLevel'] as num?)?.toInt() ?? 10,
                     unitPrice: (raw['price'] as num?)?.toDouble() ?? 0.0,
+                    unit: (raw['unit'] ?? 'pc').toString(),
                   ));
                 }
                 ii++;
@@ -1943,6 +1945,7 @@ class ReportsProvider extends ChangeNotifier {
           quantity: (data['quantity'] as num?)?.toInt() ?? 0,
           reorderLevel: (data['reorderLevel'] as num?)?.toInt() ?? 10,
           unitPrice: (data['price'] as num?)?.toDouble() ?? 0.0,
+          unit: (data['unit'] ?? 'pc').toString(),
         );
       }).toList();
 
@@ -1983,6 +1986,7 @@ class ReportsProvider extends ChangeNotifier {
                         0,
                     reorderLevel: (raw['reorderLevel'] as num?)?.toInt() ?? 10,
                     unitPrice: (raw['price'] as num?)?.toDouble() ?? 0.0,
+                    unit: (raw['unit'] ?? 'pc').toString(),
                   ));
                 }
                 ii++;
@@ -3012,6 +3016,7 @@ class InventoryReport {
   final int quantity;
   final int reorderLevel;
   final double unitPrice;
+  final String unit;
 
   InventoryReport({
     required this.productId,
@@ -3019,6 +3024,7 @@ class InventoryReport {
     required this.quantity,
     required this.reorderLevel,
     required this.unitPrice,
+    this.unit = 'pc',
   });
 
   double get totalValue => quantity * unitPrice;

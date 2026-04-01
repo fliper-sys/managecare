@@ -420,6 +420,11 @@ class AuthProvider with ChangeNotifier {
           password: password,
         );
 
+        if (!user.isOwner) {
+          await _rejectWorkerFromOwnerLogin();
+          return false;
+        }
+
         _currentUser = user;
         _status = AuthStatus.authenticated;
         _errorMessage = null;
@@ -480,6 +485,11 @@ class AuthProvider with ChangeNotifier {
         if (userCredential.user != null) {
           await _loadCurrentUser(userCredential.user!.uid);
 
+          if (_currentUser != null && !_currentUser!.isOwner) {
+            await _rejectWorkerFromOwnerLogin();
+            return false;
+          }
+
           // Validate subscription status after loading user
           if (_currentUser != null) {
             if (!_currentUser!.isOwner) {
@@ -512,6 +522,36 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  Future<void> _rejectWorkerFromOwnerLogin() async {
+    try {
+      await _userDocSubscription?.cancel();
+      _userDocSubscription = null;
+    } catch (e) {
+      print(
+          '[AuthProvider] Error cancelling user doc subscription during owner-login rejection: $e');
+    }
+
+    try {
+      await _authenticationService.signOut();
+    } catch (e) {
+      print(
+          '[AuthProvider] Enhanced auth sign-out failed during owner-login rejection: $e');
+      try {
+        await _authService.signOut();
+      } catch (signOutError) {
+        print(
+            '[AuthProvider] Firebase sign-out also failed during owner-login rejection: $signOutError');
+      }
+    }
+
+    _currentUser = null;
+    _status = AuthStatus.unauthenticated;
+    _subscriptionValidated = false;
+    _errorMessage =
+        'This account is registered as a worker. Use Worker Sign In instead.';
+    notifyListeners();
   }
 
   /// Login as a worker using worker ID and password

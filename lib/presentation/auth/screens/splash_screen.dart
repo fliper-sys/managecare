@@ -6,6 +6,7 @@ import '../../../widgets/loading_indicator.dart';
 import '../../../core/constants/routes.dart';
 import '../../../core/theme/colors.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../services/business_restriction_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -69,6 +70,27 @@ class _SplashScreenState extends State<SplashScreen>
         final user = authProvider.currentUser!;
         print(
             '[SplashScreen] User authenticated: ${user.email}, isOwner: ${user.isOwner}');
+
+        final restrictionState = await BusinessRestrictionService()
+            .getRestrictionState(
+          userId: user.id,
+          businessId:
+              user.primaryBusinessId.isNotEmpty ? user.primaryBusinessId : user.businessId,
+        );
+
+        if (restrictionState?.isRestricted == true) {
+          if (mounted) {
+            Navigator.of(context).pushReplacementNamed(
+              Routes.restrictedBusiness,
+              arguments: {
+                'businessName': restrictionState!.businessName,
+                'restrictionReason': restrictionState.restrictionReason,
+                'customerCareWhatsapp': restrictionState.customerCareWhatsapp,
+              },
+            );
+          }
+          return;
+        }
 
         // Only owners should be redirected to subscription management pages.
         // Workers should be taken straight to their dashboard.

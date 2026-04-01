@@ -69,6 +69,8 @@ void main() async {
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
   ]);
 
   // Initialize Firebase (with duplicate check)
@@ -470,11 +472,13 @@ class MyApp extends StatelessWidget {
             final repo = DrinkRepositoryImpl(businessId: bid);
             if (previous == null) {
               final p = DrinkProvider(repository: repo);
+              p.setBusinessId(bid);
               // initialize in background
               p.initialize(repository: repo);
               return p;
             }
             // trigger background re-initialization for existing provider
+            previous.setBusinessId(bid);
             previous.initialize(repository: repo);
             return previous;
           },

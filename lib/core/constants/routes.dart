@@ -6,6 +6,7 @@ class Routes {
   static const String businessSelection = '/business-selection';
   static const String businessDetails = '/business-details';
   static const String forgotPassword = '/forgot-password';
+  static const String restrictedBusiness = '/restricted-business';
   static const String subscriptionSelection = '/subscription-selection';
   static const String subscriptionPayment = '/subscription-payment';
 

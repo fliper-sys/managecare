@@ -503,6 +503,9 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                         .toString(),
                                 imageUrl: product['imageUrl'] as String?,
                                 barcode: product['barcode'] as String?,
+                                unit: canonicalizeInventoryUnit(
+                                  product['unit']?.toString(),
+                                ),
                                 emoji: product['emoji'] as String? ?? '📦',
                               );
 
@@ -563,7 +566,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       final defaultQty = 1;
       final defaultCost = ((product['cost'] ?? product['price'] ?? 0) as num).toDouble();
       // default unit is the product's unit if available
-      final defaultUnit = (product['unit'] ?? 'pcs').toString();
+      final defaultUnit = canonicalizeInventoryUnit(product['unit']?.toString());
       setState(() {
         _selectedItems[id] = {
           'quantity': defaultQty,
@@ -582,18 +585,15 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     if (entry == null) return;
 
     final product = entry['product'] as Map<String, dynamic>;
-    final baseUnit = (product['unit'] ?? '').toString();
+    final baseUnit = canonicalizeInventoryUnit((product['unit'] ?? '').toString());
 
     final qtyController = TextEditingController(text: (entry['quantity'] as num).toString());
     final costController = TextEditingController(text: (entry['cost'] as double).toString());
-    String selectedUnit = (entry['unit'] as String?) ?? (baseUnit.isNotEmpty ? baseUnit : 'pcs');
+    String selectedUnit = canonicalizeInventoryUnit(
+      (entry['unit'] as String?) ?? (baseUnit.isNotEmpty ? baseUnit : 'pc'),
+    );
 
-    // build unit options: always include base unit; if base is 'kg' include 'ton' as an option
-    final unitOptions = <String>{};
-    if (baseUnit.isNotEmpty) unitOptions.add(baseUnit);
-    unitOptions.add('kg'); // ensure kg is available when relevant
-    if (baseUnit == 'kg') unitOptions.add('ton');
-    final sortedUnits = unitOptions.toList();
+    final sortedUnits = getCompatibleProcurementUnits(baseUnit);
 
     final result = await showDialog<bool>(
       context: context,
@@ -606,14 +606,21 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
             const SizedBox(height: 8),
             TextField(
               controller: qtyController,
-              keyboardType: TextInputType.number,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(labelText: 'Quantity to add'),
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               value: selectedUnit,
               decoration: const InputDecoration(labelText: 'Unit'),
-              items: sortedUnits.map((u) => DropdownMenuItem(value: u, child: Text(u))).toList(),
+              items: sortedUnits
+                  .map(
+                    (u) => DropdownMenuItem(
+                      value: u,
+                      child: Text(inventoryUnitLabel(u)),
+                    ),
+                  )
+                  .toList(),
               onChanged: (v) => setState(() { selectedUnit = v ?? selectedUnit; }),
             ),
             const SizedBox(height: 8),
@@ -627,7 +634,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Note: quantities entered in tons will be converted to kilograms on save (1 ton = 907 kg).',
+                        'Note: quantities entered in tons will be converted to kilograms on save (1 ton = 1000 kg).',
                         style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
                       ),
                     ),
@@ -654,7 +661,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       setState(() {
         _selectedItems[id]!['quantity'] = newQty;
         _selectedItems[id]!['cost'] = newCost;
-        _selectedItems[id]!['unit'] = selectedUnit;
+        _selectedItems[id]!['unit'] = canonicalizeInventoryUnit(selectedUnit);
       });
     }
   }
@@ -894,11 +901,16 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     try {
       final items = _selectedItems.entries.map((e) {
         final prod = e.value['product'] as Map<String, dynamic>;
-        final selectedUnit = (e.value['unit'] as String?) ?? (prod['unit'] ?? '');
-        final baseUnit = (prod['unit'] ?? '').toString();
-        var qty = e.value['quantity'] as int;
-        // Normalize quantities: convert 'ton' to 'kg' when base unit is kg
-        final normalizedQty = normalizeProcurementQuantity(qty, selectedUnit, baseUnit.isNotEmpty ? baseUnit : selectedUnit);
+        final selectedUnit = canonicalizeInventoryUnit(
+          (e.value['unit'] as String?) ?? (prod['unit'] ?? ''),
+        );
+        final baseUnit = canonicalizeInventoryUnit((prod['unit'] ?? '').toString());
+        final qty = (e.value['quantity'] as num?) ?? 0;
+        final normalizedQty = normalizeProcurementQuantity(
+          qty,
+          selectedUnit,
+          baseUnit.isNotEmpty ? baseUnit : selectedUnit,
+        );
         return {
           'productId': prod['id'] ?? '',
           'name': prod['name'] ?? '',

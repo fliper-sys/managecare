@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/utils/datetime_utils.dart';
+import '../../core/utils/inventory_utils.dart';
 
 class ProcurementRepository {
   final FirebaseFirestore _firestore;
@@ -21,16 +22,16 @@ class ProcurementRepository {
     final createdAt = FieldValue.serverTimestamp();
 
     double totalCost = 0.0;
-    int totalQuantity = 0;
+    num totalQuantity = 0;
     final itemsSnapshot = <Map<String, dynamic>>[];
 
     for (final it in items) {
       final productId = it['productId'] as String? ?? '';
       final name = it['name'] ?? '';
-      final quantity = (it['quantity'] as int?) ?? 0;
+      final quantity = (it['quantity'] as num?) ?? 0;
       final cost = (it['cost'] as num?)?.toDouble() ?? 0.0;
       final unit = (it['unit'] as String?) ?? '';
-      final itemTotal = quantity * cost;
+      final itemTotal = quantity.toDouble() * cost;
 
       totalCost += itemTotal;
       totalQuantity += quantity;
@@ -38,7 +39,7 @@ class ProcurementRepository {
       itemsSnapshot.add({
         'productId': productId,
         'name': name,
-        'quantity': quantity,
+        'quantity': _normalizeStoredQuantity(quantity),
         'unit': unit,
         'cost': cost,
         'total': itemTotal,
@@ -60,7 +61,7 @@ class ProcurementRepository {
         batch.set(prodProcRef, {
           'procurementId': procurementRef.id,
           'productId': productId,
-          'quantity': quantity,
+          'quantity': _normalizeStoredQuantity(quantity),
           'unit': unit,
           'cost': cost,
           'total': itemTotal,
@@ -76,7 +77,7 @@ class ProcurementRepository {
         batch.set(itemRef, {
           'productId': productId,
           'name': name,
-          'quantity': quantity,
+          'quantity': _normalizeStoredQuantity(quantity),
           'unit': unit,
           'cost': cost,
           'total': itemTotal,
@@ -88,7 +89,7 @@ class ProcurementRepository {
     final masterData = {
       'createdAt': createdAt,
       'totalCost': totalCost,
-      'totalQuantity': totalQuantity,
+      'totalQuantity': _normalizeStoredQuantity(totalQuantity),
       'itemsCount': itemsSnapshot.length,
       'items': itemsSnapshot,
     };
@@ -122,7 +123,7 @@ class ProcurementRepository {
         createdAt.toIso8601String(),
         supplierName,
         invoiceRef,
-        '${(d.get('totalQuantity') as num?)?.toInt() ?? 0}',
+        formatInventoryQuantity((d.get('totalQuantity') as num?) ?? 0),
         '${((d.get('totalCost') as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
         '${(d.get('itemsCount') as num?)?.toInt() ?? (d.get('items') as List?)?.length ?? 0}'
       ]);
@@ -130,7 +131,12 @@ class ProcurementRepository {
       if (items.isNotEmpty) {
         rows.add(['-- Item Name', 'Qty', 'Unit Cost', 'Total']);
         for (final it in items) {
-          rows.add(['    ${it['name'] ?? ''}', '${it['quantity']}', '${(it['cost'] ?? 0).toStringAsFixed(2)}', '${(it['total'] ?? 0).toStringAsFixed(2)}']);
+          rows.add([
+            '    ${it['name'] ?? ''}',
+            formatInventoryQuantity((it['quantity'] as num?) ?? 0),
+            '${(it['cost'] ?? 0).toStringAsFixed(2)}',
+            '${(it['total'] ?? 0).toStringAsFixed(2)}'
+          ]);
         }
       }
       rows.add([]);
@@ -148,5 +154,12 @@ class ProcurementRepository {
   /// Get procurement master document by id
   Future<DocumentSnapshot> getProcurementById({required String businessId, required String procurementId}) {
     return _firestore.collection('businesses').doc(businessId).collection('procurements').doc(procurementId).get();
+  }
+
+  dynamic _normalizeStoredQuantity(num quantity) {
+    if (quantity == quantity.roundToDouble()) {
+      return quantity.toInt();
+    }
+    return quantity.toDouble();
   }
 }

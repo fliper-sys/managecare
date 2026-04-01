@@ -55,17 +55,21 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                   style: AppTextStyles.body2Secondary,
                   textAlign: TextAlign.center),
               const SizedBox(height: 16),
-              Row(mainAxisSize: MainAxisSize.min, children: [
+              Wrap(spacing: 12, runSpacing: 12, alignment: WrapAlignment.center, children: [
                 ElevatedButton.icon(
                     onPressed: () => Navigator.pushNamed(context, Routes.sales),
                     icon: const Icon(Icons.point_of_sale),
                     label: const Text('Open Sales')),
-                const SizedBox(width: 12),
                 OutlinedButton.icon(
                     onPressed: () =>
                         Navigator.pushNamed(context, Routes.drinkOrders),
                     icon: const Icon(Icons.receipt_long),
                     label: const Text('Orders')),
+                OutlinedButton.icon(
+                    onPressed: () =>
+                        Navigator.pushNamed(context, Routes.drinkTabs),
+                    icon: const Icon(Icons.tab),
+                    label: const Text('Tabs')),
               ])
             ],
           ),
@@ -758,7 +762,7 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () => Navigator.pushNamed(context, Routes.sales),
+              onPressed: () => Navigator.pushNamed(context, Routes.drinkPos),
               icon: const Icon(Icons.point_of_sale),
               label: const Text('Open Bar Sales'),
               style: ElevatedButton.styleFrom(
@@ -797,7 +801,7 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                 icon: Icons.point_of_sale,
                 label: 'Sales',
                 color: Colors.blue,
-                onTap: () => Navigator.pushNamed(context, Routes.sales),
+                onTap: () => Navigator.pushNamed(context, Routes.drinkPos),
               ),
              
               _ActionTile(
@@ -805,6 +809,12 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                 label: 'Orders',
                 color: Colors.purple,
                 onTap: () => Navigator.pushNamed(context, Routes.drinkOrders),
+              ),
+              _ActionTile(
+                icon: Icons.tab,
+                label: 'Tabs & Invoices',
+                color: Colors.orange,
+                onTap: () => Navigator.pushNamed(context, Routes.drinkTabs),
               ),
               _ActionTile(
                 icon: Icons.print,

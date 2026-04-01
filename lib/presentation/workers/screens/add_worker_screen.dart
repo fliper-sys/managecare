@@ -106,6 +106,32 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
   Future<void> _handleAddWorker() async {
     if (!_formKey.currentState!.validate()) return;
 
+    final businessProvider = context.read<BusinessProvider>();
+    final workersProvider = context.read<WorkersProvider>();
+    final currentWorkerCount = [
+      workersProvider.workers.length,
+      businessProvider.currentBusiness?.totalWorkers ?? 0,
+    ].reduce((value, element) => value > element ? value : element);
+
+    if (!businessProvider.isWithinLimit('workers', currentWorkerCount)) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Worker limit reached'),
+          content: Text(
+            businessProvider.getLimitReachedMessage('workers'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     final authProvider = context.read<AuthProvider>();

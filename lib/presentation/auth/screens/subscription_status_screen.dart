@@ -29,7 +29,7 @@ class SubscriptionStatusScreen extends StatefulWidget {
 }
 
 class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
-  late StreamSubscription<DocumentSnapshot> _statusListener;
+  StreamSubscription<DocumentSnapshot>? _statusListener;
   bool _subscriptionApproved = false;
   bool _checkingStatus = true;
   String _statusMessage = 'Checking subscription status...';
@@ -165,7 +165,7 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
 
   @override
   void dispose() {
-    _statusListener.cancel();
+    _statusListener?.cancel();
     super.dispose();
   }
 

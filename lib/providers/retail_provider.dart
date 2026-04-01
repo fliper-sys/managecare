@@ -914,6 +914,7 @@ class RetailProvider extends ChangeNotifier {
     double discount = 0.0,
     String? workerId,
     String? workerName,
+    String? customerId,
     String? customerEmail,
     String? customerName,
     String? storeId,
@@ -975,6 +976,7 @@ class RetailProvider extends ChangeNotifier {
         'paymentMethod': paymentMethod,
         'category': 'General',
         'createdAt': FieldValue.serverTimestamp(),
+        if (customerId != null && customerId.isNotEmpty) 'customerId': customerId,
         if (customerEmail != null) 'customerEmail': customerEmail,
         if (customerName != null) 'customerName': customerName,
         if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
@@ -1031,6 +1033,29 @@ class RetailProvider extends ChangeNotifier {
           }
         }
 
+        if (customerId != null && customerId.isNotEmpty) {
+          try {
+            await savePurchaseToCustomerHistory(
+              customerId,
+              {
+                'saleId': orderId,
+                'orderId': orderId,
+                'items': saleData['items'],
+                'subtotal': subtotal,
+                'tax': taxAmount,
+                'discount': discount,
+                'totalAmount': totalAmount,
+                'paymentMethod': paymentMethod,
+                'customerName': customerName,
+                'customerEmail': customerEmail,
+              },
+            );
+          } catch (e) {
+            debugPrint(
+                '[RetailProvider] Error saving customer purchase history: $e');
+          }
+        }
+
         _cart.clear();
         await loadProducts(); // Refresh products
         notifyListeners();
@@ -1068,7 +1093,7 @@ class RetailProvider extends ChangeNotifier {
         final localSale = {
           'id': saleId,
           'businessId': _businessId!,
-          'customerId': null,
+          'customerId': customerId,
           'totalAmount': totalAmount,
           'discountAmount': discount,
           'taxAmount': taxAmount,

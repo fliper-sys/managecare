@@ -74,6 +74,10 @@ class _DashboardHomeState extends State<DashboardHome> {
     super.initState();
     _selectedIndex =
         widget.initialIndex.clamp(0, _pages.length - 1).toInt();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<AdminProvider>().fetchAdminStats();
+    });
   }
 
   @override
@@ -633,7 +637,12 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                     TextButton(
                       onPressed: () {
-                        Navigator.pushNamed(context, Routes.allBusinessesAdmin);
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) => const AllBusinessesPage(),
+                          ),
+                        );
                       },
                       child: const Text('See all', style: TextStyle(fontWeight: FontWeight.w600)),
                     ),
@@ -1999,6 +2008,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final _notificationBodyController = TextEditingController();
   final _emailSubjectController = TextEditingController();
   final _emailBodyController = TextEditingController();
+  final _customerCareWhatsappController = TextEditingController();
   bool _isSending = false;
   bool _pushNotificationsEnabled = true;
   bool _twoFactorEnabled = false;
@@ -2018,6 +2028,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _notificationBodyController.dispose();
     _emailSubjectController.dispose();
     _emailBodyController.dispose();
+    _customerCareWhatsappController.dispose();
     super.dispose();
   }
 
@@ -2030,6 +2041,10 @@ class _SettingsPageState extends State<SettingsPage> {
           (settings['pushNotificationsEnabled'] as bool?) ?? true;
       _twoFactorEnabled = (settings['twoFactorEnabled'] as bool?) ?? false;
       _selectedLanguage = (settings['language'] as String?) ?? 'en';
+      _customerCareWhatsappController.text =
+          (settings['customerCareWhatsapp'] as String?) ??
+              (settings['supportWhatsapp'] as String?) ??
+              '';
     });
   }
 
@@ -2157,6 +2172,36 @@ class _SettingsPageState extends State<SettingsPage> {
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
+            ),
+            const SizedBox(height: 24),
+
+            const Text(
+              'Restricted Account Support',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _customerCareWhatsappController,
+              decoration: const InputDecoration(
+                labelText: 'Customer care WhatsApp',
+                hintText: '+2348063124936',
+                helperText:
+                    'Shown to restricted businesses so they know who to contact.',
+              ),
+              keyboardType: TextInputType.phone,
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => _saveAdminSettings({
+                'customerCareWhatsapp':
+                    _customerCareWhatsappController.text.trim(),
+              }),
+              icon: const Icon(Icons.save_outlined),
+              label: const Text('Save support contact'),
             ),
             const SizedBox(height: 24),
 
@@ -2409,7 +2454,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                 Consumer<AdminProvider>(
                   builder: (context, admin, _) {
                     return Text(
-                      '${admin.allUsers.length} users available',
+                      '${admin.allUsers.length} unique records across ${admin.usersTableCount} users and ${admin.workersTableCount} workers rows',
                       style: const TextStyle(
                         fontSize: 14,
                         color: Color(0xFF64748B),
@@ -2469,6 +2514,16 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                         value: admin.stats.activeUsers.toString(),
                         color: const Color(0xFF10B981),
                       ),
+                      _buildHeaderChip(
+                        label: 'Users Table',
+                        value: admin.usersTableCount.toString(),
+                        color: const Color(0xFF2563EB),
+                      ),
+                      _buildHeaderChip(
+                        label: 'Workers Table',
+                        value: admin.workersTableCount.toString(),
+                        color: const Color(0xFF6B7280),
+                      ),
                     ],
                   ),
                 ),
@@ -2489,7 +2544,9 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                       (user['name']?.toString() ?? '').toLowerCase().contains(_searchQuery.toLowerCase()) ||
                       (user['email']?.toString() ?? '').toLowerCase().contains(_searchQuery.toLowerCase());
 
-                  final isWorker = user['role'] == 'worker' || user['type'] == 'worker';
+                  final isWorker = user['isWorker'] == true ||
+                      user['role'] == 'worker' ||
+                      user['type'] == 'worker';
                   final matchesType = _filterType == 'all' ||
                       (_filterType == 'workers' && isWorker) ||
                       (_filterType == 'users' && !isWorker);
@@ -2585,10 +2642,13 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
   }
 
   Widget _buildUserCard(BuildContext context, Map<String, dynamic> user) {
-    final isWorker = user['role'] == 'worker' || user['type'] == 'worker';
+    final isWorker = user['isWorker'] == true ||
+        user['role'] == 'worker' ||
+        user['type'] == 'worker';
     final businessName = (user['businessName'] ?? user['businessId'] ?? 'No business')
         .toString();
     final businessRestricted = user['businessRestricted'] == true;
+    final tableSource = (user['tableSource'] ?? 'users').toString();
     // Handle isSubscriptionActive as either boolean or string
     final subscriptionValue = user['isSubscriptionActive'];
     final hasActiveSubscription = subscriptionValue == true || 
@@ -2695,6 +2755,11 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                                 ? '${businessName.substring(0, 12)}...'
                                 : businessName,
                             color: const Color(0xFF3B82F6),
+                          ),
+                          _buildHeaderChip(
+                            label: 'Tables',
+                            value: tableSource,
+                            color: const Color(0xFF8B5CF6),
                           ),
                         ],
                       ),
@@ -2864,7 +2929,20 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
               _buildDetailRow('Email', user['email'] ?? 'N/A'),
               _buildDetailRow('Referral Email', user['referralEmail'] ?? 'N/A'),
               _buildDetailRow('Phone', user['phone'] ?? 'N/A'),
-              _buildDetailRow('Type', user['role'] == 'worker' ? 'Worker' : 'User'),
+              _buildDetailRow(
+                'Type',
+                (user['isWorker'] == true || user['role'] == 'worker')
+                    ? 'Worker'
+                    : 'User',
+              ),
+              _buildDetailRow(
+                'Tables',
+                user['tableSource']?.toString() ?? 'users',
+              ),
+              _buildDetailRow(
+                'Business',
+                user['businessName'] ?? user['businessId'] ?? 'N/A',
+              ),
               _buildDetailRow(
                 'Joined',
                 user['createdAt'] != null
@@ -2881,6 +2959,21 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                 'Subscription',
                 user['isSubscriptionActive'] == true ? 'Active - ${_getSubscriptionTier(user)}' : 'Inactive',
               ),
+              if ((user['businessRestrictionReason'] ?? '').toString().isNotEmpty)
+                _buildDetailRow(
+                  'Restriction Reason',
+                  user['businessRestrictionReason'].toString(),
+                ),
+              if ((user['serviceNames'] as List?)?.isNotEmpty ?? false)
+                _buildDetailRow(
+                  'Services',
+                  (user['serviceNames'] as List).join(', '),
+                ),
+              if (user['commissionPercentage'] != null)
+                _buildDetailRow(
+                  'Commission',
+                  '${user['commissionPercentage']}%',
+                ),
             ],
           ),
         ),

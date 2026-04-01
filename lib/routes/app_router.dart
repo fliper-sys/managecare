@@ -6,6 +6,7 @@ import '../presentation/auth/screens/register_screen.dart';
 import '../presentation/auth/screens/business_selection_screen.dart';
 import '../presentation/auth/screens/business_details_screen.dart';
 import '../presentation/auth/screens/forgot_password_screen.dart';
+import '../presentation/auth/screens/restricted_business_screen.dart';
 import '../presentation/auth/screens/subscription_payment_screen.dart';
 import '../presentation/auth/screens/subscription_status_screen.dart';
 import '../presentation/dashboard/owner/owner_dashboard_screen.dart';
@@ -137,7 +138,7 @@ import '../presentation/industry_specific/drink/screens/drink_dashboard_screen.d
 import '../presentation/industry_specific/drink/screens/drink_orders_history_screen.dart';
 import '../presentation/industry_specific/drink/screens/inventory_screen.dart';
 import '../presentation/industry_specific/drink/screens/bottle_tracking_screen.dart';
-import '../presentation/industry_specific/drink/screens/brewing_logs_screen.dart';
+import '../presentation/industry_specific/drink/screens/bar_tabs_screen.dart';
 import '../presentation/industry_specific/drink/screens/distribution_orders_screen.dart';
 import '../presentation/industry_specific/drink/screens/bar_pos_screen.dart';
 import '../presentation/industry_specific/drink/screens/pos_orders_screen.dart';
@@ -220,6 +221,18 @@ class AppRouter {
 
       case Routes.forgotPassword:
         return _buildRoute(const ForgotPasswordScreen());
+
+      case Routes.restrictedBusiness:
+        final args = settings.arguments as Map<String, dynamic>? ?? const {};
+        return _buildRoute(
+          RestrictedBusinessScreen(
+            businessName: args['businessName']?.toString() ?? 'This business',
+            restrictionReason:
+                args['restrictionReason']?.toString() ?? '',
+            customerCareWhatsapp:
+                args['customerCareWhatsapp']?.toString() ?? '',
+          ),
+        );
 
       case Routes.subscriptionPayment:
         final args = settings.arguments as Map<String, dynamic>?;
@@ -730,7 +743,7 @@ class AppRouter {
         return _buildRoute(const BarPosScreenDrink());
 
       case Routes.drinkTabs:
-        return _buildRoute(const BrewingLogsScreen());
+        return _buildRoute(const BarTabsScreen());
 
       case Routes.drinkMenu:
         return _buildRoute(const DistributionOrdersScreen());

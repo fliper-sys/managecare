@@ -283,6 +283,207 @@ class SubscriptionService {
     return plans.where((p) => p.id.startsWith('t1_')).toList();
   }
 
+  static String getBusinessClassFromPlanId(String planId) {
+    final parts = planId.toLowerCase().split('_');
+    final rawClass = parts.isNotEmpty ? parts.first : '';
+
+    switch (rawClass) {
+      case 't1':
+      case 'tier1':
+        return 'tier1';
+      case 't2':
+      case 'tier2':
+        return 'tier2';
+      case 't3':
+      case 'tier3':
+        return 'tier3';
+      default:
+        return 'tier1';
+    }
+  }
+
+  static String getPlanLevelFromPlanId(String planId) {
+    final parts = planId.toLowerCase().split('_');
+    final rawLevel = parts.length > 1 ? parts[1] : planId.toLowerCase();
+
+    switch (rawLevel) {
+      case 'starter':
+      case 'basic':
+        return 'basic';
+      case 'professional':
+      case 'pro':
+        return 'pro';
+      default:
+        return rawLevel.isNotEmpty ? rawLevel : 'basic';
+    }
+  }
+
+  static String normalizeStoredPlanLevel({
+    String? subscriptionTier,
+    String? subscriptionPlan,
+  }) {
+    if (subscriptionPlan != null && subscriptionPlan.contains('_')) {
+      return getPlanLevelFromPlanId(subscriptionPlan);
+    }
+
+    final rawTier = (subscriptionTier ?? '').toLowerCase();
+    switch (rawTier) {
+      case 'starter':
+      case 'basic':
+      case 't1':
+      case 'tier1':
+        return 'basic';
+      case 'professional':
+      case 'pro':
+        return 'pro';
+      case 'enterprise':
+      case 't3':
+      case 'tier3':
+        return 'pro';
+      case 't2':
+      case 'tier2':
+        return 'basic';
+      default:
+        return rawTier.isNotEmpty ? rawTier : 'basic';
+    }
+  }
+
+  static String normalizeStoredBusinessClass({
+    String? businessClass,
+    String? subscriptionPlan,
+  }) {
+    if (subscriptionPlan != null && subscriptionPlan.contains('_')) {
+      return getBusinessClassFromPlanId(subscriptionPlan);
+    }
+
+    final rawClass = (businessClass ?? '').toLowerCase();
+    switch (rawClass) {
+      case 't1':
+      case 'tier1':
+        return 'tier1';
+      case 't2':
+      case 'tier2':
+        return 'tier2';
+      case 't3':
+      case 'tier3':
+        return 'tier3';
+      default:
+        return rawClass.isNotEmpty ? rawClass : 'tier1';
+    }
+  }
+
+  Future<bool> submitManualSubscriptionForApproval({
+    required String userId,
+    required String planId,
+    required String receiptUrl,
+    required double amount,
+    required String currency,
+    required String userEmail,
+    required String userName,
+    String? businessId,
+    String? existingRequestId,
+    String paymentMethod = 'receipt',
+    String? notes,
+  }) async {
+    try {
+      final now = DateTime.now();
+      final requestId =
+          existingRequestId ?? 'RCP_${userId}_${now.millisecondsSinceEpoch}';
+      final planLevel = getPlanLevelFromPlanId(planId);
+      final businessClass = getBusinessClassFromPlanId(planId);
+
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      final userData = userDoc.data() ?? <String, dynamic>{};
+      final currentEndRaw = userData['subscriptionEndDate'];
+      DateTime? currentEndDate;
+      if (currentEndRaw != null) {
+        try {
+          currentEndDate = parseTimestamp(currentEndRaw);
+        } catch (_) {}
+      }
+
+      final currentlyActive =
+          (userData['hasActiveSubscription'] as bool? ?? false) &&
+          (currentEndDate == null || DateTime.now().isBefore(currentEndDate));
+
+      await _firestore.collection('subscription_requests').doc(requestId).set({
+        'uploadId': requestId,
+        'userId': userId,
+        'businessId': businessId ?? '',
+        'planId': planId,
+        'planName': getPlanById(planId)?.name ?? planId,
+        'amount': amount,
+        'currency': currency,
+        'userEmail': userEmail,
+        'userName': userName,
+        'receiptUrl': receiptUrl,
+        'status': 'pending',
+        'paymentMethod': paymentMethod,
+        'paymentProcessor': paymentMethod == 'receipt' ? null : paymentMethod,
+        'processorTransactionId': null,
+        'subscriptionStatus': 'pending_approval',
+        'subscriptionAmount': amount,
+        'subscriptionReceiptUrl': receiptUrl,
+        'subscriptionPlan': planId,
+        'notes': notes ?? '',
+        'updatedAt': FieldValue.serverTimestamp(),
+        'requestDate': FieldValue.serverTimestamp(),
+        'subscriptionRequestDate': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      final userUpdate = <String, dynamic>{
+        'subscriptionPlan': planId,
+        'subscriptionAmount': amount,
+        'subscriptionReceiptUrl': receiptUrl,
+        'subscriptionPaymentRequired': true,
+        'subscriptionRequestDate': now.toIso8601String(),
+        'pendingSubscriptionPlan': planId,
+        'pendingSubscriptionAmount': amount,
+        'pendingSubscriptionReceiptUrl': receiptUrl,
+        'pendingSubscriptionStatus': 'pending_approval',
+        'pendingSubscriptionRequestedAt': now.toIso8601String(),
+        'updatedAt': now.toIso8601String(),
+      };
+
+      if (!currentlyActive) {
+        userUpdate['hasActiveSubscription'] = false;
+        userUpdate['subscriptionStatus'] = 'pending_approval';
+      }
+
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .set(userUpdate, SetOptions(merge: true));
+
+      if (businessId != null && businessId.isNotEmpty) {
+        await _firestore.collection('businesses').doc(businessId).set({
+          'pendingSubscriptionPlan': planId,
+          'pendingSubscriptionTier': planLevel,
+          'pendingBusinessClass': businessClass,
+          'subscriptionRequestDate': now.toIso8601String(),
+          'updatedAt': now.toIso8601String(),
+        }, SetOptions(merge: true));
+      }
+
+      await _firestore.collection('subscription_events').add({
+        'userId': userId,
+        'businessId': businessId,
+        'action': 'subscription_submitted_for_approval',
+        'planId': planId,
+        'amount': amount,
+        'receiptUrl': receiptUrl,
+        'paymentMethod': paymentMethod,
+        'createdAt': now.toIso8601String(),
+      });
+
+      return true;
+    } catch (e) {
+      print('Error submitting subscription for approval: $e');
+      return false;
+    }
+  }
+
   /// Create subscription for user after payment
   Future<bool> createSubscription({
     required String userId,
@@ -493,13 +694,18 @@ class SubscriptionService {
       await _firestore.collection('users').doc(userId).set({
         'hasActiveSubscription': true,
         'subscriptionPlan': planId,
-        'subscriptionStatus': 'active', // Set to active immediately
+        'subscriptionStatus': 'approved',
         'subscriptionStartDate': now.toIso8601String(),
         'subscriptionEndDate': endDate.toIso8601String(),
         'subscriptionPaymentRequired': false,
         'subscriptionReceiptUrl': receiptUrl,
         'subscriptionAmount': amount,
         'subscriptionActivatedAt': now.toIso8601String(),
+        'pendingSubscriptionPlan': FieldValue.delete(),
+        'pendingSubscriptionAmount': FieldValue.delete(),
+        'pendingSubscriptionReceiptUrl': FieldValue.delete(),
+        'pendingSubscriptionStatus': FieldValue.delete(),
+        'pendingSubscriptionRequestedAt': FieldValue.delete(),
         'updatedAt': now.toIso8601String(),
       }, SetOptions(merge: true));
 
@@ -576,13 +782,18 @@ class SubscriptionService {
       await _firestore.collection('users').doc(userId).set({
         'hasActiveSubscription': true,
         'subscriptionPlan': planId,
-        'subscriptionStatus': 'active',
+        'subscriptionStatus': 'approved',
         'subscriptionStartDate': startDate.toIso8601String(),
         'subscriptionEndDate': newEndDate.toIso8601String(),
         'subscriptionPaymentRequired': false,
         'subscriptionReceiptUrl': receiptUrl,
         'subscriptionAmount': amount,
         'subscriptionActivatedAt': now.toIso8601String(),
+        'pendingSubscriptionPlan': FieldValue.delete(),
+        'pendingSubscriptionAmount': FieldValue.delete(),
+        'pendingSubscriptionReceiptUrl': FieldValue.delete(),
+        'pendingSubscriptionStatus': FieldValue.delete(),
+        'pendingSubscriptionRequestedAt': FieldValue.delete(),
         'updatedAt': now.toIso8601String(),
       }, SetOptions(merge: true));
 
@@ -641,13 +852,18 @@ class SubscriptionService {
       }
 
       // Update business record (store base tier in 'subscriptionTier' and full plan id in 'subscriptionPlan')
-      final baseTier = planId.split('_').first;
+      final businessClass = getBusinessClassFromPlanId(planId);
+      final planLevel = getPlanLevelFromPlanId(planId);
       await _firestore.collection('businesses').doc(businessId).update({
-        'subscriptionTier': baseTier,
+        'subscriptionTier': planLevel,
         'subscriptionPlan': planId,
+        'businessClass': businessClass,
         'subscriptionStartDate': startDate.toIso8601String(),
         'subscriptionEndDate': endDate.toIso8601String(),
         'isSubscriptionActive': true,
+        'pendingSubscriptionPlan': FieldValue.delete(),
+        'pendingSubscriptionTier': FieldValue.delete(),
+        'pendingBusinessClass': FieldValue.delete(),
         'subscriptionSyncedAt': DateTime.now().toIso8601String(),
         'updatedAt': DateTime.now().toIso8601String(),
       });
@@ -677,11 +893,15 @@ class SubscriptionService {
 
       for (final doc in snapshot.docs) {
         await _firestore.collection('businesses').doc(doc.id).update({
-          'subscriptionTier': planId.split('_').first,
+          'subscriptionTier': getPlanLevelFromPlanId(planId),
           'subscriptionPlan': planId,
+          'businessClass': getBusinessClassFromPlanId(planId),
           'subscriptionStartDate': startDate.toIso8601String(),
           'subscriptionEndDate': endDate.toIso8601String(),
           'isSubscriptionActive': true,
+          'pendingSubscriptionPlan': FieldValue.delete(),
+          'pendingSubscriptionTier': FieldValue.delete(),
+          'pendingBusinessClass': FieldValue.delete(),
           'subscriptionSyncedAt': DateTime.now().toIso8601String(),
           'updatedAt': DateTime.now().toIso8601String(),
         });
@@ -712,23 +932,27 @@ class SubscriptionService {
 
       // Update user subscription
       // Use set with merge to handle case where user doc might not exist
-      final baseTier = planId.split('_').first;
+      final planLevel = getPlanLevelFromPlanId(planId);
       await _firestore.collection('users').doc(userId).set({
         'subscriptionPlan': planId,
-        'subscriptionTier': baseTier,
+        'subscriptionTier': planLevel,
         'subscriptionEndDate': endDate.toIso8601String(),
         'hasActiveSubscription': true,
-        'subscriptionStatus': 'active',
+        'subscriptionStatus': 'approved',
         'updatedAt': DateTime.now().toIso8601String(),
       }, SetOptions(merge: true));
 
       // Update all businesses
       for (final businessId in businessIdList) {
         await _firestore.collection('businesses').doc(businessId).update({
-          'subscriptionTier': baseTier,
+          'subscriptionTier': planLevel,
           'subscriptionPlan': planId,
+          'businessClass': getBusinessClassFromPlanId(planId),
           'subscriptionEndDate': endDate.toIso8601String(),
           'isSubscriptionActive': true,
+          'pendingSubscriptionPlan': FieldValue.delete(),
+          'pendingSubscriptionTier': FieldValue.delete(),
+          'pendingBusinessClass': FieldValue.delete(),
           'updatedAt': DateTime.now().toIso8601String(),
         });
       }

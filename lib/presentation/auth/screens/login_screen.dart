@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/routes.dart';
@@ -6,6 +7,7 @@ import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
+import '../../../services/business_restriction_service.dart';
 import '../../../widgets/custom_button.dart';
 import '../../../widgets/custom_text_field.dart';
 import '../../../widgets/loading_indicator.dart';
@@ -80,6 +82,25 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
+  Future<Map<String, dynamic>?> _fetchUserSubscriptionStatus(String userId) async {
+    try {
+      final doc =
+          await FirebaseFirestore.instance.collection('users').doc(userId).get();
+      if (!doc.exists) return null;
+
+      final data = doc.data();
+      if (data == null) return null;
+
+      return {
+        'subscriptionStatus': data['subscriptionStatus'],
+        'subscriptionPlan': data['subscriptionPlan'],
+        'subscriptionAmount': data['subscriptionAmount'],
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -116,8 +137,60 @@ class _LoginScreenState extends State<LoginScreen>
 
     if (success) {
       final user = authProvider.currentUser!;
+      final restrictionState = await BusinessRestrictionService()
+          .getRestrictionState(
+        userId: user.id,
+        businessId:
+            user.primaryBusinessId.isNotEmpty ? user.primaryBusinessId : user.businessId,
+      );
+
+      if (!mounted) return;
+
+      if (restrictionState?.isRestricted == true) {
+        Navigator.of(context).pushReplacementNamed(
+          Routes.restrictedBusiness,
+          arguments: {
+            'businessName': restrictionState!.businessName,
+            'restrictionReason': restrictionState.restrictionReason,
+            'customerCareWhatsapp': restrictionState.customerCareWhatsapp,
+          },
+        );
+        return;
+      }
+
       if (user.isOwner) {
-        Navigator.of(context).pushReplacementNamed(Routes.ownerDashboard);
+        final subscriptionData = await _fetchUserSubscriptionStatus(user.id);
+        final subscriptionStatus =
+            subscriptionData?['subscriptionStatus']?.toString();
+
+        if (!mounted) return;
+
+        if (subscriptionStatus == 'pending_approval') {
+          Navigator.of(context).pushReplacementNamed(
+            '/subscription-status',
+            arguments: {
+              'userId': user.id,
+              'userEmail': user.email,
+              'userName': user.fullName,
+              'subscriptionPlan':
+                  subscriptionData?['subscriptionPlan'] ?? 'basic',
+              'subscriptionAmount':
+                  subscriptionData?['subscriptionAmount'] ?? 0.0,
+            },
+          );
+        } else if (!authProvider.subscriptionValidated ||
+            !user.isSubscriptionValid) {
+          Navigator.of(context).pushReplacementNamed(
+            Routes.subscriptionPayment,
+            arguments: {
+              'userId': user.id,
+              'userEmail': user.email,
+              'userName': user.fullName,
+            },
+          );
+        } else {
+          Navigator.of(context).pushReplacementNamed(Routes.ownerDashboard);
+        }
       } else {
         final businessProvider = context.read<BusinessProvider>();
         final businessId = user.businessId;

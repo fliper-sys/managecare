@@ -12,6 +12,7 @@ import 'package:cross_file/cross_file.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../../services/report_export_service.dart';
+import '../../../../core/utils/inventory_utils.dart';
 
 class ProcurementHistoryScreen extends StatefulWidget {
   const ProcurementHistoryScreen({Key? key}) : super(key: key);
@@ -89,7 +90,7 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
       'supplierName': (d['supplierName'] ?? '') as String,
       'invoiceRef': (d['invoiceRef'] ?? '') as String,
       'totalCost': (d['totalCost'] as num?)?.toDouble() ?? 0.0,
-      'totalQuantity': (d['totalQuantity'] as num?)?.toInt() ?? 0,
+      'totalQuantity': (d['totalQuantity'] as num?) ?? 0,
       'items': (d['items'] as List?) ?? [],
     }).toList();
 
@@ -125,7 +126,7 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
       'supplierName': (d['supplierName'] ?? '') as String,
       'invoiceRef': (d['invoiceRef'] ?? '') as String,
       'totalCost': (d['totalCost'] as num?)?.toDouble() ?? 0.0,
-      'totalQuantity': (d['totalQuantity'] as num?)?.toInt() ?? 0,
+      'totalQuantity': (d['totalQuantity'] as num?) ?? 0,
       'items': (d['items'] as List?) ?? [],
     }).toList();
 
@@ -235,10 +236,10 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
                             return bDt.compareTo(aDt);
                           });
                           double dayTotal = 0.0;
-                          int dayQty = 0;
+                          num dayQty = 0;
                           for (final d in list) {
                             dayTotal += (d['totalCost'] as num?)?.toDouble() ?? 0.0;
-                            dayQty += (d['totalQuantity'] as num?)?.toInt() ?? 0;
+                            dayQty += (d['totalQuantity'] as num?) ?? 0;
                           }
 
                           return Column(
@@ -246,7 +247,7 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
                             children: [
                               Text(day, style: AppTextStyles.subtitle1.copyWith(fontWeight: FontWeight.bold)),
                               const SizedBox(height: 8),
-                              Text('Total: ₦${dayTotal.toStringAsFixed(2)} • Units: $dayQty', style: AppTextStyles.caption),
+                              Text('Total: ₦${dayTotal.toStringAsFixed(2)} • Units: ${formatInventoryQuantity(dayQty)}', style: AppTextStyles.caption),
                               const SizedBox(height: 8),
                               ...list.map((d) {
                                 final createdAt = parseTimestamp(d['createdAt'] ?? DateTime.now());

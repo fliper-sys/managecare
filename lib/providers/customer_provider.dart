@@ -138,6 +138,90 @@ class CustomerProvider extends ChangeNotifier {
     }
   }
 
+  Future<CustomerModel?> createCustomer({
+    required String name,
+    String? phone,
+    String? email,
+  }) async {
+    if (_businessId == null || name.trim().isEmpty) return null;
+
+    try {
+      if (phone != null && phone.trim().isNotEmpty) {
+        final existingByPhone = await _firestore
+            .collection('businesses')
+            .doc(_businessId)
+            .collection('customers')
+            .where('phone', isEqualTo: phone.trim())
+            .limit(1)
+            .get();
+
+        if (existingByPhone.docs.isNotEmpty) {
+          final customer = CustomerModel.fromJson(existingByPhone.docs.first.data());
+          _selectedCustomer = customer;
+          notifyListeners();
+          return customer;
+        }
+      }
+
+      if (email != null && email.trim().isNotEmpty) {
+        final existingByEmail = await _firestore
+            .collection('businesses')
+            .doc(_businessId)
+            .collection('customers')
+            .where('email', isEqualTo: email.trim())
+            .limit(1)
+            .get();
+
+        if (existingByEmail.docs.isNotEmpty) {
+          final customer = CustomerModel.fromJson(existingByEmail.docs.first.data());
+          _selectedCustomer = customer;
+          notifyListeners();
+          return customer;
+        }
+      }
+
+      final now = DateTime.now();
+      final customerId = _firestore
+          .collection('businesses')
+          .doc(_businessId)
+          .collection('customers')
+          .doc()
+          .id;
+
+      final newCustomer = CustomerModel(
+        id: customerId,
+        businessId: _businessId!,
+        name: name.trim(),
+        phone: phone?.trim().isEmpty == true ? null : phone?.trim(),
+        email: email?.trim().isEmpty == true ? null : email?.trim(),
+        totalSpent: 0.0,
+        totalTransactions: 0,
+        averageOrderValue: 0.0,
+        firstPurchaseDate: now,
+        lastPurchaseDate: now,
+        createdAt: now,
+        updatedAt: now,
+        isActive: true,
+      );
+
+      await _firestore
+          .collection('businesses')
+          .doc(_businessId)
+          .collection('customers')
+          .doc(customerId)
+          .set(newCustomer.toJson());
+
+      _customers = [..._customers, newCustomer];
+      _selectedCustomer = newCustomer;
+      notifyListeners();
+      return newCustomer;
+    } catch (e) {
+      _errorMessage = 'Failed to create customer: $e';
+      debugPrint('[CustomerProvider] Error: $_errorMessage');
+      return null;
+    }
+  }
+
   /// Update customer after purchase
   Future<void> updateCustomerAfterPurchase(
     String customerId,
@@ -266,6 +350,11 @@ class CustomerProvider extends ChangeNotifier {
   /// Clear selected customer
   void clearSelectedCustomer() {
     _selectedCustomer = null;
+    notifyListeners();
+  }
+
+  void selectCustomer(CustomerModel? customer) {
+    _selectedCustomer = customer;
     notifyListeners();
   }
 

@@ -9,6 +9,7 @@ import '../../../providers/pharmacy_provider.dart';
 import '../../../widgets/custom_button.dart';
 import '../../../widgets/animated_lottie.dart';
 import '../../../services/barcode_service.dart';
+import '../../../services/inventory_export_service.dart';
 import '../../../data/repositories/inventory_repository_impl.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
@@ -218,6 +219,98 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     }).toList();
 
     setState(() => _filteredInventory = filtered);
+  }
+
+  List<Map<String, dynamic>> get _inventoryForExport {
+    final hasActiveFilters = _searchController.text.trim().isNotEmpty ||
+        _selectedCategory != 'All' ||
+        _showLowStock;
+    return hasActiveFilters ? _filteredInventory : _inventory;
+  }
+
+  Future<void> _showExportOptions() async {
+    final items = _inventoryForExport;
+    if (items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No inventory items available to export')),
+      );
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text(
+                'Export Inventory',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text('Exports the inventory currently visible on this screen'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.table_chart_outlined),
+              title: const Text('CSV'),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                await _exportInventory(asPdf: false);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.picture_as_pdf_outlined),
+              title: const Text('PDF'),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                await _exportInventory(asPdf: true);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportInventory({required bool asPdf}) async {
+    final items = _inventoryForExport;
+    if (items.isEmpty) return;
+
+    final businessName =
+        context.read<BusinessProvider>().currentBusiness?.name ?? 'Manage Care';
+
+    try {
+      final result = asPdf
+          ? await InventoryExportService.exportPdf(
+              items: items,
+              businessName: businessName,
+              fileBaseName: 'Inventory',
+            )
+          : await InventoryExportService.exportCsv(
+              items: items,
+              businessName: businessName,
+              fileBaseName: 'Inventory',
+            );
+
+      if (!mounted) return;
+      final exportedCount = items.length;
+      final format = asPdf ? 'PDF' : 'CSV';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Exported $exportedCount inventory item(s) as $format: ${result.fileName}',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to export inventory: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override
@@ -480,9 +573,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.file_download_outlined),
-            onPressed: () {
-              // TODO: Export inventory
-            },
+            tooltip: 'Export Inventory',
+            onPressed: _showExportOptions,
           ),
           IconButton(
             icon: const Icon(Icons.move_to_inbox_outlined),

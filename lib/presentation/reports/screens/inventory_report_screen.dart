@@ -7,6 +7,7 @@ import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/reports_provider.dart';
 import '../../../core/constants/routes.dart';
+import '../../../services/inventory_export_service.dart';
 import '../widgets/report_card.dart';
 import '../widgets/report_theme.dart';
 
@@ -347,12 +348,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
   }
 
   Widget _buildInventoryTable(ReportsProvider reportsProvider) {
-    // Filter inventory based on search term
-    final filteredInventory = reportsProvider.inventoryReports
-        .where((report) => report.productName
-            .toLowerCase()
-            .contains(_searchController.text.toLowerCase()))
-        .toList();
+    final filteredInventory = _filteredInventoryReports(reportsProvider);
 
     return Card(
       elevation: 2,
@@ -400,7 +396,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                         (report) => DataRow(
                           cells: [
                             DataCell(Text(report.productName)),
-                            DataCell(Text('${report.quantity}')),
+                            DataCell(Text('${report.quantity} ${report.unit}')),
                             DataCell(Text(
                                 '₦${report.unitPrice.toStringAsFixed(2)}')),
                             DataCell(Text(
@@ -442,10 +438,32 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
     );
   }
 
+  List<InventoryReport> _filteredInventoryReports(
+    ReportsProvider reportsProvider,
+  ) {
+    return reportsProvider.inventoryReports
+        .where(
+          (report) => report.productName
+              .toLowerCase()
+              .contains(_searchController.text.toLowerCase()),
+        )
+        .toList();
+  }
+
   void _showExportOptions(BuildContext context) {
+    final filteredInventory =
+        _filteredInventoryReports(context.read<ReportsProvider>());
+
+    if (filteredInventory.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No inventory items available to export')),
+      );
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
-      builder: (context) => Container(
+      builder: (sheetContext) => Container(
         padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -454,16 +472,26 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
             ListTile(
+              leading: const Icon(Icons.table_chart_outlined),
+              title: const Text('CSV'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                await _exportInventory(
+                  context,
+                  filteredInventory,
+                  asPdf: false,
+                );
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.picture_as_pdf),
               title: const Text('PDF'),
               onTap: () async {
-                Navigator.pop(context);
-                await context
-                    .read<ReportsProvider>()
-                    .exportInventoryReportToPDF();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('Inventory report exported as PDF')),
+                Navigator.pop(sheetContext);
+                await _exportInventory(
+                  context,
+                  filteredInventory,
+                  asPdf: true,
                 );
               },
             ),
@@ -471,6 +499,59 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _exportInventory(
+    BuildContext context,
+    List<InventoryReport> reports, {
+    required bool asPdf,
+  }) async {
+    final businessName =
+        this.context.read<BusinessProvider>().currentBusiness?.name ??
+            'Manage Care';
+
+    final exportItems = reports
+        .map(
+          (report) => <String, dynamic>{
+            'id': report.productId,
+            'name': report.productName,
+            'category': 'Inventory',
+            'quantity': report.quantity,
+            'minStock': report.reorderLevel,
+            'price': report.unitPrice,
+            'unit': report.unit,
+          },
+        )
+        .toList();
+
+    try {
+      final result = asPdf
+          ? await InventoryExportService.exportPdf(
+              items: exportItems,
+              businessName: businessName,
+              fileBaseName: 'Inventory_Report',
+            )
+          : await InventoryExportService.exportCsv(
+              items: exportItems,
+              businessName: businessName,
+              fileBaseName: 'Inventory_Report',
+            );
+
+      if (!mounted) return;
+      final format = asPdf ? 'PDF' : 'CSV';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Inventory report exported as $format: ${result.fileName}',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to export inventory report: $e')),
+      );
+    }
   }
 }
 

@@ -18,6 +18,7 @@ class SubscriptionPayment {
   final String planId;
   final String planName;
   final double amount;
+  final String currency;
   final String receiptUrl;
   final DateTime requestDate;
   final String status; // pending, approved, declined
@@ -37,6 +38,7 @@ class SubscriptionPayment {
     required this.planId,
     required this.planName,
     required this.amount,
+    this.currency = 'NGN',
     required this.receiptUrl,
     required this.requestDate,
     required this.status,
@@ -67,6 +69,7 @@ class SubscriptionPayment {
       planId: doc['subscriptionPlan'] ?? '',
       planName: _getPlanName(doc['subscriptionPlan'] ?? ''),
       amount: (doc['subscriptionAmount'] ?? 0).toDouble(),
+      currency: (doc['currency'] ?? 'NGN').toString(),
       receiptUrl: doc['subscriptionReceiptUrl'] ?? '',
       requestDate: parseTimestamp(doc['subscriptionRequestDate'] ?? doc['createdAt']),
       status: doc['subscriptionStatus'] ?? 'pending',
@@ -208,6 +211,56 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
     }
   }
 
+  double _sumPaymentAmounts(List<SubscriptionPayment> payments) {
+    return payments.fold<double>(
+      0,
+      (sum, payment) => sum + payment.amount,
+    );
+  }
+
+  bool _isTransactionRecognized(PaymentTransaction tx) {
+    final status = tx.status.toLowerCase();
+    return status == 'approved' ||
+        status == 'recognized' ||
+        status == 'processed';
+  }
+
+  Widget _buildAmountChip({
+    required String label,
+    required double amount,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: color.withOpacity(0.9),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'NGN ${amount.toStringAsFixed(0)}',
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -318,6 +371,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
             planId: planId,
             planName: planName,
             amount: amount,
+            currency: (data['currency'] as String?) ?? 'NGN',
             receiptUrl: receiptUrl,
             requestDate: data['createdAt'] != null
                 ? (data['createdAt'] as Timestamp).toDate()
@@ -413,6 +467,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         'subscriptionStatus': 'approved',
         'hasActiveSubscription': true,
         'subscriptionApprovedAt': now.toIso8601String(),
+        'subscriptionApprovedBy': 'admin',
         'subscriptionPlan': payment.planId,
         'subscriptionStartDate': now.toIso8601String(),
         'subscriptionEndDate': endDate.toIso8601String(),
@@ -439,6 +494,9 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
               'subscriptionStatus': 'approved',
               'approvedAt': now.toIso8601String(),
               'approvedBy': 'admin',
+              'revenueRecognized': true,
+              'revenueRecognizedAt': now.toIso8601String(),
+              'revenueRecognizedBy': 'admin',
               'updatedAt': now.toIso8601String(),
             });
           }
@@ -457,7 +515,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         'planId': payment.planId,
         'planName': payment.planName,
         'amount': payment.amount,
-        'currency': payment.businessTier ?? 'NGN',
+        'currency': payment.currency,
         'receiptUrl': payment.receiptUrl,
         'transactionId': payment.transactionId,
         'paymentMethod': payment.paymentMethod,
@@ -469,8 +527,31 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         'subscriptionStartDate': now.toIso8601String(),
         'subscriptionEndDate': endDate.toIso8601String(),
         'subscriptionDurationDays': plan?.durationInDays ?? 30,
+        'approvalSource':
+            payment.isFlutterwavePayment ? 'payment_transaction' : 'subscription_request',
+        'revenueRecognized': true,
+        'revenueRecognizedAt': now.toIso8601String(),
         'status': 'approved',
       });
+
+      if (payment.transactionId != null && payment.transactionId!.isNotEmpty) {
+        final matchingTransactions = await _firestore
+            .collection('payment_transactions')
+            .where('transactionId', isEqualTo: payment.transactionId)
+            .get();
+
+        for (final doc in matchingTransactions.docs) {
+          await doc.reference.update({
+            'status': 'processed',
+            'approvalStatus': 'approved',
+            'approvedAt': now.toIso8601String(),
+            'approvedBy': 'admin',
+            'revenueRecognized': true,
+            'revenueRecognizedAt': now.toIso8601String(),
+            'updatedAt': now.toIso8601String(),
+          });
+        }
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -538,6 +619,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         'subscriptionStatus': 'declined',
         'hasActiveSubscription': false,
         'subscriptionDeclinedAt': DateTime.now().toIso8601String(),
+        'subscriptionDeclinedBy': 'admin',
         'subscriptionDeclineReason': reason,
       });
 
@@ -557,10 +639,12 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         'userEmail': payment.userEmail,
         'planId': payment.planId,
         'amount': payment.amount,
+        'currency': payment.currency,
         'receiptUrl': payment.receiptUrl,
         'declinedAt': DateTime.now().toIso8601String(),
         'declinedBy': 'admin',
         'declineReason': reason,
+        'revenueRecognized': false,
         'status': 'declined',
       });
 
@@ -578,7 +662,26 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
           'rejectedAt': DateTime.now().toIso8601String(),
           'rejectedBy': 'admin',
           'rejectedReason': reason,
+          'revenueRecognized': false,
         });
+      }
+
+      if (payment.transactionId != null && payment.transactionId!.isNotEmpty) {
+        final matchingTransactions = await _firestore
+            .collection('payment_transactions')
+            .where('transactionId', isEqualTo: payment.transactionId)
+            .get();
+        for (final doc in matchingTransactions.docs) {
+          await doc.reference.update({
+            'status': 'declined',
+            'approvalStatus': 'declined',
+            'declinedAt': DateTime.now().toIso8601String(),
+            'declinedBy': 'admin',
+            'declineReason': reason,
+            'revenueRecognized': false,
+            'updatedAt': DateTime.now().toIso8601String(),
+          });
+        }
       }
 
       if (mounted) {
@@ -696,6 +799,33 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                     _buildOverviewCard(
                       title: 'Transactions',
                       value: _transactions.length.toString(),
+                      color: Colors.blue,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    _buildAmountChip(
+                      label: 'Pending Value',
+                      amount: _sumPaymentAmounts(_pendingPayments),
+                      color: Colors.orange,
+                    ),
+                    _buildAmountChip(
+                      label: 'Recognized Revenue',
+                      amount: _sumPaymentAmounts(_approvedPayments),
+                      color: Colors.green,
+                    ),
+                    _buildAmountChip(
+                      label: 'Recognized Tx Value',
+                      amount: _transactions
+                          .where(_isTransactionRecognized)
+                          .fold<double>(
+                            0,
+                            (sum, tx) => sum + tx.amount,
+                          ),
                       color: Colors.blue,
                     ),
                   ],
@@ -1659,9 +1789,11 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
       if (query.docs.isNotEmpty) {
         await query.docs.first.reference.update({
           'status': 'declined',
+          'approvalStatus': 'declined',
           'declinedAt': DateTime.now().toIso8601String(),
           'declinedBy': 'admin',
           'declineReason': reason,
+          'revenueRecognized': false,
         });
       }
 
@@ -1706,6 +1838,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
               planName: req['planName'] ??
                   SubscriptionPayment._getPlanName(req['planId'] ?? ''),
               amount: (req['amount'] ?? 0).toDouble(),
+              currency: (req['currency'] as String?) ?? tx.currency,
               receiptUrl: req['receiptUrl'] ??
                   tx.processorResponse?['receiptUrl'] ??
                   '',
@@ -1725,7 +1858,11 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
             if (qTx.docs.isNotEmpty) {
               await qTx.docs.first.reference.update({
                 'status': 'processed',
-                'processedAt': DateTime.now().toIso8601String()
+                'approvalStatus': 'approved',
+                'approvedBy': 'admin',
+                'processedAt': DateTime.now().toIso8601String(),
+                'revenueRecognized': true,
+                'revenueRecognizedAt': DateTime.now().toIso8601String(),
               });
             }
 
@@ -1759,6 +1896,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
           planId: planId,
           planName: SubscriptionPayment._getPlanName(planId),
           amount: tx.amount,
+          currency: tx.currency,
           receiptUrl: tx.processorResponse?['receiptUrl'] ?? '',
           requestDate: tx.createdAt ?? DateTime.now(),
           status: 'pending',
@@ -1773,7 +1911,11 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         if (qTx.docs.isNotEmpty) {
           await qTx.docs.first.reference.update({
             'status': 'processed',
-            'processedAt': DateTime.now().toIso8601String()
+            'approvalStatus': 'approved',
+            'approvedBy': 'admin',
+            'processedAt': DateTime.now().toIso8601String(),
+            'revenueRecognized': true,
+            'revenueRecognizedAt': DateTime.now().toIso8601String(),
           });
         }
 

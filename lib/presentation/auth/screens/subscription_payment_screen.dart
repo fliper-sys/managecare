@@ -1044,6 +1044,47 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
       print('[SubscriptionPaymentScreen] Upload result: ${result.uploadId}');
       final uploadUrl = result.receiptUrl;
 
+      if (uploadUrl != null) {
+        final subscriptionService = SubscriptionService(
+          firestore: FirebaseFirestore.instance,
+        );
+        final submitted =
+            await subscriptionService.submitManualSubscriptionForApproval(
+          userId: userId,
+          planId: _selectedPlanId,
+          receiptUrl: uploadUrl,
+          amount: selectedPlan.price,
+          businessId:
+              currentBusinessId.isNotEmpty ? currentBusinessId : null,
+          existingRequestId: result.uploadId,
+          currency: currency,
+          userEmail: widget.userEmail,
+          userName: widget.userName,
+        );
+
+        if (!submitted) {
+          if (mounted) {
+            _showError(
+                'Receipt uploaded, but we could not queue your approval request.');
+          }
+          return;
+        }
+
+        if (!mounted) return;
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (!mounted) return;
+
+        try {
+          navigator.pushReplacementNamed(
+            '/subscription-status',
+            arguments: navigationArguments,
+          );
+        } catch (navError) {
+          print('[SubscriptionPaymentScreen] Navigation error: $navError');
+        }
+        return;
+      }
+
       // Check if widget is still mounted after async operation
       if (!mounted) {
         print(

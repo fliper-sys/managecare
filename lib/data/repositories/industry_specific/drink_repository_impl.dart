@@ -1,6 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart' as fs;
 import '../../../providers/drink_provider.dart';
 
+DateTime _parseDrinkRepoDate(dynamic value) {
+  if (value == null) return DateTime.now();
+  if (value is fs.Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value) ?? DateTime.now();
+  if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+  return DateTime.now();
+}
+
 class DrinkRepositoryImpl implements DrinkRepository {
   final fs.FirebaseFirestore firestore = fs.FirebaseFirestore.instance;
   final String businessId; // injected business ID
@@ -15,6 +24,20 @@ class DrinkRepositoryImpl implements DrinkRepository {
           .doc(businessId)
           .collection('orders')
           .doc(data['id'])
+          .set(data, fs.SetOptions(merge: true));
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> saveInvoice(Map<String, dynamic> data) async {
+    try {
+      await firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('invoices')
+          .doc((data['id'] ?? '').toString())
           .set(data, fs.SetOptions(merge: true));
     } catch (e) {
       rethrow;
@@ -184,29 +207,19 @@ class DrinkRepositoryImpl implements DrinkRepository {
           .collection('orders')
           .get();
       return snapshot.docs.map((doc) {
-        final raw = doc['createdAt'];
-        DateTime createdAt;
-        try {
-          if (raw == null) {
-            createdAt = DateTime.now();
-          } else if (raw is fs.Timestamp) {
-            createdAt = raw.toDate();
-          } else if (raw is String) {
-            createdAt = DateTime.tryParse(raw) ?? DateTime.now();
-          } else if (raw is DateTime) {
-            createdAt = raw;
-          } else {
-            createdAt = DateTime.now();
-          }
-        } catch (_) {
-          createdAt = DateTime.now();
-        }
+        final data = doc.data();
+        final createdAt = _parseDrinkRepoDate(data['createdAt']);
+        final lines = (data['lines'] as List<dynamic>?)
+                ?.map((item) =>
+                    OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
+                .toList() ??
+            const <OrderLine>[];
 
         return Order(
-          id: doc['id'],
-          status: doc['status'] ?? 'pending',
+          id: (data['id'] ?? doc.id).toString(),
+          status: (data['status'] ?? 'pending').toString(),
           createdAt: createdAt,
-          lines: [],
+          lines: lines,
         );
       }).toList();
     } catch (e) {
@@ -223,31 +236,79 @@ class DrinkRepositoryImpl implements DrinkRepository {
           .collection('orders')
           .snapshots()
           .map((snap) => snap.docs.map((doc) {
-                final raw = doc['createdAt'];
-                DateTime createdAt;
-                try {
-                  if (raw == null) {
-                    createdAt = DateTime.now();
-                  } else if (raw is fs.Timestamp) {
-                    createdAt = raw.toDate();
-                  } else if (raw is String) {
-                    createdAt = DateTime.tryParse(raw) ?? DateTime.now();
-                  } else if (raw is DateTime) {
-                    createdAt = raw;
-                  } else {
-                    createdAt = DateTime.now();
-                  }
-                } catch (_) {
-                  createdAt = DateTime.now();
-                }
+                final data = doc.data();
+                final createdAt = _parseDrinkRepoDate(data['createdAt']);
+                final lines = (data['lines'] as List<dynamic>?)
+                        ?.map((item) => OrderLine.fromJson(
+                            Map<String, dynamic>.from(item as Map)))
+                        .toList() ??
+                    const <OrderLine>[];
 
                 return Order(
-                  id: doc.id,
-                  status: doc['status'] ?? 'pending',
+                  id: (data['id'] ?? doc.id).toString(),
+                  status: (data['status'] ?? 'pending').toString(),
                   createdAt: createdAt,
-                  lines: [],
+                  lines: lines,
                 );
               }).toList());
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  @override
+  Future<List<BarInvoice>> fetchInvoices() async {
+    try {
+      final snapshot = await firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('invoices')
+          .get();
+
+      final invoices = snapshot.docs
+          .map((doc) => BarInvoice.fromJson({...doc.data(), 'id': doc.id}))
+          .where((invoice) =>
+              invoice.businessId.isEmpty || invoice.businessId == businessId)
+          .toList();
+      invoices.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return invoices;
+    } on fs.FirebaseException catch (e) {
+      if (e.code == 'failed-precondition' ||
+          (e.message ?? '').contains('requires an index')) {
+        final fallback = await firestore
+            .collection('businesses')
+            .doc(businessId)
+            .collection('invoices')
+            .get();
+        final invoices = fallback.docs
+            .map((doc) => BarInvoice.fromJson({...doc.data(), 'id': doc.id}))
+            .where((invoice) =>
+                invoice.businessId.isEmpty || invoice.businessId == businessId)
+            .toList();
+        invoices.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        return invoices;
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Stream<List<BarInvoice>> streamInvoices() {
+    try {
+      return firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('invoices')
+          .snapshots()
+          .map((snap) {
+        final invoices = snap.docs
+            .map((doc) => BarInvoice.fromJson({...doc.data(), 'id': doc.id}))
+            .where((invoice) =>
+                invoice.businessId.isEmpty || invoice.businessId == businessId)
+            .toList();
+        invoices.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        return invoices;
+      });
     } catch (e) {
       rethrow;
     }
