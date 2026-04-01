@@ -921,6 +921,17 @@ final snapshot = await _firestore!
     final pct = stylist.commissionPercentage ?? 0.0;
     return appointments.fold(0.0, (sum, a) => sum + (a.servicePrice) * (pct / 100.0));
   }
+
+  /// Reset all provider state - called during logout to clear business data
+  void reset() {
+    _services.clear();
+    _appointments.clear();
+    _stylists.clear();
+    _products.clear();
+    _errorMessage = null;
+    print('[SalonProvider] State cleared for next business');
+    notifyListeners();
+  }
 }
 
 extension StylistCopyWith on Stylist {

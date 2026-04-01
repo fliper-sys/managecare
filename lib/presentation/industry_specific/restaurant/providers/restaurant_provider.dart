@@ -1214,6 +1214,20 @@ class RestaurantProvider extends ChangeNotifier {
     };
   }
 
+  /// Reset provider state - called during logout to clear all cached data  
+  void reset() {
+    _businessId = '';
+    _menuItems.clear();
+    _orders.clear();
+    _tables.clear();
+    _reservations.clear();
+    _servers.clear();
+    _isLoading = false;
+    _error = null;
+    print('[RestaurantProvider] State cleared and ready for next business');
+    notifyListeners();
+  }
+
 
 }
 

@@ -327,7 +327,12 @@ class MyApp extends StatelessWidget {
               if (bid.isNotEmpty) p.setBusinessId(bid);
               return p;
             }
-            if (bid.isNotEmpty) previous.setBusinessId(bid);
+            // Reset provider state when business is cleared (logout)
+            if (bid.isEmpty) {
+              previous.reset();
+            } else {
+              previous.setBusinessId(bid);
+            }
             return previous;
           },
         ),
@@ -433,7 +438,12 @@ class MyApp extends StatelessWidget {
               if (bid.isNotEmpty) p.setBusinessId(bid);
               return p;
             }
-            if (bid.isNotEmpty) previous.setBusinessId(bid);
+            // Reset provider state when business is cleared (logout)
+            if (bid.isEmpty) {
+              previous.reset();
+            } else {
+              previous.setBusinessId(bid);
+            }
             return previous;
           },
         ),
@@ -505,7 +515,12 @@ class MyApp extends StatelessWidget {
               if (bid.isNotEmpty) p.setBusinessId(bid);
               return p;
             }
-            if (bid.isNotEmpty) previous.setBusinessId(bid);
+            // Reset provider state when business is cleared (logout)
+            if (bid.isEmpty) {
+              previous.reset();
+            } else {
+              previous.setBusinessId(bid);
+            }
             return previous;
           },
         ),
@@ -521,8 +536,23 @@ class MyApp extends StatelessWidget {
             return cp;
           },
         ),
-        // Apartment management provider
-        ChangeNotifierProvider(create: (_) => ApartmentProvider()),
+        // Apartment management provider - convert to proxy to wire with business context
+        ChangeNotifierProxyProvider<BusinessProvider,ApartmentProvider>(
+          create: (_) => ApartmentProvider(),
+          update: (_, businessProvider, previous) {
+            final bid = businessProvider.currentBusiness?.id ?? '';
+            if (previous == null) {
+              return ApartmentProvider();
+            }
+            // Load apartments for the current business, or reset if no business
+            if (bid.isNotEmpty) {
+              previous.loadApartments(bid);
+            } else {
+              previous.reset();
+            }
+            return previous;
+          },
+        ),
         // Marketer provider for admin/marketer login functionality
         ChangeNotifierProvider(create: (_) => MarketerProvider()),
       ],

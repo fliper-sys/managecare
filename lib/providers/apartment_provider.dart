@@ -51,4 +51,12 @@ class ApartmentProvider extends ChangeNotifier {
     await _repo.deleteUnit(businessId: businessId, apartmentId: apartmentId, unitId: unitId);
     await loadUnits(businessId, apartmentId);
   }
+
+  /// Reset provider state - called during logout to clear all cached data
+  void reset() {
+    apartments.clear();
+    units.clear();
+    isLoading = false;
+    notifyListeners();
+  }
 }

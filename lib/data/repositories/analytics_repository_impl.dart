@@ -67,7 +67,7 @@ class AnalyticsRepositoryImpl implements AnalyticsRepository {
             (data['amount'] as num?) ??
             (data['finalAmount'] as num?) ??
             0;
-        totalSales += (amount as num).toDouble();
+        totalSales += (amount).toDouble();
         totalTransactions++;
       }
 
@@ -173,8 +173,8 @@ class AnalyticsRepositoryImpl implements AnalyticsRepository {
         final date = _getSaleDate(doc);
         final dateKey = '${date.year}-${date.month}-${date.day}';
 
-        totalRevenue += (amount as num).toDouble();
-        revenueByDay[dateKey] = (revenueByDay[dateKey] ?? 0) + (amount as num).toDouble();
+        totalRevenue += (amount).toDouble();
+        revenueByDay[dateKey] = (revenueByDay[dateKey] ?? 0) + (amount).toDouble();
       }
 
       return {

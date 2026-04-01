@@ -12,6 +12,14 @@ import '../../../../core/theme/text_styles.dart';
 import '../../../../core/localization/app_localization.dart';
 import '../../../../providers/retail_provider.dart';
 
+/// AddProductScreen - Product creation/editing for Retail business type ONLY
+/// 
+/// NOTE: Store requirement is unique to Retail operations. Other business types
+/// (Restaurant, Salon, Hotel, Pharmacy, Gym, etc.) do NOT require store selection
+/// as they operate under a single business location model.
+/// 
+/// Store requirement ensures retail products are properly inventory-tracked
+/// across multiple physical store locations.
 class AddProductScreen extends StatefulWidget {
   final Product? product; // null for add, non-null for edit
 
@@ -158,6 +166,39 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   Future<void> _saveProduct() async {
+    final retailProvider =
+        Provider.of<RetailProvider>(context, listen: false);
+    
+    // RETAIL-SPECIFIC: Store selection is required for retail inventory management
+    // Store requirement ensures products are tracked across multiple physical locations
+    // Other business types (Restaurant, Salon, etc.) do not require this
+    if (retailProvider.stores.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('No Store Available'),
+          content: const Text(
+            'You must create a store before adding products. Would you like to create one now?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                // Navigate to store creation
+                Navigator.of(context).pushNamed('/retail/stores');
+              },
+              child: const Text('Create Store'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    
     // Validation
     if (_nameController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -188,12 +229,21 @@ class _AddProductScreenState extends State<AddProductScreen> {
       );
       return;
     }
+    
+    // Validate store selection
+    if (_selectedStoreId == null || _selectedStoreId!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a store'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
 
     if (widget.product == null) {
       final businessProvider =
           Provider.of<BusinessProvider>(context, listen: false);
-      final retailProvider =
-          Provider.of<RetailProvider>(context, listen: false);
       final currentCount = retailProvider.products.length;
 
       if (!businessProvider.isWithinLimit('products', currentCount)) {
@@ -219,8 +269,6 @@ class _AddProductScreenState extends State<AddProductScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final retailProvider =
-          Provider.of<RetailProvider>(context, listen: false);
       final product = Product(
         id: widget.product?.id ?? '',
         name: _nameController.text,
@@ -333,36 +381,67 @@ class _AddProductScreenState extends State<AddProductScreen> {
             const SizedBox(height: 12),
             Consumer<RetailProvider>(builder: (context, retail, _) {
               final stores = retail.stores;
-              if (stores.isEmpty) return const SizedBox.shrink();
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 8),
-                  const Text('Store', style: AppTextStyles.label),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Store *', style: AppTextStyles.label),
+                      if (stores.isEmpty)
+                        TextButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).pushNamed('/retail/stores');
+                          },
+                          icon: const Icon(Icons.add, size: 16),
+                          label: const Text('Create Store'),
+                        ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedStoreId ?? stores.first.id,
-                        isExpanded: true,
-                        icon: const Icon(Icons.store),
-                        items: stores.map((s) {
-                          return DropdownMenuItem(
-                            value: s.id,
-                            child: Text(s.name),
-                          );
-                        }).toList(),
-                        onChanged: (String? val) {
-                          if (val != null) setState(() => _selectedStoreId = val);
-                        },
+                  if (stores.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange[50],
+                        border: Border.all(color: Colors.orange),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'No stores available. Please create a store to add products.',
+                        style: TextStyle(color: Colors.orange, fontSize: 14),
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _selectedStoreId == null ? Colors.red : Colors.transparent,
+                        ),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedStoreId,
+                          isExpanded: true,
+                          hint: const Text('Select a store'),
+                          icon: const Icon(Icons.store),
+                          items: stores.map((s) {
+                            return DropdownMenuItem(
+                              value: s.id,
+                              child: Text(s.name),
+                            );
+                          }).toList(),
+                          onChanged: (String? val) {
+                            if (val != null) setState(() => _selectedStoreId = val);
+                          },
+                        ),
                       ),
                     ),
-                  ),
                 ],
               );
             }),

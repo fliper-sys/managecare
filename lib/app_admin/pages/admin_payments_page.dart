@@ -318,7 +318,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
             continue;
           }
           
-          final userData = userDoc.data() as Map<String, dynamic>? ?? {};
+          final userData = userDoc.data() ?? {};
           final businessId = (data['businessId'] as String? ??
               userData['currentBusinessId'] as String? ??
               '').trim();

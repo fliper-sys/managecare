@@ -1354,7 +1354,7 @@ class RetailProvider extends ChangeNotifier {
 
       if (receiptEnabled == true) {
         // load thermal preferences
-        final prefDoc = await _firestore
+        await _firestore
             .collection('businesses')
             .doc(_businessId)
             .collection('receipt_settings')

@@ -112,7 +112,7 @@ class ReportsProvider extends ChangeNotifier {
       }
       
       if (error is FirebaseException) {
-        final code = error.code ?? '';
+        final code = error.code;
         final msg = error.message ?? '';
         return '$code${msg.isNotEmpty ? ': $msg' : ''}'.trim();
       }

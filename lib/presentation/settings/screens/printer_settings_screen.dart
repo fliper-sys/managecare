@@ -222,7 +222,6 @@ class _PrinterSettingsScreenState extends State<PrinterSettingsScreen> {
   }
 
   void _previewTestReceipt() async {
-    final settings = Provider.of<SettingsProvider>(context, listen: false);
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
 

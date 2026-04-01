@@ -2003,5 +2003,19 @@ class RealEstateProvider extends ChangeNotifier {
       return {};
     }
   }
+
+  /// Reset all provider state - called during logout to clear business data
+  void reset() {
+    _properties.clear();
+    _tenants.clear();
+    _leases.clear();
+    _rentPayments.clear();
+    _bookings.clear();
+    _documentsList.clear();
+    _inventoryList.clear();
+    _errorMessage = '';
+    print('[RealEstateProvider] State cleared for next business');
+    notifyListeners();
+  }
 }
 
