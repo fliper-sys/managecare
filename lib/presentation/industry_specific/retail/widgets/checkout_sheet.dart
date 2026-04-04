@@ -614,15 +614,57 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
     final total = subtotal + taxAmt - effectiveDiscount;
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(AppLocalizations.tr(context, 'checkout'),
-                style: AppTextStyles.heading5
-                    .copyWith(fontWeight: FontWeight.w700)),
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height * 0.9,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Material(
+              color: Theme.of(context).cardColor,
+              elevation: 2,
+              borderRadius: BorderRadius.circular(24),
+              clipBehavior: Clip.antiAlias,
+              child: Scrollbar(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+            Center(
+              child: Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    AppLocalizations.tr(context, 'checkout'),
+                    style: AppTextStyles.heading5.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Close',
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             if (items.isEmpty) ...[
               Center(
@@ -1130,8 +1172,12 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                   ),
                 ),
               ),
-            ],
-          ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
