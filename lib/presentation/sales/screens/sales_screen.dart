@@ -14,6 +14,7 @@ import '../../../services/web_email_receipt_service.dart';
 import '../../../services/notification_and_email_service.dart';
 import '../../../services/barcode_service.dart';
 import '../../../services/analytics_service.dart';
+import '../../../core/utils/currency.dart';
 import '../../../widgets/custom_button.dart';
 import '../../../widgets/async_button.dart';
 import '../../../widgets/app_header.dart';
@@ -22,6 +23,7 @@ import '../../../providers/connectivity_provider.dart';
 import '../../../providers/pharmacy_provider.dart';
 import '../../../core/utils/receipt_utility.dart';
 import '../../../core/utils/search_utils.dart';
+import '../../../core/utils/inventory_utils.dart';
 import '../../widgets/product_view_switcher.dart';
 import 'customer_tracking_screen.dart';
 import 'receipt_detail_screen.dart';
@@ -104,6 +106,9 @@ class _SalesScreenState extends State<SalesScreen>
   }
 
   void _showCheckout(BuildContext context, RetailProvider retail) {
+    final cartItemCountBeforeCheckout = retail.cartCount;
+    final cartTotalBeforeCheckout = retail.cartTotal;
+    final cartLabelBeforeCheckout = retail.activeCartLabel;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -123,12 +128,27 @@ class _SalesScreenState extends State<SalesScreen>
           final items = retail.cartItems.entries.map((e) {
             final unitPrice = priceOverrides[e.key.id] ?? e.key.price;
             final total = unitPrice * e.value;
+            final pricingMode = e.key.hasWholesalePricing &&
+                    e.key.wholesalePrice != null &&
+                    (unitPrice - e.key.wholesalePrice!).abs() < 0.0001
+                ? 'wholesale'
+                : 'retail';
             subtotal += total;
             return {
               'productId': e.key.id,
               'productName': e.key.name,
+              'name': e.key.name,
               'quantity': e.value,
               'unitPrice': unitPrice,
+              'price': unitPrice,
+              'cost': e.key.cost,
+              'costPrice': e.key.cost,
+              'pricingMode': pricingMode,
+              'inventoryUnit': e.key.unit,
+              'saleUnit': e.key.resolvedSaleUnit,
+              'saleUnitMultiplier': e.key.resolvedSaleUnitMultiplier,
+              'inventoryQuantity':
+                  e.key.resolvedSaleUnitMultiplier * e.value,
               'total': total,
             };
           }).toList();
@@ -142,6 +162,8 @@ class _SalesScreenState extends State<SalesScreen>
             'id': 'SALE-${DateTime.now().millisecondsSinceEpoch}',
             // Human friendly reference id for display and quick ref
             'referenceId': ReceiptUtility.generateReferenceId(business?.name),
+            'cartId': retail.activeCartId,
+            'cartLabel': cartLabelBeforeCheckout,
             'items': items,
             'subtotal': subtotal,
             'tax': taxAmount,
@@ -292,17 +314,19 @@ class _SalesScreenState extends State<SalesScreen>
                 Provider.of<BusinessProvider>(context, listen: false);
             final authProvider =
                 Provider.of<AuthProvider>(context, listen: false);
-            final tier =
-                businessProvider.currentBusiness?.subscriptionTier ?? '';
-            final isPro = tier == 'professional' || tier == 'enterprise';
+            final canSendOrderEmail =
+                businessProvider.hasFeatureAccess('email_receipts');
             final userEmail = authProvider.currentUser?.email;
-            if (isPro && userEmail != null && userEmail.isNotEmpty) {
+            if (canSendOrderEmail &&
+                userEmail != null &&
+                userEmail.isNotEmpty) {
               await EmailService().sendOrderSuccessAlert(
                 userEmail,
                 {
                   'order_type': 'retail_sale',
-                  'itemsCount': retail.cartCount.toString(),
-                  'total': retail.cartTotal.toStringAsFixed(2),
+                  'itemsCount': cartItemCountBeforeCheckout.toString(),
+                  'total': cartTotalBeforeCheckout.toStringAsFixed(2),
+                  'cartLabel': cartLabelBeforeCheckout,
                 },
               );
             }
@@ -351,6 +375,133 @@ class _SalesScreenState extends State<SalesScreen>
         setState(() => _loadingHistory = false);
       }
     }
+  }
+
+  Future<void> _promptNewCart(BuildContext context, RetailProvider retail) async {
+    final controller = TextEditingController(
+      text: 'Cart ${retail.cartSessions.length + 1}',
+    );
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Open New Cart'),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Cart label',
+                hintText: 'Customer or table name',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Create'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+    await retail.createCartSession(label: controller.text.trim());
+  }
+
+  Future<void> _promptRenameCart(
+    BuildContext context,
+    RetailProvider retail,
+    CartSessionSummary session,
+  ) async {
+    final controller = TextEditingController(text: session.label);
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Rename Cart'),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'Cart label',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+    retail.renameCart(session.id, controller.text);
+  }
+
+  Widget _buildCartSessionStrip(BuildContext context, RetailProvider retail) {
+    final sessions = retail.cartSessions;
+    if (sessions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      color: Theme.of(context).cardColor,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Open Carts',
+                style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () => _promptNewCart(context, retail),
+                icon: const Icon(Icons.add_circle_outline),
+                label: const Text('New Cart'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: sessions.map((session) {
+                final chip = InputChip(
+                  selected: session.isActive,
+                  label: Text('${session.label} (${session.itemCount})'),
+                  avatar: Icon(
+                    session.isActive
+                        ? Icons.shopping_bag
+                        : Icons.shopping_bag_outlined,
+                    size: 18,
+                  ),
+                  onPressed: () => retail.switchCart(session.id),
+                  onDeleted: sessions.length > 1
+                      ? () => retail.closeCart(session.id)
+                      : null,
+                  deleteIcon: const Icon(Icons.close, size: 18),
+                );
+
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onLongPress: () => _promptRenameCart(context, retail, session),
+                    child: chip,
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Handle a scanned barcode (either from camera or handheld keyboard scanner)
@@ -542,6 +693,7 @@ class _SalesScreenState extends State<SalesScreen>
       body: Column(
         children: [
           const AppHeader(showBusinessSwitcher: false),
+          _buildCartSessionStrip(context, retail),
           // Handheld scanner input (keyboard wedge)
           if (_handheldMode)
             Container(
@@ -760,11 +912,11 @@ class _SalesScreenState extends State<SalesScreen>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            '${retail.cartCount} items',
+                            '${retail.activeCartLabel} • ${retail.cartCount} items',
                             style: AppTextStyles.body2Secondary,
                           ),
                           Text(
-                            '₦${retail.cartTotal.toStringAsFixed(2)}',
+                            formatCurrency(retail.cartTotal),
                             style: AppTextStyles.price,
                           ),
                         ],
@@ -809,7 +961,10 @@ class _SalesScreenState extends State<SalesScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Cart Items', style: AppTextStyles.heading3),
+          Text(
+            'Cart Items • ${retail.activeCartLabel}',
+            style: AppTextStyles.heading3,
+          ),
           const SizedBox(height: 16),
           ...retail.cartItems.entries.map((e) => Card(
                 child: Padding(
@@ -823,8 +978,10 @@ class _SalesScreenState extends State<SalesScreen>
                             Text(e.key.name,
                                 style: AppTextStyles.body1
                                     .copyWith(fontWeight: FontWeight.w600)),
-                            Text('\u20a6${e.key.price}',
-                                style: AppTextStyles.body2),
+                            Text(
+                              formatCurrency(e.key.price),
+                              style: AppTextStyles.body2,
+                            ),
                           ],
                         ),
                       ),
@@ -869,7 +1026,7 @@ class _SalesScreenState extends State<SalesScreen>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Subtotal:'),
-                    Text('\u20a6${retail.cartTotal.toStringAsFixed(2)}'),
+                    Text(formatCurrency(retail.cartTotal)),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -877,7 +1034,7 @@ class _SalesScreenState extends State<SalesScreen>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Total:', style: AppTextStyles.heading4),
-                    Text('\u20a6${retail.cartTotal.toStringAsFixed(2)}',
+                    Text(formatCurrency(retail.cartTotal),
                         style: AppTextStyles.heading4
                             .copyWith(color: AppColors.primary)),
                   ],
@@ -1549,6 +1706,27 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return widget.items.entries.fold(0.0, (s, e) => s + _lineTotal(e.key, e.value));
   }
 
+  String _pricingModeFor(Product product) {
+    final currentPrice = _priceOverrides[product.id] ?? product.price;
+    if (product.wholesalePrice != null &&
+        (currentPrice - product.wholesalePrice!).abs() < 0.0001) {
+      return 'wholesale';
+    }
+    return 'retail';
+  }
+
+  String _saleUnitSummary(Product product) {
+    final saleUnit = product.resolvedSaleUnit;
+    final multiplier = product.resolvedSaleUnitMultiplier;
+    if (saleUnit == product.unit && multiplier == 1) {
+      return 'Sold in ${inventoryUnitLabel(saleUnit)}';
+    }
+    final multiplierLabel = multiplier == multiplier.roundToDouble()
+        ? multiplier.toInt().toString()
+        : multiplier.toStringAsFixed(2);
+    return 'Sold in ${inventoryUnitLabel(saleUnit)} • 1 ${saleUnit.isEmpty ? product.unit : saleUnit} = $multiplierLabel ${product.unit}';
+  }
+
   @override
   void dispose() {
     _customerEmailController.dispose();
@@ -1561,11 +1739,18 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   @override
   Widget build(BuildContext context) {
     final entries = widget.items.entries.toList();
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final surfaceColor = scheme.surface;
+    final mutedSurface =
+        isDark ? scheme.surface.withOpacity(0.92) : AppColors.background;
+    final borderColor = scheme.outline.withOpacity(isDark ? 0.45 : 0.18);
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.8,
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: surfaceColor,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: SingleChildScrollView(
@@ -1579,7 +1764,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: theme.dividerColor.withOpacity(0.9),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -1616,7 +1801,19 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(item.name, style: AppTextStyles.subtitle1),
+                            Text(
+                              item.name,
+                              style: AppTextStyles.subtitle1.copyWith(
+                                color: scheme.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _saleUnitSummary(item),
+                              style: AppTextStyles.caption.copyWith(
+                                color: scheme.onSurface.withOpacity(0.66),
+                              ),
+                            ),
                             const SizedBox(height: 6),
                             Row(
                               children: [
@@ -1625,10 +1822,13 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                   child: TextFormField(
                                     initialValue: (_priceOverrides[item.id] ?? item.price).toStringAsFixed(2),
                                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    decoration: const InputDecoration(
+                                    decoration: InputDecoration(
                                       prefixText: '₦',
                                       isDense: true,
-                                      contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                                      filled: true,
+                                      fillColor: theme.inputDecorationTheme.fillColor ??
+                                          theme.cardColor,
+                                      contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
                                     ),
                                     onChanged: (v) {
                                       final parsed = double.tryParse(v.replaceAll(',', '')) ?? 0.0;
@@ -1640,6 +1840,35 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                 ),
                               ],
                             ),
+                            if (item.hasWholesalePricing) ...[
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  ChoiceChip(
+                                    label: Text('Retail ₦${item.price.toStringAsFixed(2)}'),
+                                    selected: _pricingModeFor(item) == 'retail',
+                                    onSelected: (_) {
+                                      setState(() {
+                                        _priceOverrides[item.id] = item.price;
+                                      });
+                                    },
+                                  ),
+                                  ChoiceChip(
+                                    label: Text(
+                                      'Wholesale ₦${item.wholesalePrice!.toStringAsFixed(2)}',
+                                    ),
+                                    selected: _pricingModeFor(item) == 'wholesale',
+                                    onSelected: (_) {
+                                      setState(() {
+                                        _priceOverrides[item.id] = item.wholesalePrice!;
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -1652,7 +1881,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             onPressed: qty > 1
                                 ? () {
                                     final retail = context.read<RetailProvider>();
-                                    retail.removeFromCart(item.id);
+                                    retail.updateQty(item.id, qty - 1);
                                     setState(() {});
                                   }
                                 : null,
@@ -1683,7 +1912,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                         width: 100,
                         child: Text(
                           '₦${(_lineTotal(item, qty)).toStringAsFixed(2)}',
-                          style: AppTextStyles.heading5,
+                          style: AppTextStyles.heading5.copyWith(
+                            color: scheme.onSurface,
+                          ),
                           textAlign: TextAlign.right,
                         ),
                       ),
@@ -1695,10 +1926,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           // Payment Method & Store Selection
           Container(
             padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: AppColors.background,
+            decoration: BoxDecoration(
+              color: mutedSurface,
               border: Border(
-                top: BorderSide(color: AppColors.border),
+                top: BorderSide(color: borderColor),
               ),
             ),
             child: Column(
@@ -1720,9 +1951,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: theme.cardColor,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.border),
+                          border: Border.all(color: borderColor),
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
@@ -1818,7 +2049,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                        '₦${(widget.total * ((double.tryParse(_taxRateController.text) ?? 0) / 100)).toStringAsFixed(2)}',
+                        '₦${(_computedSubtotal() * ((double.tryParse(_taxRateController.text) ?? 0) / 100)).toStringAsFixed(2)}',
                         style: AppTextStyles.caption),
                   ],
                 ),
@@ -1858,10 +2089,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: theme.cardColor,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withOpacity(isDark ? 0.24 : 0.10),
                   blurRadius: 20,
                   offset: const Offset(0, -5),
                 ),
@@ -1874,10 +2105,17 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Total', style: AppTextStyles.heading4),
+                      Text(
+                        'Total',
+                        style: AppTextStyles.heading4.copyWith(
+                          color: scheme.onSurface,
+                        ),
+                      ),
                       Text(
                         '₦${(_computedSubtotal() + (_computedSubtotal() * ((double.tryParse(_taxRateController.text) ?? 0) / 100)) - (double.tryParse(_discountController.text) ?? 0)).toStringAsFixed(2)}',
-                        style: AppTextStyles.price,
+                        style: AppTextStyles.price.copyWith(
+                          color: scheme.onSurface,
+                        ),
                       ),
                     ],
                   ),

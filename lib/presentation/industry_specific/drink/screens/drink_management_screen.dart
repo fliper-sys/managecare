@@ -1,8 +1,10 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import '../../../../providers/drink_provider.dart';
+
 import '../../../../core/theme/text_styles.dart';
+import '../../../../core/utils/currency.dart';
+import '../../../../providers/drink_provider.dart';
 import 'add_drink_screen.dart';
 
 class DrinkManagementScreen extends StatelessWidget {
@@ -25,45 +27,52 @@ class DrinkManagementScreen extends StatelessWidget {
                 itemCount: drinks.length,
                 separatorBuilder: (_, __) => const Divider(),
                 itemBuilder: (context, idx) {
-                  final d = drinks[idx];
-                  final stock = provider.getTotalBottles(d.id);
+                  final drink = drinks[idx];
+                  final stock = provider.getTotalBottles(drink.id);
                   return ListTile(
-                    leading: d.imageUrl != null
+                    leading: drink.imageUrl != null
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(4),
                             child: CachedNetworkImage(
-                              imageUrl: d.imageUrl!,
+                              imageUrl: drink.imageUrl!,
                               width: 48,
                               height: 48,
                               fit: BoxFit.cover,
                               placeholder: (context, url) => const Center(
-                                  child: CircularProgressIndicator()),
+                                child: CircularProgressIndicator(),
+                              ),
                               errorWidget: (context, url, error) => Container(
                                 width: 48,
                                 height: 48,
                                 color: Colors.grey[300],
-                                child: const Icon(Icons.image_not_supported,
-                                    size: 24),
+                                child: const Icon(
+                                  Icons.image_not_supported,
+                                  size: 24,
+                                ),
                               ),
                             ),
                           )
-                        : Text(d.emoji, style: const TextStyle(fontSize: 28)),
-                    title: Text(d.name, style: AppTextStyles.heading5),
+                        : Text(drink.emoji, style: const TextStyle(fontSize: 28)),
+                    title: Text(drink.name, style: AppTextStyles.heading5),
                     subtitle: Text(
-                        '${d.category} • \$${d.pricePerBottle.toStringAsFixed(2)} • Stock: $stock'),
+                      '${drink.category} • ${formatCurrency(drink.pricePerBottle)} • Stock: $stock',
+                    ),
                     trailing: PopupMenuButton<String>(
-                      onSelected: (v) async {
-                        if (v == 'edit') {
-                          Navigator.of(context).push(MaterialPageRoute(
-                              builder: (_) => AddDrinkScreen(editDrink: d)));
-                        } else if (v == 'delete') {
-                          // Show confirmation dialog
+                      onSelected: (value) async {
+                        if (value == 'edit') {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => AddDrinkScreen(editDrink: drink),
+                            ),
+                          );
+                        } else if (value == 'delete') {
                           final confirmed = await showDialog<bool>(
                             context: context,
                             builder: (ctx) => AlertDialog(
                               title: const Text('Delete Drink?'),
                               content: Text(
-                                  'Are you sure you want to delete ${d.name}?'),
+                                'Are you sure you want to delete ${drink.name}?',
+                              ),
                               actions: [
                                 TextButton(
                                   onPressed: () => Navigator.pop(ctx, false),
@@ -78,25 +87,30 @@ class DrinkManagementScreen extends StatelessWidget {
                           );
 
                           if (confirmed == true && context.mounted) {
-                            // Delete from repository and local lists
                             try {
                               if (provider.repository != null) {
-                                await provider.repository!.deleteDrink(d.id);
+                                await provider.repository!.deleteDrink(drink.id);
                               }
-                              // Remove from local state
-                              provider.drinks.removeWhere((x) => x.id == d.id);
-                              provider.inventory
-                                  .removeWhere((s) => s.drinkId == d.id);
+                              provider.drinks.removeWhere(
+                                (item) => item.id == drink.id,
+                              );
+                              provider.inventory.removeWhere(
+                                (stockItem) => stockItem.drinkId == drink.id,
+                              );
 
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('${d.name} deleted')),
+                                  SnackBar(
+                                    content: Text('${drink.name} deleted'),
+                                  ),
                                 );
                               }
                             } catch (e) {
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Delete failed: $e')),
+                                  SnackBar(
+                                    content: Text('Delete failed: $e'),
+                                  ),
                                 );
                               }
                             }
@@ -113,11 +127,11 @@ class DrinkManagementScreen extends StatelessWidget {
               ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.of(context)
-            .push(MaterialPageRoute(builder: (_) => const AddDrinkScreen())),
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const AddDrinkScreen()),
+        ),
         child: const Icon(Icons.add),
       ),
     );
   }
 }
-

@@ -29,6 +29,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late TextEditingController _nameController;
   late TextEditingController _emailController;
   late TextEditingController _phoneController;
+  late TextEditingController _jobTitleController;
+  late TextEditingController _addressController;
   bool _isEditing = false;
   bool _isUploading = false;
   // Upload progress (0.0 - 1.0)
@@ -47,6 +49,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _nameController = TextEditingController(text: user?.fullName ?? '');
     _emailController = TextEditingController(text: user?.email ?? '');
     _phoneController = TextEditingController(text: user?.phoneNumber ?? '');
+    _jobTitleController = TextEditingController(text: user?.jobTitle ?? '');
+    _addressController = TextEditingController(text: user?.address ?? '');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadProfileSettings();
+    });
   }
 
   @override
@@ -54,12 +61,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _nameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
+    _jobTitleController.dispose();
+    _addressController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadProfileSettings() async {
+    final ids = _getSettingsContextOrNotify(showSnackBar: false);
+    if (ids == null) return;
+
+    final settingsProvider = context.read<SettingsProvider>();
+    await settingsProvider.loadSettings(ids['businessId']!, ids['userId']!);
+    if (!mounted || _isEditing) return;
+
+    setState(() {
+      _jobTitleController.text =
+          settingsProvider.jobTitle ?? _jobTitleController.text;
+      _addressController.text =
+          settingsProvider.address ?? _addressController.text;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
+    final settingsProvider = context.watch<SettingsProvider>();
     final user = authProvider.currentUser;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -183,6 +209,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           label: 'ACTIVE',
                           tint: AppColors.success,
                         ),
+                        if ((settingsProvider.jobTitle ?? _jobTitleController.text)
+                            .trim()
+                            .isNotEmpty)
+                          _ProfilePill(
+                            icon: Icons.work_outline_rounded,
+                            label: (settingsProvider.jobTitle ??
+                                    _jobTitleController.text)
+                                .trim(),
+                            tint: scheme.tertiary,
+                          ),
                         if (user?.phoneNumber?.isNotEmpty == true)
                           _ProfilePill(
                             icon: Icons.phone_rounded,
@@ -226,6 +262,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       prefixIcon: Icons.phone_outlined,
                       keyboardType: TextInputType.phone,
                       hint: 'Enter your phone number',
+                    ),
+                    const SizedBox(height: 16),
+                    CustomTextField(
+                      label: 'Job Title',
+                      controller: _jobTitleController,
+                      prefixIcon: Icons.work_outline_rounded,
+                      hint: 'Manager, Owner, Supervisor...',
+                      textCapitalization: TextCapitalization.words,
+                    ),
+                    const SizedBox(height: 16),
+                    CustomTextField(
+                      label: 'Address',
+                      controller: _addressController,
+                      prefixIcon: Icons.location_on_outlined,
+                      hint: 'Enter your address',
+                      maxLines: 2,
+                      textCapitalization: TextCapitalization.words,
                     ),
                     const SizedBox(height: 16),
                     Container(
@@ -279,6 +332,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           _nameController.text = user?.fullName ?? '';
                           _emailController.text = user?.email ?? '';
                           _phoneController.text = user?.phoneNumber ?? '';
+                          _jobTitleController.text =
+                              settingsProvider.jobTitle ?? user?.jobTitle ?? '';
+                          _addressController.text =
+                              settingsProvider.address ?? user?.address ?? '';
                           setState(() => _isEditing = false);
                         },
                         style: OutlinedButton.styleFrom(
@@ -337,6 +394,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       label: 'Email',
                       value: user?.email ?? 'N/A',
                       icon: Icons.email_outlined,
+                    ),
+                    _InfoTile(
+                      label: 'Phone',
+                      value: user?.phoneNumber?.isNotEmpty == true
+                          ? user!.phoneNumber!
+                          : 'N/A',
+                      icon: Icons.phone_outlined,
+                    ),
+                    _InfoTile(
+                      label: 'Job Title',
+                      value: (settingsProvider.jobTitle ?? user?.jobTitle ?? '')
+                              .trim()
+                              .isNotEmpty
+                          ? (settingsProvider.jobTitle ??
+                              user?.jobTitle ??
+                              '')
+                          : 'N/A',
+                      icon: Icons.work_outline_rounded,
+                    ),
+                    _InfoTile(
+                      label: 'Address',
+                      value: (settingsProvider.address ?? user?.address ?? '')
+                              .trim()
+                              .isNotEmpty
+                          ? (settingsProvider.address ?? user?.address ?? '')
+                          : 'N/A',
+                      icon: Icons.location_on_outlined,
                     ),
                     _InfoTile(
                       label: 'User ID',
@@ -492,11 +576,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return '${date.day}/${date.month}/${date.year}';
   }
 
-  Map<String, String>? _getSettingsContextOrNotify() {
+  Map<String, String>? _getSettingsContextOrNotify({bool showSnackBar = true}) {
     final userId = context.read<AuthProvider>().currentUser?.id;
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
 
     if (userId == null || businessId == null) {
+      if (!showSnackBar) return null;
       _safeShowSnackBar(
         const SnackBar(
           content: Text('Unable to access your account settings right now.'),
@@ -579,6 +664,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final fullName = _nameController.text.trim();
       final email = _emailController.text.trim().toLowerCase();
       final phoneNumber = _phoneController.text.trim();
+      final jobTitle = _jobTitleController.text.trim();
+      final address = _addressController.text.trim();
 
       if (fullName.isEmpty) {
         _safeShowSnackBar(
@@ -651,6 +738,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             fullName: fullName,
             email: email,
             phoneNumber: phoneNumber,
+            address: address,
+            jobTitle: jobTitle,
           );
         },
         errorTitle: 'Profile Save Failed',
@@ -664,6 +753,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           email: email,
           fullName: fullName,
           phoneNumber: phoneNumber,
+          address: address,
+          jobTitle: jobTitle,
         );
 
         await showSuccessLottieDialog(

@@ -212,6 +212,15 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         onTap: () => Navigator.pushNamed(context, Routes.restaurantTables),
                       ),
                     );
+                    actions.add(
+                      _ActionTile(
+                        icon: Icons.inventory_2_outlined,
+                        color: Colors.teal,
+                        label: 'Restaurant Stock',
+                        subtitle: 'View stock and loss logs',
+                        onTap: () => Navigator.pushNamed(context, Routes.restaurantStock),
+                      ),
+                    );
                   }
 
                   if (auth.isOwnerUser || WorkerPermissions.canManageStaff(role)) {

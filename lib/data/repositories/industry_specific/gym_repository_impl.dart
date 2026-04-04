@@ -188,5 +188,168 @@ class GymRepositoryImpl implements GymRepository {
         .get();
     return snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
   }
+
+  // Equipment management
+  @override
+  Future<void> saveEquipment(Map<String, dynamic> equipment) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_equipment')
+        .add(equipment);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchEquipment() async {
+    final snap = await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_equipment')
+        .get();
+    return snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+  }
+
+  @override
+  Future<void> updateEquipment(String id, Map<String, dynamic> data) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_equipment')
+        .doc(id)
+        .set(data, fs.SetOptions(merge: true));
+  }
+
+  @override
+  Future<void> deleteEquipment(String id) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_equipment')
+        .doc(id)
+        .delete();
+  }
+
+  // Attendance tracking
+  @override
+  Future<void> saveAttendanceRecord(Map<String, dynamic> record) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_attendance')
+        .add(record);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchAttendanceRecords() async {
+    final snap = await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_attendance')
+        .orderBy('checkInTime', descending: true)
+        .get();
+    return snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+  }
+
+  @override
+  Future<void> updateAttendanceRecord(String id, Map<String, dynamic> data) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_attendance')
+        .doc(id)
+        .set(data, fs.SetOptions(merge: true));
+  }
+
+  @override
+  Future<void> deleteAttendanceRecord(String id) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_attendance')
+        .doc(id)
+        .delete();
+  }
+
+  // Fitness measurements
+  @override
+  Future<void> saveMeasurement(Map<String, dynamic> measurement) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_measurements')
+        .add(measurement);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchMeasurements() async {
+    final snap = await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_measurements')
+        .orderBy('date', descending: true)
+        .get();
+    return snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+  }
+
+  @override
+  Future<void> updateMeasurement(String id, Map<String, dynamic> data) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_measurements')
+        .doc(id)
+        .set(data, fs.SetOptions(merge: true));
+  }
+
+  @override
+  Future<void> deleteMeasurement(String id) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_measurements')
+        .doc(id)
+        .delete();
+  }
+
+  // Fitness goals
+  @override
+  Future<void> saveGoal(Map<String, dynamic> goal) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_goals')
+        .add(goal);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchGoals() async {
+    final snap = await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_goals')
+        .orderBy('createdAt', descending: true)
+        .get();
+    return snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+  }
+
+  @override
+  Future<void> updateGoal(String id, Map<String, dynamic> data) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_goals')
+        .doc(id)
+        .set(data, fs.SetOptions(merge: true));
+  }
+
+  @override
+  Future<void> deleteGoal(String id) async {
+    await _db
+        .collection('businesses')
+        .doc(businessId)
+        .collection('gym_goals')
+        .doc(id)
+        .delete();
+  }
 }
 

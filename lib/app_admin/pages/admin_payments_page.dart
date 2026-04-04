@@ -4,12 +4,15 @@ import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import '../../services/subscription_service.dart';
 import '../../core/utils/datetime_utils.dart';
+import '../../providers/marketer_provider.dart';
 import '../../services/email_service.dart';
 
 /// Model for subscription payment
 class SubscriptionPayment {
+  final String requestId;
   final String userId;
   final String userName;
   final String userEmail;
@@ -30,6 +33,7 @@ class SubscriptionPayment {
   final bool isFlutterwavePayment;
 
   SubscriptionPayment({
+    this.requestId = '',
     required this.userId,
     required this.userName,
     required this.userEmail,
@@ -61,6 +65,7 @@ class SubscriptionPayment {
         .startsWith('flutterwave:');
     
     return SubscriptionPayment(
+      requestId: doc.id,
       userId: doc.id,
       userName: userData['fullName'] ?? userData['name'] ?? 'Unknown',
       userEmail: userData['email'] ?? '',
@@ -361,6 +366,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
           }
 
           final payment = SubscriptionPayment(
+            requestId: reqDoc.id,
             userId: uid,
             userName: (userData['fullName'] as String?) ?? 
                 (userData['name'] as String?) ?? 
@@ -461,6 +467,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
       final plan = SubscriptionService.getPlanById(payment.planId);
       final now = DateTime.now();
       final endDate = now.add(Duration(days: plan?.durationInDays ?? 30));
+      final updatedRequestIds = <String>[];
       
       // 1. Update user document with subscription details
       await _firestore.collection('users').doc(payment.userId).update({
@@ -480,16 +487,11 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
       // 2. Update subscription_requests document to mark as approved
       if (payment.transactionId != null || payment.planId.isNotEmpty) {
         try {
-          // Try to find the original subscription_requests document
-          final reqQuery = await _firestore
-              .collection('subscription_requests')
-              .where('userId', isEqualTo: payment.userId)
-              .where('planId', isEqualTo: payment.planId)
-              .where('status', isEqualTo: 'pending')
-              .get();
-
-          for (final doc in reqQuery.docs) {
-            await doc.reference.update({
+          if (payment.requestId.isNotEmpty) {
+            await _firestore
+                .collection('subscription_requests')
+                .doc(payment.requestId)
+                .set({
               'status': 'approved',
               'subscriptionStatus': 'approved',
               'approvedAt': now.toIso8601String(),
@@ -498,7 +500,29 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
               'revenueRecognizedAt': now.toIso8601String(),
               'revenueRecognizedBy': 'admin',
               'updatedAt': now.toIso8601String(),
-            });
+            }, SetOptions(merge: true));
+            updatedRequestIds.add(payment.requestId);
+          } else {
+            final reqQuery = await _firestore
+                .collection('subscription_requests')
+                .where('userId', isEqualTo: payment.userId)
+                .where('planId', isEqualTo: payment.planId)
+                .where('status', isEqualTo: 'pending')
+                .get();
+
+            for (final doc in reqQuery.docs) {
+              await doc.reference.update({
+                'status': 'approved',
+                'subscriptionStatus': 'approved',
+                'approvedAt': now.toIso8601String(),
+                'approvedBy': 'admin',
+                'revenueRecognized': true,
+                'revenueRecognizedAt': now.toIso8601String(),
+                'revenueRecognizedBy': 'admin',
+                'updatedAt': now.toIso8601String(),
+              });
+              updatedRequestIds.add(doc.id);
+            }
           }
         } catch (e) {
           print('[AdminPaymentsPage] Warning: Could not update subscription_requests: $e');
@@ -553,6 +577,25 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         }
       }
 
+      // 4. Apply subscription details to the related business(es)
+      await _applySubscriptionToBusiness(payment);
+
+      // 5. Credit the referring marketer for new activations and renewals.
+      await context.read<MarketerProvider>().creditMarketerRewardForSubscription(
+            userId: payment.userId,
+            businessId: payment.businessId,
+            businessName: payment.businessName,
+            userEmail: payment.userEmail,
+            planId: payment.planId,
+            amount: payment.amount,
+            requestId: updatedRequestIds.isNotEmpty
+                ? updatedRequestIds.first
+                : payment.requestId,
+            transactionId: payment.transactionId,
+            approvedAt: now,
+            approvedBy: 'admin',
+          );
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -562,11 +605,8 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         );
       }
 
-      // 4. Apply subscription details to the related business(es)
-      await _applySubscriptionToBusiness(payment);
-
-      // 5. Reload payments to refresh the UI
-      _loadPayments();
+      // 6. Reload payments to refresh the UI
+      await _loadPayments();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1823,6 +1863,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
           if (userDoc.exists) {
             final userData = userDoc.data() as Map<String, dynamic>;
             final payment = SubscriptionPayment(
+              requestId: reqQuery.docs.first.id,
               userId: uid,
               userName: userData['fullName'] ?? userData['name'] ?? 'Unknown',
               userEmail: userData['email'] ?? '',

@@ -62,163 +62,277 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Forgot Password'),
-        elevation: 0,
+      body: Stack(
+        children: [
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF081126),
+                  Color(0xFF0D2445),
+                  Color(0xFF13386A),
+                ],
+              ),
+            ),
+            child: SizedBox.expand(),
+          ),
+          _buildAccentOrb(
+            top: -110,
+            right: -70,
+            size: 240,
+            color: const Color(0xFF27D2A2).withOpacity(0.10),
+          ),
+          _buildAccentOrb(
+            bottom: -110,
+            left: -70,
+            size: 220,
+            color: const Color(0xFFF3B35C).withOpacity(0.10),
+          ),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 18,
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Form(
+                    key: _formKey,
+                    child: _buildContentCard(isDark),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 20),
+    );
+  }
 
-                // Icon
-                Center(
-                  child: Container(
-                    width: 100,
-                    height: 100,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      _emailSent
-                          ? Icons.mark_email_read_outlined
-                          : Icons.lock_reset,
-                      size: 50,
-                      color: AppColors.primary,
-                    ),
+  Widget _buildContentCard(bool isDark) {
+    final titleColor = isDark ? Colors.white : const Color(0xFF10223F);
+    final bodyColor =
+        isDark ? Colors.white.withOpacity(0.72) : const Color(0xFF61708A);
+    final cardColor =
+        isDark ? const Color(0xFF0F1D36).withOpacity(0.96) : Colors.white;
+    final supportSurface =
+        isDark ? Colors.white.withOpacity(0.06) : const Color(0xFFF8FAFC);
+    final supportBorder =
+        isDark ? Colors.white.withOpacity(0.10) : const Color(0xFFE2E8F0);
+
+    return Container(
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.30 : 0.22),
+            blurRadius: 36,
+            offset: const Offset(0, 20),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.arrow_back_rounded),
+                style: IconButton.styleFrom(
+                  backgroundColor: supportSurface,
+                  foregroundColor: titleColor,
+                  side: BorderSide(color: supportBorder),
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(isDark ? 0.20 : 0.10),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  _emailSent ? 'Email sent' : 'Account recovery',
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 32),
-
-                // Title & Description
-                Text(
-                  _emailSent ? 'Check Your Email' : 'Reset Password',
-                  style: AppTextStyles.heading1,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  _emailSent
-                      ? 'We\'ve sent a password reset link to your email address. Please check your inbox and follow the instructions.'
-                      : 'Enter your email address and we\'ll send you a link to reset your password.',
-                  style: AppTextStyles.body1Secondary,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 40),
-
-                if (!_emailSent) ...[
-                  // Email Field
-                  CustomTextField(
-                    controller: _emailController,
-                    label: 'Email Address',
-                    hint: 'Enter your email',
-                    keyboardType: TextInputType.emailAddress,
-                    prefixIcon: Icons.email_outlined,
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your email';
-                      }
-                      if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                          .hasMatch(value)) {
-                        return 'Please enter a valid email';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Reset Button
-                  _isLoading
-                      ? const Center(child: CustomLoadingIndicator())
-                      : CustomButton(
-                          text: 'Send Reset Link',
-                          onPressed: _handleResetPassword,
-                          icon: Icons.send_outlined,
-                        ),
-                ] else ...[
-                  // Success Actions
-                  CustomButton(
-                    text: 'Open Email App',
-                    onPressed: () {
-                      // TODO: Open email app
-                    },
-                    icon: Icons.email_outlined,
-                  ),
-                  const SizedBox(height: 16),
-                  CustomButton(
-                    text: 'Resend Email',
-                    onPressed: () {
-                      setState(() => _emailSent = false);
-                    },
-                    type: ButtonType.outlined,
-                    icon: Icons.refresh,
-                  ),
-                ],
-
-                const SizedBox(height: 24),
-
-                // Back to Login
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text(
-                      'Remember your password? ',
-                      style: AppTextStyles.body1,
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                      },
-                      child: Text(
-                        'Sign In',
-                        style: AppTextStyles.body1.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          Center(
+            child: Container(
+              width: 92,
+              height: 92,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    AppColors.primary.withOpacity(0.18),
+                    AppColors.primary.withOpacity(0.08),
                   ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-
-                if (_emailSent) ...[
-                  const SizedBox(height: 40),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppColors.info.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppColors.info.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(28),
+              ),
+              child: Icon(
+                _emailSent
+                    ? Icons.mark_email_read_outlined
+                    : Icons.lock_reset_rounded,
+                size: 46,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            _emailSent ? 'Check Your Email' : 'Reset Password',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.heading2.copyWith(
+              color: titleColor,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _emailSent
+                ? 'We sent a reset link to your email address. Open your inbox and follow the steps to create a new password.'
+                : 'Enter your email address and we will send you a secure link to reset your password.',
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body2.copyWith(
+              color: bodyColor,
+              height: 1.6,
+            ),
+          ),
+          const SizedBox(height: 28),
+          if (!_emailSent) ...[
+            CustomTextField(
+              controller: _emailController,
+              label: 'Email Address',
+              hint: 'name@business.com',
+              keyboardType: TextInputType.emailAddress,
+              prefixIcon: Icons.email_outlined,
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Please enter your email';
+                }
+                if (!RegExp(r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$')
+                    .hasMatch(value)) {
+                  return 'Please enter a valid email';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 24),
+            _isLoading
+                ? const Center(child: CustomLoadingIndicator())
+                : CustomButton(
+                    text: 'Send Reset Link',
+                    onPressed: _handleResetPassword,
+                    icon: Icons.send_outlined,
+                  ),
+          ] else ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: supportSurface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: supportBorder),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    color: AppColors.info,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Didn\'t receive the email? Check your spam folder or resend the reset link.',
+                      style: AppTextStyles.body2.copyWith(
+                        color: bodyColor,
+                        height: 1.5,
                       ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.info_outline,
-                          color: AppColors.info,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Didn\'t receive the email? Check your spam folder or try resending.',
-                            style: AppTextStyles.body2.copyWith(
-                              color: AppColors.info,
-                            ),
-                          ),
-                        ),
-                      ],
                     ),
                   ),
                 ],
-              ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            CustomButton(
+              text: 'Back To Sign In',
+              onPressed: () => Navigator.of(context).pop(),
+              icon: Icons.login_rounded,
+            ),
+            const SizedBox(height: 14),
+            CustomButton(
+              text: 'Resend Email',
+              onPressed: () => setState(() => _emailSent = false),
+              type: ButtonType.outlined,
+              icon: Icons.refresh_rounded,
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'Remember your password? ',
+                style: AppTextStyles.body2.copyWith(color: bodyColor),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(
+                  'Sign In',
+                  style: AppTextStyles.body2.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAccentOrb({
+    double? top,
+    double? right,
+    double? bottom,
+    double? left,
+    required double size,
+    required Color color,
+  }) {
+    return Positioned(
+      top: top,
+      right: right,
+      bottom: bottom,
+      left: left,
+      child: IgnorePointer(
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: [color, Colors.transparent],
             ),
           ),
         ),

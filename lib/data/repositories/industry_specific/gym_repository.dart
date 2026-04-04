@@ -26,5 +26,29 @@ abstract class GymRepository {
   Future<List<Map<String, dynamic>>> fetchPlans();
   Future<void> updatePlan(String id, Map<String, dynamic> data);
   Future<void> deletePlan(String id);
+
+  // Equipment management
+  Future<void> saveEquipment(Map<String, dynamic> equipment);
+  Future<List<Map<String, dynamic>>> fetchEquipment();
+  Future<void> updateEquipment(String id, Map<String, dynamic> data);
+  Future<void> deleteEquipment(String id);
+
+  // Attendance tracking
+  Future<void> saveAttendanceRecord(Map<String, dynamic> record);
+  Future<List<Map<String, dynamic>>> fetchAttendanceRecords();
+  Future<void> updateAttendanceRecord(String id, Map<String, dynamic> data);
+  Future<void> deleteAttendanceRecord(String id);
+
+  // Fitness measurements
+  Future<void> saveMeasurement(Map<String, dynamic> measurement);
+  Future<List<Map<String, dynamic>>> fetchMeasurements();
+  Future<void> updateMeasurement(String id, Map<String, dynamic> data);
+  Future<void> deleteMeasurement(String id);
+
+  // Fitness goals
+  Future<void> saveGoal(Map<String, dynamic> goal);
+  Future<List<Map<String, dynamic>>> fetchGoals();
+  Future<void> updateGoal(String id, Map<String, dynamic> data);
+  Future<void> deleteGoal(String id);
 }
 

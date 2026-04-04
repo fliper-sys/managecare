@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/utils/datetime_utils.dart';
@@ -11,12 +10,11 @@ import '../../../providers/business_provider.dart';
 import '../../../providers/retail_provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'dart:ui' as ui;
 import '../../../services/thermal_printing_service.dart';
-import 'package:pdf/pdf.dart';
 import '../../../services/email_receipt_service.dart';
-import 'package:pdf/widgets.dart' as pw;
 import '../../../core/utils/receipt_utility.dart';
+import '../../../services/pdf_receipt_generator.dart';
+import '../../../services/receipt_asset_service.dart';
 import '../../../providers/settings_provider.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
@@ -136,7 +134,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
 
       final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
       final orderId = widget.saleData['id']?.toString() ?? '';
-      final total = (widget.saleData['total'] ?? 0.0).toDouble();
+      final total = _numToDouble(widget.saleData['total']);
       final customerEmail = widget.saleData['customerEmail'] ?? widget.saleData['customer_email'] ?? widget.saleData['email'];
       final customerName = widget.saleData['customerName'] ?? widget.saleData['customer'] ?? widget.saleData['customer_name'] ?? '';
 
@@ -174,6 +172,80 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
 
   Future<File?> _createPdfFile() async {
     try {
+      final business = Provider.of<BusinessProvider>(
+        context,
+        listen: false,
+      ).currentBusiness;
+      final items = (widget.saleData['items'] as List<dynamic>? ?? [])
+          .map((rawItem) {
+            if (rawItem is Map<String, dynamic>) return rawItem;
+            if (rawItem is Map) return Map<String, dynamic>.from(rawItem);
+            return <String, dynamic>{'name': rawItem.toString()};
+          })
+          .toList();
+      final orderId =
+          widget.saleData['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString();
+      final total = _numToDouble(
+        widget.saleData['total'] ??
+            widget.saleData['finalAmount'] ??
+            widget.saleData['totalAmount'] ??
+            widget.saleData['amount'] ??
+            widget.saleData['saleAmount'] ??
+            0.0,
+      );
+      final subtotal = _numToDouble(widget.saleData['subtotal'] ?? total);
+      final tax = _numToDouble(widget.saleData['tax'] ?? 0.0);
+      final discount = _numToDouble(widget.saleData['discount'] ?? 0.0);
+      final paymentMethod =
+          (widget.saleData['paymentMethod'] ?? 'Cash').toString();
+      final customerName = (widget.saleData['customerName'] ??
+              widget.saleData['customer'] ??
+              widget.saleData['customer_name'] ??
+              'Customer')
+          .toString();
+      final customerEmail = (widget.saleData['customerEmail'] ??
+              widget.saleData['customer_email'] ??
+              widget.saleData['email'])
+          ?.toString();
+      final bytes = await PdfReceiptGenerator.generateReceiptPdfBytes(
+        businessName: business?.name ?? 'Receipt',
+        receiptNumber: orderId,
+        receiptDate: parseTimestamp(
+          widget.saleData['timestamp'] ??
+              widget.saleData['createdAt'] ??
+              widget.saleData['date'] ??
+              widget.saleData['created_at'],
+        ),
+        items: items,
+        subtotal: subtotal,
+        tax: tax,
+        total: total,
+        paymentMethod: paymentMethod,
+        paymentBreakdown: (widget.saleData['paymentBreakdown'] as List<dynamic>?)
+            ?.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>))
+            .toList(),
+        customerName: customerName,
+        customerEmail: customerEmail,
+        customHeader: null,
+        customFooter: null,
+        paperWidth: '80',
+        cashier: _resolveCashier(widget.saleData),
+        discount: discount,
+        businessLogoUrl: business?.logoUrl,
+        businessAddress: business?.address,
+        businessPhone: business?.phone,
+        businessEmail: business?.email,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
+      );
+
+      final directory = await getTemporaryDirectory();
+      final fileName = 'Receipt_${widget.saleData['id']}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final file = File('${directory.path}/$fileName');
+      await file.writeAsBytes(bytes);
+      return file;
+
+      /* Legacy fallback retained during migration.
       final pdf = pw.Document();
       final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
       final business = businessProvider.currentBusiness;
@@ -368,6 +440,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       await file.writeAsBytes(await pdf.save());
 
       return file;
+      */
     } catch (e) {
       debugPrint('PDF create error: $e');
       return null;
@@ -427,16 +500,15 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
   Future<void> _shareAsImage() async {
     setState(() => _isSharingImage = true);
     try {
-      final boundary = _receiptKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) throw Exception('Unable to locate receipt widget for capture');
-
-      final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      image.dispose();
-      if (byteData == null) throw Exception('Failed to convert image to bytes');
-
-      final bytes = byteData.buffer.asUint8List();
       final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+      final bytes = await ReceiptAssetService.generateReceiptImage(
+        businessName: business?.name ?? 'Receipt',
+        receiptText: _generate58mmReceiptText(),
+        receiptNumber: widget.saleData['id']?.toString(),
+        businessLogoUrl: business?.logoUrl,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
+      );
       final filename = ReceiptUtility.generateReceiptFileName(
         businessName: business?.name ?? 'Receipt',
         orderId: widget.saleData['id']?.toString(),
@@ -479,13 +551,12 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
     }
   }
 
-  DateTime? _toDateTime(dynamic timestamp) {
+  DateTime _toDateTime(dynamic timestamp) {
     return parseTimestamp(timestamp);
   }
 
   String _formatTimestamp(dynamic timestamp) {
     final dt = _toDateTime(timestamp);
-    if (dt == null) return 'N/A';
     return DateFormat('MMMM d, yyyy').format(dt);
   }
 
@@ -506,7 +577,13 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       businessName: business?.name ?? 'My Business',
       paperWidth: 58,
       items: formattedItems.cast<Map<String, dynamic>>(),
-      totalAmount: (widget.saleData['total'] ?? 0.0).toDouble(),
+      totalAmount: _numToDouble(
+        widget.saleData['total'] ??
+            widget.saleData['finalAmount'] ??
+            widget.saleData['totalAmount'] ??
+            widget.saleData['amount'] ??
+            widget.saleData['saleAmount'],
+      ),
       paymentMethod: widget.saleData['paymentMethod'] ?? 'Cash',
       orderId: widget.saleData['id'],
       cashier: cashier,
@@ -628,7 +705,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       if (selectedPrinterMac.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('No printer configured. Go to Settings → Printers to select a printer.'),
+            content: Text('No printer configured. Go to Settings > Printers to select a printer.'),
             duration: Duration(seconds: 4),
           ),
         );
@@ -654,8 +731,8 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
           SnackBar(
             content: Text(
               success
-                  ? '✓ Receipt printed successfully'
-                  : '✗ Failed to print receipt',
+                  ? 'Receipt printed successfully'
+                  : 'Failed to print receipt',
             ),
             backgroundColor: success ? Colors.green : Colors.red,
             duration: const Duration(seconds: 3),

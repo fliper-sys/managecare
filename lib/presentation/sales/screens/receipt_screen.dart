@@ -1,12 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import '../../../core/utils/datetime_utils.dart';
 import '../../../core/theme/colors.dart';
 import '../../../widgets/loading_indicator.dart';
+import '../../../core/utils/currency.dart';
 import '../../../providers/receipt_settings_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
@@ -207,14 +206,17 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       final quantity = (item['quantity'] ?? item['qty'] ?? 1);
       final price = (item['price'] ?? item['unitPrice'] ?? item['unit_price'] ?? item['unitPriceN'] ?? 0.0);
       final desc = item['description'] ?? item['productDescription'] ?? item['desc'];
-      final qtyNum = (quantity is num) ? quantity.toInt() : int.tryParse(quantity.toString()) ?? 1;
+      final qtyNum = _asQuantity(quantity);
       final priceNum = (price is num) ? (price).toDouble() : double.tryParse(price.toString()) ?? 0.0;
       final itemTotal = (item['total'] ?? qtyNum * priceNum);
       return <String, dynamic>{
         'name': name,
         'quantity': qtyNum,
+        'quantityRaw': quantity,
         'price': priceNum,
         'description': desc,
+        'unit': item['unit'] ?? item['uom'] ?? item['saleUnit'] ?? item['inventoryUnit'],
+        'uom': item['uom'] ?? item['unit'] ?? item['saleUnit'] ?? item['inventoryUnit'],
         'total': (itemTotal is num) ? (itemTotal).toDouble() : double.tryParse(itemTotal.toString()) ?? (qtyNum * priceNum),
       };
     }).toList();
@@ -233,6 +235,54 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     sale['finalAmount'] = (finalAmount is num) ? (finalAmount).toDouble() : double.tryParse(finalAmount.toString()) ?? 0.0;
 
     return sale;
+  }
+
+  double _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+
+  double _asQuantity(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+
+  double _resolvedSaleTotal(Map<String, dynamic> sale) {
+    return _asDouble(
+      sale['finalAmount'] ??
+          sale['total'] ??
+          sale['totalAmount'] ??
+          sale['amount'] ??
+          sale['saleAmount'],
+    );
+  }
+
+  String _trimTrailingZeros(String text) {
+    if (!text.contains('.')) return text;
+    return text.replaceFirst(RegExp(r'\.?0+$'), '');
+  }
+
+  String _formatQuantity(dynamic quantityValue, {String unit = ''}) {
+    if (quantityValue == null) return '1';
+
+    if (quantityValue is String) {
+      final trimmed = quantityValue.trim();
+      if (trimmed.isEmpty) return '1';
+      final parsed = double.tryParse(trimmed);
+      if (parsed == null) return trimmed;
+      if (parsed % 1 == 0) return parsed.toInt().toString();
+      if (unit.trim().isEmpty) return _trimTrailingZeros(parsed.toString());
+      return _trimTrailingZeros(
+        parsed.toStringAsFixed(_getDecimalPlacesForUnit(unit)),
+      );
+    }
+
+    final quantity = _asQuantity(quantityValue);
+    if (quantity % 1 == 0) return quantity.toInt().toString();
+    if (unit.trim().isEmpty) return _trimTrailingZeros(quantity.toString());
+    return _trimTrailingZeros(
+      quantity.toStringAsFixed(_getDecimalPlacesForUnit(unit)),
+    );
   }
 
   /// Generate formatted receipt text
@@ -293,15 +343,66 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 
     // Items
     for (var item in items) {
-      final qty = (item['quantity'] ?? 1).toInt();
-      final price = (item['price'] ?? 0.0).toDouble();
-      final itemTotal = qty * price;
-      buffer.writeln('${item['name'] ?? 'Item'} x$qty');
-      buffer.writeln('  ${price.toStringAsFixed(2)} x $qty = ${itemTotal.toStringAsFixed(2)}');
+      final qty = _asQuantity(item['quantity'] ?? item['qty'] ?? 1);
+      final price = _asDouble(item['price']);
+      final itemTotal = _asDouble(
+        item['total'] ?? item['subtotal'] ?? (qty * price),
+      );
+      final qtyDisplay = _formatQuantity(
+        item['quantityRaw'] ?? item['quantity'] ?? item['qty'] ?? 1,
+        unit: (item['unit'] ?? item['uom'] ?? '').toString(),
+      );
+      buffer.writeln('${item['name'] ?? 'Item'} x$qtyDisplay');
+      buffer.writeln(
+        '  ${formatCurrency(price)} x $qtyDisplay = ${formatCurrency(itemTotal)}',
+      );
     }
 
     buffer.writeln('-' * 40);
 
+    final totalDisplay = _resolvedSaleTotal(sale);
+    buffer.writeln(
+      'Subtotal: ${formatCurrency(_asDouble(sale['subtotal']))}',
+    );
+    if (sale['tax'] != null && sale['tax'] > 0) {
+      buffer.writeln('Tax: ${formatCurrency(_asDouble(sale['tax']))}');
+    }
+    if (sale['discount'] != null && sale['discount'] > 0) {
+      buffer.writeln(
+        'Discount: -${formatCurrency(_asDouble(sale['discount']))}',
+      );
+    }
+    buffer.writeln('\nTOTAL: ${formatCurrency(totalDisplay)}');
+
+    if (receiptSettings?.showPaymentMethod ?? true) {
+      buffer.writeln('Payment: ${sale['paymentMethod'] ?? 'Cash'}');
+      if (sale['finalAmount'] != null) {
+        buffer.writeln(
+          'Final: ${formatCurrency(_asDouble(sale['finalAmount']))}',
+        );
+      }
+    }
+
+    if (business != null && receiptSettings != null) {
+      buffer.writeln('');
+      buffer.writeln('${receiptSettings.footerMessage ?? 'Thank you!'}');
+      if (receiptSettings.bankName != null &&
+          receiptSettings.bankName!.isNotEmpty) {
+        buffer.writeln('${receiptSettings.bankName}');
+        if (receiptSettings.bankAccountNo != null &&
+            receiptSettings.bankAccountNo!.isNotEmpty) {
+          buffer.writeln(receiptSettings.bankAccountNo);
+        }
+      }
+      if (receiptSettings.website != null &&
+          receiptSettings.website!.isNotEmpty) {
+        buffer.writeln(receiptSettings.website);
+      }
+    }
+
+    return buffer.toString();
+
+    /* Legacy fallback retained during migration.
     // Totals
     buffer.writeln('Subtotal: ₦${(sale['subtotal'] ?? 0).toStringAsFixed(2)}');
     if (sale['tax'] != null && sale['tax'] > 0) {
@@ -338,6 +439,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     }
 
     return buffer.toString();
+    */
   }
 
   Future<void> _shareReceipt() async {
@@ -353,6 +455,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         businessName: business?.name ?? 'Receipt',
         receiptText: receiptText,
         receiptNumber: widget.sale['id']?.toString(),
+        businessLogoUrl: business?.logoUrl,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
       );
 
       final success = await ReceiptUtility.shareReceiptAsImage(
@@ -392,6 +497,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         businessName: business?.name ?? 'Receipt',
         receiptText: receiptText,
         receiptNumber: widget.sale['id']?.toString(),
+        businessLogoUrl: business?.logoUrl,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
       );
 
       final success = await ReceiptUtility.downloadReceiptAsImage(
@@ -435,13 +543,14 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     // Try to include structured items when available to avoid 'Item' placeholders
     final sale = _normalizeSale(widget.sale);
     final items = _normalizeItems(sale['items']);
-    final formattedItems = items
-        .map((item) => {
-              'name': item['name'] ?? item['productName'] ?? 'Item',
-              'quantity': item['quantity'] ?? item['qty'] ?? 1,
-              'price': (item['price'] ?? item['unitPrice'] ?? 0).toDouble(),
-            })
-        .toList();
+      final formattedItems = items
+          .map((item) => {
+                'name': item['name'] ?? item['productName'] ?? 'Item',
+                'quantity': item['quantity'] ?? item['qty'] ?? 1,
+                'unit': item['unit'] ?? item['uom'] ?? item['saleUnit'] ?? item['inventoryUnit'],
+                'price': _asDouble(item['price'] ?? item['unitPrice']),
+              })
+          .toList();
 
     final success = await context.read<EmailService>().sendReceiptEmail(
           recipient: user!.email,
@@ -449,9 +558,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
           receiptText: receiptText,
           orderId: widget.sale['id'],
           items: formattedItems,
-          subtotal: (sale['subtotal'] ?? 0.0).toDouble(),
-          tax: (sale['tax'] ?? 0.0).toDouble(),
-          total: (sale['total'] ?? 0.0).toDouble(),
+          subtotal: _asDouble(sale['subtotal']),
+          tax: _asDouble(sale['tax']),
+          total: _resolvedSaleTotal(sale),
           paymentMethod: sale['paymentMethod'] ?? 'Cash',
         );
 
@@ -654,7 +763,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('No printer configured. Go to Settings → Printers to select a printer.'),
+              content: Text('No printer configured. Go to Settings > Printers to select a printer.'),
               duration: Duration(seconds: 4),
             ),
           );
@@ -671,12 +780,13 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
           final business = context.read<BusinessProvider>().currentBusiness;
 
           final formattedItems = items
-              .map((item) => {
-                    'name': item['name'] ?? 'Item',
-                    'quantity': item['quantity'] ?? 1,
-                    'price': item['price'] ?? 0.0,
-                  })
-              .toList();
+                .map((item) => {
+                      'name': item['name'] ?? 'Item',
+                      'quantity': item['quantity'] ?? 1,
+                      'unit': item['unit'] ?? item['uom'] ?? item['saleUnit'] ?? item['inventoryUnit'],
+                      'price': _asDouble(item['price']),
+                    })
+                .toList();
 
           final cashierName = sale['workerName'] ?? sale['cashier'] ?? 'Staff';
           final footerWithPowered = (receiptSettings?.footerMessage?.isNotEmpty == true) ? '${receiptSettings!.footerMessage}\nPowered by Manage Care' : 'Powered by Manage Care';
@@ -686,9 +796,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
             receiptNumber: sale['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
             receiptDate: parseTimestamp(sale['date']),
             items: formattedItems,
-            subtotal: (sale['subtotal'] ?? 0.0).toDouble(),
-            tax: (sale['tax'] ?? 0.0).toDouble(),
-            total: (sale['total'] ?? 0.0).toDouble(),
+            subtotal: _asDouble(sale['subtotal']),
+            tax: _asDouble(sale['tax']),
+            total: _resolvedSaleTotal(sale),
             paymentMethod: sale['paymentMethod'] ?? 'Cash',
             paymentBreakdown: (sale['paymentBreakdown'] as List<dynamic>?)?.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>)).toList(),
             customerName: (sale['customer'] is Map) ? (sale['customer']['name'] ?? sale['customer']['fullName'] ?? 'Customer') : (sale['customerName'] ?? 'Customer'),
@@ -700,6 +810,13 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
             poweredByText: footerWithPowered,
             showQrCode: receiptSettings?.showQrCode ?? false,
             receiptUrlBase: receiptSettings?.receiptUrlBase,
+            discount: _asDouble(sale['discount']),
+            businessLogoUrl: business?.logoUrl,
+            businessAddress: business?.address,
+            businessPhone: business?.phone,
+            businessEmail: business?.email,
+            subscriptionTier: business?.subscriptionTier,
+            businessClass: business?.businessClass,
           );
 
           final filename = PdfReceiptGenerator.getReceiptFilename(sale['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString());
@@ -710,7 +827,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('PDF downloaded — open it in your browser to print'),
+                content: Text('PDF downloaded - open it in your browser to print'),
                 duration: Duration(seconds: 4),
               ),
             );
@@ -834,30 +951,17 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   }
 
   Future<void> _shareReceiptAsImage() async {
-    if (!ReceiptUtility.canCaptureReceiptImage()) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Image capture not supported')));
-      return;
-    }
-
     try {
-      final boundary = _receiptKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not capture receipt')));
-        return;
-      }
-      final ui.Image image = await boundary.toImage(pixelRatio: 3.0);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      final pngBytes = byteData?.buffer.asUint8List();
-      // explicit gc
-      image.dispose();
-      if (pngBytes == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to capture image')));
-        return;
-      }
-
       final business = context.read<BusinessProvider>().currentBusiness;
       final sale = widget.sale;
+      final pngBytes = await ReceiptAssetService.generateReceiptImage(
+        businessName: business?.name ?? 'Receipt',
+        receiptText: _generateReceiptText(),
+        receiptNumber: sale['id']?.toString(),
+        businessLogoUrl: business?.logoUrl,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
+      );
       final success = await ReceiptUtility.shareReceiptAsImage(
         imageData: pngBytes,
         businessName: business?.name ?? 'Receipt',
@@ -883,7 +987,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   Future<void> _exportReceiptAsPdf() async {
     try {
       final business = context.read<BusinessProvider>().currentBusiness;
-      final sale = widget.sale;
+      final sale = _normalizeSale(widget.sale);
       final receiptSettings = context.read<ReceiptSettingsProvider>().receiptSettings;
       final items = _normalizeItems(sale['items']);
 
@@ -891,7 +995,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
           .map((item) => {
                 'name': item['name'] ?? 'Item',
                 'quantity': item['quantity'] ?? 1,
-                'price': item['price'] ?? 0.0,
+                'unit': item['unit'] ?? item['uom'] ?? item['saleUnit'] ?? item['inventoryUnit'],
+                'price': _asDouble(item['price']),
               })
           .toList();
 
@@ -905,9 +1010,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         receiptNumber: sale['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
         receiptDate: parseTimestamp(sale['date']),
         items: formattedItems,
-        subtotal: (sale['subtotal'] ?? 0.0).toDouble(),
-        tax: (sale['tax'] ?? 0.0).toDouble(),
-        total: (sale['total'] ?? 0.0).toDouble(),
+        subtotal: _asDouble(sale['subtotal']),
+        tax: _asDouble(sale['tax']),
+        total: _resolvedSaleTotal(sale),
         paymentMethod: sale['paymentMethod'] ?? 'Cash',
         paymentBreakdown: (sale['paymentBreakdown'] as List<dynamic>?)
             ?.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>))
@@ -925,6 +1030,13 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         poweredByText: footerWithPowered,
         showQrCode: receiptSettings?.showQrCode ?? false,
         receiptUrlBase: receiptSettings?.receiptUrlBase,
+        discount: _asDouble(sale['discount']),
+        businessLogoUrl: business?.logoUrl,
+        businessAddress: business?.address,
+        businessPhone: business?.phone,
+        businessEmail: business?.email,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
       );
 
       final fileName = ReceiptUtility.generateReceiptFileName(
@@ -970,19 +1082,20 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     
     final unitLower = unit.toLowerCase();
     
-    // Volume/Fuel units: use 2 decimals
-    if (['l', 'litre', 'liter', 'ltr', 'liters', 'litres', 'gallon', 'gal', 'ml', 'milliliter'].contains(unitLower)) {
-      return 2;
+    // Volume/Fuel units: keep up to 3 decimals so measured fuel quantities do
+    // not get rounded away on receipts.
+    if (['l', 'litre', 'liter', 'ltr', 'liters', 'litres', 'gallon', 'gal', 'ml', 'milliliter', 'millilitre'].contains(unitLower)) {
+      return 3;
     }
     
-    // Cylinder/Gas tank units: use 2 decimals (can be fractional)
+    // Cylinder/Gas tank units can also be fractional in some flows.
     if (['cyl', 'cylinder', 'cylinders', 'tank', 'tanks'].contains(unitLower)) {
-      return 2;
+      return 3;
     }
     
-    // Weight units: use 2 decimals
+    // Weight units also keep 3 decimals.
     if (['kg', 'gram', 'g', 'lbs', 'lb', 'oz', 'ounce'].contains(unitLower)) {
-      return 2;
+      return 3;
     }
     
     // Count/Quantity units: use 0 decimals
@@ -990,8 +1103,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       return 0;
     }
     
-    // Default: 2 decimals for liquid/continuous measurements
-    return 2;
+    // Default: 3 decimals for continuous measurements.
+    return 3;
   }
 
   @override
@@ -1602,9 +1715,15 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         const SizedBox(height: 8),
         // Items
         ...items.map((item) {
-          final qty = (item['quantity'] ?? 1).toInt();
-          final price = (item['price'] ?? 0.0).toDouble();
-          final itemTotal = qty * price;
+          final qty = _asQuantity(item['quantity'] ?? item['qty'] ?? 1);
+          final price = _asDouble(item['price']);
+          final itemTotal = _asDouble(
+            item['total'] ?? item['subtotal'] ?? (qty * price),
+          );
+          final qtyDisplay = _formatQuantity(
+            item['quantityRaw'] ?? item['quantity'] ?? item['qty'] ?? 1,
+            unit: (item['unit'] ?? item['uom'] ?? '').toString(),
+          );
 
           return Container(
             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1645,7 +1764,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                 SizedBox(
                   width: 50,
                   child: Text(
-                    qty.toStringAsFixed(_getDecimalPlacesForUnit(item['unit'] ?? item['uom'] ?? '')),
+                    qtyDisplay,
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
@@ -1657,7 +1776,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                 SizedBox(
                   width: 60,
                   child: Text(
-                    '₦${price.toStringAsFixed(0)}',
+                    formatCurrency(price, decimalDigits: 0),
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
@@ -1669,7 +1788,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                 SizedBox(
                   width: 60,
                   child: Text(
-                    '₦${itemTotal.toStringAsFixed(0)}',
+                    formatCurrency(itemTotal, decimalDigits: 0),
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
@@ -1689,12 +1808,10 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   /// Build modern totals section with visual hierarchy
   Widget _buildModernTotalsSection(
       Map<String, dynamic> sale, bool isSubscription) {
-    final subtotal = (sale['subtotal'] ?? 0.0).toDouble();
-    final tax = (sale['tax'] ?? 0.0).toDouble();
-    final discount = (sale['discount'] ?? 0.0).toDouble();
-    final total =
-        (sale['total'] ?? sale['finalAmount'] ?? sale['totalAmount'] ?? 0.0)
-            .toDouble();
+    final subtotal = _asDouble(sale['subtotal']);
+    final tax = _asDouble(sale['tax']);
+    final discount = _asDouble(sale['discount']);
+    final total = _resolvedSaleTotal(sale);
 
     return Column(
       children: [

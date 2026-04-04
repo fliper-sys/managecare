@@ -197,6 +197,80 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
     }
   }
 
+  Future<void> _generateInvoice() async {
+    if (_isEmailing) return; // Reuse the loading state
+    setState(() {
+      _isEmailing = true;
+      _statusMessage = 'Generating invoice...';
+      _statusColor = Colors.grey;
+    });
+
+    try {
+      final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final business = businessProvider.currentBusiness;
+
+      if (business == null) {
+        setState(() {
+          _statusMessage = 'Business information not available';
+          _statusColor = Colors.red;
+        });
+        return;
+      }
+
+      // Convert sale items to invoice format
+      final invoiceItems = (widget.saleData['items'] as List? ?? []).map((item) {
+        return {
+          'productId': item['productId'] ?? item['id'] ?? '',
+          'productName': item['productName'] ?? item['name'] ?? 'Item',
+          'quantity': item['quantity'] ?? 1,
+          'unitPrice': item['unitPrice'] ?? item['price'] ?? 0.0,
+          'total': item['total'] ?? ((item['quantity'] ?? 1) * (item['unitPrice'] ?? item['price'] ?? 0.0)),
+        };
+      }).toList();
+
+      // Create invoice data
+      final invoiceData = {
+        'businessId': business.id,
+        'customerId': widget.saleData['customerId'],
+        'customerName': widget.saleData['customerName'] ?? 'Customer',
+        'customerEmail': widget.saleData['customerEmail'],
+        'customerPhone': widget.saleData['customerPhone'],
+        'invoiceNumber': 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
+        'items': invoiceItems,
+        'subtotal': widget.saleData['subtotal'] ?? widget.saleData['total'] ?? 0.0,
+        'tax': widget.saleData['tax'] ?? 0.0,
+        'discount': widget.saleData['discount'] ?? 0.0,
+        'total': widget.saleData['total'] ?? widget.saleData['finalAmount'] ?? 0.0,
+        'status': 'sent', // Mark as sent since it's generated after sale
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdBy': auth.currentUser?.id,
+        'notes': 'Generated from sale ${widget.orderId ?? 'N/A'}',
+        'saleId': widget.orderId, // Link to the original sale
+      };
+
+      // Save invoice to Firestore
+      final firestore = FirebaseFirestore.instance;
+      await firestore
+          .collection('businesses')
+          .doc(business.id)
+          .collection('invoices')
+          .add(invoiceData);
+
+      setState(() {
+        _statusMessage = 'Invoice generated successfully';
+        _statusColor = Colors.green;
+      });
+    } catch (e) {
+      setState(() {
+        _statusMessage = 'Error generating invoice: $e';
+        _statusColor = Colors.red;
+      });
+    } finally {
+      setState(() => _isEmailing = false);
+    }
+  }
+
   Future<void> _generatePdfInvoice() async {
     if (_pdfGenerating) return;
     setState(() {
@@ -255,6 +329,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         businessPhone: business?.phone,
         businessEmail: business?.email,
         cashierName: auth.currentUser?.fullName,
+        businessLogoUrl: business?.logoUrl,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
       );
 
       final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
@@ -388,6 +465,13 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
           poweredByText: footerWithPowered,
           showQrCode: settings?.showQrCode ?? false,
           receiptUrlBase: settings?.receiptUrlBase,
+          discount: (widget.saleData['discount'] ?? 0.0).toDouble(),
+          businessLogoUrl: business?.logoUrl,
+          businessAddress: business?.address,
+          businessPhone: business?.phone,
+          businessEmail: business?.email,
+          subscriptionTier: business?.subscriptionTier,
+          businessClass: business?.businessClass,
         );
 
         setState(() {
@@ -416,6 +500,13 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
           poweredByText: footerWithPowered,
           showQrCode: settings?.showQrCode ?? false,
           receiptUrlBase: settings?.receiptUrlBase,
+          discount: (widget.saleData['discount'] ?? 0.0).toDouble(),
+          businessLogoUrl: business?.logoUrl,
+          businessAddress: business?.address,
+          businessPhone: business?.phone,
+          businessEmail: business?.email,
+          subscriptionTier: business?.subscriptionTier,
+          businessClass: business?.businessClass,
         );
 
         setState(() {
@@ -524,6 +615,13 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         poweredByText: footerWithPowered,
         showQrCode: settings?.showQrCode ?? false,
         receiptUrlBase: settings?.receiptUrlBase,
+        discount: (widget.saleData['discount'] ?? 0.0).toDouble(),
+        businessLogoUrl: business?.logoUrl,
+        businessAddress: business?.address,
+        businessPhone: business?.phone,
+        businessEmail: business?.email,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
       );
 
       setState(() {
@@ -1391,6 +1489,21 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                 ),
                 const SizedBox(height: 12),
               ],
+
+              // Generate Invoice Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _isEmailing ? null : _generateInvoice,
+                  icon: const Icon(Icons.receipt),
+                  label: const Text('Generate Invoice'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.purple,
+                    disabledBackgroundColor: Colors.grey,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
 
               Row(
                 children: [

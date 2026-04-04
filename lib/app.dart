@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -22,6 +23,7 @@ import 'providers/retail_provider.dart';
 import 'providers/theme_provider.dart';
 import 'routes/app_router.dart';
 import 'services/dunning_service.dart';
+import 'services/business_restriction_service.dart';
 import 'services/business_reminder_service.dart';
 import 'services/snackbar_service.dart';
 import 'services/startup_notifications.dart';
@@ -36,14 +38,21 @@ class App extends StatefulWidget {
 class _AppState extends State<App> {
   final AppRouter _appRouter = AppRouter();
   final DunningService _dunningService = DunningService();
+  final BusinessRestrictionService _restrictionService =
+      BusinessRestrictionService();
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
   Timer? _dunningTimer;
   Timer? _businessReminderTimer;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _businessRestrictionSub;
   AuthProvider? _authProvider;
   BusinessProvider? _businessProvider;
   VoidCallback? _authListener;
   VoidCallback? _businessListener;
   String? _lastStartupNotificationKey;
+  String? _watchedRestrictionBusinessId;
+  String? _activeRestrictionBusinessId;
 
   @override
   void initState() {
@@ -72,6 +81,7 @@ class _AppState extends State<App> {
 
     _handleAuthStateChanged();
     _handleBusinessChanged();
+    unawaited(_syncBusinessRestrictionWatcher());
   }
 
   void _handleAuthStateChanged() {
@@ -82,6 +92,7 @@ class _AppState extends State<App> {
 
     if (!authProvider.isAuthenticated || user == null) {
       _lastStartupNotificationKey = null;
+      unawaited(_clearBusinessRestrictionWatcher());
       return;
     }
 
@@ -102,13 +113,17 @@ class _AppState extends State<App> {
 
     _queueStartupNotificationsIfNeeded();
     unawaited(_syncBusinessReminders());
+    unawaited(_syncBusinessRestrictionWatcher());
   }
 
   void _handleBusinessChanged() {
     if (!mounted || _businessProvider == null) return;
 
     final business = _businessProvider!.currentBusiness;
-    if (business == null) return;
+    if (business == null) {
+      unawaited(_syncBusinessRestrictionWatcher());
+      return;
+    }
 
     final receiptProvider = context.read<ReceiptSettingsProvider>();
     if (receiptProvider.receiptSettings?.businessId != business.id) {
@@ -117,6 +132,7 @@ class _AppState extends State<App> {
     unawaited(receiptProvider.fetchReceiptPreferences(business.id));
 
     _queueStartupNotificationsIfNeeded();
+    unawaited(_syncBusinessRestrictionWatcher());
 
     Future.microtask(() async {
       if (!mounted) return;
@@ -135,6 +151,7 @@ class _AppState extends State<App> {
         await restaurantProvider.initializeMenu(businessId: bid);
         await restaurantProvider.initializeTables(businessId: bid);
         await restaurantProvider.initializeOrders(businessId: bid);
+        await restaurantProvider.initializeReservations(businessId: bid);
       } catch (e) {
         debugPrint('[App] RestaurantProvider init failed: $e');
       }
@@ -180,6 +197,96 @@ class _AppState extends State<App> {
         // Non-critical provider warm-up.
       }
     });
+  }
+
+  Future<void> _clearBusinessRestrictionWatcher() async {
+    await _businessRestrictionSub?.cancel();
+    _businessRestrictionSub = null;
+    _watchedRestrictionBusinessId = null;
+    _activeRestrictionBusinessId = null;
+  }
+
+  Future<void> _syncBusinessRestrictionWatcher() async {
+    if (!mounted || _authProvider == null) return;
+
+    final authProvider = _authProvider!;
+    final user = authProvider.currentUser;
+    final businessId = _businessProvider?.currentBusiness?.id ??
+        user?.currentBusinessId ??
+        user?.businessId;
+
+    if (!authProvider.isAuthenticated ||
+        user == null ||
+        businessId == null ||
+        businessId.isEmpty) {
+      await _clearBusinessRestrictionWatcher();
+      return;
+    }
+
+    if (_watchedRestrictionBusinessId == businessId &&
+        _businessRestrictionSub != null) {
+      return;
+    }
+
+    await _businessRestrictionSub?.cancel();
+    _watchedRestrictionBusinessId = businessId;
+    _activeRestrictionBusinessId = null;
+
+    _businessRestrictionSub = FirebaseFirestore.instance
+        .collection('businesses')
+        .doc(businessId)
+        .snapshots()
+        .listen((_) {
+      unawaited(_handleBusinessRestrictionChanged(businessId));
+    });
+
+    await _handleBusinessRestrictionChanged(businessId);
+  }
+
+  Future<void> _handleBusinessRestrictionChanged(String businessId) async {
+    if (!mounted || _authProvider == null) return;
+    if (_watchedRestrictionBusinessId != businessId) return;
+
+    final authProvider = _authProvider!;
+    final user = authProvider.currentUser;
+    if (!authProvider.isAuthenticated || user == null) return;
+
+    final restrictionState = await _restrictionService.getRestrictionState(
+      userId: user.id,
+      businessId: businessId,
+    );
+
+    if (!mounted || _watchedRestrictionBusinessId != businessId) return;
+
+    if (restrictionState == null || !restrictionState.isRestricted) {
+      _activeRestrictionBusinessId = null;
+      return;
+    }
+
+    if (_activeRestrictionBusinessId == restrictionState.businessId) {
+      return;
+    }
+
+    _activeRestrictionBusinessId = restrictionState.businessId;
+
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null) return;
+
+    SnackBarService.showSnackBar(
+      message:
+          '${restrictionState.businessName} is now restricted. This session has been locked.',
+      duration: const Duration(seconds: 4),
+    );
+
+    navigator.pushNamedAndRemoveUntil(
+      Routes.restrictedBusiness,
+      (_) => false,
+      arguments: {
+        'businessName': restrictionState.businessName,
+        'restrictionReason': restrictionState.restrictionReason,
+        'customerCareWhatsapp': restrictionState.customerCareWhatsapp,
+      },
+    );
   }
 
   void _queueStartupNotificationsIfNeeded() {
@@ -279,6 +386,7 @@ class _AppState extends State<App> {
     _appRouter.dispose();
     _dunningTimer?.cancel();
     _businessReminderTimer?.cancel();
+    _businessRestrictionSub?.cancel();
     super.dispose();
   }
 
@@ -301,6 +409,7 @@ class _AppState extends State<App> {
         );
 
         return MaterialApp(
+          navigatorKey: _navigatorKey,
           title: 'Manage Care',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,

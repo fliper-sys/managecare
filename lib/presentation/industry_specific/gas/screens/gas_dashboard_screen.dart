@@ -13,11 +13,14 @@ class GasDashboardScreen extends StatefulWidget {
   State<GasDashboardScreen> createState() => _GasDashboardScreenState();
 }
 
-class _GasDashboardScreenState extends State<GasDashboardScreen> with SingleTickerProviderStateMixin {
+class _GasDashboardScreenState extends State<GasDashboardScreen>
+    with SingleTickerProviderStateMixin {
   bool _loading = true;
   double _totalAmount = 0.0;
   double _totalVolume = 0.0;
   int _transactions = 0;
+  double _fuelStock = 0.0;
+  int _fuelProductCount = 0;
   List<Map<String, dynamic>> _recentSales = [];
   DateTime _selectedDate = DateTime.now();
 
@@ -55,27 +58,38 @@ class _GasDashboardScreenState extends State<GasDashboardScreen> with SingleTick
     super.dispose();
   }
 
-
   Future<void> _loadMetrics() async {
     setState(() => _loading = true);
     final retail = context.read<RetailProvider>();
-    
+
     // Ensure products are loaded for price display
     if (retail.products.isEmpty) {
       await retail.loadProducts();
     }
 
-    final start = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
-    final end = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day, 23, 59, 59);
+    final start =
+        DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+    final end = DateTime(
+        _selectedDate.year, _selectedDate.month, _selectedDate.day, 23, 59, 59);
 
     final metrics = await retail.getFuelMetrics(start: start, end: end);
-    final history = await retail.getFuelSalesHistory(start: start, end: end, limit: 5);
+    final history =
+        await retail.getFuelSalesHistory(start: start, end: end, limit: 5);
+
+    final fuelProducts = retail.products.where((p) {
+      final cat = p.category.toLowerCase();
+      return cat.contains('fuel') ||
+          cat.contains('petrol') ||
+          cat.contains('gas');
+    }).toList();
 
     if (mounted) {
       setState(() {
         _totalAmount = metrics['totalAmount'] ?? 0.0;
         _totalVolume = metrics['totalVolume'] ?? 0.0;
         _transactions = metrics['transactions'] ?? 0;
+        _fuelStock = fuelProducts.fold(0.0, (sum, p) => sum + p.stock);
+        _fuelProductCount = fuelProducts.length;
         _recentSales = history;
         _loading = false;
       });
@@ -84,8 +98,6 @@ class _GasDashboardScreenState extends State<GasDashboardScreen> with SingleTick
 
   @override
   Widget build(BuildContext context) {
-
-
     return Scaffold(
       backgroundColor: Colors.grey[50],
       body: Stack(
@@ -128,27 +140,55 @@ class _GasDashboardScreenState extends State<GasDashboardScreen> with SingleTick
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Gas', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 14)),
-                              const Text('Overview', style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                              Text('Gas',
+                                  style: TextStyle(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.85),
+                                      fontSize: 14)),
+                              const Text('Overview',
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.bold)),
                             ],
                           ),
                           Row(
                             children: [
                               Container(
-                                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), shape: BoxShape.circle),
-                                child: IconButton(icon: const Icon(Icons.notifications_outlined, color: Colors.white), onPressed: () {}),
+                                decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.2),
+                                    shape: BoxShape.circle),
+                                child: IconButton(
+                                    icon: const Icon(
+                                        Icons.notifications_outlined,
+                                        color: Colors.white),
+                                    onPressed: () {}),
                               ),
                               const SizedBox(width: 8),
                               Container(
-                                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), shape: BoxShape.circle),
-                                child: IconButton(icon: const Icon(Icons.logout, color: Colors.white), onPressed: () async {
-                                  try {
-                                    await context.read<AuthProvider>().logout();
-                                    if (context.mounted) Navigator.of(context).pushReplacementNamed(Routes.login);
-                                  } catch (e) {
-                                    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Logout failed: $e')));
-                                  }
-                                }),
+                                decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.2),
+                                    shape: BoxShape.circle),
+                                child: IconButton(
+                                    icon: const Icon(Icons.logout,
+                                        color: Colors.white),
+                                    onPressed: () async {
+                                      try {
+                                        await context
+                                            .read<AuthProvider>()
+                                            .logout();
+                                        if (context.mounted)
+                                          Navigator.of(context)
+                                              .pushReplacementNamed(
+                                                  Routes.login);
+                                      } catch (e) {
+                                        if (context.mounted)
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(SnackBar(
+                                                  content: Text(
+                                                      'Logout failed: $e')));
+                                      }
+                                    }),
                               ),
                             ],
                           ),
@@ -164,17 +204,54 @@ class _GasDashboardScreenState extends State<GasDashboardScreen> with SingleTick
 
                       // Stats row
                       Row(children: [
-                        Expanded(child: _CompactStatCard(label: 'Revenue', value: NumberFormat.currency(locale: 'en_NG', symbol: '₦').format(_totalAmount), icon: Icons.attach_money, color: Colors.green)),
+                        Expanded(
+                            child: _CompactStatCard(
+                                label: 'Revenue',
+                                value: NumberFormat.currency(
+                                        locale: 'en_NG', symbol: '₦')
+                                    .format(_totalAmount),
+                                icon: Icons.attach_money,
+                                color: Colors.green)),
                         const SizedBox(width: 12),
-                        Expanded(child: _CompactStatCard(label: 'Volume', value: '${_totalVolume.toStringAsFixed(1)} L', icon: Icons.local_gas_station, color: Colors.orange)),
+                        Expanded(
+                            child: _CompactStatCard(
+                                label: 'Volume',
+                                value: '${_totalVolume.toStringAsFixed(1)} L',
+                                icon: Icons.local_gas_station,
+                                color: Colors.orange)),
                         const SizedBox(width: 12),
-                        Expanded(child: _CompactStatCard(label: 'Txns', value: '$_transactions', icon: Icons.receipt_long, color: Colors.blue)),
+                        Expanded(
+                            child: _CompactStatCard(
+                                label: 'Txns',
+                                value: '$_transactions',
+                                icon: Icons.receipt_long,
+                                color: Colors.blue)),
+                      ]),
+                      const SizedBox(height: 12),
+                      Row(children: [
+                        Expanded(
+                            child: _CompactStatCard(
+                                label: 'Fuel Stock',
+                                value: '${_fuelStock.toStringAsFixed(1)}',
+                                icon: Icons.warehouse,
+                                color: AppColors.warning)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                            child: _CompactStatCard(
+                                label: 'Fuel Products',
+                                value: '$_fuelProductCount',
+                                icon: Icons.inventory_2,
+                                color: Colors.purple)),
                       ]),
 
                       const SizedBox(height: 24),
 
                       // Operations
-                      const Text('Operations', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      const Text('Operations',
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87)),
                       const SizedBox(height: 16),
                       GridView.count(
                         shrinkWrap: true,
@@ -184,24 +261,69 @@ class _GasDashboardScreenState extends State<GasDashboardScreen> with SingleTick
                         mainAxisSpacing: 16,
                         childAspectRatio: 1.4,
                         children: [
-                          _OperationCard(title: 'Pump Sale', icon: Icons.local_gas_station, color: Colors.purple, onTap: () => Navigator.pushNamed(context, Routes.gasPump).then((_) => _loadMetrics())),
-                          _OperationCard(title: 'POS / Sales', icon: Icons.point_of_sale, color: Colors.indigo, onTap: () => Navigator.pushNamed(context, Routes.salesReport)),
-                          _OperationCard(title: 'Procurement', icon: Icons.shopping_bag_outlined, color: Colors.orange, onTap: () => Navigator.pushNamed(context, Routes.procurement).then((_) => _loadMetrics())),
-                          _OperationCard(title: 'Printer settings', icon: Icons.print, color: Colors.teal, onTap: () => Navigator.pushNamed(context, Routes.printerSettings)),
-                          _OperationCard(title: 'History', icon: Icons.history, color: Colors.teal, onTap: () => Navigator.pushNamed(context, Routes.gasSalesHistory)),
+                          _OperationCard(
+                              title: 'Pump Sale',
+                              icon: Icons.local_gas_station,
+                              color: Colors.purple,
+                              onTap: () =>
+                                  Navigator.pushNamed(context, Routes.gasPump)
+                                      .then((_) => _loadMetrics())),
+                          _OperationCard(
+                              title: 'Gas Stock',
+                              icon: Icons.inventory_2,
+                              color: Colors.brown,
+                              onTap: () => Navigator.pushNamed(
+                                      context, Routes.gasStock)
+                                  .then((_) => _loadMetrics())),
+                          _OperationCard(
+                              title: 'POS / Sales',
+                              icon: Icons.point_of_sale,
+                              color: Colors.indigo,
+                              onTap: () => Navigator.pushNamed(
+                                  context, Routes.salesReport)),
+                          _OperationCard(
+                              title: 'Procurement',
+                              icon: Icons.shopping_bag_outlined,
+                              color: Colors.orange,
+                              onTap: () => Navigator.pushNamed(
+                                      context, Routes.procurement)
+                                  .then((_) => _loadMetrics())),
+                          _OperationCard(
+                              title: 'Printer settings',
+                              icon: Icons.print,
+                              color: Colors.teal,
+                              onTap: () => Navigator.pushNamed(
+                                  context, Routes.printerSettings)),
+                          _OperationCard(
+                              title: 'History',
+                              icon: Icons.history,
+                              color: Colors.teal,
+                              onTap: () => Navigator.pushNamed(
+                                  context, Routes.gasSalesHistory)),
                         ],
                       ),
 
                       const SizedBox(height: 24),
 
                       // Recent Transactions
-                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                        const Text('Recent Transactions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                        TextButton(onPressed: () => Navigator.pushNamed(context, Routes.gasSalesHistory), child: const Text('View All'))
-                      ]),
+                      Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Recent Transactions',
+                                style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87)),
+                            TextButton(
+                                onPressed: () => Navigator.pushNamed(
+                                    context, Routes.gasSalesHistory),
+                                child: const Text('View All'))
+                          ]),
 
                       _loading
-                          ? const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()))
+                          ? const SizedBox(
+                              height: 80,
+                              child: Center(child: CircularProgressIndicator()))
                           : _recentSales.isEmpty
                               ? _EmptyState()
                               : ListView.builder(
@@ -211,26 +333,64 @@ class _GasDashboardScreenState extends State<GasDashboardScreen> with SingleTick
                                   itemBuilder: (context, index) {
                                     final s = _recentSales[index];
                                     final created = s['createdAt'] as DateTime?;
-                                    final dateStr = created != null ? DateFormat.jm().format(created) : '';
+                                    final dateStr = created != null
+                                        ? DateFormat.jm().format(created)
+                                        : '';
                                     return Container(
                                       margin: const EdgeInsets.only(bottom: 12),
                                       padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade100)),
+                                      decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border: Border.all(
+                                              color: Colors.grey.shade100)),
                                       child: Row(
                                         children: [
-                                          Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.local_gas_station, color: Colors.grey)),
+                                          Container(
+                                              padding: const EdgeInsets.all(10),
+                                              decoration: BoxDecoration(
+                                                  color: Colors.grey[100],
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          12)),
+                                              child: const Icon(
+                                                  Icons.local_gas_station,
+                                                  color: Colors.grey)),
                                           const SizedBox(width: 16),
                                           Expanded(
-                                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                              Text('Sale #${(s['id'] ?? '').toString().substring(0, 6)}...', style: const TextStyle(fontWeight: FontWeight.bold)),
-                                              Text(dateStr, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                                            ]),
+                                            child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                      'Sale #${(s['id'] ?? '').toString().substring(0, 6)}...',
+                                                      style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.bold)),
+                                                  Text(dateStr,
+                                                      style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors
+                                                              .grey[600])),
+                                                ]),
                                           ),
-                                          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                                            Text('₦${(s['totalAmount'] ?? 0.0).toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                                            const SizedBox(height: 4),
-                                            Text('${(s['fuelVolume'] ?? 0.0).toStringAsFixed(2)} L', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                                          ])
+                                          Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.end,
+                                              children: [
+                                                Text(
+                                                    '₦${(s['totalAmount'] ?? 0.0).toStringAsFixed(2)}',
+                                                    style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.bold)),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                    '${(s['fuelVolume'] ?? 0.0).toStringAsFixed(2)} L',
+                                                    style: const TextStyle(
+                                                        fontSize: 12,
+                                                        color: Colors.grey)),
+                                              ])
                                         ],
                                       ),
                                     );
@@ -283,19 +443,30 @@ class _HeroValueCard extends StatelessWidget {
                   color: AppColors.primary.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.local_gas_station, color: AppColors.primary, size: 20),
+                child: const Icon(Icons.local_gas_station,
+                    color: AppColors.primary, size: 20),
               ),
               const SizedBox(width: 12),
-              Text('Revenue (Today)', style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500)),
+              Text('Revenue (Today)',
+                  style: TextStyle(
+                      color: Colors.grey[600], fontWeight: FontWeight.w500)),
             ],
           ),
           const SizedBox(height: 12),
           Text(
             NumberFormat.currency(locale: 'en_NG', symbol: '₦').format(value),
-            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: Colors.black87),
+            style: const TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.w800,
+                color: Colors.black87),
           ),
           const SizedBox(height: 8),
-          Row(children: [const Icon(Icons.arrow_upward, size: 16, color: Colors.green), const SizedBox(width: 4), Text('Updated just now', style: TextStyle(color: Colors.grey[400], fontSize: 12)),]),
+          Row(children: [
+            const Icon(Icons.arrow_upward, size: 16, color: Colors.green),
+            const SizedBox(width: 4),
+            Text('Updated just now',
+                style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+          ]),
         ],
       ),
     );
@@ -308,7 +479,11 @@ class _CompactStatCard extends StatelessWidget {
   final IconData icon;
   final Color color;
 
-  const _CompactStatCard({required this.label, required this.value, required this.icon, required this.color});
+  const _CompactStatCard(
+      {required this.label,
+      required this.value,
+      required this.icon,
+      required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -318,10 +493,21 @@ class _CompactStatCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4)),
+          BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4)),
         ],
       ),
-      child: Column(children: [Icon(icon, color: color, size: 24), const SizedBox(height: 8), Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[500]), textAlign: TextAlign.center)]),
+      child: Column(children: [
+        Icon(icon, color: color, size: 24),
+        const SizedBox(height: 8),
+        Text(value,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        Text(label,
+            style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+            textAlign: TextAlign.center)
+      ]),
     );
   }
 }
@@ -332,15 +518,36 @@ class _OperationCard extends StatelessWidget {
   final Color color;
   final VoidCallback onTap;
 
-  const _OperationCard({required this.title, required this.icon, required this.color, required this.onTap});
+  const _OperationCard(
+      {required this.title,
+      required this.icon,
+      required this.color,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 15, offset: const Offset(0, 5))]),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle), child: Icon(icon, color: color, size: 28)), const SizedBox(height: 12), Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14))]),
+        decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 15,
+                  offset: const Offset(0, 5))
+            ]),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
+              child: Icon(icon, color: color, size: 28)),
+          const SizedBox(height: 12),
+          Text(title,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14))
+        ]),
       ),
     );
   }
@@ -349,6 +556,14 @@ class _OperationCard extends StatelessWidget {
 class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Center(child: Padding(padding: const EdgeInsets.all(24.0), child: Column(children: [Icon(Icons.inbox_outlined, size: 48, color: Colors.grey[300]), const SizedBox(height: 8), Text('No recent activity', style: TextStyle(color: Colors.grey[400]))])));
+    return Center(
+        child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(children: [
+              Icon(Icons.inbox_outlined, size: 48, color: Colors.grey[300]),
+              const SizedBox(height: 8),
+              Text('No recent activity',
+                  style: TextStyle(color: Colors.grey[400]))
+            ])));
   }
 }

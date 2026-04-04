@@ -29,6 +29,22 @@ class _AdvancedAnalyticsDashboardScreenState
   );
   String _selectedPeriod = 'monthly';
 
+  Color get _screenBackground => Theme.of(context).scaffoldBackgroundColor;
+  Color get _cardSurface => Theme.of(context).cardColor;
+  Color get _textPrimary => Theme.of(context).colorScheme.onSurface;
+  Color get _textMuted =>
+      Theme.of(context).colorScheme.onSurface.withOpacity(0.68);
+  Color get _softBorder => Theme.of(context).dividerColor.withOpacity(0.24);
+  List<BoxShadow> get _cardShadow => [
+        BoxShadow(
+          color: Colors.black.withOpacity(
+            Theme.of(context).brightness == Brightness.dark ? 0.22 : 0.05,
+          ),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
+        ),
+      ];
+
   @override
   void initState() {
     super.initState();
@@ -89,11 +105,11 @@ class _AdvancedAnalyticsDashboardScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: _screenBackground,
       appBar: CustomAppBar(
         title: 'Advanced Analytics',
         onBackPressed: () => Navigator.pop(context),
-        backgroundColor: Colors.white,
+        backgroundColor: _cardSurface,
         elevation: 0,
       ),
       body: Consumer<AnalyticsProvider>(
@@ -109,14 +125,14 @@ class _AdvancedAnalyticsDashboardScreenState
             return Center(
               child: Text(
                 'No analytics data available',
-                style: GoogleFonts.poppins(color: Colors.black54),
+                style: GoogleFonts.poppins(color: _textMuted),
               ),
             );
           }
 
           return RefreshIndicator(
             onRefresh: _loadAnalytics,
-            backgroundColor: Colors.white,
+            backgroundColor: _cardSurface,
             color: AppColors.primary,
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -127,7 +143,7 @@ class _AdvancedAnalyticsDashboardScreenState
                   DateRangeSelector(
                     initialRange: _selectedDateRange,
                     onRangeChanged: _onDateRangeChanged,
-                    backgroundColor: Colors.white,
+                    backgroundColor: _cardSurface,
                   ),
                   const SizedBox(height: 28),
                   _buildKPIGrid(analytics)
@@ -247,16 +263,10 @@ class _AdvancedAnalyticsDashboardScreenState
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: _softBorder),
+        boxShadow: _cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -267,8 +277,7 @@ class _AdvancedAnalyticsDashboardScreenState
               Flexible(
                 child: Text(
                   title,
-                  style: GoogleFonts.poppins(
-                      color: Colors.black54, fontSize: 13),
+                  style: GoogleFonts.poppins(color: _textMuted, fontSize: 13),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -280,7 +289,7 @@ class _AdvancedAnalyticsDashboardScreenState
           Text(
             value,
             style: GoogleFonts.poppins(
-              color: Colors.black87,
+              color: _textPrimary,
               fontSize: 22,
               fontWeight: FontWeight.w600,
             ),
@@ -300,16 +309,10 @@ class _AdvancedAnalyticsDashboardScreenState
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: _softBorder),
+        boxShadow: _cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -317,7 +320,7 @@ class _AdvancedAnalyticsDashboardScreenState
           Text(
             'Revenue Growth',
             style: GoogleFonts.poppins(
-              color: Colors.black87,
+              color: _textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.w600,
             ),
@@ -342,8 +345,7 @@ class _AdvancedAnalyticsDashboardScreenState
               const Spacer(),
               Text(
                 'vs Previous Period',
-                style: GoogleFonts.poppins(
-                    color: Colors.black54, fontSize: 12),
+                style: GoogleFonts.poppins(color: _textMuted, fontSize: 12),
               ),
             ],
           ),
@@ -356,16 +358,10 @@ class _AdvancedAnalyticsDashboardScreenState
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: _softBorder),
+        boxShadow: _cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -373,7 +369,7 @@ class _AdvancedAnalyticsDashboardScreenState
           Text(
             'Customer Analytics',
             style: GoogleFonts.poppins(
-              color: Colors.black87,
+              color: _textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.w600,
             ),
@@ -418,8 +414,7 @@ class _AdvancedAnalyticsDashboardScreenState
         const SizedBox(height: 4),
         Text(
           label,
-          style: GoogleFonts.poppins(
-              color: Colors.black54, fontSize: 12),
+          style: GoogleFonts.poppins(color: _textMuted, fontSize: 12),
         ),
       ],
     );
@@ -431,16 +426,10 @@ class _AdvancedAnalyticsDashboardScreenState
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: _softBorder),
+        boxShadow: _cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -448,7 +437,7 @@ class _AdvancedAnalyticsDashboardScreenState
           Text(
             'Top Selling Products',
             style: GoogleFonts.poppins(
-              color: Colors.black87,
+              color: _textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.w600,
             ),
@@ -458,7 +447,7 @@ class _AdvancedAnalyticsDashboardScreenState
             Center(
               child: Text(
                 'No product data available for this period.',
-                style: GoogleFonts.poppins(color: Colors.black54),
+                style: GoogleFonts.poppins(color: _textMuted),
               ),
             )
           else
@@ -491,13 +480,13 @@ class _AdvancedAnalyticsDashboardScreenState
                               Text(
                                 product['name'] ?? 'Unknown Product',
                                 style: GoogleFonts.poppins(
-                                    color: Colors.black87,
+                                    color: _textPrimary,
                                     fontWeight: FontWeight.w500),
                               ),
                               Text(
                                 '$quantity units sold',
                                 style: GoogleFonts.poppins(
-                                    color: Colors.black54,
+                                    color: _textMuted,
                                     fontSize: 12),
                               ),
                             ],
@@ -516,7 +505,7 @@ class _AdvancedAnalyticsDashboardScreenState
                     ),
                   ),
                   if (index != products.length - 1)
-                    Divider(color: Colors.grey.shade200),
+                    Divider(color: _softBorder),
                 ],
               );
             }),
@@ -530,16 +519,10 @@ class _AdvancedAnalyticsDashboardScreenState
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: _softBorder),
+        boxShadow: _cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -550,17 +533,16 @@ class _AdvancedAnalyticsDashboardScreenState
               Text(
                 'Revenue Trend',
                 style: GoogleFonts.poppins(
-                  color: Colors.black87,
+                  color: _textPrimary,
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               DropdownButton<String>(
                 value: _selectedPeriod,
-                dropdownColor: Colors.white,
-                style: GoogleFonts.poppins(color: Colors.black87),
-                icon:
-                    const Icon(Icons.arrow_drop_down, color: Colors.black54),
+                dropdownColor: _cardSurface,
+                style: GoogleFonts.poppins(color: _textPrimary),
+                icon: Icon(Icons.arrow_drop_down, color: _textMuted),
                 underline: const SizedBox.shrink(),
                 items: ['daily', 'weekly', 'monthly']
                     .map((e) => DropdownMenuItem(
@@ -586,8 +568,7 @@ class _AdvancedAnalyticsDashboardScreenState
                 ? Center(
                     child: Text(
                       'No trend data available.',
-                      style: GoogleFonts.poppins(
-                          color: Colors.black54),
+                      style: GoogleFonts.poppins(color: _textMuted),
                     ),
                   )
                 : _buildLineChart(trend),
@@ -651,7 +632,7 @@ class _AdvancedAnalyticsDashboardScreenState
                     child: Text(
                       label,
                       style: GoogleFonts.poppins(
-                          color: Colors.black54, fontSize: 10),
+                          color: _textMuted, fontSize: 10),
                     ),
                   ),
                 );
@@ -705,16 +686,10 @@ class _AdvancedAnalyticsDashboardScreenState
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cardSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: _softBorder),
+        boxShadow: _cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -722,7 +697,7 @@ class _AdvancedAnalyticsDashboardScreenState
           Text(
             'Performance Highlights',
             style: GoogleFonts.poppins(
-              color: Colors.black87,
+              color: _textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.w600,
             ),
@@ -773,14 +748,13 @@ class _AdvancedAnalyticsDashboardScreenState
                 children: [
                   Text(
                     label,
-                    style: GoogleFonts.poppins(
-                        color: Colors.black54, fontSize: 13),
+                    style: GoogleFonts.poppins(color: _textMuted, fontSize: 13),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     value,
                     style: GoogleFonts.poppins(
-                      color: Colors.black87,
+                      color: _textPrimary,
                       fontWeight: FontWeight.w500,
                       fontSize: 15,
                     ),
@@ -796,7 +770,7 @@ class _AdvancedAnalyticsDashboardScreenState
                 style: GoogleFonts.poppins(color: color, fontSize: 13),
               )
             else
-              Icon(Icons.arrow_forward_ios, color: Colors.grey.shade600, size: 14),
+              Icon(Icons.arrow_forward_ios, color: _textMuted, size: 14),
           ],
         ),
       ),
@@ -807,11 +781,11 @@ class _AdvancedAnalyticsDashboardScreenState
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        title: Text('How COGS Is Calculated', style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold)),
+        backgroundColor: _cardSurface,
+        title: Text('How COGS Is Calculated', style: GoogleFonts.poppins(color: _textPrimary, fontWeight: FontWeight.bold)),
         content: Text(
-          'Cost of Goods Sold (COGS) is the total cost attributed to the production of the goods sold by a company.\n\nIt is calculated by summing up the (quantity sold × unit cost) for every item in the selected date range.\n\nThe app prioritizes finding the item cost in this order:\n1. Cost from the specific sale record.\n2. Cost from the product\'s inventory details (e.g., `costPrice`, `purchasePrice`).\n\nIf no cost is found, it defaults to 0 for that item.',
-          style: GoogleFonts.poppins(color: Colors.black87),
+          'Cost of Goods Sold (COGS) is the total direct stock cost tied to items sold in the selected date range.\n\nIt is calculated by summing (quantity sold × unit cost) for each sale item.\n\nThe app now checks cost in this order:\n1. Cost saved directly on the sale item.\n2. Cost stored on the linked inventory product.\n3. Weighted procurement cost tracked from batch replenishment.\n\nIf no cost is available after those checks, the item falls back to 0.',
+          style: GoogleFonts.poppins(color: _textPrimary),
         ),
         actions: [
           TextButton(
@@ -821,7 +795,7 @@ class _AdvancedAnalyticsDashboardScreenState
         ],
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.grey.shade200),
+          side: BorderSide(color: _softBorder),
         ),
       ),
     );

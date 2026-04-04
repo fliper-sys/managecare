@@ -82,10 +82,14 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
-  Future<Map<String, dynamic>?> _fetchUserSubscriptionStatus(String userId) async {
+  Future<Map<String, dynamic>?> _fetchBusinessSubscriptionStatus(
+      String businessId) async {
     try {
-      final doc =
-          await FirebaseFirestore.instance.collection('users').doc(userId).get();
+      if (businessId.trim().isEmpty) return null;
+      final doc = await FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(businessId)
+          .get();
       if (!doc.exists) return null;
 
       final data = doc.data();
@@ -93,6 +97,7 @@ class _LoginScreenState extends State<LoginScreen>
 
       return {
         'subscriptionStatus': data['subscriptionStatus'],
+        'subscriptionReviewStatus': data['subscriptionReviewStatus'],
         'subscriptionPlan': data['subscriptionPlan'],
         'subscriptionAmount': data['subscriptionAmount'],
       };
@@ -159,9 +164,14 @@ class _LoginScreenState extends State<LoginScreen>
       }
 
       if (user.isOwner) {
-        final subscriptionData = await _fetchUserSubscriptionStatus(user.id);
+        final currentBusinessId = user.primaryBusinessId.isNotEmpty
+            ? user.primaryBusinessId
+            : user.businessId;
+        final subscriptionData =
+            await _fetchBusinessSubscriptionStatus(currentBusinessId);
         final subscriptionStatus =
-            subscriptionData?['subscriptionStatus']?.toString();
+            subscriptionData?['subscriptionReviewStatus']?.toString() ??
+                subscriptionData?['subscriptionStatus']?.toString();
 
         if (!mounted) return;
 
@@ -172,8 +182,10 @@ class _LoginScreenState extends State<LoginScreen>
               'userId': user.id,
               'userEmail': user.email,
               'userName': user.fullName,
+              'businessId': currentBusinessId,
+              'businessType': user.businessType,
               'subscriptionPlan':
-                  subscriptionData?['subscriptionPlan'] ?? 'basic',
+                  subscriptionData?['subscriptionPlan'] ?? 'tier1',
               'subscriptionAmount':
                   subscriptionData?['subscriptionAmount'] ?? 0.0,
             },
@@ -186,6 +198,8 @@ class _LoginScreenState extends State<LoginScreen>
               'userId': user.id,
               'userEmail': user.email,
               'userName': user.fullName,
+              'businessId': currentBusinessId,
+              'businessType': user.businessType,
             },
           );
         } else {
@@ -507,30 +521,58 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Widget _buildAuthCard({required bool isWide}) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final cardColor =
+        isDark ? const Color(0xFF0F1D36).withOpacity(0.96) : Colors.white;
+    final titleColor = isDark ? Colors.white : const Color(0xFF10223F);
+    final bodyColor = isDark
+        ? Colors.white.withOpacity(0.72)
+        : const Color(0xFF61708A);
+    final segmentedBackground = isDark
+        ? Colors.white.withOpacity(0.08)
+        : const Color(0xFFF4F7FB);
+    final segmentedBorder = isDark
+        ? Colors.white.withOpacity(0.12)
+        : const Color(0xFFE2E8F0);
+    final supportSurface = isDark
+        ? Colors.white.withOpacity(0.06)
+        : const Color(0xFFF8FAFC);
+    final supportBorder = isDark
+        ? Colors.white.withOpacity(0.10)
+        : const Color(0xFFE2E8F0);
+
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: isWide ? 30 : 24,
         vertical: isWide ? 30 : 26,
       ),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardColor,
         borderRadius: BorderRadius.circular(34),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.24),
+            color: Colors.black.withOpacity(isDark ? 0.32 : 0.24),
             blurRadius: 40,
             offset: const Offset(0, 22),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+      child: Theme(
+        data: theme.copyWith(
+          inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+            fillColor:
+                isDark ? Colors.white.withOpacity(0.06) : Colors.white,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
           Text(
             _isWorkerLogin ? 'Worker Sign In' : 'Owner Sign In',
             style: AppTextStyles.heading3.copyWith(
               fontWeight: FontWeight.w800,
-              color: const Color(0xFF10223F),
+              color: titleColor,
             ),
           ),
           const SizedBox(height: 8),
@@ -539,7 +581,7 @@ class _LoginScreenState extends State<LoginScreen>
                 ? 'Use your worker ID and password to access shift tools.'
                 : 'Use your business email and password to continue.',
             style: AppTextStyles.body2.copyWith(
-              color: const Color(0xFF61708A),
+              color: bodyColor,
               height: 1.5,
             ),
           ),
@@ -547,9 +589,9 @@ class _LoginScreenState extends State<LoginScreen>
           Container(
             padding: const EdgeInsets.all(5),
             decoration: BoxDecoration(
-              color: const Color(0xFFF4F7FB),
+              color: segmentedBackground,
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
+              border: Border.all(color: segmentedBorder),
             ),
             child: Row(
               children: [
@@ -611,7 +653,9 @@ class _LoginScreenState extends State<LoginScreen>
                 _isPasswordVisible
                     ? Icons.visibility_off_outlined
                     : Icons.visibility_outlined,
-                color: Colors.grey.shade600,
+                color: isDark
+                    ? Colors.white.withOpacity(0.65)
+                    : Colors.grey.shade600,
               ),
               onPressed: () => setState(
                 () => _isPasswordVisible = !_isPasswordVisible,
@@ -646,9 +690,9 @@ class _LoginScreenState extends State<LoginScreen>
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
+              color: supportSurface,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
+              border: Border.all(color: supportBorder),
             ),
             child: Row(
               children: [
@@ -671,7 +715,9 @@ class _LoginScreenState extends State<LoginScreen>
                         ? 'Staff access is scoped to the active business workspace.'
                         : 'Owner access unlocks full settings, reporting, and operations control.',
                     style: AppTextStyles.body2.copyWith(
-                      color: const Color(0xFF475569),
+                      color: isDark
+                          ? Colors.white.withOpacity(0.74)
+                          : const Color(0xFF475569),
                       height: 1.45,
                     ),
                   ),
@@ -698,7 +744,7 @@ class _LoginScreenState extends State<LoginScreen>
                   Text(
                     "Don't have an account? ",
                     style: AppTextStyles.body2.copyWith(
-                      color: const Color(0xFF61708A),
+                      color: bodyColor,
                     ),
                   ),
                   GestureDetector(
@@ -725,12 +771,15 @@ class _LoginScreenState extends State<LoginScreen>
                 icon: const Icon(Icons.campaign_outlined, size: 18),
                 label: const Text('Marketers login'),
                 style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF486284),
+                  foregroundColor: isDark
+                      ? Colors.white.withOpacity(0.76)
+                      : const Color(0xFF486284),
                 ),
               ),
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -771,6 +820,7 @@ class _LoginScreenState extends State<LoginScreen>
     required bool isSelected,
     required VoidCallback onTap,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -778,7 +828,11 @@ class _LoginScreenState extends State<LoginScreen>
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: isSelected ? Colors.white : Colors.transparent,
+            color: isSelected
+                ? (isDark
+                    ? Colors.white.withOpacity(0.14)
+                    : Colors.white)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(14),
             boxShadow: isSelected
                 ? [
@@ -794,8 +848,11 @@ class _LoginScreenState extends State<LoginScreen>
             title,
             textAlign: TextAlign.center,
             style: AppTextStyles.body2.copyWith(
-              color:
-                  isSelected ? AppColors.primary : const Color(0xFF64748B),
+              color: isSelected
+                  ? AppColors.primary
+                  : (isDark
+                      ? Colors.white.withOpacity(0.70)
+                      : const Color(0xFF64748B)),
               fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
             ),
           ),

@@ -107,6 +107,21 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final authProvider = context.watch<AuthProvider>();
+    final backgroundGradient = LinearGradient(
+      colors: isDark
+          ? const [
+              Color(0xFF0E1628),
+              Color(0xFF111E33),
+              Color(0xFF0B1322),
+            ]
+          : const [
+              Color(0xFFF5F8FF),
+              Color(0xFFFDFEFF),
+              Color(0xFFF3F6FB),
+            ],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    );
 
     return WillPopScope(
         onWillPop: () async {
@@ -135,24 +150,27 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
           return false;
         },
         child: Scaffold(
-          backgroundColor: isDark ? Colors.grey[900] : AppColors.background,
+          backgroundColor: Colors.transparent,
           extendBody: true,
           body: SafeArea(
-            child: PageView(
-              controller: _pageController,
-              onPageChanged: (index) =>
-                  setState(() => _selectedTabIndex = index),
-              children: [
-                _HomeTab(onOpenWorkTab: () {
-                  _pageController.animateToPage(2,
-                      duration: const Duration(milliseconds: 450),
-                      curve: Curves.easeInOutCubic);
-                }),
-                _buildReportsTab(
-                    authProvider.isAdminUser || authProvider.isOwnerUser),
-                const _MenuTab(),
-                const _ProfileTab(),
-              ],
+            child: DecoratedBox(
+              decoration: BoxDecoration(gradient: backgroundGradient),
+              child: PageView(
+                controller: _pageController,
+                onPageChanged: (index) =>
+                    setState(() => _selectedTabIndex = index),
+                children: [
+                  _HomeTab(onOpenWorkTab: () {
+                    _pageController.animateToPage(2,
+                        duration: const Duration(milliseconds: 450),
+                        curve: Curves.easeInOutCubic);
+                  }),
+                  _buildReportsTab(
+                      authProvider.isAdminUser || authProvider.isOwnerUser),
+                  const _MenuTab(),
+                  const _ProfileTab(),
+                ],
+              ),
             ),
           ),
           bottomNavigationBar: _buildBottomNavBar(context),
@@ -161,6 +179,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
 
   Widget _buildBottomNavBar(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final horizontalPadding = screenWidth < 420 ? 14.0 : 24.0;
     final navigationItems = [
       _BottomNavItem(icon: Icons.home_rounded, label: 'Home', index: 0),
       _BottomNavItem(icon: Icons.analytics_rounded, label: 'Reports', index: 1),
@@ -169,19 +189,31 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     ];
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(40, 0, 40, 24),
+      padding: EdgeInsets.fromLTRB(horizontalPadding, 0, horizontalPadding, 18),
       color: Colors.transparent,
       child: SafeArea(
+        top: false,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-            borderRadius: BorderRadius.circular(30),
+            gradient: LinearGradient(
+              colors: isDark
+                  ? const [Color(0xFF182538), Color(0xFF101B2C)]
+                  : const [Colors.white, Color(0xFFF5F8FF)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withOpacity(0.08)
+                  : AppColors.border.withOpacity(0.65),
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
+                color: Colors.black.withOpacity(isDark ? 0.28 : 0.10),
+                blurRadius: 26,
+                offset: const Offset(0, 14),
               ),
             ],
           ),
@@ -199,7 +231,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   Widget _buildNavBarItem(_BottomNavItem item, bool isDark) {
     final isSelected = item.index == _selectedTabIndex;
     final activeColor = AppColors.primary;
-    final inactiveColor = isDark ? Colors.grey[500] : Colors.grey[400];
+    final inactiveColor = isDark ? Colors.grey[400] : Colors.grey[500];
 
     return GestureDetector(
       onTap: () {
@@ -214,26 +246,84 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOutBack,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: isSelected ? activeColor.withOpacity(0.1) : Colors.transparent,
-              borderRadius: BorderRadius.circular(20),
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+            margin: const EdgeInsets.symmetric(horizontal: 4),
+            padding: EdgeInsets.symmetric(
+              horizontal: isSelected ? 12 : 0,
+              vertical: 8,
             ),
-            child: Icon(
-              item.icon,
-              color: isSelected ? activeColor : inactiveColor,
-              size: 20,
+            decoration: BoxDecoration(
+              gradient: isSelected
+                  ? LinearGradient(
+                      colors: [
+                        activeColor,
+                        activeColor.withOpacity(0.82),
+                      ],
+                    )
+                  : null,
+              color: isSelected
+                  ? null
+                  : (isDark
+                      ? Colors.white.withOpacity(0.04)
+                      : Colors.transparent),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? Colors.white.withOpacity(0.18)
+                        : (isDark
+                            ? Colors.white.withOpacity(0.05)
+                            : activeColor.withOpacity(0.10)),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    item.icon,
+                    color: isSelected ? Colors.white : inactiveColor,
+                    size: 19,
+                  ),
+                ),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: SizeTransition(
+                      sizeFactor: animation,
+                      axis: Axis.horizontal,
+                      child: child,
+                    ),
+                  ),
+                  child: isSelected
+                      ? Padding(
+                          key: ValueKey(item.label),
+                          padding: const EdgeInsets.only(left: 10, right: 4),
+                          child: Text(
+                            item.label,
+                            style: AppTextStyles.body2.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 2),
           AnimatedDefaultTextStyle(
             duration: const Duration(milliseconds: 200),
             style: AppTextStyles.caption.copyWith(
-              color: isSelected ? activeColor : inactiveColor,
-              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              fontSize: 10,
+              color: isSelected ? Colors.transparent : inactiveColor,
+              fontWeight: FontWeight.w600,
+              fontSize: 10.5,
             ),
             child: Text(item.label),
           ),
@@ -319,6 +409,38 @@ class _HomeTabState extends State<_HomeTab> {
     _metricsDebounceTimer?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _switchBusinessFromCard(BusinessModel business) async {
+    final authProvider = context.read<AuthProvider>();
+    final businessProvider = context.read<BusinessProvider>();
+    final userId = authProvider.currentUser?.id;
+
+    if (userId == null || businessProvider.isSwitchingBusiness) return;
+
+    try {
+      final switched = await authProvider.switchBusiness(business.id);
+      if (!switched) {
+        throw Exception('Unable to switch business context');
+      }
+
+      businessProvider.markUserSelection(userId);
+      await businessProvider.switchToBusinessAndSync(
+        userId: userId,
+        selectedBusiness: business,
+      );
+      await _handleRefresh();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Now managing ${business.name}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not switch business: $e')),
+      );
+    }
   }
 
   void _filterItems() {
@@ -520,11 +642,13 @@ class _HomeTabState extends State<_HomeTab> {
     final user = authProvider.currentUser;
     final business = businessProvider.currentBusiness;
     final userBusinesses = businessProvider.userBusinesses;
+    final isSwitchingBusiness = businessProvider.isSwitchingBusiness;
 
     // 🔥 OPTIMIZATION: If business selection changed, debounce metrics reload
     // This prevents excessive queries when switching businesses quickly
     final currentBusinessId = business?.id;
     if (_lastBusinessId != currentBusinessId && currentBusinessId != null) {
+      _lastBusinessId = currentBusinessId;
       print('[Dashboard] Business changed to $currentBusinessId, scheduling metrics reload');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _debouncedLoadSalesMetrics();
@@ -579,10 +703,10 @@ class _HomeTabState extends State<_HomeTab> {
                   sales: _todaySales,
                   transactions: _todayTransactions,
                   revenue: _todayRevenue,
-                  isLoading: _loadingSalesMetrics,
-                  customersCount: _customersCount,
-                  workersCount: _workersCount,
-                  isLoadingCounts: _loadingCounts,
+                  isLoading: _loadingSalesMetrics || isSwitchingBusiness,
+                  customersCount: isSwitchingBusiness ? 0 : _customersCount,
+                  workersCount: isSwitchingBusiness ? 0 : _workersCount,
+                  isLoadingCounts: _loadingCounts || isSwitchingBusiness,
                 )
                     .animate()
                     .fadeIn(duration: 500.ms, delay: 300.ms)
@@ -934,101 +1058,205 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildBusinessSwitcher(List<BusinessModel> businesses, bool isDark) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Select a Business',
-          style: AppTextStyles.heading5.copyWith(
-            color: Theme.of(context).colorScheme.onSurface,
-            fontWeight: FontWeight.w600,
-          ),
+    final businessProvider = context.watch<BusinessProvider>();
+    final isSwitching = businessProvider.isSwitchingBusiness;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withOpacity(0.08)
+              : AppColors.border.withOpacity(0.80),
         ),
-        const SizedBox(height: 12),
-        ...businesses.map((b) => Padding(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.16 : 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.business_center_outlined,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Choose a business',
+                      style: AppTextStyles.heading5.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isSwitching
+                          ? 'Updating your workspace and syncing the latest business context.'
+                          : 'Switch into the workspace you want to manage right now.',
+                      style: AppTextStyles.body2.copyWith(
+                        color: isDark
+                            ? Colors.grey[400]
+                            : AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          ...businesses.map((b) {
+            final color = BusinessTypes.getColor(b.businessType);
+
+            return Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: GestureDetector(
-                onTap: () {
-                  context.read<BusinessProvider>().setCurrentBusinessAndSave(
-                        context.read<AuthProvider>().currentUser!.id,
-                        b,
-                      );
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        BusinessTypes.getColor(b.businessType),
-                        BusinessTypes.getColor(b.businessType)
-                            .withAlpha((0.8 * 255).toInt()),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: isSwitching ? null : () => _switchBusinessFromCard(b),
+                  child: Ink(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      gradient: LinearGradient(
+                        colors: [
+                          color.withOpacity(isDark ? 0.95 : 0.90),
+                          color.withOpacity(isDark ? 0.74 : 0.76),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: color.withOpacity(0.20),
+                          blurRadius: 18,
+                          offset: const Offset(0, 10),
+                        ),
                       ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
                     ),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withAlpha((0.2 * 255).toInt()),
-                      width: 1,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 54,
+                          height: 54,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.14),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Icon(
+                            BusinessTypes.getIcon(b.businessType),
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                b.name,
+                                style: AppTextStyles.heading5.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                BusinessTypes.getName(b.businessType),
+                                style: AppTextStyles.body2.copyWith(
+                                  color: Colors.white.withOpacity(0.82),
+                                ),
+                              ),
+                              if (b.subscriptionTier.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.14),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    b.subscriptionTier.toUpperCase(),
+                                    style: AppTextStyles.caption.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 220),
+                          child: isSwitching &&
+                                  businessProvider.pendingBusinessId == b.id
+                              ? Container(
+                                  key: ValueKey('loading-${b.id}'),
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.16),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              : Container(
+                                  key: ValueKey('open-${b.id}'),
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.14),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: const Icon(
+                                    Icons.arrow_forward_rounded,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                        ),
+                      ],
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withAlpha((0.2 * 255).toInt()),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          BusinessTypes.getIcon(b.businessType),
-                          color: Theme.of(context).colorScheme.onSurface,
-                          size: 24,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              b.name,
-                              style: AppTextStyles.heading5.copyWith(
-                                color: Theme.of(context).colorScheme.onSurface,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              BusinessTypes.getName(b.businessType),
-                              style: AppTextStyles.caption.copyWith(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurface
-                                    .withAlpha((0.8 * 255).toInt()),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        Icons.arrow_forward_rounded,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withAlpha((0.7 * 255).toInt()),
-                      ),
-                    ],
                   ),
                 ),
               ),
-            )),
-      ],
+            );
+          }),
+        ],
+      ),
     );
   }
 
@@ -1036,43 +1264,110 @@ class _HomeTabState extends State<_HomeTab> {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: isDark ? Colors.grey[800] : Colors.grey[100],
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? Colors.grey[700]! : Colors.grey[300]!,
+        gradient: LinearGradient(
+          colors: isDark
+              ? [const Color(0xFF10223F), const Color(0xFF16325C)]
+              : [const Color(0xFFF8FBFF), Colors.white],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withOpacity(0.08)
+              : AppColors.border.withOpacity(0.85),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.16 : 0.05),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Column(
         children: [
-          const Icon(
-            Icons.business_center_rounded,
-            size: 64,
-            color: AppColors.primary,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No Business Selected',
-            style: AppTextStyles.heading4.copyWith(
-              color: Theme.of(context).colorScheme.onSurface,
-              fontWeight: FontWeight.w700,
+          Container(
+            width: 82,
+            height: 82,
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(isDark ? 0.18 : 0.10),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: const Icon(
+              Icons.add_business_rounded,
+              size: 38,
+              color: AppColors.primary,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 18),
           Text(
-            'Create or select a business to get started',
-            style: AppTextStyles.body2.copyWith(
-              color: isDark ? Colors.grey[400] : AppColors.textSecondary,
+            'Create Your First Business',
+            style: AppTextStyles.heading4.copyWith(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontWeight: FontWeight.w800,
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: () => Navigator.pushNamed(
-              context,
-              Routes.businessDetails,
+          const SizedBox(height: 10),
+          Text(
+            'Set up a business profile to unlock the dashboard, switch between businesses, and start tracking real activity.',
+            style: AppTextStyles.body2.copyWith(
+              color: isDark ? Colors.grey[400] : AppColors.textSecondary,
+              height: 1.6,
             ),
-            icon: const Icon(Icons.add),
-            label: const Text('Create Business'),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 22),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pushNamed(
+                  context,
+                  Routes.businessSelection,
+                ),
+                icon: const Icon(Icons.storefront_rounded),
+                label: const Text('Choose Business Type'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.pushNamed(
+                  context,
+                  Routes.businessDetails,
+                ),
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                label: const Text('Quick Create'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor:
+                      isDark ? Colors.white : Theme.of(context).primaryColor,
+                  side: BorderSide(
+                    color: isDark
+                        ? Colors.white.withOpacity(0.18)
+                        : AppColors.border,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1113,7 +1408,7 @@ class _HomeTabState extends State<_HomeTab> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'Welcome back 👋',
+                'Welcome back👋',
                 style: AppTextStyles.body2Secondary.copyWith(
                   color: isDark ? Colors.grey[400] : AppColors.textSecondary,
                   fontSize: 12,
@@ -1141,7 +1436,9 @@ class _HomeTabState extends State<_HomeTab> {
                     const SizedBox(width: 4),
                     Flexible(
                       child: Text(
-                        current?.name ?? 'No business selected',
+                        bp.isSwitchingBusiness
+                            ? 'Syncing workspace...'
+                            : current?.name ?? 'No business selected',
                         style: AppTextStyles.body2.copyWith(
                           color: isDark
                               ? Colors.grey[300]
@@ -1153,6 +1450,26 @@ class _HomeTabState extends State<_HomeTab> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    if (bp.isSwitchingBusiness) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          'Updating',
+                          style: AppTextStyles.caption.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(width: 4),
                     const BusinessSwitcher(),
                   ],
@@ -1266,434 +1583,451 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildBusinessCard(BusinessModel business, bool isDark) {
+    final businessProvider = context.watch<BusinessProvider>();
+    final isSyncingThisBusiness = businessProvider.isSwitchingBusiness &&
+        businessProvider.pendingBusinessId == business.id;
     final baseColor = BusinessTypes.getColor(business.businessType);
-    final secondary = baseColor.withAlpha((0.85 * 255).toInt());
+    final secondary = baseColor.withOpacity(0.78);
     final logoUrl = business.photoUrl ?? business.logoUrl;
+    final surfaceOverlay = isDark ? 0.10 : 0.08;
+    final daysLeft = business.subscriptionEndDate == null
+        ? null
+        : (business.subscriptionEndDate!
+                .difference(DateTime.now())
+                .inDays)
+            .clamp(0, 999);
 
     return GestureDetector(
       onTap: () {
         widget.onOpenWorkTab?.call();
       },
       onLongPress: () async {
-        await showModalBottomSheet(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (ctx) {
-            return DraggableScrollableSheet(
-              expand: false,
-              builder: (_, controller) {
-                return Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(20)),
-                  ),
-                  padding: const EdgeInsets.all(16),
-                  child: SingleChildScrollView(
-                    controller: controller,
-                    child: const Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(height: 6),
-                        Text('Switch Business', style: AppTextStyles.heading5),
-                        SizedBox(height: 12),
-                        BusinessSwitcher(),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        );
+        await _showBusinessSwitcherSheet();
       },
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              baseColor.withAlpha((0.95 * 255).toInt()),
+              baseColor.withOpacity(0.96),
               secondary,
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(26),
           boxShadow: [
             BoxShadow(
-              color: baseColor.withAlpha((0.25 * 255).toInt()),
-              blurRadius: 30,
-              offset: const Offset(0, 12),
+              color: baseColor.withOpacity(0.25),
+              blurRadius: 28,
+              offset: const Offset(0, 16),
             ),
           ],
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Stack(
           children: [
-            // Top Row: Logo + Business Info + Action Button
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Logo/Avatar
-                Container(
-                  width: 70,
-                  height: 70,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withAlpha((0.15 * 255).toInt()),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: Colors.white.withAlpha((0.2 * 255).toInt()),
-                      width: 1,
-                    ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: logoUrl != null && logoUrl.isNotEmpty
-                        ? CachedNetworkImage(
-                            imageUrl: logoUrl,
-                            fit: BoxFit.cover,
-                            placeholder: (context, url) => Container(
-                                color: Colors.white.withAlpha((0.06 * 255).toInt())),
-                            errorWidget: (context, url, error) => Center(
-                              child: Text(
-                                business.name.isNotEmpty
-                                    ? business.name[0].toUpperCase()
-                                    : '?',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          )
-                        : Center(
-                            child: Text(
-                              business.name.isNotEmpty
-                                  ? business.name[0].toUpperCase()
-                                  : '?',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 28,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                  ),
+            Positioned(
+              top: -48,
+              right: -24,
+              child: Container(
+                width: 130,
+                height: 130,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(surfaceOverlay),
                 ),
-                const SizedBox(width: 14),
-                // Business Info Column
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Business Name + Tier Badge
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              business.name,
-                              style: AppTextStyles.heading4.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w900,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Text(
-                              business.subscriptionTier.toUpperCase(),
-                              style: AppTextStyles.caption.copyWith(
-                                color: baseColor,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 10,
-                              ),
-                            ),
-                          ),
-                        ],
+              ),
+            ),
+            Positioned(
+              bottom: -60,
+              left: -22,
+              child: Container(
+                width: 120,
+                height: 120,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withOpacity(surfaceOverlay / 2),
+                ),
+              ),
+            ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 74,
+                      height: 74,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withOpacity(0.16)),
                       ),
-                      const SizedBox(height: 6),
-                      // Business Type
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.storefront,
-                            size: 13,
-                            color: Colors.white.withAlpha((0.9 * 255).toInt()),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              BusinessTypes.getName(business.businessType),
-                              style: AppTextStyles.body2.copyWith(
-                                color: Colors.white.withAlpha((0.95 * 255).toInt()),
-                                fontWeight: FontWeight.w600,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 5),
-                      // Subscription end date badge (if available)
-                      if (business.subscriptionEndDate != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withAlpha((0.15 * 255).toInt()),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.white.withAlpha((0.25 * 255).toInt()),
-                              width: 0.5,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.calendar_today,
-                                size: 11,
-                                color: Colors.white,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${(business.subscriptionEndDate!.difference(DateTime.now()).inDays).clamp(0, 999)}d left',
-                                style: AppTextStyles.caption.copyWith(
-                                  color: Colors.white,
-                                  fontSize: 10,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: logoUrl != null && logoUrl.isNotEmpty
+                            ? CachedNetworkImage(
+                                imageUrl: logoUrl,
+                                fit: BoxFit.cover,
+                                placeholder: (context, url) => Container(
+                                  color: Colors.white.withOpacity(0.08),
+                                ),
+                                errorWidget: (context, url, error) => Center(
+                                  child: Text(
+                                    business.name.isNotEmpty
+                                        ? business.name[0].toUpperCase()
+                                        : '?',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : Center(
+                                child: Text(
+                                  business.name.isNotEmpty
+                                      ? business.name[0].toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
                               ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.14),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  isSyncingThisBusiness
+                                      ? 'Syncing workspace'
+                                      : 'Active business',
+                                  style: AppTextStyles.caption.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  business.subscriptionTier.toUpperCase(),
+                                  style: AppTextStyles.caption.copyWith(
+                                    color: baseColor,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              if (isSyncingThisBusiness)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.14),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const SizedBox(
+                                        width: 12,
+                                        height: 12,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                            Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Refreshing',
+                                        style: AppTextStyles.caption.copyWith(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                             ],
                           ),
+                          const SizedBox(height: 10),
+                          Text(
+                            business.name,
+                            style: AppTextStyles.heading4.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            BusinessTypes.getName(business.businessType),
+                            style: AppTextStyles.body2.copyWith(
+                              color: Colors.white.withOpacity(0.86),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _buildBusinessActionButton(
+                      icon: Icons.swap_horiz_rounded,
+                      tooltip: 'Switch Business',
+                      onPressed: _showBusinessSwitcherSheet,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _buildBusinessMetaPill(
+                      icon: Icons.storefront_rounded,
+                      label: BusinessTypes.getName(business.businessType),
+                    ),
+                    if (business.city != null && business.city!.isNotEmpty)
+                      _buildBusinessMetaPill(
+                        icon: Icons.location_on_outlined,
+                        label: business.city!,
+                      ),
+                    if (business.phone != null && business.phone!.isNotEmpty)
+                      _buildBusinessMetaPill(
+                        icon: Icons.phone_outlined,
+                        label: business.phone!,
+                      ),
+                    if (daysLeft != null)
+                      _buildBusinessMetaPill(
+                        icon: Icons.schedule_rounded,
+                        label: '$daysLeft day${daysLeft == 1 ? '' : 's'} left',
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _smallStatChip(
+                        '${business.totalProducts ?? 0}',
+                        'Products',
+                        onTap: () =>
+                            Navigator.pushNamed(context, Routes.inventory),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _smallStatChip(
+                        '${business.totalCustomers ?? 0}',
+                        'Customers',
+                        onTap: () =>
+                            Navigator.pushNamed(context, Routes.customers),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _smallStatChip(
+                        _loadingCounts
+                            ? '...'
+                            : '${_workersCount > 0 ? _workersCount : (business.totalWorkers ?? 0)}',
+                        'Staff',
+                        onTap: () =>
+                            Navigator.pushNamed(context, Routes.workers),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => widget.onOpenWorkTab?.call(),
+                        icon: const Icon(Icons.work_outline_rounded),
+                        label: const Text('Open Workspace'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: baseColor,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
                         ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _buildBusinessActionButton(
+                      icon: Icons.dashboard_customize_rounded,
+                      tooltip: 'Open Industry Dashboard',
+                      onPressed: () => _navigateToIndustryDashboard(business),
+                    ),
+                    const SizedBox(width: 10),
+                    _buildBusinessActionButton(
+                      icon: Icons.analytics_outlined,
+                      tooltip: 'Analytics',
+                      onPressed: () =>
+                          Navigator.pushNamed(context, Routes.reports),
+                    ),
+                    if (business.website != null &&
+                        business.website!.isNotEmpty) ...[
+                      const SizedBox(width: 10),
+                      _buildBusinessActionButton(
+                        icon: Icons.public_rounded,
+                        tooltip: 'Visit Website',
+                        onPressed: () =>
+                            _launchBusinessWebsite(business.website!),
+                      ),
                     ],
-                  ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                // Action Button (strategically placed)
-                SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: IconButton(
-                    onPressed: () => _navigateToIndustryDashboard(business),
-                    icon: const Icon(Icons.dashboard, color: Colors.white),
-                    tooltip: 'Open Industry Dashboard',
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withAlpha((0.06 * 255).toInt()),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            // Location & Contact Row (Full Width)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.white.withAlpha((0.08 * 255).toInt()),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Colors.white.withAlpha((0.12 * 255).toInt()),
-                  width: 1,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Address Line (Full Width)
-                  if (business.city != null && business.city!.isNotEmpty)
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.location_on_outlined,
-                          size: 13,
-                          color: Colors.white.withAlpha((0.9 * 255).toInt()),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            business.city ?? 'N/A',
-                            style: AppTextStyles.caption.copyWith(
-                              color: Colors.white.withAlpha((0.95 * 255).toInt()),
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  if (business.city != null &&
-                      business.city!.isNotEmpty &&
-                      business.phone != null &&
-                      business.phone!.isNotEmpty)
-                    const SizedBox(height: 6),
-                  // Phone Line (Full Width)
-                  if (business.phone != null && business.phone!.isNotEmpty)
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.phone,
-                          size: 13,
-                          color: Colors.white.withAlpha((0.9 * 255).toInt()),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            business.phone!,
-                            style: AppTextStyles.caption.copyWith(
-                              color: Colors.white.withAlpha((0.95 * 255).toInt()),
-                              fontWeight: FontWeight.w500,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            // Stats Row
-            Row(
-              children: [
-                Expanded(
-                  child: _smallStatChip(
-                      '${business.totalProducts ?? 0}', 'Products',
-                      onTap: () => Navigator.pushNamed(context, Routes.inventory)),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _smallStatChip(
-                      '${business.totalCustomers ?? 0}', 'Customers',
-                      onTap: () => Navigator.pushNamed(context, Routes.customers)),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _smallStatChip(
-                      _loadingCounts ? '...' : '${_workersCount > 0 ? _workersCount : (business.totalWorkers ?? 0)}',
-                      'Staff',
-                      onTap: () => Navigator.pushNamed(context, Routes.workers)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            // Action Buttons Row (Bottom)
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () =>   widget.onOpenWorkTab?.call(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: baseColor,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                         Icon(Icons.work, size: 18),
-                        SizedBox(width: 8),
-                        Text('Open'),
-                      ],
-                    ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: IconButton(
-                    onPressed: () {
-                      widget.onOpenWorkTab?.call();
-                    },
-                    icon: const Icon(Icons.work, color: Colors.white),
-                    tooltip: 'Open',
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withAlpha((0.15 * 255).toInt()),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: IconButton(
-                    onPressed: () =>
-                        Navigator.pushNamed(context, Routes.reports),
-                    icon: const Icon(Icons.analytics, color: Colors.white),
-                    tooltip: 'Analytics',
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withAlpha((0.15 * 255).toInt()),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-                if (business.website != null &&
-                    business.website!.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: IconButton(
-                      onPressed: () async {
-                        final uri = Uri.tryParse(business.website!);
-                        if (uri != null) {
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri,
-                                mode: LaunchMode.externalApplication);
-                          } else {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Failed to open website'),
-                                ),
-                              );
-                            }
-                          }
-                        }
-                      },
-                      icon: const Icon(Icons.public, color: Colors.white),
-                      tooltip: 'Visit Website',
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.white.withAlpha((0.15 * 255).toInt()),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _showBusinessSwitcherSheet() async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          builder: (_, controller) {
+            return Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              padding: const EdgeInsets.all(16),
+              child: SingleChildScrollView(
+                controller: controller,
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(height: 6),
+                    Text('Switch Business', style: AppTextStyles.heading5),
+                    SizedBox(height: 12),
+                    BusinessSwitcher(),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildBusinessMetaPill({
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(0.10)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.white.withOpacity(0.92)),
+          const SizedBox(width: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 170),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.caption.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBusinessActionButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    return SizedBox(
+      width: 50,
+      height: 50,
+      child: IconButton(
+        onPressed: onPressed,
+        tooltip: tooltip,
+        icon: Icon(icon, color: Colors.white),
+        style: IconButton.styleFrom(
+          backgroundColor: Colors.white.withOpacity(0.14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _launchBusinessWebsite(String website) async {
+    final trimmed = website.trim();
+    final normalized = trimmed.startsWith('http://') ||
+            trimmed.startsWith('https://')
+        ? trimmed
+        : 'https://$trimmed';
+    final uri = Uri.tryParse(normalized);
+
+    if (uri != null && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      return;
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Failed to open website')),
     );
   }
 

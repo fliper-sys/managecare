@@ -416,10 +416,12 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
         try {
           final userEmail = authProvider.currentUser?.email;
           final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
-          final tier = businessProvider.currentBusiness?.subscriptionTier ?? '';
-          final isPro = tier == 'professional' || tier == 'enterprise';
+          final canSendOrderEmail =
+              businessProvider.hasFeatureAccess('email_receipts');
 
-          if (userEmail != null && userEmail.isNotEmpty && isPro) {
+          if (userEmail != null &&
+              userEmail.isNotEmpty &&
+              canSendOrderEmail) {
             await EmailService().sendOrderSuccessAlert(
               userEmail,
               {

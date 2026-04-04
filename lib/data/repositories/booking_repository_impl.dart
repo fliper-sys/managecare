@@ -10,9 +10,12 @@ class BookingRepositoryImpl implements BookingRepository {
   CollectionReference _bookingsRef(String businessId) => _firestore.collection('businesses').doc(businessId).collection('bookings');
 
   @override
-  Future<String> createBooking({required Booking booking, bool requirePayment = false}) async {
+  Future<String> createBooking({
+    required String businessId,
+    required Booking booking,
+    bool requirePayment = false,
+  }) async {
     // Requires a transaction to check for overlaps and then create booking atomically
-    final businessId = booking.apartmentId.split('_').first; // NOTE: caller should pass businessId explicitly if not encoded
     final bookingsRef = _bookingsRef(businessId);
 
     return await _firestore.runTransaction((tx) async {

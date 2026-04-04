@@ -310,10 +310,14 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                     try {
                                       final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
                                       final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                                      final tier = businessProvider.currentBusiness?.subscriptionTier ?? '';
-                                      final isPro = tier == 'professional' || tier == 'enterprise';
+                                      final canSendOrderEmail =
+                                          businessProvider.hasFeatureAccess(
+                                        'email_receipts',
+                                      );
                                       final userEmail = authProvider.currentUser?.email;
-                                      if (isPro && userEmail != null && userEmail.isNotEmpty) {
+                                      if (canSendOrderEmail &&
+                                          userEmail != null &&
+                                          userEmail.isNotEmpty) {
                                         await EmailService().sendOrderSuccessAlert(
                                           userEmail,
                                           {

@@ -6,6 +6,8 @@ class UserModel {
   final String? photoUrl;
   final String role;
   final String? phoneNumber;
+  final String? address;
+  final String? jobTitle;
   final String businessId;
   final List<String> businessIds;
   final String? currentBusinessId;
@@ -37,6 +39,8 @@ class UserModel {
     this.photoUrl,
     required this.role,
     this.phoneNumber,
+    this.address,
+    this.jobTitle,
     required this.businessId,
     this.businessIds = const [],
     this.currentBusinessId,
@@ -142,6 +146,8 @@ class UserModel {
       photoUrl: json['photoUrl'],
       role: json['role'] ?? 'staff',
       phoneNumber: json['phoneNumber']?.toString() ?? json['phone']?.toString(),
+      address: json['address']?.toString(),
+      jobTitle: json['jobTitle']?.toString(),
       businessId: rawBusinessId,
       businessIds: parsedBusinessIds,
       currentBusinessId: current,
@@ -177,6 +183,8 @@ class UserModel {
       'photoUrl': photoUrl,
       'role': role,
       'phoneNumber': phoneNumber,
+      'address': address,
+      'jobTitle': jobTitle,
       // Keep legacy `businessId` for backward compatibility but populate it from primaryBusinessId
       'businessId': primaryBusinessId,
       'businessIds': businessIds,
@@ -208,6 +216,8 @@ class UserModel {
     String? photoUrl,
     String? role,
     String? phoneNumber,
+    String? address,
+    String? jobTitle,
     String? businessId,
     List<String>? businessIds,
     String? currentBusinessId,
@@ -227,6 +237,8 @@ class UserModel {
     double? subscriptionAmount,
     String? pin,
     String? referralEmail,
+    bool clearCurrentBusinessId = false,
+    bool clearPreferredBusinessId = false,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -235,12 +247,18 @@ class UserModel {
       photoUrl: photoUrl ?? this.photoUrl,
       role: role ?? this.role,
       phoneNumber: phoneNumber ?? this.phoneNumber,
+      address: address ?? this.address,
+      jobTitle: jobTitle ?? this.jobTitle,
       businessId: businessId ?? this.businessId,
       businessIds: businessIds ?? this.businessIds,
-      currentBusinessId: currentBusinessId ?? this.currentBusinessId,
+      currentBusinessId: clearCurrentBusinessId
+          ? null
+          : (currentBusinessId ?? this.currentBusinessId),
       businessType: businessType ?? this.businessType,
       storeId: storeId ?? this.storeId,
-      preferredBusinessId: preferredBusinessId ?? this.preferredBusinessId,
+      preferredBusinessId: clearPreferredBusinessId
+          ? null
+          : (preferredBusinessId ?? this.preferredBusinessId),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       isActive: isActive ?? this.isActive,

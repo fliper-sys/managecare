@@ -6,6 +6,7 @@ import '../../../../data/models/unit_model.dart';
 import '../../../../data/models/booking_model.dart';
 import '../../../../data/repositories/apartment_repository_impl.dart';
 import '../../../../data/repositories/booking_repository_impl.dart';
+import '../../../../providers/booking_provider.dart';
 import '../../../../providers/business_provider.dart';
 import 'booking_detail_screen.dart';
 
@@ -72,8 +73,6 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
     setState(() => _checking = false);
   }
 
-  Booking? _createdBooking;
-
   Future<void> _createAndProceed() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedApartment == null || _selectedUnit == null || _checkIn == null || _checkOut == null) {
@@ -113,13 +112,25 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
       policySnapshot: PolicySnapshot(depositPercent: 30.0, nonRefundable: false, freeCancelWindowHours: 24),
     );
 
-    final repo = BookingRepositoryImpl();
     try {
-      final bookingId = await repo.createBooking(booking: booking, requirePayment: deposit > 0);
-      final created = await repo.getBooking(businessId: bid, bookingId: bookingId);
+      final bookingId = await context.read<BookingProvider>().createBooking(
+            businessId: bid,
+            booking: booking,
+            requirePayment: deposit > 0,
+          );
+      final created = await BookingRepositoryImpl().getBooking(
+        businessId: bid,
+        bookingId: bookingId,
+      );
       if (created != null) {
-        setState(() => _createdBooking = created);
-        Navigator.of(context).push(MaterialPageRoute(builder: (_) => BookingDetailScreen(booking: created, autoStartPayment: true)));
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => BookingDetailScreen(
+              booking: created,
+              autoStartPayment: true,
+            ),
+          ),
+        );
         return;
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Booking created but could not fetch details')));
@@ -231,9 +242,6 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
 
   Future<void> _submit() async {
     await _createAndProceed();
-    if (_createdBooking != null) {
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => BookingDetailScreen(booking: _createdBooking!, autoStartPayment: true)));
-    }
   }
 
   @override
@@ -312,6 +320,22 @@ class _BookingFormScreenState extends State<BookingFormScreen> {
                     ]),
                     const SizedBox(height: 8),
                     if (_checkIn != null && _checkOut != null) Text('Nights: ${_checkOut!.difference(_checkIn!).inDays}'),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Text('Guests'),
+                        const Spacer(),
+                        IconButton(
+                          onPressed: _guests > 1 ? () => setState(() => _guests--) : null,
+                          icon: const Icon(Icons.remove_circle_outline),
+                        ),
+                        Text('$_guests'),
+                        IconButton(
+                          onPressed: () => setState(() => _guests++),
+                          icon: const Icon(Icons.add_circle_outline),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 8),
                     TextFormField(controller: _nameController, decoration: const InputDecoration(labelText: 'Your name'), validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null),
                     const SizedBox(height: 8),

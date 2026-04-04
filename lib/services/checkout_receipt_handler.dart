@@ -81,6 +81,9 @@ class CheckoutReceiptHandler {
           cashier: cashierName,
           poweredByText: footerWithPowered,
           showQrCode: false,
+          businessLogoUrl: businessLogo,
+          businessPhone: businessContact,
+          businessEmail: businessEmail,
         );
       } else {
         pdfFile = await PdfReceiptGenerator.generateReceiptPdf(
@@ -101,6 +104,9 @@ class CheckoutReceiptHandler {
           cashier: cashierName,
           poweredByText: footerWithPowered,
           showQrCode: false,
+          businessLogoUrl: businessLogo,
+          businessPhone: businessContact,
+          businessEmail: businessEmail,
         );
       }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../data/models/business_model.dart';
 import 'background_subscription_checker.dart';
+import 'subscription_service.dart';
 
 /// Feature guard with subscription enforcement
 /// Prevents unauthorized access to features based on subscription tier
@@ -92,7 +93,7 @@ class SubscriptionFeatureGuard {
 
   /// Get feature availability for all tiers
   Map<String, Map<String, bool>> getFeatureMatrix() {
-    const tiers = ['free', 'basic', 'pro', 'professional', 'enterprise', 'tier3'];
+    const tiers = ['free', 'tier1', 'tier2', 'tier3', 'unlimited'];
     const features = [
       // Basic
       'basic_sales',
@@ -125,20 +126,9 @@ class SubscriptionFeatureGuard {
       for (final feature in features) {
         // Check if this tier meets the feature requirement
         final requirement = getFeatureTierRequirement(feature);
-        final tierHierarchy = {
-          'free': 0,
-          'basic': 1,
-          'starter': 1,
-          'pro': 2,
-          'professional': 2,
-          'enterprise': 3,
-          'tier1': 1,
-          'tier2': 2,
-          'tier3': 3,
-        };
-
-        final tierLevel = tierHierarchy[tier.toLowerCase()] ?? 0;
-        final requirementLevel = tierHierarchy[requirement?.toLowerCase()] ?? 0;
+        final tierLevel = SubscriptionService.getTierRank(tier);
+        final requirementLevel =
+            SubscriptionService.getTierRank(requirement ?? 'free');
         final hasAccess = tierLevel >= requirementLevel;
 
         matrix[tier]![feature] = hasAccess;
@@ -155,24 +145,25 @@ class SubscriptionFeatureGuard {
       'basic_sales': 'free',
       'product_management': 'free',
       'basic_reports': 'free',
-      // Basic
-      'unlimited_workers': 'basic',
-      'advanced_analytics': 'basic',
-      'email_receipts': 'basic',
-      'sms_notifications': 'basic',
-      // Pro
-      'multi_location': 'pro',
-      'api_access': 'pro',
-      'payment_processing': 'pro',
-      'custom_reports': 'pro',
-      'priority_support': 'pro',
-      'receipt_customization': 'pro',
-      // Enterprise
-      'white_label': 'tier3',
-      'sso_login': 'tier3',
-      'dedicated_support': 'tier3',
-      'custom_development': 'tier3',
-      'api_advanced': 'tier3',
+      // Tier 1
+      'unlimited_workers': 'tier1',
+      'advanced_analytics': 'tier1',
+      'email_receipts': 'tier1',
+      'sms_notifications': 'tier1',
+      'payment_processing': 'tier1',
+      'receipt_customization': 'tier1',
+      // Tier 2
+      'multi_location': 'tier2',
+      // Tier 3
+      'custom_reports': 'tier3',
+      'priority_support': 'tier3',
+      // Unlimited
+      'white_label': 'unlimited',
+      'sso_login': 'unlimited',
+      'dedicated_support': 'unlimited',
+      'custom_development': 'unlimited',
+      'api_access': 'unlimited',
+      'api_advanced': 'unlimited',
     };
     return requirements[feature];
   }
@@ -193,20 +184,8 @@ class SubscriptionFeatureGuard {
     final requirement = getFeatureTierRequirement(feature);
     if (requirement == null) return false;
 
-    final tierHierarchy = {
-      'free': 0,
-      'basic': 1,
-      'starter': 1,
-      'pro': 2,
-      'professional': 2,
-      'enterprise': 3,
-      'tier1': 1,
-      'tier2': 2,
-      'tier3': 3,
-    };
-
-    final userTierLevel = tierHierarchy[status.tier.toLowerCase()] ?? 0;
-    final requiredTierLevel = tierHierarchy[requirement] ?? 0;
+    final userTierLevel = SubscriptionService.getTierRank(status.tier);
+    final requiredTierLevel = SubscriptionService.getTierRank(requirement);
 
     return userTierLevel < requiredTierLevel;
   }

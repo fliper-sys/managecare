@@ -427,7 +427,7 @@ class AdminProvider extends ChangeNotifier {
           if (matchingBusiness.isNotEmpty) {
             print('🔍 ENRICHMENT: Found business for "${userData['name']}": isSubscriptionActive=${matchingBusiness['isSubscriptionActive']}');
             userData['isSubscriptionActive'] = matchingBusiness['isSubscriptionActive'] ?? false;
-            userData['subscriptionTier'] = matchingBusiness['subscriptionTier'] ?? 'basic';
+            userData['subscriptionTier'] = matchingBusiness['subscriptionTier'] ?? 'tier1';
             userData['subscriptionEndDate'] = matchingBusiness['subscriptionEndDate'];
             userData['subscriptionStartDate'] = matchingBusiness['subscriptionStartDate'];
             userData['businessName'] = matchingBusiness['businessName'] ?? 'N/A';
@@ -438,7 +438,7 @@ class AdminProvider extends ChangeNotifier {
           // If no businessId, set default values
           print('🔍 ENRICHMENT: No businessId for "${userData['name']}"');
           userData['isSubscriptionActive'] = false;
-          userData['subscriptionTier'] = 'basic';
+          userData['subscriptionTier'] = 'tier1';
         }
         
         print('🔍 ENRICHMENT RESULT: "${userData['name']}" -> isSubscriptionActive=${userData['isSubscriptionActive']}');
@@ -468,7 +468,7 @@ class AdminProvider extends ChangeNotifier {
             userData['isSubscriptionActive'] =
                 matchingBusiness['isSubscriptionActive'] ?? false;
             userData['subscriptionTier'] =
-                matchingBusiness['subscriptionTier'] ?? 'basic';
+                matchingBusiness['subscriptionTier'] ?? 'tier1';
             userData['subscriptionEndDate'] =
                 matchingBusiness['subscriptionEndDate'];
             userData['subscriptionStartDate'] =
@@ -485,11 +485,11 @@ class AdminProvider extends ChangeNotifier {
             userData['isSubscriptionActive'] =
                 userData['isSubscriptionActive'] ?? false;
             userData['subscriptionTier'] =
-                userData['subscriptionTier'] ?? 'basic';
+                userData['subscriptionTier'] ?? 'tier1';
           }
         } else {
           userData['isSubscriptionActive'] = false;
-          userData['subscriptionTier'] = 'basic';
+          userData['subscriptionTier'] = 'tier1';
         }
 
         return userData;
@@ -504,15 +504,16 @@ class AdminProvider extends ChangeNotifier {
 
       // Define subscription pricing in Naira
       final subscriptionPricing = {
-        'basic': 10000,
-        'pro': 20000,
-        'enterprise': 100000,
+        'tier1': 10000,
+        'tier2': 20000,
+        'tier3': 100000,
+        'unlimited': 150000,
       };
 
       for (var business in _allBusinesses) {
         // Calculate revenue from subscription tier
         final tier =
-            business['subscriptionTier']?.toString().toLowerCase() ?? 'basic';
+            business['subscriptionTier']?.toString().toLowerCase() ?? 'tier1';
         final tierRevenue = subscriptionPricing[tier] ?? 10000;
         totalRevenue += tierRevenue;
 
@@ -1799,4 +1800,3 @@ class AdminProvider extends ChangeNotifier {
     }
   }
 }
-

@@ -19,7 +19,9 @@ class _SalonStaffManagementScreenState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<SalonProvider>().loadStylists();
+      final provider = context.read<SalonProvider>();
+      provider.loadStylists();
+      provider.loadServices();
     });
   }
 
@@ -276,6 +278,35 @@ class _StylistDialogState extends State<_StylistDialog> {
     super.dispose();
   }
 
+  Future<void> _saveStylist() async {
+    final stylist = Stylist(
+      id: widget.stylist?.id ??
+          'stylist_${DateTime.now().millisecondsSinceEpoch}',
+      name: _nameCtrl.text,
+      email: _emailCtrl.text,
+      phone: _phoneCtrl.text.isEmpty ? null : _phoneCtrl.text,
+      specialization: _specializationCtrl.text,
+      serviceIds: _selectedServices,
+      commissionPercentage: double.parse(_commissionCtrl.text),
+      createdAt: widget.stylist?.createdAt ?? DateTime.now(),
+    );
+
+    if (widget.stylist == null) {
+      await widget.provider.addStylist(stylist);
+    } else {
+      await widget.provider.updateStylist(stylist);
+    }
+
+    if (context.mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(
+                'Stylist ${widget.stylist == null ? 'added' : 'updated'}')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -381,34 +412,7 @@ class _StylistDialogState extends State<_StylistDialog> {
                               _specializationCtrl.text.isEmpty
                           ? null
                           : () {
-                              final stylist = Stylist(
-                                id: widget.stylist?.id ??
-                                    'stylist_${DateTime.now().millisecondsSinceEpoch}',
-                                name: _nameCtrl.text,
-                                email: _emailCtrl.text,
-                                phone: _phoneCtrl.text.isEmpty
-                                    ? null
-                                    : _phoneCtrl.text,
-                                specialization: _specializationCtrl.text,
-                                serviceIds: _selectedServices,
-                                commissionPercentage:
-                                    double.parse(_commissionCtrl.text),
-                                createdAt:
-                                    widget.stylist?.createdAt ?? DateTime.now(),
-                              );
-
-                              if (widget.stylist == null) {
-                                widget.provider.addStylist(stylist);
-                              } else {
-                                widget.provider.updateStylist(stylist);
-                              }
-
-                              Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                    content: Text(
-                                        'Stylist ${widget.stylist == null ? 'added' : 'updated'}')),
-                              );
+                              _saveStylist();
                             },
                     ),
                   ),
@@ -421,4 +425,3 @@ class _StylistDialogState extends State<_StylistDialog> {
     );
   }
 }
-

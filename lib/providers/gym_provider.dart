@@ -79,6 +79,203 @@ class Booking {
       : bookedAt = bookedAt ?? DateTime.now();
 }
 
+class Equipment {
+  final String id;
+  final String name;
+  final String category;
+  final String status; // 'available', 'in-use', 'maintenance', 'out-of-order'
+  final DateTime? lastMaintenance;
+  final DateTime? nextMaintenance;
+  final String? notes;
+
+  Equipment({
+    required this.id,
+    required this.name,
+    required this.category,
+    this.status = 'available',
+    this.lastMaintenance,
+    this.nextMaintenance,
+    this.notes,
+  });
+
+  Equipment copyWith({
+    String? id,
+    String? name,
+    String? category,
+    String? status,
+    DateTime? lastMaintenance,
+    DateTime? nextMaintenance,
+    String? notes,
+  }) {
+    return Equipment(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      category: category ?? this.category,
+      status: status ?? this.status,
+      lastMaintenance: lastMaintenance ?? this.lastMaintenance,
+      nextMaintenance: nextMaintenance ?? this.nextMaintenance,
+      notes: notes ?? this.notes,
+    );
+  }
+}
+
+class AttendanceRecord {
+  final String id;
+  final String memberId;
+  final DateTime checkInTime;
+  final DateTime? checkOutTime;
+  final String? notes;
+
+  AttendanceRecord({
+    required this.id,
+    required this.memberId,
+    required this.checkInTime,
+    this.checkOutTime,
+    this.notes,
+  });
+
+  AttendanceRecord copyWith({
+    String? id,
+    String? memberId,
+    DateTime? checkInTime,
+    DateTime? checkOutTime,
+    String? notes,
+  }) {
+    return AttendanceRecord(
+      id: id ?? this.id,
+      memberId: memberId ?? this.memberId,
+      checkInTime: checkInTime ?? this.checkInTime,
+      checkOutTime: checkOutTime ?? this.checkOutTime,
+      notes: notes ?? this.notes,
+    );
+  }
+
+  Duration? get duration {
+    if (checkOutTime == null) return null;
+    return checkOutTime!.difference(checkInTime);
+  }
+
+  bool get isActive => checkOutTime == null;
+}
+
+class FitnessMeasurement {
+  final String id;
+  final String memberId;
+  final DateTime date;
+  final double? weight; // in kg
+  final double? height; // in cm
+  final double? bodyFat; // percentage
+  final double? muscleMass; // in kg
+  final double? bmi;
+  final double? chest; // in cm
+  final double? waist; // in cm
+  final double? hips; // in cm
+  final double? biceps; // in cm
+  final double? thighs; // in cm
+  final String? notes;
+
+  FitnessMeasurement({
+    required this.id,
+    required this.memberId,
+    required this.date,
+    this.weight,
+    this.height,
+    this.bodyFat,
+    this.muscleMass,
+    this.bmi,
+    this.chest,
+    this.waist,
+    this.hips,
+    this.biceps,
+    this.thighs,
+    this.notes,
+  });
+
+  FitnessMeasurement copyWith({
+    String? id,
+    String? memberId,
+    DateTime? date,
+    double? weight,
+    double? height,
+    double? bodyFat,
+    double? muscleMass,
+    double? bmi,
+    double? chest,
+    double? waist,
+    double? hips,
+    double? biceps,
+    double? thighs,
+    String? notes,
+  }) {
+    return FitnessMeasurement(
+      id: id ?? this.id,
+      memberId: memberId ?? this.memberId,
+      date: date ?? this.date,
+      weight: weight ?? this.weight,
+      height: height ?? this.height,
+      bodyFat: bodyFat ?? this.bodyFat,
+      muscleMass: muscleMass ?? this.muscleMass,
+      bmi: bmi ?? this.bmi,
+      chest: chest ?? this.chest,
+      waist: waist ?? this.waist,
+      hips: hips ?? this.hips,
+      biceps: biceps ?? this.biceps,
+      thighs: thighs ?? this.thighs,
+      notes: notes ?? this.notes,
+    );
+  }
+}
+
+class FitnessGoal {
+  final String id;
+  final String memberId;
+  final String title;
+  final String description;
+  final DateTime targetDate;
+  final DateTime createdAt;
+  final bool isCompleted;
+  final DateTime? completedAt;
+  final Map<String, dynamic> targetMetrics; // e.g., {'weight': 70.0, 'bodyFat': 15.0}
+
+  FitnessGoal({
+    required this.id,
+    required this.memberId,
+    required this.title,
+    required this.description,
+    required this.targetDate,
+    DateTime? createdAt,
+    this.isCompleted = false,
+    this.completedAt,
+    Map<String, dynamic>? targetMetrics,
+  }) :
+    createdAt = createdAt ?? DateTime.now(),
+    targetMetrics = targetMetrics ?? {};
+
+  FitnessGoal copyWith({
+    String? id,
+    String? memberId,
+    String? title,
+    String? description,
+    DateTime? targetDate,
+    DateTime? createdAt,
+    bool? isCompleted,
+    DateTime? completedAt,
+    Map<String, dynamic>? targetMetrics,
+  }) {
+    return FitnessGoal(
+      id: id ?? this.id,
+      memberId: memberId ?? this.memberId,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      targetDate: targetDate ?? this.targetDate,
+      createdAt: createdAt ?? this.createdAt,
+      isCompleted: isCompleted ?? this.isCompleted,
+      completedAt: completedAt ?? this.completedAt,
+      targetMetrics: targetMetrics ?? Map<String, dynamic>.from(this.targetMetrics),
+    );
+  }
+}
+
 // GymRepository interface is provided by data layer in `gym_repository.dart`.
 
 class GymProvider extends ChangeNotifier {
@@ -93,6 +290,10 @@ class GymProvider extends ChangeNotifier {
   final List<ClassSession> classes = [];
   final List<Booking> bookings = [];
   final List<PaymentRecord> payments = [];
+  final List<Equipment> equipment = [];
+  final List<AttendanceRecord> attendanceRecords = [];
+  final List<FitnessMeasurement> measurements = [];
+  final List<FitnessGoal> goals = [];
 
   GymProvider({this.repository, this.businessId, this.notificationService}) {
     // ensure internal business id is initialized when provided
@@ -211,6 +412,38 @@ class GymProvider extends ChangeNotifier {
             .map((p) => PaymentRecord.fromJson(Map<String, dynamic>.from(p))));
       } catch (_) {
         // ignore if not implemented
+      }
+
+      // Load equipment if repository supports it
+      try {
+        final remoteEquipment = await repository!.fetchEquipment();
+        equipment.clear();
+        equipment.addAll(remoteEquipment.map((e) => Equipment(
+              id: e['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+              name: (e['name'] ?? '') as String,
+              category: (e['category'] ?? 'General') as String,
+              status: (e['status'] ?? 'available') as String,
+              lastMaintenance: e['lastMaintenance'] != null ? parseDate(e['lastMaintenance']) : null,
+              nextMaintenance: e['nextMaintenance'] != null ? parseDate(e['nextMaintenance']) : null,
+              notes: e['notes'] as String?,
+            )));
+      } catch (_) {
+        // ignore if equipment not implemented
+      }
+
+      // Load attendance records if repository supports it
+      try {
+        final remoteAttendance = await repository!.fetchAttendanceRecords();
+        attendanceRecords.clear();
+        attendanceRecords.addAll(remoteAttendance.map((a) => AttendanceRecord(
+              id: a['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+              memberId: (a['memberId'] ?? '') as String,
+              checkInTime: parseDate(a['checkInTime']),
+              checkOutTime: a['checkOutTime'] != null ? parseDate(a['checkOutTime']) : null,
+              notes: a['notes'] as String?,
+            )));
+      } catch (_) {
+        // ignore if attendance not implemented
       }
 
       notifyListeners();
@@ -444,6 +677,278 @@ class GymProvider extends ChangeNotifier {
   List<ClassSession> upcomingClasses() {
     final now = DateTime.now();
     return classes.where((c) => c.start.isAfter(now)).toList();
+  }
+
+  // Equipment Management
+  void addEquipment(Equipment eq) {
+    equipment.add(eq);
+    if (repository != null) {
+      repository!.saveEquipment({
+        'name': eq.name,
+        'category': eq.category,
+        'status': eq.status,
+        'lastMaintenance': eq.lastMaintenance?.toIso8601String(),
+        'nextMaintenance': eq.nextMaintenance?.toIso8601String(),
+        'notes': eq.notes,
+      });
+    }
+    notifyListeners();
+  }
+
+  void updateEquipment(Equipment eq) {
+    final index = equipment.indexWhere((e) => e.id == eq.id);
+    if (index != -1) {
+      equipment[index] = eq;
+      if (repository != null) {
+        repository!.updateEquipment(eq.id, {
+          'name': eq.name,
+          'category': eq.category,
+          'status': eq.status,
+          'lastMaintenance': eq.lastMaintenance?.toIso8601String(),
+          'nextMaintenance': eq.nextMaintenance?.toIso8601String(),
+          'notes': eq.notes,
+        });
+      }
+      notifyListeners();
+    }
+  }
+
+  void deleteEquipment(String equipmentId) {
+    equipment.removeWhere((e) => e.id == equipmentId);
+    if (repository != null) {
+      repository!.deleteEquipment(equipmentId);
+    }
+    notifyListeners();
+  }
+
+  List<Equipment> getEquipmentByStatus(String status) {
+    return equipment.where((e) => e.status == status).toList();
+  }
+
+  List<Equipment> getEquipmentNeedingMaintenance() {
+    final now = DateTime.now();
+    return equipment.where((e) =>
+        e.nextMaintenance != null &&
+        e.nextMaintenance!.isBefore(now.add(const Duration(days: 7)))).toList();
+  }
+
+  // Attendance Management
+  void checkInMember(String memberId) {
+    // Check if member is already checked in
+    final existingRecord = attendanceRecords.firstWhere(
+      (record) => record.memberId == memberId && record.isActive,
+      orElse: () => AttendanceRecord(id: '', memberId: '', checkInTime: DateTime.now()),
+    );
+
+    if (existingRecord.id.isNotEmpty) {
+      throw Exception('Member is already checked in');
+    }
+
+    final record = AttendanceRecord(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      memberId: memberId,
+      checkInTime: DateTime.now(),
+    );
+
+    attendanceRecords.add(record);
+
+    // Update member active status
+    final member = members.firstWhere((m) => m.id == memberId);
+    member.active = true;
+
+    if (repository != null) {
+      repository!.saveAttendanceRecord({
+        'memberId': record.memberId,
+        'checkInTime': record.checkInTime.toIso8601String(),
+      });
+    }
+
+    notifyListeners();
+  }
+
+  void checkOutMember(String recordId) {
+    final recordIndex = attendanceRecords.indexWhere((r) => r.id == recordId);
+    if (recordIndex == -1) return;
+
+    final record = attendanceRecords[recordIndex];
+    final updatedRecord = record.copyWith(checkOutTime: DateTime.now());
+
+    attendanceRecords[recordIndex] = updatedRecord;
+
+    // Update member active status
+    final member = members.firstWhere((m) => m.id == record.memberId);
+    member.active = false;
+
+    if (repository != null) {
+      repository!.updateAttendanceRecord(recordId, {
+        'checkOutTime': updatedRecord.checkOutTime!.toIso8601String(),
+      });
+    }
+
+    notifyListeners();
+  }
+
+  List<AttendanceRecord> getAttendanceRecordsForDate(DateTime date) {
+    final startOfDay = DateTime(date.year, date.month, date.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+
+    return attendanceRecords.where((record) =>
+        record.checkInTime.isAfter(startOfDay) &&
+        record.checkInTime.isBefore(endOfDay)).toList();
+  }
+
+  List<AttendanceRecord> getActiveAttendanceRecords() {
+    return attendanceRecords.where((record) => record.isActive).toList();
+  }
+
+  Duration getTotalAttendanceTimeForMember(String memberId, {DateTime? startDate, DateTime? endDate}) {
+    final records = attendanceRecords.where((record) {
+      if (record.memberId != memberId) return false;
+      if (startDate != null && record.checkInTime.isBefore(startDate)) return false;
+      if (endDate != null && record.checkInTime.isAfter(endDate)) return false;
+      return record.checkOutTime != null;
+    }).toList();
+
+    return records.fold(Duration.zero, (total, record) => total + (record.duration ?? Duration.zero));
+  }
+
+  int getAttendanceCountForMember(String memberId, {DateTime? startDate, DateTime? endDate}) {
+    return attendanceRecords.where((record) {
+      if (record.memberId != memberId) return false;
+      if (startDate != null && record.checkInTime.isBefore(startDate)) return false;
+      if (endDate != null && record.checkInTime.isAfter(endDate)) return false;
+      return true;
+    }).length;
+  }
+
+  // Fitness Measurements
+  void addMeasurement(FitnessMeasurement measurement) {
+    measurements.add(measurement);
+    if (repository != null) {
+      repository!.saveMeasurement({
+        'memberId': measurement.memberId,
+        'date': measurement.date.toIso8601String(),
+        'weight': measurement.weight,
+        'height': measurement.height,
+        'bodyFat': measurement.bodyFat,
+        'muscleMass': measurement.muscleMass,
+        'bmi': measurement.bmi,
+        'chest': measurement.chest,
+        'waist': measurement.waist,
+        'hips': measurement.hips,
+        'biceps': measurement.biceps,
+        'thighs': measurement.thighs,
+        'notes': measurement.notes,
+      });
+    }
+    notifyListeners();
+  }
+
+  void updateMeasurement(FitnessMeasurement measurement) {
+    final index = measurements.indexWhere((m) => m.id == measurement.id);
+    if (index != -1) {
+      measurements[index] = measurement;
+      if (repository != null) {
+        repository!.updateMeasurement(measurement.id, {
+          'memberId': measurement.memberId,
+          'date': measurement.date.toIso8601String(),
+          'weight': measurement.weight,
+          'height': measurement.height,
+          'bodyFat': measurement.bodyFat,
+          'muscleMass': measurement.muscleMass,
+          'bmi': measurement.bmi,
+          'chest': measurement.chest,
+          'waist': measurement.waist,
+          'hips': measurement.hips,
+          'biceps': measurement.biceps,
+          'thighs': measurement.thighs,
+          'notes': measurement.notes,
+        });
+      }
+      notifyListeners();
+    }
+  }
+
+  void removeMeasurement(String id) {
+    measurements.removeWhere((m) => m.id == id);
+    if (repository != null) {
+      repository!.deleteMeasurement(id);
+    }
+    notifyListeners();
+  }
+
+  List<FitnessMeasurement> getMeasurementsForMember(String memberId) {
+    return measurements.where((m) => m.memberId == memberId).toList()
+      ..sort((a, b) => b.date.compareTo(a.date)); // Most recent first
+  }
+
+  FitnessMeasurement? getLatestMeasurementForMember(String memberId) {
+    final memberMeasurements = getMeasurementsForMember(memberId);
+    return memberMeasurements.isNotEmpty ? memberMeasurements.first : null;
+  }
+
+  // Fitness Goals
+  void addGoal(FitnessGoal goal) {
+    goals.add(goal);
+    if (repository != null) {
+      repository!.saveGoal({
+        'memberId': goal.memberId,
+        'title': goal.title,
+        'description': goal.description,
+        'targetDate': goal.targetDate.toIso8601String(),
+        'createdAt': goal.createdAt.toIso8601String(),
+        'isCompleted': goal.isCompleted,
+        'completedAt': goal.completedAt?.toIso8601String(),
+        'targetMetrics': goal.targetMetrics,
+      });
+    }
+    notifyListeners();
+  }
+
+  void updateGoal(FitnessGoal goal) {
+    final index = goals.indexWhere((g) => g.id == goal.id);
+    if (index != -1) {
+      goals[index] = goal;
+      if (repository != null) {
+        repository!.updateGoal(goal.id, {
+          'memberId': goal.memberId,
+          'title': goal.title,
+          'description': goal.description,
+          'targetDate': goal.targetDate.toIso8601String(),
+          'createdAt': goal.createdAt.toIso8601String(),
+          'isCompleted': goal.isCompleted,
+          'completedAt': goal.completedAt?.toIso8601String(),
+          'targetMetrics': goal.targetMetrics,
+        });
+      }
+      notifyListeners();
+    }
+  }
+
+  void removeGoal(String id) {
+    goals.removeWhere((g) => g.id == id);
+    if (repository != null) {
+      repository!.deleteGoal(id);
+    }
+    notifyListeners();
+  }
+
+  List<FitnessGoal> getGoalsForMember(String memberId) {
+    return goals.where((g) => g.memberId == memberId).toList()
+      ..sort((a, b) => a.targetDate.compareTo(b.targetDate)); // Soonest first
+  }
+
+  List<FitnessGoal> getActiveGoalsForMember(String memberId) {
+    return getGoalsForMember(memberId).where((g) => !g.isCompleted).toList();
+  }
+
+  List<FitnessGoal> getCompletedGoalsForMember(String memberId) {
+    return getGoalsForMember(memberId).where((g) => g.isCompleted).toList();
+  }
+
+  List<FitnessGoal> getOverdueGoals() {
+    final now = DateTime.now();
+    return goals.where((g) => !g.isCompleted && g.targetDate.isBefore(now)).toList();
   }
 }
 

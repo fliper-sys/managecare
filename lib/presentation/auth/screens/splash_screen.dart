@@ -4,7 +4,6 @@ import 'package:lottie/lottie.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../widgets/loading_indicator.dart';
 import '../../../core/constants/routes.dart';
-import '../../../core/theme/colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../services/business_restriction_service.dart';
 
@@ -96,10 +95,15 @@ class _SplashScreenState extends State<SplashScreen>
         // Workers should be taken straight to their dashboard.
         if (user.isOwner) {
           // Check subscription status in Firestore for real-time updates
-          final subscriptionData = await _fetchUserSubscriptionStatus(user.id);
+          final currentBusinessId = user.primaryBusinessId.isNotEmpty
+              ? user.primaryBusinessId
+              : user.businessId;
+          final subscriptionData =
+              await _fetchBusinessSubscriptionStatus(currentBusinessId);
 
           if (subscriptionData != null &&
-              subscriptionData['subscriptionStatus'] == 'pending_approval') {
+              ((subscriptionData['subscriptionReviewStatus'] ?? subscriptionData['subscriptionStatus']) ==
+                  'pending_approval')) {
             // Owner has pending subscription approval
             print('[SplashScreen] Subscription pending approval (owner)');
             if (mounted) {
@@ -109,14 +113,17 @@ class _SplashScreenState extends State<SplashScreen>
                   'userId': user.id,
                   'userEmail': user.email,
                   'userName': user.fullName,
+                  'businessId': currentBusinessId,
+                  'businessType': user.businessType,
                   'subscriptionPlan':
-                      subscriptionData['subscriptionPlan'] ?? 'basic',
+                      subscriptionData['subscriptionPlan'] ?? 'tier1',
                   'subscriptionAmount':
                       subscriptionData['subscriptionAmount'] ?? 0.0,
                 },
               );
             }
-          } else if (!user.hasActiveSubscription || !user.isSubscriptionValid) {
+          } else if (!authProvider.subscriptionValidated ||
+              !user.isSubscriptionValid) {
             if (mounted) {
               Navigator.of(context).pushReplacementNamed(
                 Routes.subscriptionPayment,
@@ -124,6 +131,8 @@ class _SplashScreenState extends State<SplashScreen>
                   'userId': user.id,
                   'userEmail': user.email,
                   'userName': user.fullName,
+                  'businessId': currentBusinessId,
+                  'businessType': user.businessType,
                 },
               );
             }
@@ -147,21 +156,23 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   /// Fetch the latest subscription status from Firestore
-  Future<Map<String, dynamic>?> _fetchUserSubscriptionStatus(
-      String userId) async {
+  Future<Map<String, dynamic>?> _fetchBusinessSubscriptionStatus(
+      String businessId) async {
     try {
+      if (businessId.trim().isEmpty) return null;
       final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
+          .collection('businesses')
+          .doc(businessId)
           .get();
 
       if (doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
         return {
           'subscriptionStatus': data['subscriptionStatus'],
+          'subscriptionReviewStatus': data['subscriptionReviewStatus'],
           'subscriptionPlan': data['subscriptionPlan'],
           'subscriptionAmount': data['subscriptionAmount'],
-          'hasActiveSubscription': data['hasActiveSubscription'],
+          'hasActiveSubscription': data['isSubscriptionActive'],
         };
       }
       return null;
@@ -180,7 +191,6 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.primary,
       body: Stack(
         children: [
           AnimatedContainer(
@@ -190,95 +200,213 @@ class _SplashScreenState extends State<SplashScreen>
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  AppColors.primary,
-                  AppColors.primaryDark,
+                  Color(0xFF081126),
+                  Color(0xFF0D2445),
+                  Color(0xFF13386A),
                 ],
               ),
             ),
           ),
-          Center(
-            child: AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                return FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: ScaleTransition(
-                    scale: _scaleAnimation,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 120,
-                          height: 120,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(28),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.12),
-                                blurRadius: 18,
-                                offset: const Offset(0, 8),
+          _buildAccentOrb(
+            top: -130,
+            right: -80,
+            size: 280,
+            color: const Color(0xFF27D2A2).withOpacity(0.10),
+          ),
+          _buildAccentOrb(
+            top: 180,
+            left: -90,
+            size: 240,
+            color: const Color(0xFFF3B35C).withOpacity(0.10),
+          ),
+          _buildAccentOrb(
+            bottom: -120,
+            right: 40,
+            size: 260,
+            color: Colors.white.withOpacity(0.05),
+          ),
+          SafeArea(
+            child: Center(
+              child: AnimatedBuilder(
+                animation: _controller,
+                builder: (context, child) {
+                  return FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: ScaleTransition(
+                      scale: _scaleAnimation,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 520),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 28,
+                              vertical: 34,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(32),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.12),
                               ),
-                            ],
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12.0),
-                            child: Image.asset(
-                              'assets/app_icon.png',
-                              fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) => const Icon(
-                                Icons.store,
-                                size: 56,
-                                color: AppColors.primary,
-                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.20),
+                                  blurRadius: 34,
+                                  offset: const Offset(0, 20),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 112,
+                                  height: 112,
+                                  padding: const EdgeInsets.all(18),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [
+                                        Color(0x33FFFFFF),
+                                        Color(0x16FFFFFF),
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    borderRadius: BorderRadius.circular(30),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.14),
+                                    ),
+                                  ),
+                                  child: Image.asset(
+                                    'assets/app_icon.png',
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.storefront_rounded,
+                                      size: 54,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 22),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.10),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    'Multi-business operations hub',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.92),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 18),
+                                const Text(
+                                  'Manage Care',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 34,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                    height: 1.05,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'Operations, sales, staff, and subscription checks are getting your workspace ready.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.white.withOpacity(0.82),
+                                    height: 1.6,
+                                  ),
+                                ),
+                                const SizedBox(height: 26),
+                                Container(
+                                  width: 88,
+                                  height: 88,
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.06),
+                                    borderRadius: BorderRadius.circular(24),
+                                  ),
+                                  child: Lottie.asset(
+                                    'assets/lottie/loop.json',
+                                    repeat: true,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (_, __, ___) =>
+                                        const CustomLoadingIndicator(),
+                                  ),
+                                ),
+                                const SizedBox(height: 18),
+                                Text(
+                                  'Loading your workspace...',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.white.withOpacity(0.88),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+                                Text(
+                                  'Secure sync • Business access checks • Real-time setup',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.white.withOpacity(0.64),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                        const SizedBox(height: 20),
-                        const Text(
-                          'Manage Care',
-                          style: TextStyle(
-                            fontSize: 34,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'All-in-One Business Management',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white.withOpacity(0.9),
-                          ),
-                        ),
-                        const SizedBox(height: 28),
-                        SizedBox(
-                          width: 80,
-                          height: 80,
-                          child: Lottie.asset(
-                            'assets/lottie/loop.json',
-                            repeat: true,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) =>
-                                const CustomLoadingIndicator(),
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        Text(
-                          'Loading your workspace...',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.white.withOpacity(0.85),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAccentOrb({
+    double? top,
+    double? right,
+    double? bottom,
+    double? left,
+    required double size,
+    required Color color,
+  }) {
+    return Positioned(
+      top: top,
+      right: right,
+      bottom: bottom,
+      left: left,
+      child: IgnorePointer(
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: [color, Colors.transparent],
+            ),
+          ),
+        ),
       ),
     );
   }

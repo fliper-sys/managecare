@@ -14,6 +14,7 @@ import '../providers/restaurant_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/connectivity_provider.dart';
+import '../../../../providers/hotel_provider.dart' as hotel;
 import '../../../../providers/retail_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/utils/currency.dart';
@@ -38,6 +39,8 @@ class CreateOrderScreen extends StatefulWidget {
 class _CreateOrderScreenState extends State<CreateOrderScreen> {
   String? _selectedTableId;
   int? _selectedTableNumber;
+  String? _selectedRoomChargeReservationId;
+  String? _selectedRoomChargeLabel;
   final List<OrderItem> _selectedItems = [];
   double _subtotal = 0;
   double _taxRate = 0.0;  // Changed to 0% default
@@ -113,6 +116,24 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   void _updateSubtotal() {
     _subtotal = _selectedItems.fold<double>(0.0, (sum, item) => sum + item.subtotal);
     setState(() {});
+  }
+
+  void _selectTable(TableInfo table) {
+    setState(() {
+      _selectedTableId = table.id;
+      _selectedTableNumber = table.tableNumber;
+      _selectedRoomChargeReservationId = null;
+      _selectedRoomChargeLabel = null;
+    });
+  }
+
+  void _selectRoomCharge(hotel.Reservation reservation, String roomLabel) {
+    setState(() {
+      _selectedRoomChargeReservationId = reservation.id;
+      _selectedRoomChargeLabel = roomLabel;
+      _selectedTableId = null;
+      _selectedTableNumber = null;
+    });
   }
 
   String _safeIdSuffix(String id) => id.length >= 6 ? id.substring(id.length - 6) : id;
@@ -204,7 +225,12 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     };
                   }).toList();
 
-                  final unit = item.price + selectedOptions.fold<double>(0.0, (sum, s) => sum + (s['price'] as double));
+                  final unit = item.price +
+                      selectedOptions.fold<double>(
+                        0.0,
+                        (sum, s) =>
+                            sum + ((s['price'] as num?)?.toDouble() ?? 0.0),
+                      );
                   final subtotal = unit * qty;
                   final orderItem = OrderItem(
                     id: 'oi_${DateTime.now().millisecondsSinceEpoch}',
@@ -228,6 +254,152 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _deductInventoryForItems(List<OrderItem> items) async {
+    try {
+      final retail = Provider.of<RetailProvider>(context, listen: false);
+      for (final item in items) {
+        final pid = item.inventoryProductId;
+        if (pid == null || pid.isEmpty) continue;
+
+        final prod = retail.products.firstWhere(
+          (p) => p.id == pid,
+          orElse: () => Product(
+            id: '',
+            name: '',
+            price: 0,
+            stock: 0,
+            category: '',
+          ),
+        );
+        if (prod.id.isEmpty) continue;
+
+        final newStock =
+            (prod.stock - item.quantity) < 0 ? 0 : (prod.stock - item.quantity);
+        final updated = Product(
+          id: prod.id,
+          name: prod.name,
+          price: prod.price,
+          cost: prod.cost,
+          wholesalePrice: prod.wholesalePrice,
+          stock: newStock.toDouble(),
+          category: prod.category,
+          imageUrl: prod.imageUrl,
+          barcode: prod.barcode,
+          emoji: prod.emoji,
+          unit: prod.unit,
+          saleUnit: prod.resolvedSaleUnit,
+          saleUnitMultiplier: prod.resolvedSaleUnitMultiplier,
+        );
+        await retail.updateProduct(prod.id, updated);
+      }
+    } catch (e) {
+      debugPrint('[RestaurantPOS] Inventory deduction failed: $e');
+    }
+  }
+
+  Future<void> _chargeOrderToRoom() async {
+    if (_selectedItems.isEmpty || _selectedRoomChargeReservationId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a room and add items first')),
+      );
+      return;
+    }
+
+    final hotelProvider =
+        Provider.of<hotel.HotelProvider>(context, listen: false);
+    final reservation =
+        hotelProvider.getReservationById(_selectedRoomChargeReservationId!);
+    if (reservation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selected room booking could not be found')),
+      );
+      return;
+    }
+
+    final room = hotelProvider.getRoomById(reservation.roomId);
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final business = Provider.of<BusinessProvider>(context, listen: false)
+        .currentBusiness;
+    final businessId = business?.id ?? auth.currentUser?.businessId ?? 'unknown';
+
+    _taxRate = (double.tryParse(_taxRateController.text) ?? 0) / 100;
+    _discount = double.tryParse(_discountController.text) ?? 0;
+
+    final tax = _subtotal * _taxRate;
+    final total = _subtotal + tax - _discount;
+    final order = RestaurantOrder(
+      id: 'order_${DateTime.now().millisecondsSinceEpoch}',
+      businessId: businessId,
+      customerName: reservation.guestName,
+      customerEmail: reservation.guestEmail,
+      customerPhone: reservation.guestPhone,
+      items: _selectedItems.toList(),
+      subtotal: _subtotal,
+      tax: tax,
+      discount: _discount,
+      total: total,
+      status: 'completed',
+      paymentStatus: 'room_charge',
+      paymentMethods: const ['room_charge'],
+      paymentBreakdown: const [],
+      orderType: 'room-service',
+      notes:
+          'Charged to Room ${room?.number ?? reservation.roomId} for reservation ${reservation.id}',
+    );
+
+    try {
+      await context.read<RestaurantProvider>().createOrder(order);
+      await hotelProvider.addReservationCharge(
+        reservationId: reservation.id,
+        description:
+            'Room service order (${_selectedItems.length} item${_selectedItems.length == 1 ? '' : 's'})',
+        amount: total,
+        category: 'room_service',
+        source: 'restaurant_room_service',
+        sourceOrderId: order.id,
+        createdById: auth.currentUser?.id,
+        createdByName: auth.currentUser?.fullName,
+        metadata: {
+          'restaurantOrderId': order.id,
+          'items': _selectedItems
+              .map(
+                (item) => {
+                  'name': item.menuItemName,
+                  'quantity': item.quantity,
+                  'total': item.subtotal,
+                },
+              )
+              .toList(),
+        },
+      );
+      await _deductInventoryForItems(_selectedItems);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Order charged to Room ${room?.number ?? reservation.roomId} for hotel checkout',
+          ),
+          backgroundColor: AppColors.success,
+        ),
+      );
+
+      _selectedItems.clear();
+      _selectedRoomChargeReservationId = null;
+      _selectedRoomChargeLabel = null;
+      _updateSubtotal();
+      setState(() {});
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to charge order to room: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
   }
 
   Future<void> _payAndCompleteOrder() async {
@@ -511,11 +683,15 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                   name: prod.name,
                   price: prod.price,
                   cost: prod.cost,
+                  wholesalePrice: prod.wholesalePrice,
                   stock: newStock.toDouble() ,
                   category: prod.category,
                   imageUrl: prod.imageUrl,
                   barcode: prod.barcode,
                   emoji: prod.emoji,
+                  unit: prod.unit,
+                  saleUnit: prod.resolvedSaleUnit,
+                  saleUnitMultiplier: prod.resolvedSaleUnitMultiplier,
                 );
                 await retail.updateProduct(prod.id, updated);
               }
@@ -1043,6 +1219,18 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     ),
                     const SizedBox(height: 8),
                     AsyncCustomButton(
+                      text: 'Charge To Room',
+                      backgroundColor: Colors.deepPurple,
+                      onPressed: (_selectedItems.isNotEmpty &&
+                              _selectedRoomChargeReservationId != null)
+                          ? () async {
+                              await _chargeOrderToRoom();
+                              if (mounted) Navigator.pop(context);
+                            }
+                          : null,
+                    ),
+                    const SizedBox(height: 8),
+                    AsyncCustomButton(
                       text: 'Confirm',
                       backgroundColor: AppColors.primary,
                       onPressed: _selectedItems.isNotEmpty
@@ -1112,6 +1300,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         businessPhone: business?.phone,
         businessEmail: business?.email,
         cashierName: auth.currentUser?.fullName,
+        businessLogoUrl: business?.logoUrl,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
       );
 
       final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
@@ -1376,6 +1567,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       ),
       body: Consumer<RestaurantProvider>(
         builder: (context, provider, _) {
+          final hotelProvider = context.watch<hotel.HotelProvider>();
+          final roomChargeReservations = hotelProvider.checkedInReservations
+            ..sort((a, b) => a.checkOut.compareTo(b.checkOut));
           return LayoutBuilder(builder: (context, constraints) {
               final isSmall = constraints.maxWidth < 800;
               return Flex(
@@ -1390,6 +1584,76 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (roomChargeReservations.isNotEmpty) ...[
+                          const Text(
+                            'Charge To Room',
+                            style: AppTextStyles.heading3,
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: roomChargeReservations.map((reservation) {
+                              final room = hotelProvider.getRoomById(
+                                reservation.roomId,
+                              );
+                              final roomLabel =
+                                  'Room ${room?.number ?? reservation.roomId}';
+                              final isSelected =
+                                  _selectedRoomChargeReservationId ==
+                                      reservation.id;
+                              return GestureDetector(
+                                onTap: () => _selectRoomCharge(
+                                  reservation,
+                                  roomLabel,
+                                ),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? Colors.deepPurple
+                                        : AppColors.surface,
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? Colors.deepPurple
+                                          : AppColors.border,
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        roomLabel,
+                                        style: AppTextStyles.body1.copyWith(
+                                          color: isSelected
+                                              ? Colors.white
+                                              : AppColors.textPrimary,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      Text(
+                                        reservation.guestName,
+                                        style: AppTextStyles.caption.copyWith(
+                                          color: isSelected
+                                              ? Colors.white70
+                                              : AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+
                         // Table Selection
                         const Text('Select Table',
                             style: AppTextStyles.heading3),
@@ -1397,15 +1661,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
-                          children: provider.getAvailableTables().map((table) {
+                          children: provider.getSelectableTables().map((table) {
                             final isSelected = _selectedTableId == table.id;
                             return GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _selectedTableId = table.id;
-                                  _selectedTableNumber = table.tableNumber;
-                                });
-                              },
+                              onTap: () => _selectTable(table),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 16, vertical: 12),
@@ -1438,6 +1697,17 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                         color: isSelected
                                             ? Colors.white70
                                             : AppColors.textSecondary,
+                                      ),
+                                    ),
+                                    Text(
+                                      table.status.toUpperCase(),
+                                      style: AppTextStyles.caption.copyWith(
+                                        color: isSelected
+                                            ? Colors.white70
+                                            : (table.status == 'occupied'
+                                                ? Colors.orange
+                                                : AppColors.textSecondary),
+                                        fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   ],
@@ -1624,7 +1894,16 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                               padding: const EdgeInsets.only(top: 6, bottom: 6),
                                               child: Column(
                                                 crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: item.selectedOptions.map((opt) => Text('${opt['optionName']}: ${opt['choiceName'] ?? ''}${(opt['price'] as double) != 0.0 ? ' (+\$${(opt['price'] as double).toStringAsFixed(2)})' : ''}', style: AppTextStyles.caption)).toList(),
+                                                children: item.selectedOptions.map((opt) {
+                                                  final optionPrice =
+                                                      (opt['price'] as num?)
+                                                              ?.toDouble() ??
+                                                          0.0;
+                                                  return Text(
+                                                    '${opt['optionName']}: ${opt['choiceName'] ?? ''}${optionPrice != 0.0 ? ' (+${formatCurrency(optionPrice)})' : ''}',
+                                                    style: AppTextStyles.caption,
+                                                  );
+                                                }).toList(),
                                               ),
                                             ),
                                           const SizedBox(height: 4),
@@ -1633,7 +1912,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                                 MainAxisAlignment.spaceBetween,
                                             children: [
                                               Text(
-                                                '\$${item.subtotal.toStringAsFixed(2)}',
+                                                formatCurrency(item.subtotal),
                                                 style: AppTextStyles.caption
                                                     .copyWith(
                                                         color:
@@ -1793,6 +2072,15 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                   ),
                                 ),
                               ],
+                            ),
+                            const SizedBox(height: 8),
+                            AsyncCustomButton(
+                              text: 'Charge To Room',
+                              backgroundColor: Colors.deepPurple,
+                              onPressed: (_selectedItems.isNotEmpty &&
+                                      _selectedRoomChargeReservationId != null)
+                                  ? () async => await _chargeOrderToRoom()
+                                  : null,
                             ),
                           ],
                         ),
@@ -2066,7 +2354,7 @@ class _CustomerReceipt extends StatelessWidget {
                             style: AppTextStyles.body1,
                           ),
                           Text(
-                            '\$${item.price.toStringAsFixed(2)} each',
+                            '${formatCurrency(item.price)} each',
                             style: AppTextStyles.caption
                                 .copyWith(color: AppColors.textSecondary),
                           ),
@@ -2074,7 +2362,7 @@ class _CustomerReceipt extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '\$${item.subtotal.toStringAsFixed(2)}',
+                      formatCurrency(item.subtotal),
                       style: AppTextStyles.body1
                           .copyWith(fontWeight: FontWeight.w600),
                     ),
@@ -2092,7 +2380,7 @@ class _CustomerReceipt extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Subtotal', style: AppTextStyles.body2),
-                Text('\$${subtotal.toStringAsFixed(2)}',
+                Text(formatCurrency(subtotal),
                     style: AppTextStyles.body2),
               ],
             ),
@@ -2103,7 +2391,7 @@ class _CustomerReceipt extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Tax', style: AppTextStyles.body2),
-                Text('\$${tax.toStringAsFixed(2)}', style: AppTextStyles.body2),
+                Text(formatCurrency(tax), style: AppTextStyles.body2),
               ],
             ),
           ),
@@ -2114,7 +2402,7 @@ class _CustomerReceipt extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Discount', style: AppTextStyles.body2),
-                  Text('-\$${discount.toStringAsFixed(2)}',
+                  Text('-${formatCurrency(discount)}',
                       style: AppTextStyles.body2
                           .copyWith(color: AppColors.success)),
                 ],
@@ -2129,7 +2417,7 @@ class _CustomerReceipt extends StatelessWidget {
                 Text('TOTAL',
                     style: AppTextStyles.heading3
                         .copyWith(fontWeight: FontWeight.bold)),
-                Text('\$${total.toStringAsFixed(2)}',
+                Text(formatCurrency(total),
                     style: AppTextStyles.heading3
                         .copyWith(fontWeight: FontWeight.bold)),
               ],

@@ -127,6 +127,7 @@ class BackgroundSubscriptionChecker {
       final subscriptionTier = SubscriptionService.normalizeStoredPlanLevel(
         subscriptionTier: data['subscriptionTier'] as String?,
         subscriptionPlan: data['subscriptionPlan'] as String?,
+        businessClass: data['businessClass'] as String?,
       );
       final isSubscriptionActive =
           data['isSubscriptionActive'] as bool? ?? false;
@@ -266,7 +267,9 @@ class BackgroundSubscriptionChecker {
         country: cachedBusiness.country,
         postalCode: cachedBusiness.postalCode,
         location: cachedBusiness.location,
-        subscriptionTier: subscriptionTier,        businessClass: cachedBusiness.businessClass,        isSubscriptionActive: isSubscriptionActive,
+        subscriptionTier: subscriptionTier,
+        businessClass: cachedBusiness.businessClass,
+        isSubscriptionActive: isSubscriptionActive,
         subscriptionStartDate: cachedBusiness.subscriptionStartDate,
         subscriptionEndDate: subscriptionEndDate != null
             ? parseTimestamp(subscriptionEndDate)
@@ -313,14 +316,20 @@ class BackgroundSubscriptionChecker {
       final tier = SubscriptionService.normalizeStoredPlanLevel(
         subscriptionTier: business.subscriptionTier,
         subscriptionPlan: business.subscriptionPlan,
-      );
-      final businessClass = SubscriptionService.normalizeStoredBusinessClass(
         businessClass: business.businessClass,
-        subscriptionPlan: business.subscriptionPlan,
       );
-      final tierResult = _checkFeatureForTier(tier, businessClass, feature);
-      final hasAccess = tierResult['ok'] as bool;
-      final reason = tierResult['message'] as String?;
+      final hasAccess = SubscriptionService.hasFeatureAccess(
+        businessType: business.businessType,
+        tierId: tier,
+        feature: feature,
+      );
+      final requiredTier = SubscriptionService.getRequiredTierForFeature(
+        feature,
+        businessType: business.businessType,
+      );
+      final reason = hasAccess || requiredTier == null
+          ? null
+          : 'Requires ${requiredTier.toUpperCase()} or higher';
 
       if (!hasAccess) {
         final message = reason ?? 'Feature not available in your subscription tier';
@@ -345,6 +354,7 @@ class BackgroundSubscriptionChecker {
     final normalizedTier = SubscriptionService.normalizeStoredPlanLevel(
       subscriptionTier: business.subscriptionTier,
       subscriptionPlan: business.subscriptionPlan,
+      businessClass: business.businessClass,
     );
 
     return SubscriptionStatus(
@@ -409,78 +419,6 @@ class BackgroundSubscriptionChecker {
   int? _getDaysUntilExpiration(BusinessModel business) {
     if (business.subscriptionEndDate == null) return null;
     return business.subscriptionEndDate!.difference(DateTime.now()).inDays;
-  }
-
-  Map<String, dynamic> _checkFeatureForTier(
-    String tier,
-    String businessClass,
-    String feature,
-  ) {
-    final normalizedTier = tier.toLowerCase();
-    final normalizedBusinessClass = businessClass.toLowerCase();
-
-    switch (feature) {
-      // Free tier features
-      case 'basic_sales':
-      case 'product_management':
-      case 'basic_reports':
-        return {'ok': true, 'message': null};
-
-      // Basic/Pro features
-      case 'unlimited_workers':
-      case 'advanced_analytics':
-      case 'email_receipts':
-      case 'sms_notifications':
-        if (normalizedTier == 'basic' ||
-            normalizedTier == 'pro' ||
-            normalizedTier == 'professional' ||
-            normalizedTier == 'enterprise' ||
-            normalizedTier == 'tier3') {
-          return {'ok': true, 'message': null};
-        }
-        return {'ok': false, 'message': 'Available in Basic tier and above'};
-
-      // Pro features
-      case 'multi_location':
-        if (normalizedBusinessClass == 'tier3') {
-          return {'ok': true, 'message': null};
-        }
-        return {
-          'ok': normalizedTier == 'pro' || normalizedTier == 'professional',
-          'message': normalizedTier == 'pro' || normalizedTier == 'professional'
-              ? null
-              : 'Available in Tier 3 Basic or Pro plans'
-        };
-
-      case 'api_access':
-      case 'payment_processing':
-      case 'custom_reports':
-      case 'priority_support':
-        if (normalizedTier == 'pro' ||
-            normalizedTier == 'professional' ||
-            normalizedTier == 'enterprise' ||
-            normalizedTier == 'tier3') {
-          return {'ok': true, 'message': null};
-        }
-        return {
-          'ok': false,
-          'message': 'Available in Professional tier and above'
-        };
-
-      // Enterprise only
-      case 'white_label':
-      case 'sso_login':
-      case 'dedicated_support':
-      case 'custom_development':
-      case 'api_advanced':
-        if (normalizedTier == 'enterprise' || normalizedTier == 'tier3') {
-          return {'ok': true, 'message': null};
-        }
-        return {'ok': false, 'message': 'Available in Enterprise (Tier3) only'};
-
-      default:
-        return {'ok': true, 'message': null}; // Unknown features default to available
-    }
   }
 
   /// Dispose resources

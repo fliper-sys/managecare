@@ -44,11 +44,11 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
   double _taxRate = 0.0;
 
   // Size metrics for tier detection
-  String _selectedPlanLevel = 'basic';
+  String _selectedPlanLevel = 'tier1';
   final _productCountController = TextEditingController(text: '0');
   final _staffCountController = TextEditingController(text: '0');
   final _monthlyIncomeController = TextEditingController(text: '0');
-  String _computedTier = 'basic';
+  String _computedTier = 'tier1';
   String _selectedBusinessClass = 'tier1';
 
   @override
@@ -57,8 +57,19 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
     final products = int.tryParse(_productCountController.text) ?? 0;
     final staff = int.tryParse(_staffCountController.text) ?? 0;
     final income = double.tryParse(_monthlyIncomeController.text) ?? 0.0;
-    _computedTier = SubscriptionService.detectTier(products: products, staff: staff, monthlyIncome: income);
-    _selectedBusinessClass = SubscriptionService.detectBusinessClass(products: products, staff: staff, monthlyIncome: income);
+    _computedTier = SubscriptionService.detectTier(
+      products: products,
+      staff: staff,
+      monthlyIncome: income,
+      businessType: widget.businessType,
+    );
+    _selectedBusinessClass = SubscriptionService.detectBusinessClass(
+      products: products,
+      staff: staff,
+      monthlyIncome: income,
+      businessType: widget.businessType,
+    );
+    _selectedPlanLevel = _computedTier;
   }
 
   // Apartment-specific config defaults
@@ -203,8 +214,18 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
     final products = int.tryParse(_productCountController.text) ?? 0;
     final staff = int.tryParse(_staffCountController.text) ?? 0;
     final income = double.tryParse(_monthlyIncomeController.text) ?? 0.0;
-    _computedTier = SubscriptionService.detectTier(products: products, staff: staff, monthlyIncome: income);
-    _selectedBusinessClass = SubscriptionService.detectBusinessClass(products: products, staff: staff, monthlyIncome: income);
+    _computedTier = SubscriptionService.detectTier(
+      products: products,
+      staff: staff,
+      monthlyIncome: income,
+      businessType: widget.businessType,
+    );
+    _selectedBusinessClass = SubscriptionService.detectBusinessClass(
+      products: products,
+      staff: staff,
+      monthlyIncome: income,
+      businessType: widget.businessType,
+    );
 
     final business = BusinessModel(
       id: 'bus_${DateTime.now().millisecondsSinceEpoch}',
@@ -306,6 +327,7 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
           'userEmail': authProvider.currentUser!.email,
           'userName': authProvider.currentUser!.fullName,
           'businessId': business.id,
+          'businessType': widget.businessType,
           'businessTier': _computedTier,
           // Pass detected businessClass so subscription screen filters plans
           'businessClass': _selectedBusinessClass,
@@ -796,11 +818,21 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
                                   final products = int.tryParse(v) ?? 0;
                                   final staff = int.tryParse(_staffCountController.text) ?? 0;
                                   final income = double.tryParse(_monthlyIncomeController.text) ?? 0.0;
-                                  final detectedClass = SubscriptionService.detectBusinessClass(products: products, staff: staff, monthlyIncome: income);
+                                  final detectedClass = SubscriptionService.detectBusinessClass(
+                                    products: products,
+                                    staff: staff,
+                                    monthlyIncome: income,
+                                    businessType: widget.businessType,
+                                  );
                                   setState(() {
-                                    _computedTier = SubscriptionService.detectTier(products: products, staff: staff, monthlyIncome: income);
+                                    _computedTier = SubscriptionService.detectTier(
+                                      products: products,
+                                      staff: staff,
+                                      monthlyIncome: income,
+                                      businessType: widget.businessType,
+                                    );
                                     _selectedBusinessClass = detectedClass;
-                                    if (detectedClass == 'tier1') _selectedPlanLevel = 'basic';
+                                    _selectedPlanLevel = detectedClass;
                                   });
                                 },
                               ),
@@ -817,11 +849,21 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
                                   final products = int.tryParse(_productCountController.text) ?? 0;
                                   final staff = int.tryParse(v) ?? 0;
                                   final income = double.tryParse(_monthlyIncomeController.text) ?? 0.0;
-                                  final detectedClass = SubscriptionService.detectBusinessClass(products: products, staff: staff, monthlyIncome: income);
+                                  final detectedClass = SubscriptionService.detectBusinessClass(
+                                    products: products,
+                                    staff: staff,
+                                    monthlyIncome: income,
+                                    businessType: widget.businessType,
+                                  );
                                   setState(() {
-                                    _computedTier = SubscriptionService.detectTier(products: products, staff: staff, monthlyIncome: income);
+                                    _computedTier = SubscriptionService.detectTier(
+                                      products: products,
+                                      staff: staff,
+                                      monthlyIncome: income,
+                                      businessType: widget.businessType,
+                                    );
                                     _selectedBusinessClass = detectedClass;
-                                    if (detectedClass == 'tier1') _selectedPlanLevel = 'basic';
+                                    _selectedPlanLevel = detectedClass;
                                   });
                                 },
                               ),
@@ -839,11 +881,21 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
                             final products = int.tryParse(_productCountController.text) ?? 0;
                             final staff = int.tryParse(_staffCountController.text) ?? 0;
                             final income = double.tryParse(v) ?? 0.0;
-                            final detectedClass = SubscriptionService.detectBusinessClass(products: products, staff: staff, monthlyIncome: income);
+                            final detectedClass = SubscriptionService.detectBusinessClass(
+                              products: products,
+                              staff: staff,
+                              monthlyIncome: income,
+                              businessType: widget.businessType,
+                            );
                             setState(() {
-                              _computedTier = SubscriptionService.detectTier(products: products, staff: staff, monthlyIncome: income);
+                              _computedTier = SubscriptionService.detectTier(
+                                products: products,
+                                staff: staff,
+                                monthlyIncome: income,
+                                businessType: widget.businessType,
+                              );
                               _selectedBusinessClass = detectedClass;
-                              if (detectedClass == 'tier1') _selectedPlanLevel = 'basic';
+                              _selectedPlanLevel = detectedClass;
                             });
                           },
                         ),
@@ -853,14 +905,22 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                               decoration: BoxDecoration(
-                                color: _computedTier == 'enterprise' ? Colors.orange.withOpacity(0.1) : _computedTier == 'pro' ? const Color(0xFF8B5CF6).withOpacity(0.08) : const Color(0xFF3B82F6).withOpacity(0.08),
+                                color: _computedTier == 'tier3'
+                                    ? Colors.orange.withOpacity(0.1)
+                                    : _computedTier == 'tier2'
+                                        ? const Color(0xFF8B5CF6).withOpacity(0.08)
+                                        : const Color(0xFF3B82F6).withOpacity(0.08),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 'Detected Tier: ${_computedTier.toUpperCase()}',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w700,
-                                  color: _computedTier == 'enterprise' ? Colors.orange : _computedTier == 'pro' ? const Color(0xFF8B5CF6) : const Color(0xFF3B82F6),
+                                  color: _computedTier == 'tier3'
+                                      ? Colors.orange
+                                      : _computedTier == 'tier2'
+                                          ? const Color(0xFF8B5CF6)
+                                          : const Color(0xFF3B82F6),
                                 ),
                               ),
                             ),
@@ -887,19 +947,24 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        // Plan level selector (user may choose Basic or Pro within their assigned class)
+                        // Plan level selector (users can choose the current or a higher tier)
                         DropdownButtonFormField<String>(
                           value: _selectedPlanLevel,
                           decoration: const InputDecoration(
                             labelText: 'Plan Level',
                             border: OutlineInputBorder(),
                           ),
-                          items: (_selectedBusinessClass == 'tier1'
-                                  ? ['basic']
-                                  : ['basic', 'pro'])
-                              .map((p) => DropdownMenuItem(value: p, child: Text(p[0].toUpperCase() + p.substring(1))))
+                          items: SubscriptionService.getTierOptionsForBusinessType(widget.businessType)
+                              .where((tier) =>
+                                  SubscriptionService.getTierRank(tier) >=
+                                  SubscriptionService.getTierRank(_selectedBusinessClass))
+                              .map((tier) => DropdownMenuItem(
+                                    value: tier,
+                                    child: Text(tier.toUpperCase()),
+                                  ))
                               .toList(),
-                          onChanged: (_selectedBusinessClass == 'tier1') ? null : (v) => setState(() => _selectedPlanLevel = v ?? 'basic'),
+                          onChanged: (v) =>
+                              setState(() => _selectedPlanLevel = v ?? _selectedBusinessClass),
                         ),
                       ],
                     ),

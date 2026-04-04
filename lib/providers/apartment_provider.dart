@@ -42,6 +42,28 @@ class ApartmentProvider extends ChangeNotifier {
     return id;
   }
 
+  Future<void> updateApartment(
+    String businessId,
+    String apartmentId,
+    Map<String, dynamic> update,
+  ) async {
+    await _repo.updateApartment(
+      businessId: businessId,
+      apartmentId: apartmentId,
+      update: update,
+    );
+    await loadApartments(businessId);
+  }
+
+  Future<void> deleteApartment(String businessId, String apartmentId) async {
+    await _repo.deleteApartment(
+      businessId: businessId,
+      apartmentId: apartmentId,
+    );
+    units.remove(apartmentId);
+    await loadApartments(businessId);
+  }
+
   Future<void> updateUnit(String businessId, String apartmentId, String unitId, Map<String, dynamic> update) async {
     await _repo.updateUnit(businessId: businessId, apartmentId: apartmentId, unitId: unitId, update: update);
     await loadUnits(businessId, apartmentId);

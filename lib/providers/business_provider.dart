@@ -26,6 +26,8 @@ class BusinessProvider with ChangeNotifier {
   DateTime? _lastLoadTime;
   static const Duration _minRefreshInterval = Duration(minutes: 5);
   bool _isLoadingInProgress = false;
+  bool _isSwitchingBusiness = false;
+  String? _pendingBusinessId;
 
   BusinessModel? get currentBusiness => _currentBusiness;
   List<BusinessModel> get userBusinesses => _userBusinesses;
@@ -33,6 +35,8 @@ class BusinessProvider with ChangeNotifier {
   String? get errorMessage => _errorMessage;
   bool get isUsingCachedData => _isUsingCachedData;
   bool get verboseLogging => _verboseLogging;
+  bool get isSwitchingBusiness => _isSwitchingBusiness;
+  String? get pendingBusinessId => _pendingBusinessId;
 
   BusinessProvider({BusinessRepository? repository}) : _repository = repository ?? BusinessRepository() {
     _initializeLocalStorage();
@@ -201,14 +205,14 @@ class BusinessProvider with ChangeNotifier {
         print('[BusinessProvider]   - ${b.id} (${b.businessType}) - ${b.name}');
       }
 
-      // Set the first business as current if available
-      // Normalize loaded businesses: do not allow 'free' tier. Convert to 'basic'
-      // and mark inactive so users are prompted to pay.
+      // Set the first business as current if available.
+      // Normalize loaded businesses: do not allow legacy "free" tier.
+      // Convert to the new paid entry tier and mark inactive so users are prompted to pay.
       for (var i = 0; i < _userBusinesses.length; i++) {
         final b = _userBusinesses[i];
         if (b.subscriptionTier.toLowerCase() == 'free') {
           final updated = b.copyWith(
-              subscriptionTier: 'basic', isSubscriptionActive: false);
+              subscriptionTier: 'tier1', isSubscriptionActive: false);
           _userBusinesses[i] = updated;
           // Persist change so backend reflects new requirement. Best-effort.
           try {
@@ -438,12 +442,12 @@ class BusinessProvider with ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
-      // Prevent updating a business to the 'free' tier. Default to 'basic' and
-      // mark subscription inactive so the user is prompted to complete payment.
+      // Prevent updating a business to the legacy "free" tier.
+      // Default to the new entry tier and mark subscription inactive so the user is prompted to complete payment.
       var toSave = business;
       if (toSave.subscriptionTier.toLowerCase() == 'free') {
         toSave = toSave.copyWith(
-          subscriptionTier: 'basic',
+          subscriptionTier: 'tier1',
           isSubscriptionActive: false,
         );
       }
@@ -479,18 +483,79 @@ class BusinessProvider with ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
+      final deletingBusiness = _userBusinesses.firstWhere(
+        (b) => b.id == businessId,
+        orElse: () => _currentBusiness?.id == businessId
+            ? _currentBusiness!
+            : BusinessModel(
+                id: businessId,
+                name: '',
+                businessType: '',
+                ownerId: '',
+                createdAt: DateTime.now(),
+              ),
+      );
+
       await _repository.deleteBusiness(businessId);
 
       // Remove from cached list
       _userBusinesses.removeWhere((b) => b.id == businessId);
+      final fallbackBusiness =
+          _userBusinesses.isNotEmpty ? _userBusinesses.first : null;
 
       // If it was the current business, select another
       if (_currentBusiness?.id == businessId) {
-        _currentBusiness =
-            _userBusinesses.isNotEmpty ? _userBusinesses.first : null;
-        if (_currentBusiness != null && _localStorage != null) {
-          await _localStorage!.setCurrentBusiness(_currentBusiness!.id);
+        _currentBusiness = fallbackBusiness;
+      }
+
+      if (_localStorage != null) {
+        await _localStorage!.removeBusiness(businessId);
+        if (fallbackBusiness != null) {
+          await _localStorage!.saveBusinessList(_userBusinesses);
+          await _localStorage!.setCurrentBusiness(fallbackBusiness.id);
+          await _localStorage!.saveBusiness(fallbackBusiness);
+        } else {
+          await _localStorage!.clearCurrentBusiness();
+          await _localStorage!.saveBusinessList(_userBusinesses);
         }
+      }
+
+      String? cachedUserId;
+      try {
+        _localUserStorage ??= await LocalUserStorage.create();
+        final cachedUser = _localUserStorage?.getCachedUser();
+        cachedUserId = cachedUser?.id;
+        if (cachedUser != null) {
+          final remainingBusinessIds = cachedUser.businessIds
+              .where((id) => id != businessId)
+              .toList();
+          final fallbackId = fallbackBusiness?.id;
+          final updatedUser = cachedUser.copyWith(
+            businessId: fallbackId ?? '',
+            businessIds: remainingBusinessIds,
+            currentBusinessId: fallbackId,
+            preferredBusinessId: fallbackId,
+            clearCurrentBusinessId: fallbackId == null,
+            clearPreferredBusinessId: fallbackId == null,
+          );
+          await _localUserStorage!.saveUser(updatedUser);
+        }
+      } catch (e) {
+        print('[BusinessProvider] Warning: failed to update local cached user after delete: $e');
+      }
+
+      final ownerId = deletingBusiness.ownerId.isNotEmpty
+          ? deletingBusiness.ownerId
+          : (cachedUserId ?? '');
+      if (ownerId.isNotEmpty) {
+        final fallbackId = fallbackBusiness?.id;
+        await FirebaseFirestore.instance.collection('users').doc(ownerId).set({
+          'businessIds': _userBusinesses.map((b) => b.id).toList(),
+          'businessId': fallbackId ?? '',
+          'currentBusinessId': fallbackId,
+          'preferredBusinessId': fallbackId,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       }
 
       _isLoading = false;
@@ -534,6 +599,96 @@ class BusinessProvider with ChangeNotifier {
       print('[BusinessProvider] markUserSelection: $userId (protecting explicit selection)');
     } catch (e) {
       print('[BusinessProvider] markUserSelection error: $e');
+    }
+  }
+
+  void _upsertUserBusiness(BusinessModel business) {
+    final idx = _userBusinesses.indexWhere((item) => item.id == business.id);
+    if (idx == -1) {
+      _userBusinesses.insert(0, business);
+    } else {
+      _userBusinesses[idx] = business;
+    }
+    _dedupeUserBusinesses();
+  }
+
+  Future<void> _persistBusinessSelectionForUser(
+    String userId,
+    BusinessModel business,
+  ) async {
+    final firestore = FirebaseFirestore.instance;
+    try {
+      await firestore.collection('users').doc(userId).update({
+        'preferredBusinessId': business.id,
+        'currentBusinessId': business.id,
+        'businessIds': FieldValue.arrayUnion([business.id]),
+      }).timeout(const Duration(seconds: 10));
+    } catch (e) {
+      print('[BusinessProvider] Error saving user preference to Firestore: $e');
+      _errorMessage = 'Failed to save business preference: $e';
+    }
+
+    try {
+      final localUserStorage = await LocalUserStorage.create();
+      await localUserStorage.updateCachedUser(
+        businessId: business.id,
+        businessIds: [business.id],
+        currentBusinessId: business.id,
+      );
+    } catch (e) {
+      print('[BusinessProvider] Warning: failed to update local cached user: $e');
+    }
+  }
+
+  Future<BusinessModel> switchToBusinessAndSync({
+    required String userId,
+    required BusinessModel selectedBusiness,
+  }) async {
+    final selectedId = selectedBusiness.id;
+    final isDifferentBusiness = _currentBusiness?.id != selectedId;
+
+    _pendingBusinessId = selectedId;
+    _isSwitchingBusiness = true;
+    _errorMessage = null;
+    _loadedForUserId = userId;
+
+    if (isDifferentBusiness) {
+      _currentBusiness = selectedBusiness;
+      _upsertUserBusiness(selectedBusiness);
+    }
+
+    notifyListeners();
+
+    try {
+      if (_localStorage != null) {
+        await _localStorage!.setCurrentBusiness(selectedId);
+        await _localStorage!.saveBusiness(selectedBusiness);
+      }
+
+      final freshBusiness =
+          await _repository.getBusinessById(selectedId) ?? selectedBusiness;
+
+      _currentBusiness = freshBusiness;
+      _upsertUserBusiness(freshBusiness);
+
+      if (_localStorage != null) {
+        await _localStorage!.setCurrentBusiness(freshBusiness.id);
+        await _localStorage!.saveBusiness(freshBusiness);
+      }
+
+      await _persistBusinessSelectionForUser(userId, freshBusiness);
+      _refreshBusinessStats(freshBusiness.id);
+      return freshBusiness;
+    } catch (e) {
+      _errorMessage = 'Failed to switch business: $e';
+      print('[BusinessProvider] switchToBusinessAndSync failed: $e');
+      _currentBusiness = selectedBusiness;
+      _upsertUserBusiness(selectedBusiness);
+      return selectedBusiness;
+    } finally {
+      _pendingBusinessId = null;
+      _isSwitchingBusiness = false;
+      notifyListeners();
     }
   }
 
@@ -623,16 +778,8 @@ class BusinessProvider with ChangeNotifier {
         }
 
         // If a placeholder for this business exists in the list, replace it so UI reflects real data.
-        final existingIdx = _userBusinesses.indexWhere((x) => x.id == b.id);
-        if (existingIdx != -1) {
-          _userBusinesses[existingIdx] = b;
-          print('[BusinessProvider.loadBusinessById] Replaced placeholder/entry for business id: ${b.id}');
-        } else {
-          _userBusinesses.insert(0, b);
-        }
-
-        // Deduplicate to avoid duplicates caused by concurrent loads
-        _dedupeUserBusinesses();
+        _upsertUserBusiness(b);
+        print('[BusinessProvider.loadBusinessById] Replaced placeholder/entry for business id: ${b.id}');
 
         // Cache current business selection
         if (_localStorage != null) {
@@ -912,10 +1059,11 @@ class BusinessProvider with ChangeNotifier {
   }
 
   String _normalizeSubscriptionTier(BusinessModel? business) {
-    if (business == null) return 'basic';
+    if (business == null) return 'tier1';
     return SubscriptionService.normalizeStoredPlanLevel(
       subscriptionTier: business.subscriptionTier,
       subscriptionPlan: business.subscriptionPlan,
+      businessClass: business.businessClass,
     );
   }
 
@@ -924,75 +1072,49 @@ class BusinessProvider with ChangeNotifier {
     return SubscriptionService.normalizeStoredBusinessClass(
       businessClass: business.businessClass,
       subscriptionPlan: business.subscriptionPlan,
+      subscriptionTier: business.subscriptionTier,
     );
   }
 
   int? getLimitFor(String limitType) {
     if (_currentBusiness == null) return null;
+    return SubscriptionService.getLimitForBusinessType(
+      businessType: _currentBusiness!.businessType,
+      tierId: normalizedSubscriptionTier,
+      limitType: limitType,
+    );
+  }
 
-    final tier = normalizedSubscriptionTier;
-    final businessClass = normalizedBusinessClass;
-
+  String getLimitDisplayName(String limitType) {
     switch (limitType) {
       case 'workers':
-        if (tier == 'pro') {
-          if (businessClass == 'tier2') return 50;
-          if (businessClass == 'tier3') return null;
-          return 5;
-        }
-        switch (businessClass) {
-          case 'tier2':
-            return 10;
-          case 'tier3':
-            return 100;
-          case 'tier1':
-          default:
-            return 5;
-        }
-
+        return 'workers';
       case 'products':
-        switch (businessClass) {
-          case 'tier2':
-            return 1000;
-          case 'tier3':
-            return null;
-          case 'tier1':
-          default:
-            return 400;
-        }
-
+        return 'products';
+      case 'inventory_products':
+        return 'inventory items';
+      case 'menu_items':
+        return 'menu items';
+      case 'tables':
+        return 'tables';
+      case 'restaurant_tables':
+        return 'restaurant tables';
+      case 'bar_tables':
+        return 'bar tables';
+      case 'rooms':
+        return 'rooms';
+      case 'suites':
+        return 'suites';
       case 'monthly_transactions':
-        switch (businessClass) {
-          case 'tier2':
-            return 5000;
-          case 'tier3':
-            return null;
-          case 'tier1':
-          default:
-            return 1000;
-        }
-
+        return 'monthly transactions';
       default:
-        return null;
+        return limitType.replaceAll('_', ' ');
     }
   }
 
   String getLimitReachedMessage(String limitType) {
     final limit = getLimitFor(limitType);
-    String noun;
-    switch (limitType) {
-      case 'workers':
-        noun = 'workers';
-        break;
-      case 'products':
-        noun = 'products';
-        break;
-      case 'monthly_transactions':
-        noun = 'monthly transactions';
-        break;
-      default:
-        noun = limitType;
-    }
+    final noun = getLimitDisplayName(limitType);
     final tier = normalizedSubscriptionTier.toUpperCase();
     final businessClassLabel = normalizedBusinessClass.toUpperCase();
 
@@ -1001,6 +1123,36 @@ class BusinessProvider with ChangeNotifier {
     }
 
     return 'Your $businessClassLabel $tier plan allows up to $limit $noun. Upgrade before adding more.';
+  }
+
+  String getSubscriptionBlockedMessage({String? feature}) {
+    if (_currentBusiness == null) {
+      return 'No active business is selected. Switch to a business before continuing.';
+    }
+
+    if (!_currentBusiness!.isSubscriptionActive) {
+      return 'The current business subscription is inactive. Activate or renew this business plan to continue.';
+    }
+
+    final end = _currentBusiness!.subscriptionEndDate;
+    if (end != null && DateTime.now().isAfter(end)) {
+      final formattedDate =
+          '${end.day.toString().padLeft(2, '0')}/${end.month.toString().padLeft(2, '0')}/${end.year}';
+      return 'The current business subscription expired on $formattedDate. Renew this business plan to continue.';
+    }
+
+    final requiredTier = feature == null
+        ? null
+        : SubscriptionService.getRequiredTierForFeature(
+            feature,
+            businessType: _currentBusiness!.businessType,
+          );
+
+    if (requiredTier != null) {
+      return 'This action is available in ${requiredTier.toUpperCase()} and above for this business type.';
+    }
+
+    return 'This action is not available in the current business subscription.';
   }
 
   /// Check if feature is available in current subscription tier
@@ -1017,24 +1169,11 @@ class BusinessProvider with ChangeNotifier {
 
     if (_currentBusiness == null) return false;
 
-    final tier = normalizedSubscriptionTier;
-    final businessClass = normalizedBusinessClass;
-
-    // Define feature access based on subscription tier
-    switch (feature) {
-      case 'unlimited_workers':
-        return tier == 'basic' || tier == 'pro';
-      case 'advanced_analytics':
-        return tier == 'basic' || tier == 'pro';
-      case 'multi_location':
-        return tier == 'pro' || businessClass == 'tier3';
-      case 'api_access':
-        return tier == 'pro';
-      case 'priority_support':
-        return tier == 'pro';
-      default:
-        return true; // Basic features available to all
-    }
+    return SubscriptionService.hasFeatureAccess(
+      businessType: _currentBusiness!.businessType,
+      tierId: normalizedSubscriptionTier,
+      feature: feature,
+    );
   }
 
   /// Enhanced feature access check with subscription validation
@@ -1071,57 +1210,27 @@ class BusinessProvider with ChangeNotifier {
       return {'ok': false, 'message': 'Subscription inactive'};
     }
 
-    // Check tier-based access
-    final tier = normalizedSubscriptionTier;
-    final businessClass = normalizedBusinessClass;
-    switch (feature) {
-      case 'unlimited_workers':
-      case 'advanced_analytics':
-      case 'email_receipts':
-      case 'sms_notifications':
-        if (!(tier == 'basic' || tier == 'pro')) {
-          return {
-            'ok': false,
-            'message': 'Feature available in Basic tier and above'
-          };
-        }
-        return {'ok': true, 'message': null};
-
-      case 'multi_location':
-        if (tier == 'pro' || businessClass == 'tier3') {
-          return {'ok': true, 'message': null};
-        }
-        return {
-          'ok': false,
-          'message': 'Feature available in Tier 3 Basic or Pro plans'
-        };
-
-      case 'api_access':
-      case 'payment_processing':
-      case 'custom_reports':
-      case 'priority_support':
-        if (tier != 'pro') {
-          return {
-            'ok': false,
-            'message': 'Feature available in Pro plans'
-          };
-        }
-        return {'ok': true, 'message': null};
-
-      case 'white_label':
-      case 'sso_login':
-      case 'dedicated_support':
-        if (!(tier == 'pro' && businessClass == 'tier3')) {
-          return {
-            'ok': false,
-            'message': 'Feature available in Tier 3 Pro plans only'
-          };
-        }
-        return {'ok': true, 'message': null};
-
-      default:
-        return {'ok': true, 'message': null}; // Basic features available to all
+    final hasAccess = SubscriptionService.hasFeatureAccess(
+      businessType: _currentBusiness!.businessType,
+      tierId: normalizedSubscriptionTier,
+      feature: feature,
+    );
+    if (hasAccess) {
+      return {'ok': true, 'message': null};
     }
+
+    final requiredTier = SubscriptionService.getRequiredTierForFeature(
+      feature,
+      businessType: _currentBusiness!.businessType,
+    );
+    if (requiredTier == null) {
+      return {'ok': false, 'message': 'Feature not available in this plan'};
+    }
+    return {
+      'ok': false,
+      'message':
+          'Feature available in ${requiredTier.toUpperCase()} and above for this business type',
+    };
   }
 
   bool isWithinLimit(String limitType, int currentCount) {
@@ -1208,6 +1317,8 @@ class BusinessProvider with ChangeNotifier {
         return '/barbershop';
       case 'gym':
         return '/gym';
+      case 'apartment':
+        return '/apartment';
       default:
         return null;
     }
@@ -1229,13 +1340,10 @@ class BusinessProvider with ChangeNotifier {
     return DateTime.now().isAfter(end);
   }
 
-  /// Returns true when the business has a valid paid subscription (professional or enterprise)
+  /// Returns true when the business has a valid paid subscription.
   bool isSubscriptionValid() {
     final b = _currentBusiness;
     if (b == null) return false;
-    final tier = _normalizeSubscriptionTier(b);
-
-    if (!(tier == 'basic' || tier == 'pro')) return false;
     if (!b.isSubscriptionActive) return false;
     final end = b.subscriptionEndDate;
     if (end != null && DateTime.now().isAfter(end)) return false;

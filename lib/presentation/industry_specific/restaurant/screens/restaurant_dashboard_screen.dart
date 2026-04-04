@@ -1,40 +1,62 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
-import '../../../../core/constants/routes.dart';
-import '../providers/restaurant_provider.dart';
-import '../../../../providers/auth_provider.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../services/email_service.dart';
+import '../providers/restaurant_provider.dart';
 
 class RestaurantDashboardScreen extends StatelessWidget {
   const RestaurantDashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor:
+          isDark ? const Color(0xFF0F1724) : const Color(0xFFF6F7FB),
       appBar: AppBar(
-        title: const Text('Restaurant Overview', style: TextStyle(color: Colors.black87)),
-        backgroundColor: Colors.white,
+        title: Text(
+          'Restaurant Overview',
+          style: TextStyle(color: theme.colorScheme.onSurface),
+        ),
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
         actions: [
           IconButton(
-            icon: Icon(Icons.people_outline, color: Colors.grey[800]),
+            icon: Icon(
+              Icons.people_outline,
+              color: theme.colorScheme.onSurface,
+            ),
             tooltip: 'Manage Workers',
             onPressed: () => Navigator.pushNamed(context, Routes.workers),
           ),
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.grey),
+            icon: Icon(
+              Icons.logout,
+              color: theme.colorScheme.onSurface.withOpacity(0.7),
+            ),
             tooltip: 'Logout',
             onPressed: () async {
               try {
                 await context.read<AuthProvider>().logout();
-                if (context.mounted) Navigator.of(context).pushReplacementNamed(Routes.login);
+                if (context.mounted) {
+                  Navigator.of(context).pushReplacementNamed(Routes.login);
+                }
               } catch (e) {
-                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Logout failed: $e')));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Logout failed: $e')),
+                  );
+                }
               }
             },
           ),
@@ -43,316 +65,458 @@ class RestaurantDashboardScreen extends StatelessWidget {
       ),
       body: Consumer<RestaurantProvider>(
         builder: (context, provider, _) {
-          // --- Calculations ---
-          final pendingOrders = provider.orders.where((o) => o.status == 'pending').length;
-          final completedOrders = provider.orders.where((o) => o.status == 'completed').toList();
+          final pendingOrders =
+              provider.orders.where((o) => o.status == 'pending').length;
+          final completedOrders =
+              provider.orders.where((o) => o.status == 'completed').toList();
           final totalOrders = provider.orders.length;
-          final occupiedTables = provider.tables.where((t) => t.status == 'occupied').length;
-          
+          final occupiedTables =
+              provider.tables.where((t) => t.status == 'occupied').length;
           final avgOrderValue = completedOrders.isNotEmpty
-              ? completedOrders.fold<double>(0, (sum, order) => sum + order.total) / completedOrders.length
+              ? completedOrders.fold<double>(
+                    0,
+                    (sum, order) => sum + order.total,
+                  ) /
+                  completedOrders.length
               : 0.0;
 
-          // Low stock logic
           const lowThreshold = 5;
           final lowStockItems = provider.menuItems
-              .where((m) => m.inventoryStock != null && m.inventoryStock! <= lowThreshold)
+              .where(
+                (m) => m.inventoryStock != null && m.inventoryStock! <= lowThreshold,
+              )
               .toList();
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 1. Status Overview
-                const Text('Live Status', style: AppTextStyles.heading5),
-                const SizedBox(height: 12),
-                
-                Row(
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final statusCardWidth = constraints.maxWidth < 720
+                  ? constraints.maxWidth
+                  : ((constraints.maxWidth - 12) / 2);
+              final actionTileWidth = constraints.maxWidth < 900
+                  ? constraints.maxWidth
+                  : ((constraints.maxWidth - 12) / 2);
+              final summaryCardWidth = constraints.maxWidth < 560
+                  ? constraints.maxWidth
+                  : ((constraints.maxWidth - 24) / 3);
+
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: _LiveStatusCard(
-                        title: 'Pending Orders',
-                        value: '$pendingOrders',
-                        icon: Icons.notifications_active,
-                        color: Colors.orange,
-                        isUrgent: pendingOrders > 0,
-                      ),
+                    const Text('Live Status', style: AppTextStyles.heading5),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        SizedBox(
+                          width: statusCardWidth,
+                          child: _LiveStatusCard(
+                            title: 'Pending Orders',
+                            value: '$pendingOrders',
+                            icon: Icons.notifications_active,
+                            color: Colors.orange,
+                            isUrgent: pendingOrders > 0,
+                          ),
+                        ),
+                        SizedBox(
+                          width: statusCardWidth,
+                          child: _LiveStatusCard(
+                            title: 'Active Tables',
+                            value: '$occupiedTables',
+                            icon: Icons.table_restaurant,
+                            color: Colors.blue,
+                          ),
+                        ),
+                        SizedBox(
+                          width: statusCardWidth,
+                          child: _LiveStatusCard(
+                            title: 'Total Orders',
+                            value: '$totalOrders',
+                            icon: Icons.receipt_long,
+                            color: Colors.green,
+                            isSecondary: true,
+                          ),
+                        ),
+                        SizedBox(
+                          width: statusCardWidth,
+                          child: _LiveStatusCard(
+                            title: 'Avg. Value',
+                            value: formatCurrency(avgOrderValue),
+                            icon: Icons.analytics,
+                            color: Colors.purple,
+                            isSecondary: true,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _LiveStatusCard(
-                        title: 'Active Tables',
-                        value: '$occupiedTables',
-                        icon: Icons.table_restaurant,
-                        color: Colors.blue,
-                      ),
+                    const SizedBox(height: 24),
+                    const Text('Management', style: AppTextStyles.heading5),
+                    const SizedBox(height: 12),
+                    Builder(
+                      builder: (context) {
+                        final auth = Provider.of<AuthProvider>(context);
+                        final role = auth.currentUser?.role ?? '';
+                        final actions = <Widget>[];
+
+                        if (auth.isOwnerUser ||
+                            WorkerPermissions.hasPermission(role, 'manage_menu') ||
+                            WorkerPermissions.canManageStaff(role)) {
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.kitchen,
+                              color: Colors.redAccent,
+                              label: 'Kitchen Display',
+                              subtitle: 'View active tickets',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.restaurantKitchen,
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (auth.isOwnerUser ||
+                            WorkerPermissions.hasPermission(role, 'view_orders') ||
+                            WorkerPermissions.canManageSales(role)) {
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.menu_book,
+                              color: AppColors.primary,
+                              label: 'View Menu',
+                              subtitle: 'Browse current items',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.restaurantMenu,
+                              ),
+                            ),
+                          );
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.post_add,
+                              color: Colors.deepPurple,
+                              label: 'Add Menu Item',
+                              subtitle: 'Register meals and combos',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.restaurantManageMenu,
+                                arguments: {'openAdd': true},
+                              ),
+                            ),
+                          );
+                        }
+
+                        actions.add(
+                          _ActionTile(
+                            icon: Icons.print,
+                            color: Colors.teal,
+                            label: 'Printer Settings',
+                            subtitle: 'Configure printers',
+                            onTap: () => Navigator.pushNamed(
+                              context,
+                              Routes.printerSettings,
+                            ),
+                          ),
+                        );
+
+                        if (auth.isOwnerUser ||
+                            WorkerPermissions.hasPermission(role, 'view_orders') ||
+                            WorkerPermissions.canManageSales(role)) {
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.receipt_long,
+                              color: Colors.green,
+                              label: 'Orders',
+                              subtitle: 'View and manage orders',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.restaurantOrders,
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (auth.isOwnerUser ||
+                            WorkerPermissions.canManageStaff(role) ||
+                            WorkerPermissions.canManageSales(role)) {
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.table_restaurant,
+                              color: Colors.brown,
+                              label: 'Tables',
+                              subtitle: 'Manage table seating',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.restaurantTables,
+                              ),
+                            ),
+                          );
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.add_business,
+                              color: Colors.blueGrey,
+                              label: 'Register Table',
+                              subtitle: 'Add a new table size/setup',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.restaurantTables,
+                                arguments: {'openAdd': true},
+                              ),
+                            ),
+                          );
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.inventory_2_outlined,
+                              color: Colors.teal,
+                              label: 'Restaurant Stock',
+                              subtitle: 'Track stock and spoilage',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.restaurantStock,
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (auth.isOwnerUser ||
+                            WorkerPermissions.hasPermission(role, 'bookings')) {
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.event,
+                              color: Colors.indigo,
+                              label: 'Reservations',
+                              subtitle: 'View bookings',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.restaurantReservations,
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (auth.isOwnerUser ||
+                            WorkerPermissions.hasPermission(role, 'sales') ||
+                            WorkerPermissions.hasPermission(role, 'manage_menu')) {
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.delivery_dining,
+                              color: Colors.cyan,
+                              label: 'Delivery',
+                              subtitle: 'Manage deliveries',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.restaurantDelivery,
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (auth.isOwnerUser ||
+                            WorkerPermissions.canManageStaff(role)) {
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.person,
+                              color: Colors.deepOrange,
+                              label: 'Staff',
+                              subtitle: 'Manage waiters',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.restaurantWaiters,
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (auth.isOwnerUser ||
+                            WorkerPermissions.canManageSales(role) ||
+                            WorkerPermissions.hasPermission(role, 'sales')) {
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.point_of_sale,
+                              color: Colors.blue,
+                              label: 'POS',
+                              subtitle: 'Open point of sale',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.sales,
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (auth.isOwnerUser ||
+                            WorkerPermissions.canViewInventory(role) ||
+                            WorkerPermissions.hasPermission(role, 'inventory')) {
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.inventory,
+                              color: Colors.green,
+                              label: 'Inventory',
+                              subtitle: 'Manage stock',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.inventory,
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (auth.isOwnerUser ||
+                            WorkerPermissions.hasPermission(role, 'customers')) {
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.people,
+                              color: Colors.purple,
+                              label: 'Customers',
+                              subtitle: 'View customers',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.customers,
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (auth.isOwnerUser ||
+                            WorkerPermissions.hasPermission(role, 'view_reports')) {
+                          actions.add(
+                            _ActionTile(
+                              icon: Icons.bar_chart,
+                              color: Colors.cyan,
+                              label: 'Reports',
+                              subtitle: 'View reports',
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.reports,
+                              ),
+                            ),
+                          );
+                        }
+
+                        if (actions.isEmpty) {
+                          return Container(
+                            padding: const EdgeInsets.all(16),
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: theme.cardColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isDark
+                                    ? Colors.white.withOpacity(0.08)
+                                    : Colors.grey.shade200,
+                              ),
+                            ),
+                            child: const Text(
+                              'No actions available',
+                              textAlign: TextAlign.center,
+                            ),
+                          );
+                        }
+
+                        return Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: actions
+                              .map(
+                                (action) => SizedBox(
+                                  width: actionTileWidth,
+                                  child: action,
+                                ),
+                              )
+                              .toList(),
+                        );
+                      },
                     ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _LiveStatusCard(
-                        title: 'Total Orders',
-                        value: '$totalOrders',
-                        icon: Icons.receipt_long,
-                        color: Colors.green,
-                        isSecondary: true,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _LiveStatusCard(
-                        title: 'Avg. Value',
-                        value: '₦${avgOrderValue.toStringAsFixed(0)}',
-                        icon: Icons.analytics,
-                        color: Colors.purple,
-                        isSecondary: true,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 24),
-
-                // 2. Quick Actions (Permission Based)
-                const Text('Management', style: AppTextStyles.heading5),
-                const SizedBox(height: 12),
-                Builder(builder: (context) {
-                  final auth = Provider.of<AuthProvider>(context);
-                  final role = auth.currentUser?.role ?? '';
-                  final actions = <Widget>[];
-
-                  // Kitchen Action
-                  if (auth.isOwnerUser ||
-                      WorkerPermissions.hasPermission(role, 'manage_menu') ||
-                      WorkerPermissions.canManageStaff(role)) {
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.kitchen,
-                        color: Colors.redAccent,
-                        label: 'Kitchen Display',
-                        subtitle: 'View active tickets',
-                        onTap: () => Navigator.pushNamed(context, Routes.restaurantKitchen),
-                      ),
-                    );
-                  }
-
-                  // View Menu Action
-                  if (auth.isOwnerUser ||
-                      WorkerPermissions.hasPermission(role, 'view_orders') ||
-                      WorkerPermissions.canManageSales(role)) {
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.menu_book,
-                        color: AppColors.primary,
-                        label: 'View Menu',
-                        subtitle: 'Browse current items',
-                        onTap: () => Navigator.pushNamed(context, Routes.restaurantMenu),
-                      ),
-                    );
-                  }
-
-                  // Printer Settings (general access)
-                  actions.add(
-                    _ActionTile(
-                      icon: Icons.print,
-                      color: Colors.teal,
-                      label: 'Printer Settings',
-                      subtitle: 'Configure printers',
-                      onTap: () => Navigator.pushNamed(context, Routes.printerSettings),
-                    ),
-                  );
-                  // Orders
-                  if (auth.isOwnerUser ||
-                      WorkerPermissions.hasPermission(role, 'view_orders') ||
-                      WorkerPermissions.canManageSales(role)) {
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.receipt_long,
-                        color: Colors.green,
-                        label: 'Orders',
-                        subtitle: 'View and manage orders',
-                        onTap: () => Navigator.pushNamed(context, Routes.restaurantOrders),
-                      ),
-                    );
-                  }
-
-                  // Tables
-                  if (auth.isOwnerUser || WorkerPermissions.canManageStaff(role) || WorkerPermissions.canManageSales(role)) {
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.table_restaurant,
-                        color: Colors.brown,
-                        label: 'Tables',
-                        subtitle: 'Manage table seating',
-                        onTap: () => Navigator.pushNamed(context, Routes.restaurantTables),
-                      ),
-                    );
-                  }
-
-                  // Reservations
-                  if (auth.isOwnerUser || WorkerPermissions.hasPermission(role, 'bookings')) {
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.event,
-                        color: Colors.indigo,
-                        label: 'Reservations',
-                        subtitle: 'View bookings',
-                        onTap: () => Navigator.pushNamed(context, Routes.restaurantReservations),
-                      ),
-                    );
-                  }
-
-                  // Delivery
-                  if (auth.isOwnerUser || WorkerPermissions.hasPermission(role, 'sales') || WorkerPermissions.hasPermission(role, 'manage_menu')) {
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.delivery_dining,
-                        color: Colors.cyan,
-                        label: 'Delivery',
-                        subtitle: 'Manage deliveries',
-                        onTap: () => Navigator.pushNamed(context, Routes.restaurantDelivery),
-                      ),
-                    );
-                  }
-
-                  // Waiters / Staff
-                  if (auth.isOwnerUser || WorkerPermissions.canManageStaff(role)) {
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.person,
-                        color: Colors.deepOrange,
-                        label: 'Staff',
-                        subtitle: 'Manage waiters',
-                        onTap: () => Navigator.pushNamed(context, Routes.restaurantWaiters),
-                      ),
-                    );
-                  }
-
-                  // Common quick-nav actions (POS, Inventory, Customers, Reports)
-                  if (auth.isOwnerUser || WorkerPermissions.canManageSales(role) || WorkerPermissions.hasPermission(role, 'sales')) {
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.point_of_sale,
-                        color: Colors.blue,
-                        label: 'POS',
-                        subtitle: 'Open point of sale',
-                        onTap: () => Navigator.pushNamed(context, Routes.sales),
-                      ),
-                    );
-                  }
-
-                  if (auth.isOwnerUser || WorkerPermissions.canViewInventory(role) || WorkerPermissions.hasPermission(role, 'inventory')) {
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.inventory,
-                        color: Colors.green,
-                        label: 'Inventory',
-                        subtitle: 'Manage stock',
-                        onTap: () => Navigator.pushNamed(context, Routes.inventory),
-                      ),
-                    );
-                  }
-
-                  if (auth.isOwnerUser || WorkerPermissions.hasPermission(role, 'customers')) {
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.people,
-                        color: Colors.purple,
-                        label: 'Customers',
-                        subtitle: 'View customers',
-                        onTap: () => Navigator.pushNamed(context, Routes.customers),
-                      ),
-                    );
-                  }
-
-                  if (auth.isOwnerUser || WorkerPermissions.hasPermission(role, 'view_reports')) {
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.bar_chart,
-                        color: Colors.cyan,
-                        label: 'Reports',
-                        subtitle: 'View reports',
-                        onTap: () => Navigator.pushNamed(context, Routes.reports),
-                      ),
-                    );
-                  }
-
-                  if (actions.isEmpty) {
-                    return Container(
-                      padding: const EdgeInsets.all(16),
-                      width: double.infinity,
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-                      child: const Text('No actions available', textAlign: TextAlign.center),
-                    );
-                  }
-                  
-                  // Wrap actions in a generic column
-                  return Column(
-                    children: actions.map((e) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: e,
-                    )).toList(),
-                  );
-                }),
-
-                // 3. Low Stock Alerts
-                if (lowStockItems.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const Icon(Icons.warning_amber_rounded, color: Colors.red),
-                      const SizedBox(width: 8),
-                      Text('Inventory Alerts (${lowStockItems.length})', 
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  ...lowStockItems.map((item) => _LowStockCard(item: item)),
-                ],
-
-                const SizedBox(height: 24),
-
-                // 4. Menu Summary
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.grey.shade200),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Menu Overview', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                      const SizedBox(height: 16),
+                    if (lowStockItems.isNotEmpty) ...[
+                      const SizedBox(height: 18),
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          _SummaryStat('Total Items', '${provider.menuItems.length}'),
-                          _VerticalDivider(),
-                          _SummaryStat('Available', '${provider.menuItems.where((m) => m.available).length}', color: Colors.green),
-                          _VerticalDivider(),
-                          _SummaryStat('Sold Out', '${provider.menuItems.where((m) => !m.available).length}', color: Colors.grey),
+                          const Icon(
+                            Icons.warning_amber_rounded,
+                            color: Colors.red,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Inventory Alerts (${lowStockItems.length})',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.red,
+                            ),
+                          ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      ...lowStockItems.map((item) => _LowStockCard(item: item)),
                     ],
-                  ),
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: theme.cardColor,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.white.withOpacity(0.08)
+                              : Colors.grey.shade200,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Menu Overview',
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.grey.shade400
+                                  : Colors.grey.shade600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              SizedBox(
+                                width: summaryCardWidth,
+                                child: _SummaryStat(
+                                  'Total Items',
+                                  '${provider.menuItems.length}',
+                                ),
+                              ),
+                              SizedBox(
+                                width: summaryCardWidth,
+                                child: _SummaryStat(
+                                  'Available',
+                                  '${provider.menuItems.where((m) => m.available).length}',
+                                  color: Colors.green,
+                                ),
+                              ),
+                              SizedBox(
+                                width: summaryCardWidth,
+                                child: _SummaryStat(
+                                  'Sold Out',
+                                  '${provider.menuItems.where((m) => !m.available).length}',
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 40),
+                  ],
                 ),
-                const SizedBox(height: 40),
-              ],
-            ),
+              );
+            },
           );
         },
       ),
     );
   }
 }
-
-// ---------------- Helper Widgets ----------------
 
 class _LiveStatusCard extends StatelessWidget {
   final String title;
@@ -373,19 +537,29 @@ class _LiveStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isUrgent ? color : Colors.white,
+        color: isUrgent
+            ? color
+            : (isDark ? const Color(0xFF162033) : Colors.white),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.shade100,
+            color: Colors.black.withOpacity(isDark ? 0.16 : 0.04),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
-        border: isUrgent ? null : Border.all(color: Colors.grey.shade100),
+        border: isUrgent
+            ? null
+            : Border.all(
+                color: isDark
+                    ? Colors.white.withOpacity(0.06)
+                    : Colors.grey.shade100,
+              ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -396,13 +570,23 @@ class _LiveStatusCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: isUrgent ? Colors.white.withOpacity(0.2) : color.withOpacity(0.1),
+                  color: isUrgent
+                      ? Colors.white.withOpacity(0.2)
+                      : color.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(icon, size: 20, color: isUrgent ? Colors.white : color),
+                child: Icon(
+                  icon,
+                  size: 20,
+                  color: isUrgent ? Colors.white : color,
+                ),
               ),
               if (isUrgent)
-                 const Icon(Icons.priority_high, size: 16, color: Colors.white70),
+                const Icon(
+                  Icons.priority_high,
+                  size: 16,
+                  color: Colors.white70,
+                ),
             ],
           ),
           const SizedBox(height: 16),
@@ -411,7 +595,9 @@ class _LiveStatusCard extends StatelessWidget {
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: isUrgent ? Colors.white : Colors.black87,
+              color: isUrgent
+                  ? Colors.white
+                  : (isDark ? Colors.white : Colors.black87),
             ),
           ),
           const SizedBox(height: 4),
@@ -419,7 +605,9 @@ class _LiveStatusCard extends StatelessWidget {
             title,
             style: TextStyle(
               fontSize: 12,
-              color: isUrgent ? Colors.white.withOpacity(0.9) : Colors.grey.shade600,
+              color: isUrgent
+                  ? Colors.white.withOpacity(0.9)
+                  : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
             ),
           ),
         ],
@@ -445,15 +633,28 @@ class _ActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
+          color: isDark ? const Color(0xFF162033) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withOpacity(0.06)
+                : Colors.grey.shade200,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.14 : 0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Row(
           children: [
@@ -470,12 +671,29 @@ class _ActionTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                  Text(subtitle, style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color:
+                          isDark ? Colors.grey.shade400 : Colors.grey.shade500,
+                      fontSize: 12,
+                    ),
+                  ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: Colors.grey.shade400),
+            Icon(
+              Icons.chevron_right,
+              color: isDark ? Colors.grey.shade500 : Colors.grey.shade400,
+            ),
           ],
         ),
       ),
@@ -484,7 +702,7 @@ class _ActionTile extends StatelessWidget {
 }
 
 class _LowStockCard extends StatelessWidget {
-  final dynamic item; // Replace with your MenuItem type
+  final dynamic item;
 
   const _LowStockCard({required this.item});
 
@@ -502,17 +720,35 @@ class _LowStockCard extends StatelessWidget {
         children: [
           Container(
             padding: const EdgeInsets.all(8),
-            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-            child: const Icon(Icons.inventory_2_outlined, color: Colors.redAccent, size: 20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.inventory_2_outlined,
+              color: Colors.redAccent,
+              size: 20,
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.brown)),
-                Text('Only ${item.inventoryStock} left in stock', 
-                  style: TextStyle(color: Colors.red.shade700, fontSize: 12)),
+                Text(
+                  item.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.brown,
+                  ),
+                ),
+                Text(
+                  'Only ${item.inventoryStock} left in stock',
+                  style: TextStyle(
+                    color: Colors.red.shade700,
+                    fontSize: 12,
+                  ),
+                ),
               ],
             ),
           ),
@@ -525,7 +761,6 @@ class _LowStockCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16),
             ),
             onPressed: () {
-              // Reorder Logic preserved exactly
               final userEmail = context.read<AuthProvider>().currentUser?.email;
               if (userEmail != null && userEmail.isNotEmpty) {
                 EmailService().sendLowStockAlert(userEmail, {
@@ -536,18 +771,28 @@ class _LowStockCard extends StatelessWidget {
                 }).then((sent) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(sent ? 'Reorder email sent' : 'Reorder placed (email failed)'),
+                      content: Text(
+                        sent
+                            ? 'Reorder email sent'
+                            : 'Reorder placed (email failed)',
+                      ),
                       backgroundColor: AppColors.success,
                     ),
                   );
                 }).catchError((_) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Reorder placed'), backgroundColor: AppColors.success),
+                    const SnackBar(
+                      content: Text('Reorder placed'),
+                      backgroundColor: AppColors.success,
+                    ),
                   );
                 });
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Reorder placed'), backgroundColor: AppColors.success),
+                  const SnackBar(
+                    content: Text('Reorder placed'),
+                    backgroundColor: AppColors.success,
+                  ),
                 );
               }
             },
@@ -568,19 +813,35 @@ class _SummaryStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
-        const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-      ],
-    );
-  }
-}
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-class _VerticalDivider extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(height: 30, width: 1, color: Colors.grey.shade200);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.03) : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: color == Colors.black87 && isDark ? Colors.white : color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: isDark ? Colors.grey.shade400 : Colors.grey,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

@@ -8,7 +8,9 @@ class WorkerPermissions {
       'manage_inventory',
       'view_sales_history',
       'attendance',
-      'payroll_view'
+      'payroll_view',
+      'apply_discount',
+      'manage_staff',
     ],
     'staff': ['sales', 'view_inventory', 'attendance'],
     'worker': ['sales', 'view_inventory', 'attendance'],
@@ -24,7 +26,9 @@ class WorkerPermissions {
     'chef': ['manage_menu', 'view_orders'],
     'waiter': ['sales', 'view_orders'],
     'receptionist': ['bookings', 'guest_checkin', 'view_inventory'],
+    'frontdesk': ['bookings', 'guest_checkin', 'view_inventory'],
     'housekeeper': ['room_status', 'maintenance_requests'],
+    'hr': ['manage_staff', 'attendance', 'payroll_view'],
     'mechanic': ['job_quotes', 'work_orders', 'parts_management'],
     'beautician': ['appointments', 'services', 'attendance'],
     'trainer': ['memberships', 'classes', 'attendance'],
@@ -55,19 +59,47 @@ class WorkerPermissions {
       hasPermission(role, 'view_sales_history');
 
   static bool canManageStaff(String role) =>
-      role.toLowerCase() == 'owner' || role.toLowerCase() == 'manager';
+      role.toLowerCase() == 'owner' ||
+      role.toLowerCase() == 'manager' ||
+      hasPermission(role, 'manage_staff');
 
   static bool canAccessPayroll(String role) =>
       role.toLowerCase() == 'owner' || hasPermission(role, 'payroll_view');
 
   static bool canAttendance(String role) => hasPermission(role, 'attendance');
 
+  static bool canApplyDiscount(String role) =>
+      role.toLowerCase() == 'owner' || hasPermission(role, 'apply_discount');
+
   static List<String> getAvailableRoles(String businessType) {
     final rolesByBusiness = <String, List<String>>{
       'pharmacy': ['cashier', 'pharmacist', 'pharmacy_assistant', 'manager'],
       'retail': ['cashier', 'manager', 'staff'],
       'restaurant': ['waiter', 'bartender', 'chef', 'manager'],
-      'hotel': ['receptionist', 'housekeeper', 'manager'],
+      'hotel': [
+        'receptionist',
+        'frontdesk',
+        'waiter',
+        'housekeeper',
+        'hr',
+        'manager',
+      ],
+      'hospitality': [
+        'receptionist',
+        'frontdesk',
+        'waiter',
+        'housekeeper',
+        'hr',
+        'manager',
+      ],
+      'apartment': [
+        'receptionist',
+        'frontdesk',
+        'waiter',
+        'housekeeper',
+        'hr',
+        'manager',
+      ],
       'auto': ['mechanic', 'manager'],
       'salon': ['beautician', 'staff', 'manager'],
       'gym': ['trainer', 'staff', 'manager'],
@@ -92,7 +124,9 @@ class WorkerPermissions {
       'chef': 'Chef',
       'waiter': 'Waiter',
       'receptionist': 'Receptionist',
+      'frontdesk': 'Front Desk',
       'housekeeper': 'Housekeeper',
+      'hr': 'HR',
       'mechanic': 'Mechanic',
       'beautician': 'Beautician',
       'trainer': 'Trainer',

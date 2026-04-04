@@ -3,7 +3,11 @@ import '../models/booking_model.dart';
 abstract class BookingRepository {
   /// Create a booking (should enforce availability server-side or via transaction)
   /// Returns bookingId on success.
-  Future<String> createBooking({required Booking booking, bool requirePayment = false});
+  Future<String> createBooking({
+    required String businessId,
+    required Booking booking,
+    bool requirePayment = false,
+  });
 
   /// Check if unit is available for the date range (no overlapping confirmed/pending/checkedIn bookings)
   Future<bool> checkAvailability({required String businessId, required String unitId, required DateTime checkIn, required DateTime checkOut});

@@ -323,10 +323,14 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
             onPressed: () async {
               Navigator.of(ctx).pop();
               final businessProvider = context.read<BusinessProvider>();
+              final authProvider = context.read<AuthProvider>();
               final businessId = businessProvider.currentBusiness?.id;
               if (businessId != null) {
                 final success = await businessProvider.deleteBusiness(businessId);
                 if (success && mounted) {
+                  try {
+                    await authProvider.refresh();
+                  } catch (_) {}
                   Navigator.of(context).popUntil((route) => route.isFirst);
                    ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Business deleted successfully'), backgroundColor: AppColors.success),

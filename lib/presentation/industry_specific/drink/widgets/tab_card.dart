@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/utils/currency.dart';
 
 class TabCard extends StatelessWidget {
   final String customerName;
@@ -20,7 +21,7 @@ class TabCard extends StatelessWidget {
       child: ListTile(
         title: Text(customerName),
         subtitle: Text('$itemCount items'),
-        trailing: Text('\$${totalAmount.toStringAsFixed(2)}'),
+        trailing: Text(formatCurrency(totalAmount)),
         onTap: onTap,
       ),
     );

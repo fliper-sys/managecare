@@ -100,6 +100,7 @@ class _BusinessSwitcherState extends State<BusinessSwitcher> {
     final auth = context.watch<AuthProvider>();
     final businesses = bp.userBusinesses;
     final current = bp.currentBusiness;
+    final isSwitching = bp.isSwitchingBusiness;
 
     // If the auth user changed and we haven't loaded businesses for them yet, do it now.
     if (auth.currentUser?.id != null && _loadedBusinessesForUserId != auth.currentUser?.id) {
@@ -154,9 +155,11 @@ class _BusinessSwitcherState extends State<BusinessSwitcher> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 160),
             child: Text(
-              (current?.name ?? 'No business selected').length > 10
-                ? '${(current?.name ?? 'No business selected').substring(0, 10)}...'
-                : current?.name ?? 'No business selected',
+              isSwitching
+                  ? 'Switching...'
+                  : (current?.name ?? 'No business selected').length > 10
+                      ? '${(current?.name ?? 'No business selected').substring(0, 10)}...'
+                      : current?.name ?? 'No business selected',
               style: Theme.of(context)
                 .textTheme
                 .bodyMedium
@@ -167,7 +170,14 @@ class _BusinessSwitcherState extends State<BusinessSwitcher> {
           ),
         ),
         PopupMenuButton<Object?>(
-          icon: const Icon(Icons.keyboard_arrow_down, size: 20),
+          enabled: !isSwitching,
+          icon: isSwitching
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.keyboard_arrow_down, size: 20),
           onSelected: (value) async {
             final id = value as String?;
             if (id == '_add_business') {
@@ -329,39 +339,39 @@ class _BusinessSwitcherState extends State<BusinessSwitcher> {
   Future<void> _performSwitch(AuthProvider auth, BusinessProvider bp, dynamic selected) async {
     final switchStart = DateTime.now();
     try {
+      if (bp.isSwitchingBusiness) return;
+      if (bp.currentBusiness?.id == selected.id) return;
+
+      final currentUserId = auth.currentUser?.id;
+      if (currentUserId == null) {
+        throw Exception('User not available for business switch');
+      }
+
       // 1) Persist selection in auth (important)
       final tAuthStart = DateTime.now();
       final oldAuthBiz = auth.currentUser?.currentBusinessId;
       debugPrint('[BusinessSwitcher] Pre-switch Auth.currentBusinessId: $oldAuthBiz; selected.id: ${selected.id}');
-      await auth.switchBusiness(selected.id);
+      final authSwitchOk = await auth.switchBusiness(selected.id);
+      if (!authSwitchOk) {
+        throw Exception('Unable to switch auth business context');
+      }
       final tAuthEnd = DateTime.now();
       debugPrint('[BusinessSwitcher] auth.switchBusiness: ${tAuthEnd.difference(tAuthStart).inMilliseconds}ms');
       debugPrint('[BusinessSwitcher] Post-switch Auth.currentBusinessId: ${auth.currentUser?.currentBusinessId}');
 
-      // 2) Update current business immediately (fast path) so the UI updates
-      //    Do not block on saving user preference - persist in background.
+      // 2) Update business provider with a single coordinated switch path.
       final tLocalStart = DateTime.now();
-      await bp.setCurrentBusiness(selected);
-      debugPrint('[BusinessSwitcher] bp.currentBusiness after setCurrentBusiness: ${bp.currentBusiness?.id}');
-
-      // Mark this user selection so background loads don't overwrite it
-      final currentUserId = auth.currentUser?.id;
-      if (currentUserId != null) bp.markUserSelection(currentUserId);
+      bp.markUserSelection(currentUserId);
+      final resolvedBusiness = await bp.switchToBusinessAndSync(
+        userId: currentUserId,
+        selectedBusiness: selected,
+      );
       final tLocalEnd = DateTime.now();
-      debugPrint('[BusinessSwitcher] bp.setCurrentBusiness (local): ${tLocalEnd.difference(tLocalStart).inMilliseconds}ms');
-
-      if (auth.currentUser != null && auth.isOwnerUser) {
-        // Save the preference in background so the UI isn't blocked.
-        bp.setCurrentBusinessAndSave(auth.currentUser!.id, selected).then((_) {
-          debugPrint('[BusinessSwitcher] setCurrentBusinessAndSave completed');
-        }).catchError((e) {
-          debugPrint('[BusinessSwitcher] setCurrentBusinessAndSave failed: $e');
-        });
-      }
+      debugPrint('[BusinessSwitcher] bp.switchToBusinessAndSync: ${tLocalEnd.difference(tLocalStart).inMilliseconds}ms');
 
       // 3) Show immediate feedback to the user (fast)
       if (mounted) {
-        SnackBarService.showSnackBar(message: 'Switched to "${selected.name}"', context: context, duration: const Duration(seconds: 2));
+        SnackBarService.showSnackBar(message: 'Switched to "${resolvedBusiness.name}"', context: context, duration: const Duration(seconds: 2));
       }
 
       // 4) Kick off provider updates in parallel (fire-and-forget) to avoid blocking the UI
@@ -379,7 +389,7 @@ class _BusinessSwitcherState extends State<BusinessSwitcher> {
       final futures = <Future>[];
 
       // Resolve the authoritative business id after auth/local updates
-      final resolvedBid = bp.currentBusiness?.id ?? auth.currentUser?.currentBusinessId ?? selected.id;
+      final resolvedBid = resolvedBusiness.id;
       debugPrint('[BusinessSwitcher] Resolved business id for background updates: $resolvedBid (selected=${selected.id}, bp.current=${bp.currentBusiness?.id}, auth.current=${auth.currentUser?.currentBusinessId})');
 
       // Lightweight subscriptions (non-blocking) - use resolved id
@@ -394,7 +404,18 @@ class _BusinessSwitcherState extends State<BusinessSwitcher> {
       futures.add(safeCall(() => Provider.of<RetailProvider>(context, listen: false).setBusinessId(resolvedBid), 'RetailProvider.setBusinessId'));
       futures.add(safeCall(() => Provider.of<PharmacyProvider>(context, listen: false).setBusinessId(resolvedBid), 'PharmacyProvider.setBusinessId'));
       futures.add(safeCall(() => Provider.of<DrinkProvider>(context, listen: false).setBusinessId(resolvedBid), 'DrinkProvider.setBusinessId'));
-      futures.add(safeCall(() => Provider.of<RestaurantProvider>(context, listen: false).setBusinessId(resolvedBid), 'RestaurantProvider.setBusinessId'));
+      futures.add(safeCall(() async {
+        final restaurant = Provider.of<RestaurantProvider>(context, listen: false);
+        restaurant.setBusinessId(resolvedBid);
+        await Future.wait([
+          restaurant.initializeMenu(businessId: resolvedBid),
+          restaurant.initializeOrders(businessId: resolvedBid),
+          restaurant.initializeTables(businessId: resolvedBid),
+          restaurant.initializeReservations(businessId: resolvedBid),
+          restaurant.initializeServers(businessId: resolvedBid),
+          restaurant.initializeWasteRecords(businessId: resolvedBid),
+        ]);
+      }, 'RestaurantProvider.initializeAll'));
       futures.add(safeCall(() => Provider.of<SalonProvider>(context, listen: false).setBusinessId(resolvedBid), 'SalonProvider.setBusinessId'));
       futures.add(safeCall(() => Provider.of<BarberShopProvider>(context, listen: false).setBusinessId(resolvedBid), 'BarberShopProvider.setBusinessId'));
       futures.add(safeCall(() => Provider.of<AutoProvider>(context, listen: false).setBusinessId(resolvedBid), 'AutoProvider.setBusinessId'));

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/utils/currency.dart';
+import '../../models/marketer_analytics_model.dart';
 import '../../models/marketer_model.dart';
 import '../../providers/marketer_provider.dart';
 
@@ -21,7 +22,7 @@ class _MarketersPageState extends State<MarketersPage> {
     super.initState();
     _searchController = TextEditingController();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MarketerProvider>().fetchMarketers();
+      context.read<MarketerProvider>().fetchMarketingOverview();
     });
   }
 
@@ -38,6 +39,7 @@ class _MarketersPageState extends State<MarketersPage> {
     return SafeArea(
       child: Consumer<MarketerProvider>(
         builder: (context, marketerProv, _) {
+          final snapshots = marketerProv.performanceByMarketerEmail.values.toList();
           final filteredMarketers = marketerProv.marketers.where((marketer) {
             if (_searchQuery.isEmpty) return true;
             final query = _searchQuery.toLowerCase();
@@ -52,10 +54,22 @@ class _MarketersPageState extends State<MarketersPage> {
           );
           final activeCount =
               marketerProv.marketers.where((marketer) => marketer.isActive).length;
-          final inactiveCount = marketerProv.marketers.length - activeCount;
+          final totalRegisteredClients = snapshots.fold<int>(
+            0,
+            (sum, snapshot) => sum + snapshot.registeredClients,
+          );
+          final totalActiveClients = snapshots.fold<int>(
+            0,
+            (sum, snapshot) => sum + snapshot.activeClients,
+          );
+          final totalExpiringClients = snapshots.fold<int>(
+            0,
+            (sum, snapshot) => sum + snapshot.expiringSoonClients,
+          );
+          final leaderboard = marketerProv.leaderboard.take(5).toList();
 
           return RefreshIndicator(
-            onRefresh: marketerProv.fetchMarketers,
+            onRefresh: marketerProv.fetchMarketingOverview,
             child: ListView(
               padding: const EdgeInsets.all(20),
               children: [
@@ -146,19 +160,35 @@ class _MarketersPageState extends State<MarketersPage> {
                       color: const Color(0xFF10B981),
                     ),
                     _buildSummaryCard(
-                      title: 'Paused',
-                      value: inactiveCount.toString(),
-                      subtitle: 'need follow-up',
-                      color: const Color(0xFFEF4444),
+                      title: 'Clients',
+                      value: totalRegisteredClients.toString(),
+                      subtitle: 'registered by marketers',
+                      color: const Color(0xFF0F766E),
+                    ),
+                    _buildSummaryCard(
+                      title: 'Live Clients',
+                      value: totalActiveClients.toString(),
+                      subtitle: 'currently subscribed',
+                      color: const Color(0xFF8B5CF6),
+                    ),
+                    _buildSummaryCard(
+                      title: 'Expiring',
+                      value: totalExpiringClients.toString(),
+                      subtitle: 'need renewal follow-up',
+                      color: const Color(0xFFF97316),
                     ),
                     _buildSummaryCard(
                       title: 'Balance',
                       value: formatCurrency(totalBalance),
                       subtitle: 'outstanding marketer balance',
-                      color: const Color(0xFF8B5CF6),
+                      color: const Color(0xFFEF4444),
                     ),
                   ],
                 ),
+                if (leaderboard.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  _buildLeaderboardCard(leaderboard),
+                ],
                 const SizedBox(height: 20),
                 if (marketerProv.isLoading && marketerProv.marketers.isEmpty)
                   const Padding(
@@ -184,7 +214,12 @@ class _MarketersPageState extends State<MarketersPage> {
                     ),
                   )
                 else
-                  ...filteredMarketers.map(_buildMarketerCard),
+                  ...filteredMarketers.map(
+                    (marketer) => _buildMarketerCard(
+                      marketer,
+                      marketerProv.performanceForMarketer(marketer.email),
+                    ),
+                  ),
               ],
             ),
           );
@@ -246,7 +281,100 @@ class _MarketersPageState extends State<MarketersPage> {
     );
   }
 
-  Widget _buildMarketerCard(MarketerModel marketer) {
+  Widget _buildLeaderboardCard(List<MarketerLeaderboardEntry> leaderboard) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Monthly Leaderboard',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Admin can now see every marketer progress line, current rank, and projected bonus for the month.',
+            style: TextStyle(color: Color(0xFF64748B), height: 1.45),
+          ),
+          const SizedBox(height: 14),
+          ...leaderboard.map(
+            (entry) => Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: const Color(0xFF1D4ED8),
+                    foregroundColor: Colors.white,
+                    child: Text('#${entry.rank}'),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry.fullName,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${entry.monthlyPerformanceCount} wins - ${entry.totalActiveClients} active clients',
+                          style: const TextStyle(color: Color(0xFF64748B)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        formatCurrency(entry.monthlyRewardEarned),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        entry.projectedBonus > 0
+                            ? 'Bonus ${formatCurrency(entry.projectedBonus)}'
+                            : 'No bonus yet',
+                        style: TextStyle(
+                          color: entry.projectedBonus > 0
+                              ? const Color(0xFFEA580C)
+                              : const Color(0xFF64748B),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMarketerCard(
+    MarketerModel marketer,
+    MarketerPerformanceSnapshot? performance,
+  ) {
+    final progressValue = performance?.targetProgress ?? 0;
+    final registeredClients =
+        performance?.registeredClients ?? marketer.referredUserIds.length;
+    final activeClients = performance?.activeClients ?? 0;
+    final monthlyWins = performance?.monthlyPerformanceCount ?? 0;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(18),
@@ -334,17 +462,90 @@ class _MarketersPageState extends State<MarketersPage> {
                 color: const Color(0xFF8B5CF6),
               ),
               _buildMiniMetric(
-                label: 'Approved',
-                value: marketer.totalReferralsApproved.toString(),
+                label: 'Clients',
+                value: registeredClients.toString(),
                 color: const Color(0xFF10B981),
               ),
               _buildMiniMetric(
-                label: 'Pending',
-                value: marketer.totalReferralsPending.toString(),
+                label: 'Active',
+                value: activeClients.toString(),
+                color: const Color(0xFF2563EB),
+              ),
+              _buildMiniMetric(
+                label: 'This month',
+                value: monthlyWins.toString(),
                 color: const Color(0xFFF97316),
               ),
             ],
           ),
+          if (performance != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Target progress',
+                        style: TextStyle(
+                          color: Colors.grey.shade800,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${performance.monthlyPerformanceCount}/${performance.monthlyTarget}',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: progressValue,
+                      minHeight: 10,
+                      backgroundColor: const Color(0xFFE2E8F0),
+                      valueColor:
+                          const AlwaysStoppedAnimation(Color(0xFF2563EB)),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildTag(
+                        Icons.emoji_events_outlined,
+                        performance.rank > 0
+                            ? 'Rank #${performance.rank}'
+                            : 'Unranked',
+                        const Color(0xFFEA580C),
+                      ),
+                      _buildTag(
+                        Icons.alarm_on_outlined,
+                        '${performance.expiringSoonClients} expiring',
+                        const Color(0xFFF97316),
+                      ),
+                      _buildTag(
+                        Icons.card_giftcard_rounded,
+                        performance.projectedBonus > 0
+                            ? 'Bonus ${formatCurrency(performance.projectedBonus)}'
+                            : 'Bonus pending',
+                        const Color(0xFF7C3AED),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           Wrap(
             spacing: 8,
@@ -429,6 +630,27 @@ class _MarketersPageState extends State<MarketersPage> {
     );
   }
 
+  Widget _buildTag(IconData icon, String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: TextStyle(color: color, fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStatusPill(bool isActive) {
     final color = isActive ? const Color(0xFF10B981) : const Color(0xFFEF4444);
     return Container(
@@ -501,6 +723,7 @@ class _MarketersPageState extends State<MarketersPage> {
               );
               if (!context.mounted) return;
               if (id != null) {
+                await provider.fetchMarketingOverview();
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Marketer created successfully')),
@@ -557,6 +780,9 @@ class _MarketersPageState extends State<MarketersPage> {
                     phoneNumber: phoneCtrl.text.trim(),
                   );
               if (!context.mounted) return;
+              if (ok) {
+                await context.read<MarketerProvider>().fetchMarketingOverview();
+              }
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -574,10 +800,14 @@ class _MarketersPageState extends State<MarketersPage> {
   }
 
   Future<void> _toggleMarketerStatus(MarketerModel marketer) async {
-    final ok = await context.read<MarketerProvider>().updateMarketer(
+    final provider = context.read<MarketerProvider>();
+    final ok = await provider.updateMarketer(
           marketer.id,
           isActive: !marketer.isActive,
         );
+    if (ok) {
+      await provider.fetchMarketingOverview();
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -615,7 +845,11 @@ class _MarketersPageState extends State<MarketersPage> {
     );
 
     if (confirmed == true) {
-      final ok = await context.read<MarketerProvider>().deleteMarketer(marketer.id);
+      final provider = context.read<MarketerProvider>();
+      final ok = await provider.deleteMarketer(marketer.id);
+      if (ok) {
+        await provider.fetchMarketingOverview();
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -650,17 +884,24 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context
-          .read<MarketerProvider>()
-          .fetchMarketerReferrals(widget.marketer.email);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final provider = context.read<MarketerProvider>();
+      await Future.wait([
+        provider.fetchMarketerReferrals(widget.marketer.email),
+        provider.fetchMarketingOverview(),
+      ]);
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MarketerProvider>();
-    final marketer = widget.marketer;
+    final marketer = provider.marketers.firstWhere(
+      (item) => item.id == widget.marketer.id,
+      orElse: () => widget.marketer,
+    );
+    final performance = provider.performanceForMarketer(marketer.email);
+    final clients = provider.clientsForMarketer(marketer.email);
 
     return Scaffold(
       appBar: AppBar(title: Text(marketer.fullName)),
@@ -715,21 +956,51 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
               ),
               _detailMetric(
                 'Total Earned',
-                formatCurrency(marketer.totalCommissionEarned),
+                formatCurrency(
+                  performance?.lifetimeRewardEarned ??
+                      marketer.totalCommissionEarned,
+                ),
                 const Color(0xFF10B981),
               ),
               _detailMetric(
-                'Approved Referrals',
-                marketer.totalReferralsApproved.toString(),
+                'Registered Clients',
+                (performance?.registeredClients ?? clients.length).toString(),
                 const Color(0xFF3B82F6),
               ),
               _detailMetric(
-                'Pending Referrals',
-                marketer.totalReferralsPending.toString(),
+                'Active Clients',
+                (performance?.activeClients ??
+                        clients.where((client) => client.isCurrentlyActive).length)
+                    .toString(),
                 const Color(0xFFF97316),
               ),
             ],
           ),
+          const SizedBox(height: 22),
+          const Text(
+            'Registered Clients',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (provider.isLoading && clients.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (clients.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: const Text('No registered clients yet'),
+            )
+          else
+            ...clients.map(_buildClientOverviewCard),
           const SizedBox(height: 22),
           const Text(
             'Referral Activity',
@@ -755,6 +1026,93 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
             )
           else
             ...provider.referrals.map(_buildReferralCard),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildClientOverviewCard(MarketerClientRecord client) {
+    final statusColor = client.isExpiringSoon
+        ? const Color(0xFFF97316)
+        : client.isCurrentlyActive
+            ? const Color(0xFF10B981)
+            : const Color(0xFF64748B);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(Icons.person_outline_rounded, color: statusColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      client.fullName,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      client.userEmail,
+                      style: const TextStyle(color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                client.status.label,
+                style: TextStyle(
+                  color: statusColor,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildInlineTag(
+                Icons.store_mall_directory_outlined,
+                client.businessName ?? 'Business pending',
+                client.hasBusiness
+                    ? const Color(0xFF0F766E)
+                    : const Color(0xFFB45309),
+              ),
+              _buildInlineTag(
+                Icons.event_available_outlined,
+                client.subscriptionEndDate == null
+                    ? 'No subscription date'
+                    : client.subscriptionEndDate!.isAfter(DateTime.now())
+                        ? 'Expires ${_formatDate(client.subscriptionEndDate!)}'
+                        : 'Expired ${_formatDate(client.subscriptionEndDate!)}',
+                statusColor,
+              ),
+              _buildInlineTag(
+                Icons.payments_outlined,
+                'Rewards ${formatCurrency(client.totalRewardEarned)}',
+                const Color(0xFF7C3AED),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -786,6 +1144,45 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
               fontSize: 18,
               color: Color(0xFF0F172A),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(DateTime value) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${value.day} ${months[value.month - 1]} ${value.year}';
+  }
+
+  Widget _buildInlineTag(IconData icon, String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: TextStyle(color: color, fontWeight: FontWeight.w700),
           ),
         ],
       ),

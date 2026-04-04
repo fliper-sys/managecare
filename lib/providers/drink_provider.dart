@@ -227,35 +227,50 @@ class BarInvoice {
   }
 
   BarInvoice copyWith({
+    String? invoiceType,
     String? status,
+    String? customerId,
+    String? customerName,
+    String? customerPhone,
+    String? customerEmail,
+    String? tableLabel,
+    String? notes,
+    List<OrderLine>? lines,
+    double? subtotal,
+    double? tax,
+    double? discount,
+    double? total,
     DateTime? convertedAt,
     String? linkedSaleId,
     String? paymentMethod,
+    String? workerId,
+    String? workerName,
+    String? storeId,
   }) {
     return BarInvoice(
       id: id,
       businessId: businessId,
       invoiceNumber: invoiceNumber,
-      invoiceType: invoiceType,
+      invoiceType: invoiceType ?? this.invoiceType,
       status: status ?? this.status,
-      customerId: customerId,
-      customerName: customerName,
-      customerPhone: customerPhone,
-      customerEmail: customerEmail,
-      tableLabel: tableLabel,
-      notes: notes,
-      lines: lines,
-      subtotal: subtotal,
-      tax: tax,
-      discount: discount,
-      total: total,
+      customerId: customerId ?? this.customerId,
+      customerName: customerName ?? this.customerName,
+      customerPhone: customerPhone ?? this.customerPhone,
+      customerEmail: customerEmail ?? this.customerEmail,
+      tableLabel: tableLabel ?? this.tableLabel,
+      notes: notes ?? this.notes,
+      lines: lines ?? this.lines,
+      subtotal: subtotal ?? this.subtotal,
+      tax: tax ?? this.tax,
+      discount: discount ?? this.discount,
+      total: total ?? this.total,
       createdAt: createdAt,
       convertedAt: convertedAt ?? this.convertedAt,
       linkedSaleId: linkedSaleId ?? this.linkedSaleId,
       paymentMethod: paymentMethod ?? this.paymentMethod,
-      workerId: workerId,
-      workerName: workerName,
-      storeId: storeId,
+      workerId: workerId ?? this.workerId,
+      workerName: workerName ?? this.workerName,
+      storeId: storeId ?? this.storeId,
     );
   }
 
@@ -577,26 +592,7 @@ class DrinkProvider extends ChangeNotifier {
   // Orders
   void createOrder(Order o) async {
     orders.add(o);
-    // decrease stock automatically
-    for (final line in o.lines) {
-      final d = getDrinkById(line.drinkId);
-      final s = getStock(line.drinkId);
-      if (d != null && s != null) {
-        var needed = line.quantityBottles;
-        // consume bottles first
-        final fromBottles = (s.bottles >= needed) ? needed : s.bottles;
-        s.bottles -= fromBottles;
-        needed -= fromBottles;
-        // if still needed, open cartons
-        while (needed > 0 && s.cartons > 0) {
-          s.cartons -= 1;
-          s.bottles += d.bottlesPerCarton; // open a carton into bottles
-          final take = (s.bottles >= needed) ? needed : s.bottles;
-          s.bottles -= take;
-          needed -= take;
-        }
-      }
-    }
+    _applyStockConsumption(o.lines);
 
     notifyListeners();
 
@@ -665,6 +661,81 @@ class DrinkProvider extends ChangeNotifier {
       return invoices.firstWhere((invoice) => invoice.id == invoiceId);
     } catch (_) {
       return null;
+    }
+  }
+
+  Future<void> _persistInvoice(BarInvoice invoice) async {
+    if (repository != null) {
+      await repository!.saveInvoice(invoice.toJson());
+      return;
+    }
+
+    if (_businessId == null || _businessId!.isEmpty) {
+      throw StateError('Business ID not found');
+    }
+
+    await _firestore
+        .collection('businesses')
+        .doc(_businessId)
+        .collection('invoices')
+        .doc(invoice.id)
+        .set(invoice.toJson(), SetOptions(merge: true));
+  }
+
+  Future<void> _persistStockItem(String drinkId, StockItem stock) async {
+    final drink = getDrinkById(drinkId);
+
+    if (repository != null) {
+      await repository!.updateStock(drinkId, stock);
+      return;
+    }
+
+    if (_businessId == null || _businessId!.isEmpty) return;
+
+    await _firestore
+        .collection('businesses')
+        .doc(_businessId)
+        .collection('inventory')
+        .doc(drinkId)
+        .set({
+      'quantity': stock.totalBottles(drink?.bottlesPerCarton ?? 1),
+      'cartons': stock.cartons,
+      'bottles': stock.bottles,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  void _applyStockConsumption(List<OrderLine> lines) {
+    for (final line in lines) {
+      final drink = getDrinkById(line.drinkId);
+      final stock = getStock(line.drinkId);
+
+      if (drink == null || stock == null) {
+        throw StateError('Stock item not found for ${line.drinkId}');
+      }
+
+      final available = stock.totalBottles(drink.bottlesPerCarton);
+      if (available < line.quantityBottles) {
+        throw StateError('Insufficient stock for ${drink.name}');
+      }
+
+      var needed = line.quantityBottles;
+      final fromBottles = stock.bottles >= needed ? needed : stock.bottles;
+      stock.bottles -= fromBottles;
+      needed -= fromBottles;
+
+      while (needed > 0) {
+        if (stock.cartons <= 0) {
+          throw StateError('Insufficient stock for ${drink.name}');
+        }
+
+        stock.cartons -= 1;
+        stock.bottles += drink.bottlesPerCarton;
+
+        final take = stock.bottles >= needed ? needed : stock.bottles;
+        stock.bottles -= take;
+        needed -= take;
+      }
     }
   }
 
@@ -826,16 +897,7 @@ class DrinkProvider extends ChangeNotifier {
       storeId: storeId,
     );
 
-    if (repository != null) {
-      await repository!.saveInvoice(invoice.toJson());
-    } else {
-      await _firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('invoices')
-          .doc(invoice.id)
-          .set(invoice.toJson(), SetOptions(merge: true));
-    }
+    await _persistInvoice(invoice);
 
     final index = invoices.indexWhere((item) => item.id == invoice.id);
     if (index >= 0) {
@@ -845,6 +907,118 @@ class DrinkProvider extends ChangeNotifier {
     }
     notifyListeners();
     return invoice;
+  }
+
+  Future<BarInvoice> updateInvoice({
+    required String invoiceId,
+    required List<OrderLine> lines,
+    String? invoiceType,
+    String? customerId,
+    String? customerName,
+    String? customerPhone,
+    String? customerEmail,
+    String? tableLabel,
+    String? notes,
+    String? workerId,
+    String? workerName,
+    String? storeId,
+    double tax = 0.0,
+    double discount = 0.0,
+  }) async {
+    final invoice = getInvoiceById(invoiceId);
+    if (invoice == null) {
+      throw StateError('Invoice not found');
+    }
+    if (invoice.status == 'converted') {
+      throw StateError('Converted invoices cannot be edited');
+    }
+    if (lines.isEmpty) {
+      throw StateError('Cannot save an invoice without items');
+    }
+
+    final subtotal =
+        lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
+    final updatedInvoice = BarInvoice(
+      id: invoice.id,
+      businessId: invoice.businessId,
+      invoiceNumber: invoice.invoiceNumber,
+      invoiceType: invoiceType ?? invoice.invoiceType,
+      status: 'open',
+      customerId: customerId,
+      customerName: (customerName == null || customerName.trim().isEmpty)
+          ? 'Walk-in Customer'
+          : customerName.trim(),
+      customerPhone: customerPhone,
+      customerEmail: customerEmail,
+      tableLabel: tableLabel,
+      notes: notes,
+      lines: lines,
+      subtotal: subtotal,
+      tax: tax,
+      discount: discount,
+      total: subtotal + tax - discount,
+      createdAt: invoice.createdAt,
+      workerId: workerId ?? invoice.workerId,
+      workerName: workerName ?? invoice.workerName,
+      storeId: storeId ?? invoice.storeId,
+    );
+
+    await _persistInvoice(updatedInvoice);
+
+    final index = invoices.indexWhere((item) => item.id == invoice.id);
+    if (index >= 0) {
+      invoices[index] = updatedInvoice;
+    } else {
+      invoices.insert(0, updatedInvoice);
+    }
+
+    notifyListeners();
+    return updatedInvoice;
+  }
+
+  Future<BarInvoice> reopenInvoice(String invoiceId) async {
+    final invoice = getInvoiceById(invoiceId);
+    if (invoice == null) {
+      throw StateError('Invoice not found');
+    }
+    if (invoice.status == 'converted') {
+      throw StateError('Converted invoices cannot be reopened');
+    }
+
+    final reopenedInvoice = BarInvoice(
+      id: invoice.id,
+      businessId: invoice.businessId,
+      invoiceNumber: invoice.invoiceNumber,
+      invoiceType: invoice.invoiceType,
+      status: 'open',
+      customerId: invoice.customerId,
+      customerName: invoice.customerName,
+      customerPhone: invoice.customerPhone,
+      customerEmail: invoice.customerEmail,
+      tableLabel: invoice.tableLabel,
+      notes: invoice.notes,
+      lines: invoice.lines,
+      subtotal: invoice.subtotal,
+      tax: invoice.tax,
+      discount: invoice.discount,
+      total: invoice.total,
+      createdAt: invoice.createdAt,
+      workerId: invoice.workerId,
+      workerName: invoice.workerName,
+      storeId: invoice.storeId,
+    );
+
+    await _persistInvoice(reopenedInvoice);
+
+    final index = invoices.indexWhere((item) => item.id == invoice.id);
+    if (index >= 0) {
+      invoices[index] = reopenedInvoice;
+    } else {
+      invoices.insert(0, reopenedInvoice);
+    }
+
+    notifyListeners();
+    return reopenedInvoice;
   }
 
   Future<Map<String, dynamic>> convertInvoiceToSale(
@@ -880,6 +1054,17 @@ class DrinkProvider extends ChangeNotifier {
       };
     }).toList();
 
+    for (final line in invoice.lines) {
+      final drink = getDrinkById(line.drinkId);
+      final stock = getStock(line.drinkId);
+      if (drink == null || stock == null) {
+        throw StateError('Stock item not found for ${line.drinkId}');
+      }
+      if (stock.totalBottles(drink.bottlesPerCarton) < line.quantityBottles) {
+        throw StateError('Insufficient stock for ${drink.name}');
+      }
+    }
+
     final saleData = {
       'businessId': businessId,
       'items': items,
@@ -914,6 +1099,14 @@ class DrinkProvider extends ChangeNotifier {
         .add(saleData);
     await saleRef.update({'orderId': saleRef.id});
 
+    _applyStockConsumption(invoice.lines);
+    for (final line in invoice.lines) {
+      final stock = getStock(line.drinkId);
+      if (stock != null) {
+        await _persistStockItem(line.drinkId, stock);
+      }
+    }
+
     final convertedInvoice = invoice.copyWith(
       status: 'converted',
       convertedAt: DateTime.now(),
@@ -921,16 +1114,7 @@ class DrinkProvider extends ChangeNotifier {
       paymentMethod: paymentMethod,
     );
 
-    if (repository != null) {
-      await repository!.saveInvoice(convertedInvoice.toJson());
-    } else {
-      await _firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('invoices')
-          .doc(invoice.id)
-          .set(convertedInvoice.toJson(), SetOptions(merge: true));
-    }
+    await _persistInvoice(convertedInvoice);
 
     final invoiceIndex = invoices.indexWhere((item) => item.id == invoice.id);
     if (invoiceIndex >= 0) {
@@ -971,16 +1155,7 @@ class DrinkProvider extends ChangeNotifier {
     if (_businessId == null || _businessId!.isEmpty) return;
 
     final cancelledInvoice = invoice.copyWith(status: 'cancelled');
-    if (repository != null) {
-      await repository!.saveInvoice(cancelledInvoice.toJson());
-    } else {
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('invoices')
-          .doc(invoice.id)
-          .set(cancelledInvoice.toJson(), SetOptions(merge: true));
-    }
+    await _persistInvoice(cancelledInvoice);
 
     final index = invoices.indexWhere((item) => item.id == invoice.id);
     if (index >= 0) {

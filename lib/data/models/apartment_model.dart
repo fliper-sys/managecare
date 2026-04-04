@@ -23,6 +23,31 @@ class Apartment {
     this.createdAt,
   });
 
+  Apartment copyWith({
+    String? id,
+    String? title,
+    String? description,
+    String? ownerId,
+    String? address,
+    List<String>? photos,
+    List<String>? amenities,
+    String? defaultCancellationPolicyId,
+    Timestamp? createdAt,
+  }) {
+    return Apartment(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      ownerId: ownerId ?? this.ownerId,
+      address: address ?? this.address,
+      photos: photos ?? this.photos,
+      amenities: amenities ?? this.amenities,
+      defaultCancellationPolicyId:
+          defaultCancellationPolicyId ?? this.defaultCancellationPolicyId,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
   factory Apartment.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
     return Apartment(

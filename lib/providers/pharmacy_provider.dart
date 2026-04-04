@@ -33,6 +33,10 @@ class Prescription {
   final DateTime createdAt;
   String status; // pending, dispensed, cancelled
   final String? prescriber;
+  final String? notes;
+  final String? attachmentReference;
+  final bool attachmentRequired;
+  final DateTime? patientDateOfBirth;
 
   Prescription(
       {required this.id,
@@ -41,7 +45,11 @@ class Prescription {
       required this.items,
       DateTime? createdAt,
       this.status = 'pending',
-      this.prescriber})
+      this.prescriber,
+      this.notes,
+      this.attachmentReference,
+      this.attachmentRequired = false,
+      this.patientDateOfBirth})
       : createdAt = createdAt ?? DateTime.now();
 }
 
@@ -49,8 +57,14 @@ class Patient {
   final String id;
   final String name;
   final String phone;
+  final DateTime? dateOfBirth;
 
-  Patient({required this.id, required this.name, required this.phone});
+  Patient({
+    required this.id,
+    required this.name,
+    required this.phone,
+    this.dateOfBirth,
+  });
 }
 
 class PharmacyProvider extends ChangeNotifier {
@@ -87,7 +101,10 @@ class PharmacyProvider extends ChangeNotifier {
     _patients.addAll(List.generate(
         3,
         (i) => Patient(
-            id: 'P${i + 1}', name: 'Patient ${i + 1}', phone: '0800${i + 1}')));
+            id: 'P${i + 1}',
+            name: 'Patient ${i + 1}',
+            phone: '0800${i + 1}',
+            dateOfBirth: DateTime.now().subtract(Duration(days: 365 * (22 + i))))));
 
     // no prescriptions initially
     notifyListeners();
@@ -184,6 +201,10 @@ class PharmacyProvider extends ChangeNotifier {
                 'createdAt': p.createdAt.toIso8601String(),
                 'status': p.status,
                 'prescriber': (p as dynamic).prescriber ?? '',
+                'notes': p.notes,
+                'attachmentReference': p.attachmentReference,
+                'attachmentRequired': p.attachmentRequired,
+                'patientDateOfBirth': p.patientDateOfBirth?.toIso8601String(),
               })
           .toList();
       await box.put('prescriptions', data);
@@ -207,6 +228,12 @@ class PharmacyProvider extends ChangeNotifier {
             createdAt: parseTimestamp(m['createdAt']),
             status: m['status'] as String,
             prescriber: m['prescriber'] as String? ?? '',
+            notes: m['notes'] as String?,
+            attachmentReference: m['attachmentReference'] as String?,
+            attachmentRequired: m['attachmentRequired'] == true,
+            patientDateOfBirth: m['patientDateOfBirth'] != null
+                ? parseTimestamp(m['patientDateOfBirth'])
+                : null,
           );
         }));
       notifyListeners();
@@ -217,7 +244,12 @@ class PharmacyProvider extends ChangeNotifier {
     try {
       final box = await Hive.openBox(_patientsBox);
       final data = _patients
-          .map((p) => {'id': p.id, 'name': p.name, 'phone': p.phone})
+          .map((p) => {
+                'id': p.id,
+                'name': p.name,
+                'phone': p.phone,
+                'dateOfBirth': p.dateOfBirth?.toIso8601String(),
+              })
           .toList();
       await box.put('patients', data);
     } catch (_) {}
@@ -231,11 +263,45 @@ class PharmacyProvider extends ChangeNotifier {
         ..clear()
         ..addAll(data.map((e) {
           final m = e as Map<dynamic, dynamic>;
-          return Patient(id: m['id'] as String, name: m['name'] as String, phone: m['phone'] as String);
+          return Patient(
+            id: m['id'] as String,
+            name: m['name'] as String,
+            phone: m['phone'] as String,
+            dateOfBirth: m['dateOfBirth'] != null
+                ? parseTimestamp(m['dateOfBirth'])
+                : null,
+          );
         }));
       notifyListeners();
     } catch (_) {}
   }
+
+  Patient? getPatientById(String patientId) {
+    try {
+      return _patients.firstWhere((patient) => patient.id == patientId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int? getPatientAge(String patientId) => calculateAge(getPatientById(patientId)?.dateOfBirth);
+
+  int? calculateAge(DateTime? dateOfBirth) {
+    if (dateOfBirth == null) return null;
+    final now = DateTime.now();
+    var age = now.year - dateOfBirth.year;
+    final birthdayThisYear = DateTime(now.year, dateOfBirth.month, dateOfBirth.day);
+    if (now.isBefore(birthdayThisYear)) {
+      age -= 1;
+    }
+    return age < 0 ? 0 : age;
+  }
+
+  bool requiresAttachmentForPatient(Patient? patient) {
+    final age = calculateAge(patient?.dateOfBirth);
+    return age != null && age < 18;
+  }
+
   bool isControlled(String drugId) => _controlled.contains(drugId);
 
   Future<void> markControlled(String drugId, bool controlled) async {
@@ -287,9 +353,16 @@ class PharmacyProvider extends ChangeNotifier {
       final incoming = remotePres.map((p) => Prescription(
             id: p.id,
             patientId: p.patientId,
-            items: p.drugIds.map((id) => {'drugId': id, 'qty': 1}).toList(),
+            patientName: p.patientName,
+            items: p.items,
             createdAt: p.issuedAt,
-            prescriber: p.prescriberName ?? p.prescriber)).toList();
+            status: p.status,
+            prescriber: p.prescriberName ?? p.prescriber,
+            notes: p.notes,
+            attachmentReference: p.attachmentReference,
+            attachmentRequired: p.attachmentRequired,
+            patientDateOfBirth: p.patientDateOfBirth,
+          )).toList();
 
       // Merge: start with remote list, then add any local-only prescriptions that don't exist remotely
       final remoteIds = incoming.map((p) => p.id).toSet();
@@ -329,7 +402,12 @@ class PharmacyProvider extends ChangeNotifier {
       _patients
         ..clear()
         ..addAll(remotePatients
-            .map((p) => Patient(id: p.id, name: p.name, phone: p.phone)));
+            .map((p) => Patient(
+                  id: p.id,
+                  name: p.name,
+                  phone: p.phone,
+                  dateOfBirth: p.dateOfBirth,
+                )));
 
       // persist to local cache
       await _saveLocalDrugs();
@@ -471,13 +549,24 @@ class PharmacyProvider extends ChangeNotifier {
 
   Future<Prescription> addPrescription(
       String patientId, List<Map<String, dynamic>> items,
-      {String? patientName, bool persist = true, String? businessId, String? userId}) async {
+      {String? patientName,
+      String? notes,
+      String? attachmentReference,
+      bool attachmentRequired = false,
+      DateTime? patientDateOfBirth,
+      bool persist = true,
+      String? businessId,
+      String? userId}) async {
     final pres = Prescription(
         id: 'RX-${_prescriptions.length + 1000}',
         patientId: patientId,
         patientName: patientName,
         items: items,
-        prescriber: userId ?? 'system');
+        prescriber: userId ?? 'system',
+        notes: notes,
+        attachmentReference: attachmentReference,
+        attachmentRequired: attachmentRequired,
+        patientDateOfBirth: patientDateOfBirth);
     _prescriptions.insert(0, pres);
     notifyListeners();
 
@@ -489,8 +578,15 @@ class PharmacyProvider extends ChangeNotifier {
           id: pres.id,
           patientId: pres.patientId,
           drugIds: items.map((e) => e['drugId'] as String).toList(),
+          items: items,
           issuedAt: pres.createdAt,
-          prescriber: userId ?? 'system');
+          prescriber: userId ?? 'system',
+          patientName: patientName,
+          status: pres.status,
+          notes: notes,
+          attachmentReference: attachmentReference,
+          attachmentRequired: attachmentRequired,
+          patientDateOfBirth: patientDateOfBirth);
 
       // repository now returns the document id for created prescription
       String? remoteId;
@@ -510,7 +606,11 @@ class PharmacyProvider extends ChangeNotifier {
             items: pres.items,
             createdAt: pres.createdAt,
             status: pres.status,
-            prescriber: pres.prescriber);
+            prescriber: pres.prescriber,
+            notes: pres.notes,
+            attachmentReference: pres.attachmentReference,
+            attachmentRequired: pres.attachmentRequired,
+            patientDateOfBirth: pres.patientDateOfBirth);
         // replace the old temp prescription
         _prescriptions.removeWhere((p) => p.id == pres.id);
         _prescriptions.insert(0, newPres);
@@ -813,6 +913,8 @@ class PharmacyProvider extends ChangeNotifier {
         'id': patient.id,
         'name': patient.name,
         'phone': patient.phone,
+        'dateOfBirth': patient.dateOfBirth,
+        'age': calculateAge(patient.dateOfBirth),
         'prescriptionCount': prescriptionCount,
         'lastPrescriptionDate':
             _prescriptions.where((p) => p.patientId == patient.id).isEmpty
@@ -832,9 +934,15 @@ class PharmacyProvider extends ChangeNotifier {
   Future<void> addPatient(Patient patient, {bool persist = false, String? businessId}) async {
     _patients.add(patient);
     notifyListeners();
+    await _saveLocalPatients();
     if (persist && _repository != null) {
       try {
-        await _repository!.addPatient({'id': patient.id, 'name': patient.name, 'phone': patient.phone}, businessId: businessId);
+        await _repository!.addPatient({
+          'id': patient.id,
+          'name': patient.name,
+          'phone': patient.phone,
+          'dateOfBirth': patient.dateOfBirth?.toIso8601String(),
+        }, businessId: businessId);
       } catch (e) {
         if (kDebugMode) debugPrint('[PharmacyProvider] Failed to persist patient: $e');
       }
@@ -843,16 +951,28 @@ class PharmacyProvider extends ChangeNotifier {
 
   /// Update patient information (optionally persist remotely)
   Future<void> updatePatient(String patientId, String name, String phone,
-      {bool persist = false, String? businessId}) async {
+      {DateTime? dateOfBirth,
+      bool persist = false, String? businessId}) async {
     final patient = _patients.firstWhere((p) => p.id == patientId,
         orElse: () => throw Exception('Patient not found'));
     // Patients are immutable, so we need to remove and re-add
     _patients.remove(patient);
-    _patients.add(Patient(id: patientId, name: name, phone: phone));
+    _patients.add(Patient(
+      id: patientId,
+      name: name,
+      phone: phone,
+      dateOfBirth: dateOfBirth ?? patient.dateOfBirth,
+    ));
     notifyListeners();
+    await _saveLocalPatients();
     if (persist && _repository != null) {
       try {
-        await _repository!.updatePatient(patientId, {'name': name, 'phone': phone, 'businessId': businessId});
+        await _repository!.updatePatient(patientId, {
+          'name': name,
+          'phone': phone,
+          'businessId': businessId,
+          'dateOfBirth': (dateOfBirth ?? patient.dateOfBirth)?.toIso8601String(),
+        });
       } catch (e) {
         if (kDebugMode) debugPrint('[PharmacyProvider] Failed to update patient remotely: $e');
       }

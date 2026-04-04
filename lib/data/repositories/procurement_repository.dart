@@ -7,7 +7,7 @@ class ProcurementRepository {
 
   ProcurementRepository({FirebaseFirestore? firestore}) : _firestore = firestore ?? FirebaseFirestore.instance;
 
-  /// Creates a batch procurement and per-product procurement records inside a single write batch.
+  /// Creates a procurement plus batch-aware inventory/procurement records in a single transaction.
   /// Returns the created procurement doc id.
   Future<String> createBatchProcurement({
     required String businessId,
@@ -17,7 +17,6 @@ class ProcurementRepository {
     String? invoiceRef,
     String? referenceImageUrl,
   }) async {
-    final batch = _firestore.batch();
     final procurementRef = _firestore.collection('businesses').doc(businessId).collection('procurements').doc();
     final createdAt = FieldValue.serverTimestamp();
 
@@ -25,82 +24,166 @@ class ProcurementRepository {
     num totalQuantity = 0;
     final itemsSnapshot = <Map<String, dynamic>>[];
 
-    for (final it in items) {
-      final productId = it['productId'] as String? ?? '';
-      final name = it['name'] ?? '';
-      final quantity = (it['quantity'] as num?) ?? 0;
-      final cost = (it['cost'] as num?)?.toDouble() ?? 0.0;
-      final unit = (it['unit'] as String?) ?? '';
-      final itemTotal = quantity.toDouble() * cost;
+    await _firestore.runTransaction((tx) async {
+      for (final it in items) {
+        final productId = it['productId'] as String? ?? '';
+        final name = it['name'] ?? '';
+        final quantity = (it['quantity'] as num?) ?? 0;
+        final cost = (it['cost'] as num?)?.toDouble() ?? 0.0;
+        final unit = (it['unit'] as String?) ?? '';
+        final purchaseQuantity = (it['purchaseQuantity'] as num?) ?? quantity;
+        final purchaseUnit = (it['purchaseUnit'] as String?) ?? unit;
+        final purchaseUnitCost =
+            (it['purchaseUnitCost'] as num?)?.toDouble() ?? cost;
+        final batchLabel =
+            ((it['batchLabel'] as String?) ?? '').trim();
+        final expiryDate = _normalizeStoredDate(it['expiryDate']);
+        final itemTotal =
+            (it['purchaseTotal'] as num?)?.toDouble() ??
+            (purchaseQuantity.toDouble() * purchaseUnitCost);
 
-      totalCost += itemTotal;
-      totalQuantity += quantity;
+        totalCost += itemTotal;
+        totalQuantity += quantity;
 
-      itemsSnapshot.add({
-        'productId': productId,
-        'name': name,
-        'quantity': _normalizeStoredQuantity(quantity),
-        'unit': unit,
-        'cost': cost,
-        'total': itemTotal,
-      });
-
-      if (productId.isNotEmpty) {
-        // update inventory quantity and cost (safe to use merge/update)
-        final invRef = _firestore.collection('businesses').doc(businessId).collection('inventory').doc(productId);
-        // We cannot read in a batch; assume caller provided correct newQuantity if needed, but here we'll increment based on DB read in a transaction instead
-        // Simpler: perform update with FieldValue.increment to increase quantity
-        batch.update(invRef, {
-          'quantity': FieldValue.increment(quantity),
-          'cost': cost,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        // per-product procurement entry (include supplier/invoice for traceability)
-        final prodProcRef = invRef.collection('procurements').doc();
-        batch.set(prodProcRef, {
-          'procurementId': procurementRef.id,
-          'productId': productId,
-          'quantity': _normalizeStoredQuantity(quantity),
-          'unit': unit,
-          'cost': cost,
-          'total': itemTotal,
-          'createdAt': createdAt,
-          'supplierId': supplierId,
-          'supplierName': supplierName,
-          'invoiceRef': invoiceRef,
-          'referenceImageUrl': referenceImageUrl,
-        });
-
-        // item under procurement master
-        final itemRef = procurementRef.collection('items').doc();
-        batch.set(itemRef, {
+        final itemSnapshot = <String, dynamic>{
           'productId': productId,
           'name': name,
           'quantity': _normalizeStoredQuantity(quantity),
           'unit': unit,
           'cost': cost,
           'total': itemTotal,
+          'purchaseQuantity': _normalizeStoredQuantity(purchaseQuantity),
+          'purchaseUnit': purchaseUnit,
+          'purchaseUnitCost': purchaseUnitCost,
+        };
+        if (batchLabel.isNotEmpty) itemSnapshot['batchLabel'] = batchLabel;
+        if (expiryDate != null) itemSnapshot['expiryDate'] = expiryDate;
+        itemsSnapshot.add(itemSnapshot);
+
+        if (productId.isEmpty) {
+          continue;
+        }
+
+        final invRef = _firestore
+            .collection('businesses')
+            .doc(businessId)
+            .collection('inventory')
+            .doc(productId);
+        final invSnap = await tx.get(invRef);
+        final invData = invSnap.data() as Map<String, dynamic>? ?? {};
+        final existingQuantity =
+            (invData['quantity'] as num?)?.toDouble() ?? 0.0;
+        final existingCost =
+            ((invData['averageCost'] ?? invData['cost'] ?? invData['lastProcurementCost'])
+                    as num?)
+                ?.toDouble() ??
+                0.0;
+        final updatedQuantity = existingQuantity + quantity.toDouble();
+        final weightedCost = updatedQuantity <= 0
+            ? cost
+            : ((existingQuantity * existingCost) +
+                    (quantity.toDouble() * cost)) /
+                updatedQuantity;
+
+        tx.set(
+          invRef,
+          {
+            'quantity': _normalizeStoredQuantity(updatedQuantity),
+            'cost': weightedCost,
+            'averageCost': weightedCost,
+            'lastProcurementCost': cost,
+            'lastProcurementQuantity': _normalizeStoredQuantity(quantity),
+            'lastProcurementAt': createdAt,
+            'updatedAt': createdAt,
+            'hasBatchTracking': true,
+            if (unit.isNotEmpty) 'unit': unit,
+          },
+          SetOptions(merge: true),
+        );
+
+        final batchRef = invRef.collection('batches').doc();
+        final effectiveBatchLabel = batchLabel.isNotEmpty
+            ? batchLabel
+            : 'BATCH-${batchRef.id.substring(0, 6).toUpperCase()}';
+        final batchData = <String, dynamic>{
+          'procurementId': procurementRef.id,
+          'productId': productId,
+          'name': name,
+          'quantity': _normalizeStoredQuantity(quantity),
+          'remainingQuantity': _normalizeStoredQuantity(quantity),
+          'unit': unit,
+          'cost': cost,
+          'total': itemTotal,
+          'purchaseQuantity': _normalizeStoredQuantity(purchaseQuantity),
+          'purchaseUnit': purchaseUnit,
+          'purchaseUnitCost': purchaseUnitCost,
+          'batchLabel': effectiveBatchLabel,
+          'createdAt': createdAt,
+          'updatedAt': createdAt,
+        };
+        if (supplierId != null) batchData['supplierId'] = supplierId;
+        if (supplierName != null) batchData['supplierName'] = supplierName;
+        if (invoiceRef != null) batchData['invoiceRef'] = invoiceRef;
+        if (referenceImageUrl != null) {
+          batchData['referenceImageUrl'] = referenceImageUrl;
+        }
+        if (expiryDate != null) batchData['expiryDate'] = expiryDate;
+        tx.set(batchRef, batchData);
+
+        final prodProcRef = invRef.collection('procurements').doc();
+        tx.set(prodProcRef, {
+          'procurementId': procurementRef.id,
+          'batchId': batchRef.id,
+          'batchLabel': effectiveBatchLabel,
+          'productId': productId,
+          'quantity': _normalizeStoredQuantity(quantity),
+          'unit': unit,
+          'cost': cost,
+          'total': itemTotal,
+          'purchaseQuantity': _normalizeStoredQuantity(purchaseQuantity),
+          'purchaseUnit': purchaseUnit,
+          'purchaseUnitCost': purchaseUnitCost,
+          'createdAt': createdAt,
+          'supplierId': supplierId,
+          'supplierName': supplierName,
+          'invoiceRef': invoiceRef,
+          'referenceImageUrl': referenceImageUrl,
+          if (expiryDate != null) 'expiryDate': expiryDate,
+        });
+
+        final itemRef = procurementRef.collection('items').doc();
+        tx.set(itemRef, {
+          'productId': productId,
+          'name': name,
+          'quantity': _normalizeStoredQuantity(quantity),
+          'unit': unit,
+          'cost': cost,
+          'total': itemTotal,
+          'purchaseQuantity': _normalizeStoredQuantity(purchaseQuantity),
+          'purchaseUnit': purchaseUnit,
+          'purchaseUnitCost': purchaseUnitCost,
+          'batchId': batchRef.id,
+          'batchLabel': effectiveBatchLabel,
+          if (expiryDate != null) 'expiryDate': expiryDate,
         });
       }
-    }
 
-    // procurement master doc (include supplier and invoice metadata)
-    final masterData = {
-      'createdAt': createdAt,
-      'totalCost': totalCost,
-      'totalQuantity': _normalizeStoredQuantity(totalQuantity),
-      'itemsCount': itemsSnapshot.length,
-      'items': itemsSnapshot,
-    };
-    if (supplierId != null) masterData['supplierId'] = supplierId;
-    if (supplierName != null) masterData['supplierName'] = supplierName;
-    if (invoiceRef != null) masterData['invoiceRef'] = invoiceRef;
-    if (referenceImageUrl != null) masterData['referenceImageUrl'] = referenceImageUrl;
+      final masterData = <String, dynamic>{
+        'createdAt': createdAt,
+        'totalCost': totalCost,
+        'totalQuantity': _normalizeStoredQuantity(totalQuantity),
+        'itemsCount': itemsSnapshot.length,
+        'items': itemsSnapshot,
+      };
+      if (supplierId != null) masterData['supplierId'] = supplierId;
+      if (supplierName != null) masterData['supplierName'] = supplierName;
+      if (invoiceRef != null) masterData['invoiceRef'] = invoiceRef;
+      if (referenceImageUrl != null) {
+        masterData['referenceImageUrl'] = referenceImageUrl;
+      }
+      tx.set(procurementRef, masterData);
+    });
 
-    batch.set(procurementRef, masterData);
-
-    await batch.commit();
     return procurementRef.id;
   }
 
@@ -161,5 +244,18 @@ class ProcurementRepository {
       return quantity.toInt();
     }
     return quantity.toDouble();
+  }
+
+  dynamic _normalizeStoredDate(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value;
+    if (value is DateTime) return Timestamp.fromDate(value);
+    if (value is String && value.trim().isNotEmpty) {
+      final parsed = DateTime.tryParse(value.trim());
+      if (parsed != null) {
+        return Timestamp.fromDate(parsed);
+      }
+    }
+    return null;
   }
 }

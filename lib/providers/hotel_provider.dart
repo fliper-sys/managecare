@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart' as fs;
 import '../data/repositories/industry_specific/hotel_repository.dart';
 import '../services/business_reminder_service.dart';
 import '../services/business_notification_manager.dart';
+import '../services/hospitality_folio_service.dart';
 import '../services/notification_and_email_service.dart';
 
 // Room Models
@@ -174,23 +175,70 @@ class Reservation {
 class ServiceOrder {
   final String id;
   final String roomId;
+  final String? reservationId;
   final String serviceName; // housekeeping, laundry, food delivery, maintenance
   final String description;
   final DateTime requestedAt;
   final DateTime? completedAt;
   final String status; // pending, in-progress, completed, cancelled
   final String priority; // low, medium, high, urgent
+  final double? chargeAmount;
+  final String source; // hotel_service, room_service, restaurant, bar
 
   ServiceOrder({
     required this.id,
     required this.roomId,
+    this.reservationId,
     required this.serviceName,
     required this.description,
     required this.requestedAt,
     this.completedAt,
     required this.status,
     required this.priority,
+    this.chargeAmount,
+    this.source = 'hotel_service',
   });
+
+  factory ServiceOrder.fromJson(Map<String, dynamic> json) {
+    DateTime? parseDate(dynamic value) {
+      if (value == null) return null;
+      if (value is DateTime) return value;
+      if (value is fs.Timestamp) return value.toDate();
+      if (value is String) return DateTime.tryParse(value);
+      if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+      return null;
+    }
+
+    return ServiceOrder(
+      id: (json['id'] ?? '').toString(),
+      roomId: (json['roomId'] ?? '').toString(),
+      reservationId: json['reservationId']?.toString(),
+      serviceName: (json['serviceName'] ?? '').toString(),
+      description: (json['description'] ?? '').toString(),
+      requestedAt: parseDate(json['requestedAt']) ?? DateTime.now(),
+      completedAt: parseDate(json['completedAt']),
+      status: (json['status'] ?? 'pending').toString(),
+      priority: (json['priority'] ?? 'medium').toString(),
+      chargeAmount: (json['chargeAmount'] as num?)?.toDouble(),
+      source: (json['source'] ?? 'hotel_service').toString(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'roomId': roomId,
+      'reservationId': reservationId,
+      'serviceName': serviceName,
+      'description': description,
+      'requestedAt': requestedAt.toIso8601String(),
+      'completedAt': completedAt?.toIso8601String(),
+      'status': status,
+      'priority': priority,
+      'chargeAmount': chargeAmount,
+      'source': source,
+    };
+  }
 }
 
 class HotelProvider extends ChangeNotifier {
@@ -199,11 +247,13 @@ class HotelProvider extends ChangeNotifier {
       BusinessNotificationManager.instance;
   final NotificationAndEmailService _notificationLogger =
       NotificationAndEmailService();
+  final HospitalityFolioService _folioService = HospitalityFolioService();
   String? _businessId;
 
   List<Room> _rooms = [];
   List<Reservation> _reservations = [];
   List<ServiceOrder> _serviceOrders = [];
+  List<HospitalityFolioCharge> _folioCharges = [];
   double _occupancy = 0.0;
 
   HotelProvider({this.repository}) {
@@ -217,6 +267,10 @@ class HotelProvider extends ChangeNotifier {
   Future<void> setBusinessId(String businessId) async {
     if (_businessId != null && _businessId == businessId) return;
     _businessId = businessId;
+    _rooms = [];
+    _reservations = [];
+    _serviceOrders = [];
+    _folioCharges = [];
     notifyListeners();
     try {
       if (repository != null) {
@@ -232,12 +286,15 @@ class HotelProvider extends ChangeNotifier {
       return;
     await loadFromRepository();
     await syncReservations();
+    await _loadServiceOrders();
+    await _loadFolioCharges();
   }
 
   // Getters
   List<Room> get rooms => _rooms;
   List<Reservation> get reservations => _reservations;
   List<ServiceOrder> get serviceOrders => _serviceOrders;
+  List<HospitalityFolioCharge> get folioCharges => _folioCharges;
   double get occupancy => _occupancy;
   bool get hasRemote => repository != null;
 
@@ -388,21 +445,37 @@ class HotelProvider extends ChangeNotifier {
     ];
 
     final relatedServices = _serviceOrders.where((service) {
-      final sameRoom = service.roomId == reservation.roomId;
+      final sameReservation =
+          service.reservationId != null && service.reservationId == reservation.id;
+      final sameRoom =
+          service.roomId == reservation.roomId && service.reservationId == null;
       final withinStay = !service.requestedAt.isBefore(reservation.checkIn) &&
           !service.requestedAt.isAfter(reservation.checkOut);
-      return sameRoom && withinStay && service.status != 'cancelled';
+      return (sameReservation || sameRoom) &&
+          withinStay &&
+          service.status != 'cancelled';
     }).toList();
 
     for (final service in relatedServices) {
+      final amount = service.chargeAmount ??
+          estimateServiceCharge(
+            service.serviceName,
+            priority: service.priority,
+          );
       charges.add({
-        'description':
-            '${service.serviceName} (${service.priority})',
-        'amount': estimateServiceCharge(
-          service.serviceName,
-          priority: service.priority,
-        ),
+        'description': '${service.serviceName} (${service.priority})',
+        'amount': amount,
         'type': 'service',
+      });
+    }
+
+    final reservationCharges = getFolioChargesForReservation(reservation.id);
+    for (final charge in reservationCharges) {
+      charges.add({
+        'description': charge.description,
+        'amount': charge.amount,
+        'type': charge.category,
+        'source': charge.source,
       });
     }
 
@@ -470,6 +543,35 @@ class HotelProvider extends ChangeNotifier {
       return 'deposit_pending';
     }
     return 'pay_at_checkout';
+  }
+
+  Reservation? getReservationById(String reservationId) {
+    for (final reservation in _reservations) {
+      if (reservation.id == reservationId) return reservation;
+    }
+    return null;
+  }
+
+  Reservation? getActiveReservationForRoom(String roomId) {
+    final activeReservations = _reservations.where((reservation) {
+      return reservation.roomId == roomId &&
+          (reservation.status == 'checked-in' ||
+              reservation.status == 'confirmed');
+    }).toList()
+      ..sort((a, b) => b.checkIn.compareTo(a.checkIn));
+
+    if (activeReservations.isEmpty) return null;
+    return activeReservations.first;
+  }
+
+  List<HospitalityFolioCharge> getFolioChargesForReservation(
+    String reservationId,
+  ) {
+    final charges = _folioCharges
+        .where((charge) => charge.reservationId == reservationId)
+        .toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return charges;
   }
 
   Future<void> _syncGuestProfile(Reservation reservation) async {
@@ -1217,6 +1319,111 @@ class HotelProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> addReservationCharge({
+    required String reservationId,
+    required String description,
+    required double amount,
+    String category = 'extra',
+    String source = 'manual',
+    String? sourceOrderId,
+    String? createdById,
+    String? createdByName,
+    Map<String, dynamic> metadata = const {},
+  }) async {
+    if (_businessId == null || _businessId!.isEmpty) {
+      throw Exception('Business ID is required to add a reservation charge.');
+    }
+
+    final reservation = getReservationById(reservationId);
+    if (reservation == null) {
+      throw Exception('Reservation not found.');
+    }
+
+    final room = getRoomById(reservation.roomId);
+    final charge = await _folioService.addCharge(
+      businessId: _businessId!,
+      reservationId: reservation.id,
+      roomId: reservation.roomId,
+      roomNumber: room?.number ?? reservation.roomId,
+      description: description,
+      amount: amount,
+      category: category,
+      source: source,
+      sourceOrderId: sourceOrderId,
+      createdById: createdById,
+      createdByName: createdByName,
+      metadata: metadata,
+    );
+
+    _folioCharges = [charge, ..._folioCharges]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    await _syncGuestProfile(reservation);
+    notifyListeners();
+  }
+
+  Future<void> extendReservationStay({
+    required String reservationId,
+    required DateTime newCheckOut,
+    String? extensionReason,
+  }) async {
+    final index = _reservations.indexWhere((reservation) => reservation.id == reservationId);
+    if (index == -1) {
+      throw Exception('Reservation not found.');
+    }
+
+    final reservation = _reservations[index];
+    if (!newCheckOut.isAfter(reservation.checkOut)) {
+      throw Exception('New checkout must be after the current checkout date.');
+    }
+
+    final conflict = _reservations.any((existing) {
+      if (existing.id == reservation.id ||
+          existing.roomId != reservation.roomId ||
+          existing.status == 'cancelled') {
+        return false;
+      }
+
+      return existing.checkOut.isAfter(reservation.checkOut) &&
+          existing.checkIn.isBefore(newCheckOut);
+    });
+
+    if (conflict) {
+      throw Exception('The room already has another booking within the extension window.');
+    }
+
+    final room = getRoomById(reservation.roomId);
+    final updatedSpecialRequests = List<String>.from(reservation.specialRequests);
+    if (extensionReason != null && extensionReason.trim().isNotEmpty) {
+      updatedSpecialRequests.add('Stay extension: ${extensionReason.trim()}');
+    }
+
+    final nights = newCheckOut.difference(reservation.checkIn).inDays;
+    final updatedReservation = reservation.copyWith(
+      checkOut: newCheckOut,
+      totalPrice: (room?.pricePerNight ?? 0.0) * (nights <= 0 ? 1 : nights),
+      specialRequests: updatedSpecialRequests,
+    );
+
+    _reservations[index] = updatedReservation;
+
+    if (repository != null &&
+        _businessId != null &&
+        _businessId!.isNotEmpty) {
+      await repository!.updateReservation(
+        _businessId!,
+        reservationId,
+        {
+          'checkOut': newCheckOut.toIso8601String(),
+          'totalPrice': updatedReservation.totalPrice,
+          'specialRequests': updatedReservation.specialRequests,
+        },
+      );
+    }
+
+    await _syncGuestProfile(updatedReservation);
+    notifyListeners();
+  }
+
   List<Reservation> getUpcomingCheckIns(Duration window) {
     final now = DateTime.now();
     final deadline = now.add(window);
@@ -1238,32 +1445,50 @@ class HotelProvider extends ChangeNotifier {
   }
 
   // Service Management
-  void createServiceOrder({
+  Future<void> createServiceOrder({
     required String roomId,
     required String serviceName,
     required String description,
     required String priority,
-  }) {
+    String? reservationId,
+    double? chargeAmount,
+    String source = 'hotel_service',
+  }) async {
     final order = ServiceOrder(
-      id: 'S${_serviceOrders.length + 1}',
+      id: 'service_${DateTime.now().microsecondsSinceEpoch}',
       roomId: roomId,
+      reservationId: reservationId ?? getActiveReservationForRoom(roomId)?.id,
       serviceName: serviceName,
       description: description,
       requestedAt: DateTime.now(),
       status: 'pending',
       priority: priority,
+      chargeAmount: chargeAmount,
+      source: source,
     );
 
     _serviceOrders.add(order);
+    if (_businessId != null && _businessId!.isNotEmpty) {
+      await fs.FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(_businessId!)
+          .collection('hotel_service_orders')
+          .doc(order.id)
+          .set(order.toJson(), fs.SetOptions(merge: true));
+    }
     notifyListeners();
   }
 
-  void updateServiceOrderStatus(String serviceOrderId, String newStatus) {
+  Future<void> updateServiceOrderStatus(
+    String serviceOrderId,
+    String newStatus,
+  ) async {
     final index = _serviceOrders.indexWhere((s) => s.id == serviceOrderId);
     if (index >= 0) {
       _serviceOrders[index] = ServiceOrder(
         id: _serviceOrders[index].id,
         roomId: _serviceOrders[index].roomId,
+        reservationId: _serviceOrders[index].reservationId,
         serviceName: _serviceOrders[index].serviceName,
         description: _serviceOrders[index].description,
         requestedAt: _serviceOrders[index].requestedAt,
@@ -1272,7 +1497,20 @@ class HotelProvider extends ChangeNotifier {
             : _serviceOrders[index].completedAt,
         status: newStatus,
         priority: _serviceOrders[index].priority,
+        chargeAmount: _serviceOrders[index].chargeAmount,
+        source: _serviceOrders[index].source,
       );
+      if (_businessId != null && _businessId!.isNotEmpty) {
+        await fs.FirebaseFirestore.instance
+            .collection('businesses')
+            .doc(_businessId!)
+            .collection('hotel_service_orders')
+            .doc(serviceOrderId)
+            .set(
+              _serviceOrders[index].toJson(),
+              fs.SetOptions(merge: true),
+            );
+      }
       notifyListeners();
     }
   }
@@ -1433,6 +1671,40 @@ class HotelProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('[HotelProvider] Error fetching today\'s sales: $e');
       return 0.0;
+    }
+  }
+
+  Future<void> _loadServiceOrders() async {
+    if (_businessId == null || _businessId!.isEmpty) return;
+
+    try {
+      final snapshot = await fs.FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(_businessId!)
+          .collection('hotel_service_orders')
+          .get();
+
+      _serviceOrders = snapshot.docs
+          .map((doc) => ServiceOrder.fromJson({
+                ...doc.data(),
+                'id': doc.id,
+              }))
+          .toList()
+        ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt));
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[HotelProvider] loadServiceOrders error: $e');
+    }
+  }
+
+  Future<void> _loadFolioCharges() async {
+    if (_businessId == null || _businessId!.isEmpty) return;
+
+    try {
+      _folioCharges = await _folioService.fetchCharges(_businessId!);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[HotelProvider] loadFolioCharges error: $e');
     }
   }
 }

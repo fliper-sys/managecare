@@ -23,7 +23,7 @@ class SubscriptionScreen extends StatefulWidget {
 }
 
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
-  late String _currentPlan;
+  String _currentPlan = 'tier1';
   bool _isLoading = false;
   File? _selectedReceipt;
   double _uploadProgress = 0.0;
@@ -37,9 +37,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   @override
   void initState() {
     super.initState();
-    final authProvider = context.read<AuthProvider>();
-    final user = authProvider.currentUser;
-    _currentPlan = (user?.subscriptionPlan ?? 'free').toLowerCase();
+    final business = context.read<BusinessProvider>().currentBusiness;
+    _currentPlan =
+        (business?.subscriptionPlan ?? business?.subscriptionTier ?? 'tier1')
+            .toLowerCase();
   }
 
   Widget _buildCurrentPlanCard(
@@ -114,7 +115,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   Widget _buildBillingInfoCard(
-      dynamic user, SubscriptionPlan? currentPlan, DateTime? endDate) {
+      dynamic business, SubscriptionPlan? currentPlan, DateTime? endDate) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -152,8 +153,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           const SizedBox(height: 12),
           _buildBillingRow(
             'Start Date',
-            user?.subscriptionStartDate != null
-                ? user!.subscriptionStartDate.toString().split(' ')[0]
+            business?.subscriptionStartDate != null
+                ? business!.subscriptionStartDate.toString().split(' ')[0]
                 : 'N/A',
           ),
           const SizedBox(height: 12),
@@ -179,14 +180,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  List<Widget> _buildPlanCards() {
-    return SubscriptionService.plans
+  List<Widget> _buildPlanCards({
+    required String? businessType,
+    required String currentPlanId,
+  }) {
+    return SubscriptionService.getPlansForBusinessType(businessType)
         .map((plan) => Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: _PlanCard(
                 plan: plan,
-                isCurrentPlan:
-                    _currentPlan.toLowerCase() == plan.id.toLowerCase(),
+                isCurrentPlan: currentPlanId.toLowerCase() == plan.id.toLowerCase(),
                 onSelect: () => _showUpgradeDialog(plan),
               ),
             ))
@@ -426,7 +429,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         return;
       }
 
-      final stillHasActiveAccess = currentUser.isSubscriptionValid;
+      final stillHasActiveAccess = businessProvider.isSubscriptionValid();
 
       if (mounted) {
         setState(() {
@@ -459,6 +462,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             'userId': currentUserId,
             'userEmail': currentUser.email,
             'userName': currentUser.fullName,
+            'businessId': currentBusiness?.id,
+            'businessType': currentBusiness?.businessType,
             'subscriptionPlan': plan.id,
             'subscriptionAmount': plan.price,
           },
@@ -490,13 +495,24 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AuthProvider>(
-      builder: (context, authProvider, _) {
+    return Consumer2<AuthProvider, BusinessProvider>(
+      builder: (context, authProvider, businessProvider, _) {
         final user = authProvider.currentUser;
-        final hasActiveSubscription = user?.hasActiveSubscription ?? false;
-        final currentPlan = SubscriptionService.getPlanById(_currentPlan);
-        final subscriptionEndDate = user?.subscriptionEndDate;
+        final business = businessProvider.currentBusiness;
+        final hasActiveSubscription = business?.isSubscriptionActive ?? false;
+        final currentPlanId =
+            (business?.subscriptionPlan ?? business?.subscriptionTier ?? _currentPlan)
+                .toLowerCase();
+        final fallbackPlans = SubscriptionService.getPlansForBusinessType(
+          business?.businessType,
+          tierId: business?.subscriptionTier,
+        );
+        final currentPlan = SubscriptionService.getPlanById(currentPlanId) ??
+            (fallbackPlans.isNotEmpty ? fallbackPlans.first : null);
+        final subscriptionEndDate = business?.subscriptionEndDate;
         final theme = Theme.of(context);
+
+        _currentPlan = currentPlanId;
 
         return Scaffold(
           backgroundColor: theme.scaffoldBackgroundColor,
@@ -536,14 +552,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
                       // Billing Info
                       _buildBillingInfoCard(
-                          user, currentPlan, subscriptionEndDate),
+                          business, currentPlan, subscriptionEndDate),
                       const SizedBox(height: 24),
 
                       // Available Plans
                       const Text('Available Plans',
                           style: AppTextStyles.heading5),
                       const SizedBox(height: 12),
-                      ..._buildPlanCards(),
+                      ..._buildPlanCards(
+                        businessType: business?.businessType ?? user?.businessType,
+                        currentPlanId: currentPlanId,
+                      ),
                       const SizedBox(height: 32),
                     ],
                   ),

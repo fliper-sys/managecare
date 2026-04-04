@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 
+import '../../../../providers/business_provider.dart';
 import '../../../../widgets/custom_text_field.dart';
 import '../../../../providers/hotel_provider.dart';
 
@@ -39,17 +40,109 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
     super.dispose();
   }
 
+  Future<void> _showBlockedDialog({
+    required String title,
+    required String message,
+  }) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool> _ensureCanCreateRoom() async {
+    final businessProvider = context.read<BusinessProvider>();
+    final hotelProvider = context.read<HotelProvider>();
+    final access = await businessProvider.canAccessFeatureEnhanced(
+      'basic_sales',
+      context: 'hotel_create_room_submit',
+    );
+
+    if (!mounted) return false;
+    if (!(access['ok'] as bool? ?? false)) {
+      await _showBlockedDialog(
+        title: 'Subscription required',
+        message: businessProvider.getSubscriptionBlockedMessage(
+          feature: 'basic_sales',
+        ),
+      );
+      return false;
+    }
+
+    final roomCount = hotelProvider.rooms.length;
+    if (!businessProvider.isWithinLimit('rooms', roomCount)) {
+      await _showBlockedDialog(
+        title: 'Room limit reached',
+        message: businessProvider.getLimitReachedMessage('rooms'),
+      );
+      return false;
+    }
+
+    if (_selectedType == 'suite') {
+      final suiteCount = hotelProvider.rooms
+          .where((room) => room.type.toLowerCase() == 'suite')
+          .length;
+      if (!businessProvider.isWithinLimit('suites', suiteCount)) {
+        await _showBlockedDialog(
+          title: 'Suite limit reached',
+          message: businessProvider.getLimitReachedMessage('suites'),
+        );
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   Future<void> _createRoom() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() => _isCreating = true);
     final provider = context.read<HotelProvider>();
+    final roomNumber = _numberCtrl.text.trim();
+    final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
+    final pricePerNight = double.tryParse(_priceCtrl.text.trim()) ?? 0.0;
+
+    if (roomNumber.isEmpty) return;
+    if (capacity <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Room capacity must be greater than zero')),
+      );
+      return;
+    }
+    if (pricePerNight <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Room price must be greater than zero')),
+      );
+      return;
+    }
+    final duplicateNumber = provider.rooms.any(
+      (room) => room.number.trim().toLowerCase() == roomNumber.toLowerCase(),
+    );
+    if (duplicateNumber) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Room $roomNumber already exists')),
+      );
+      return;
+    }
+    if (!await _ensureCanCreateRoom()) return;
+
+    setState(() => _isCreating = true);
 
     try {
       await provider.createRoom(
-        number: _numberCtrl.text.trim(),
+        number: roomNumber,
         type: _selectedType, // Uses the dropdown value
-        capacity: int.tryParse(_capacityCtrl.text.trim()) ?? 1,
-        pricePerNight: double.tryParse(_priceCtrl.text.trim()) ?? 0.0,
+        capacity: capacity,
+        pricePerNight: pricePerNight,
         floor: int.tryParse(_floorCtrl.text.trim()) ?? 1,
         amenities: _amenitiesCtrl.text
             .split(',')

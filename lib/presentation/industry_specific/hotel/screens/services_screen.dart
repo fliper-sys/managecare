@@ -161,8 +161,8 @@ class _HotelServicesScreenState extends State<HotelServicesScreen> {
                               if (order.status == 'pending')
                                 Expanded(
                                   child: OutlinedButton(
-                                    onPressed: () {
-                                      provider.updateServiceOrderStatus(
+                                    onPressed: () async {
+                                      await provider.updateServiceOrderStatus(
                                         order.id,
                                         'in-progress',
                                       );
@@ -174,8 +174,8 @@ class _HotelServicesScreenState extends State<HotelServicesScreen> {
                               if (order.status != 'completed')
                                 Expanded(
                                   child: ElevatedButton(
-                                    onPressed: () {
-                                      provider.updateServiceOrderStatus(
+                                    onPressed: () async {
+                                      await provider.updateServiceOrderStatus(
                                         order.id,
                                         'completed',
                                       );
@@ -205,6 +205,7 @@ class _HotelServicesScreenState extends State<HotelServicesScreen> {
     HotelProvider provider,
   ) async {
     final descriptionController = TextEditingController();
+    final amountController = TextEditingController();
     String? roomId = provider.rooms.isNotEmpty ? provider.rooms.first.id : null;
     String serviceName = 'housekeeping';
     String priority = 'medium';
@@ -290,6 +291,17 @@ class _HotelServicesScreenState extends State<HotelServicesScreen> {
                         hintText: 'Describe what the guest needs',
                       ),
                     ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: amountController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Billable amount',
+                        hintText: 'Leave blank to use estimated charge',
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -301,15 +313,21 @@ class _HotelServicesScreenState extends State<HotelServicesScreen> {
                 ElevatedButton(
                   onPressed: roomId == null
                       ? null
-                      : () {
-                          provider.createServiceOrder(
+                      : () async {
+                          await provider.createServiceOrder(
                             roomId: roomId!,
                             serviceName: serviceName,
                             description: descriptionController.text.trim().isEmpty
                                 ? 'No description provided'
                                 : descriptionController.text.trim(),
                             priority: priority,
+                            chargeAmount:
+                                double.tryParse(amountController.text.trim()),
+                            source: serviceName == 'room service'
+                                ? 'room_service'
+                                : 'hotel_service',
                           );
+                          if (!dialogContext.mounted) return;
                           Navigator.pop(dialogContext);
                         },
                   child: const Text('Create'),

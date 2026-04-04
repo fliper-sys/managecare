@@ -12,6 +12,7 @@ import '../../providers/agri_provider.dart';
 import 'package:business_manager/presentation/industry_specific/salon/providers/salon_provider.dart';
 import '../../providers/gym_provider.dart';
 import '../../providers/auto_provider.dart';
+import '../../providers/apartment_provider.dart';
 import '../industry_specific/realestate/providers/real_estate_provider.dart';
 import '../../core/utils/context_extensions.dart';
 import '../industry_specific/realestate/providers/real_estate_provider.dart' as re;
@@ -98,6 +99,11 @@ class _BusinessDashboardScreenState extends State<BusinessDashboardScreen> {
             await Future.sync(() => prov.setBusinessId(widget.businessId));
           }
           // no-op for unknown industry
+          break;
+        case 'apartment':
+          await Future.sync(
+            () => context.read<ApartmentProvider>().loadApartments(widget.businessId),
+          );
           break;
       }
 

@@ -321,6 +321,33 @@ class _ServiceDialogState extends State<_ServiceDialog> {
     super.dispose();
   }
 
+  Future<void> _saveService() async {
+    final service = SalonService(
+      id: widget.service?.id ?? 'svc_${DateTime.now().millisecondsSinceEpoch}',
+      name: _nameCtrl.text,
+      description: _descriptionCtrl.text,
+      price: double.parse(_priceCtrl.text),
+      durationMinutes: int.parse(_durationCtrl.text),
+      category: _selectedCategory,
+      createdAt: widget.service?.createdAt ?? DateTime.now(),
+    );
+
+    if (widget.service == null) {
+      await widget.provider.addService(service);
+    } else {
+      await widget.provider.updateService(service);
+    }
+
+    if (context.mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(
+                'Service ${widget.service == null ? 'added' : 'updated'}')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final categories = [
@@ -414,35 +441,12 @@ class _ServiceDialogState extends State<_ServiceDialog> {
                     child: CustomButton(
                       text: widget.service == null ? 'Add' : 'Update',
                       backgroundColor: AppColors.primary,
-                      onPressed: _nameCtrl.text.isEmpty ||
-                              _priceCtrl.text.isEmpty
-                          ? null
-                          : () {
-                              final service = SalonService(
-                                id: widget.service?.id ??
-                                    'svc_${DateTime.now().millisecondsSinceEpoch}',
-                                name: _nameCtrl.text,
-                                description: _descriptionCtrl.text,
-                                price: double.parse(_priceCtrl.text),
-                                durationMinutes: int.parse(_durationCtrl.text),
-                                category: _selectedCategory,
-                                createdAt:
-                                    widget.service?.createdAt ?? DateTime.now(),
-                              );
-
-                              if (widget.service == null) {
-                                widget.provider.addService(service);
-                              } else {
-                                widget.provider.updateService(service);
-                              }
-
-                              Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                    content: Text(
-                                        'Service ${widget.service == null ? 'added' : 'updated'}')),
-                              );
-                            },
+                      onPressed:
+                          _nameCtrl.text.isEmpty || _priceCtrl.text.isEmpty
+                              ? null
+                              : () {
+                                  _saveService();
+                                },
                     ),
                   ),
                 ],
@@ -454,4 +458,3 @@ class _ServiceDialogState extends State<_ServiceDialog> {
     );
   }
 }
-

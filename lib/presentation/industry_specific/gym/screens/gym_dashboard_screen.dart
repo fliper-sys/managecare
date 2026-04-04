@@ -11,7 +11,7 @@ import '../../../../data/models/gym_trainer_model.dart';
 class GymDashboardScreen extends StatelessWidget {
   const GymDashboardScreen({super.key});
 
-  String _initials(String name) {
+  static String _initials(String name) {
     final parts = name.split(' ');
     if (parts.isEmpty) return '';
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
@@ -50,9 +50,14 @@ class GymDashboardScreen extends StatelessWidget {
             onPressed: () async {
               try {
                 await context.read<AuthProvider>().logout();
-                if (context.mounted) Navigator.of(context).pushReplacementNamed(Routes.login);
+                if (context.mounted) {
+                  Navigator.of(context).pushReplacementNamed(Routes.login);
+                }
               } catch (e) {
-                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Logout failed: $e')));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Logout failed: $e')));
+                }
               }
             },
           ),
@@ -111,7 +116,8 @@ class GymDashboardScreen extends StatelessWidget {
           );
 
           if (res == true) {
-            messenger.showSnackBar(const SnackBar(content: Text('Member added')));
+            messenger
+                .showSnackBar(const SnackBar(content: Text('Member added')));
           }
         },
       ),
@@ -228,7 +234,7 @@ class GymDashboardScreen extends StatelessWidget {
                                 children: [
                                   CircleAvatar(
                                       radius: 28,
-                                      child: Text(_initials(m.name))),
+                                      child: Text(GymDashboardScreen._initials(m.name))),
                                   if (isExpiring)
                                     Positioned(
                                       right: 0,
@@ -296,6 +302,60 @@ class GymDashboardScreen extends StatelessWidget {
                       ));
                     }
 
+                    // Add Equipment Management for owners and managers
+                    if (auth.isOwnerUser ||
+                        WorkerPermissions.hasPermission(role, 'memberships') ||
+                        WorkerPermissions.canManageStaff(role)) {
+                      if (actions.isNotEmpty) {
+                        actions.add(const SizedBox(width: 12));
+                      }
+                      actions.add(Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.fitness_center),
+                          label: const Text('Equipment'),
+                          onPressed: () => Navigator.of(context)
+                              .pushNamed(Routes.gymEquipment),
+                        ),
+                      ));
+                    }
+
+                    // Add Attendance Tracking for staff and managers
+                    if (auth.isOwnerUser ||
+                        WorkerPermissions.hasPermission(role, 'classes') ||
+                        WorkerPermissions.canAttendance(role) ||
+                        WorkerPermissions.canManageStaff(role)) {
+                      if (actions.isNotEmpty) {
+                        actions.add(const SizedBox(width: 12));
+                      }
+                      actions.add(Expanded(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.access_time),
+                          label: const Text('Attendance'),
+                          onPressed: () => Navigator.of(context)
+                              .pushNamed(Routes.gymAttendance),
+                        ),
+                      ));
+                    }
+
+                    // Add Member Progress for owners and trainers
+                    if (auth.isOwnerUser ||
+                        WorkerPermissions.hasPermission(role, 'classes') ||
+                        WorkerPermissions.canManageStaff(role)) {
+                      if (actions.isNotEmpty) {
+                        actions.add(const SizedBox(width: 12));
+                      }
+                      actions.add(Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.show_chart),
+                          label: const Text('Progress'),
+                          onPressed: () {
+                            // Show member selection dialog
+                            _showMemberSelectionDialog(context);
+                          },
+                        ),
+                      ));
+                    }
+
                     if (actions.isEmpty) {
                       return const Center(
                           child: Text('No quick actions available'));
@@ -350,6 +410,48 @@ class GymDashboardScreen extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+
+  void _showMemberSelectionDialog(BuildContext context) {
+    final provider = Provider.of<GymProvider>(context, listen: false);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Select Member'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: provider.members.length,
+            itemBuilder: (context, index) {
+              final member = provider.members[index];
+              return ListTile(
+                leading: CircleAvatar(
+                  child: Text(GymDashboardScreen._initials(member.name)),
+                ),
+                title: Text(member.name),
+                subtitle: Text(member.email),
+                onTap: () {
+                  Navigator.pop(context); // Close dialog
+                  Navigator.pushNamed(
+                    context,
+                    Routes.gymMemberProgress,
+                    arguments: {'memberId': member.id},
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
       ),
     );
   }
@@ -471,4 +573,3 @@ class _ClassDetailSheet extends StatelessWidget {
     );
   }
 }
-

@@ -15,6 +15,8 @@ class SettingsProvider extends ChangeNotifier {
   String? _fullName;
   String? _email;
   String? _phoneNumber;
+  String? _address;
+  String? _jobTitle;
   String? _profilePhotoUrl;
 
   // Notification Settings
@@ -46,7 +48,7 @@ class SettingsProvider extends ChangeNotifier {
   String? _selectedUsbDeviceId; // web-only: stores WebUSB device id (vendor:product:serial)
 
   // Subscription Settings
-  String _currentPlan = 'basic'; // basic, pro, enterprise
+  String _currentPlan = 'tier1'; // tier1, tier2, tier3, unlimited
   bool _autoRenew = true;
   int _billingCycleMonths = 1; // 1=monthly, 12=yearly
 
@@ -73,6 +75,8 @@ class SettingsProvider extends ChangeNotifier {
   String? get fullName => _fullName;
   String? get email => _email;
   String? get phoneNumber => _phoneNumber;
+  String? get address => _address;
+  String? get jobTitle => _jobTitle;
   String? get profilePhotoUrl => _profilePhotoUrl;
 
   // Getters - Notifications
@@ -141,6 +145,8 @@ class SettingsProvider extends ChangeNotifier {
         _fullName = data['fullName'];
         _email = data['email'];
         _phoneNumber = data['phoneNumber'];
+        _address = data['address'];
+        _jobTitle = data['jobTitle'];
         _profilePhotoUrl = data['profilePhotoUrl'];
 
         // Notifications
@@ -166,7 +172,7 @@ class SettingsProvider extends ChangeNotifier {
         _selectedUsbDeviceId = data['selectedUsbDeviceId'];
 
         // Subscription
-        _currentPlan = data['currentPlan'] ?? 'basic';
+        _currentPlan = data['currentPlan'] ?? 'tier1';
         _autoRenew = data['autoRenew'] ?? true;
         _billingCycleMonths = data['billingCycleMonths'] ?? 1;
 
@@ -212,6 +218,8 @@ class SettingsProvider extends ChangeNotifier {
         'fullName': _fullName,
         'email': _email,
         'phoneNumber': _phoneNumber,
+        'address': _address,
+        'jobTitle': _jobTitle,
         'profilePhotoUrl': _profilePhotoUrl,
         'emailNotificationsEnabled': _emailNotificationsEnabled,
         'smsNotificationsEnabled': _smsNotificationsEnabled,
@@ -257,12 +265,16 @@ class SettingsProvider extends ChangeNotifier {
     required String fullName,
     required String email,
     required String phoneNumber,
+    String? address,
+    String? jobTitle,
     String? profilePhotoUrl,
   }) async {
     try {
       _fullName = fullName;
       _email = email;
       _phoneNumber = phoneNumber;
+      if (address != null) _address = address;
+      if (jobTitle != null) _jobTitle = jobTitle;
       if (profilePhotoUrl != null) {
         _profilePhotoUrl = profilePhotoUrl;
       }
@@ -276,6 +288,8 @@ class SettingsProvider extends ChangeNotifier {
         'fullName': fullName,
         'email': email,
         'phoneNumber': phoneNumber,
+        'address': _address,
+        'jobTitle': _jobTitle,
         'profilePhotoUrl': _profilePhotoUrl,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -568,7 +582,7 @@ class SettingsProvider extends ChangeNotifier {
     _printFooter = true;
     _headerText = null;
     _footerText = null;
-    _currentPlan = 'basic';
+    _currentPlan = 'tier1';
     _autoRenew = true;
     _billingCycleMonths = 1;
     _defaultExportFormat = 'pdf';

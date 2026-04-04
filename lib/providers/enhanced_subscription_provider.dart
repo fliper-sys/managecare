@@ -365,19 +365,30 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
         'billingCycle': 'forever',
         'features': _getFeaturesForTier('free'),
       },
-      'basic': {
-        'name': 'Basic',
-        'price': 9.99,
-        'billingCycle': 'monthly',
-        'features': _getFeaturesForTier('basic'),
+      'tier1': {
+        'name': 'Tier 1',
+        'price': 0.0,
+        'billingCycle': 'varies by business',
+        'features': _getFeaturesForTier('tier1'),
       },
-      'pro': {
-        'name': 'Professional',
-        'price': 24.99,
-        'billingCycle': 'monthly',
-        'features': _getFeaturesForTier('pro'),
+      'tier2': {
+        'name': 'Tier 2',
+        'price': 0.0,
+        'billingCycle': 'varies by business',
+        'features': _getFeaturesForTier('tier2'),
       },
-
+      'tier3': {
+        'name': 'Tier 3',
+        'price': 0.0,
+        'billingCycle': 'varies by business',
+        'features': _getFeaturesForTier('tier3'),
+      },
+      'unlimited': {
+        'name': 'Unlimited',
+        'price': 0.0,
+        'billingCycle': 'varies by business',
+        'features': _getFeaturesForTier('unlimited'),
+      },
     };
   }
 
@@ -412,44 +423,36 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
       case 'free':
         return [
           'Basic sales tracking',
-          'Product management (up to 50)',
-          'Single user account',
           'Basic reports',
+          'Per-business subscription visibility',
         ];
-      case 'basic':
-      case 'starter':
+      case 'tier1':
         return [
-          'All Free features',
-          'Up to 5 users',
-          'Product management (up to 500)',
+          'All free features',
           'Email receipts',
           'SMS notifications',
-          'Advanced analytics',
-          'Priority email support',
-        ];
-      case 'pro':
-      case 'professional':
-        return [
-          'All Basic features',
-          'Up to 20 users',
-          'Unlimited products',
-          'Multi-location support',
           'Payment processing',
-          'Custom reports',
-          'API access',
-          'Priority phone support',
+          'Advanced analytics',
         ];
-      case 'enterprise':
+      case 'tier2':
+        return [
+          'All Tier 1 features',
+          'Multi-location support',
+          'Higher operational limits',
+        ];
       case 'tier3':
         return [
-          'All Pro features',
-          'Unlimited users',
-          'Dedicated account manager',
-          'Custom development',
-          'White-label options',
-          'SSO login',
-          '24/7 phone support',
-          'SLA guarantee',
+          'All Tier 2 features',
+          'Priority support',
+          'Custom reports',
+          'Premium business features',
+        ];
+      case 'unlimited':
+        return [
+          'All Tier 3 features',
+          'Unlimited access',
+          'API access',
+          'White-label and dedicated support',
         ];
       default:
         return [];
@@ -477,7 +480,6 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
       'api_advanced',
     ];
 
-    final tierLower = tier.toLowerCase();
     final accessible = <String>[];
 
     for (final feature in allFeatures) {
@@ -487,20 +489,8 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
         continue;
       }
 
-      final tierHierarchy = {
-        'free': 0,
-        'basic': 1,
-        'starter': 1,
-        'pro': 2,
-        'professional': 2,
-        'enterprise': 3,
-        'tier1': 1,
-        'tier2': 2,
-        'tier3': 3,
-      };
-
-      final userLevel = tierHierarchy[tierLower] ?? 0;
-      final requiredLevel = tierHierarchy[required] ?? 0;
+      final userLevel = SubscriptionService.getTierRank(tier);
+      final requiredLevel = SubscriptionService.getTierRank(required);
 
       if (userLevel >= requiredLevel) {
         accessible.add(feature);

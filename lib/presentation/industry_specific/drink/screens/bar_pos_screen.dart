@@ -15,10 +15,13 @@ import '../../../../providers/business_provider.dart';
 import '../../../../providers/customer_provider.dart';
 import '../../../../data/models/customer_model.dart';
 import '../../../../core/constants/routes.dart';
+import '../../../../services/subscription_service.dart';
 import '../../../../widgets/custom_button.dart';
 
 class BarPosScreenDrink extends StatefulWidget {
-  const BarPosScreenDrink({super.key});
+  final String? invoiceId;
+
+  const BarPosScreenDrink({super.key, this.invoiceId});
 
   @override
   State<BarPosScreenDrink> createState() => _BarPosScreenDrinkState();
@@ -31,6 +34,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
   String? _selectedStoreId;
   CustomerModel? _selectedCustomer;
+  String? _editingInvoiceId;
+  String? _editingInvoiceNumber;
   final TextEditingController _tableLabelController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
 
@@ -47,6 +52,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
           customers.loadCustomers();
         }
         _selectedStoreId = auth.currentUser?.storeId;
+        _loadInvoiceDraftIfNeeded();
       } catch (_) {}
     });
   }
@@ -105,6 +111,169 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
     if (_tableLabelController.text.trim().isNotEmpty) return 'table';
     if (_selectedCustomer != null) return 'tab';
     return 'invoice';
+  }
+
+  void _loadInvoiceDraftIfNeeded() {
+    final invoiceId = widget.invoiceId;
+    if (invoiceId == null ||
+        invoiceId.isEmpty ||
+        _editingInvoiceId == invoiceId) {
+      return;
+    }
+
+    final provider = Provider.of<DrinkProvider>(context, listen: false);
+    final customerProvider =
+        Provider.of<CustomerProvider>(context, listen: false);
+    final invoice = provider.getInvoiceById(invoiceId);
+
+    if (invoice == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invoice could not be loaded for editing')),
+      );
+      return;
+    }
+
+    _cart
+      ..clear()
+      ..addEntries(
+        invoice.lines.map(
+          (line) => MapEntry(line.drinkId, line.quantityBottles),
+        ),
+      );
+    _tableLabelController.text = invoice.tableLabel ?? '';
+    _notesController.text = invoice.notes ?? '';
+    _selectedStoreId = invoice.storeId ?? _selectedStoreId;
+
+    CustomerModel? selectedCustomer;
+    if (invoice.customerId != null && invoice.customerId!.isNotEmpty) {
+      try {
+        selectedCustomer = customerProvider.customers.firstWhere(
+          (customer) => customer.id == invoice.customerId,
+        );
+      } catch (_) {
+        selectedCustomer = null;
+      }
+    }
+
+    if (selectedCustomer == null &&
+        invoice.customerName.trim().isNotEmpty &&
+        invoice.customerName != 'Walk-in Customer') {
+      final now = DateTime.now();
+      selectedCustomer = CustomerModel(
+        id: invoice.customerId ?? 'draft_customer_${invoice.id}',
+        businessId: invoice.businessId,
+        name: invoice.customerName,
+        email: invoice.customerEmail,
+        phone: invoice.customerPhone,
+        totalSpent: 0,
+        totalTransactions: 0,
+        averageOrderValue: 0,
+        firstPurchaseDate: now,
+        lastPurchaseDate: now,
+        createdAt: now,
+        updatedAt: now,
+        isActive: true,
+      );
+    }
+
+    setState(() {
+      _selectedCustomer = selectedCustomer;
+      _editingInvoiceId = invoice.id;
+      _editingInvoiceNumber = invoice.invoiceNumber;
+      _showCart = true;
+    });
+  }
+
+  Future<void> _showBlockedDialog({
+    required String title,
+    required String message,
+  }) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _barTableLimitType(BusinessProvider businessProvider) {
+    final family = SubscriptionService.getPlanFamilyForBusinessType(
+      businessProvider.currentBusiness?.businessType,
+    );
+    return family == SubscriptionService.familyHospitality
+        ? 'bar_tables'
+        : 'tables';
+  }
+
+  int _openBarTableSessionCount(DrinkProvider provider) {
+    final labels = provider
+        .getOpenInvoices()
+        .where((invoice) =>
+            invoice.id != _editingInvoiceId &&
+            (invoice.tableLabel?.trim().isNotEmpty ?? false))
+        .map((invoice) => invoice.tableLabel!.trim().toLowerCase())
+        .toSet();
+    return labels.length;
+  }
+
+  bool _createsNewBarTableSession(DrinkProvider provider) {
+    final tableLabel = _tableLabelController.text.trim().toLowerCase();
+    if (tableLabel.isEmpty) return false;
+
+    return !provider.getOpenInvoices().any(
+      (invoice) =>
+          invoice.id != _editingInvoiceId &&
+          (invoice.tableLabel?.trim().toLowerCase() ?? '') == tableLabel,
+    );
+  }
+
+  Future<bool> _ensureBarOperationAllowed(
+    DrinkProvider provider, {
+    required String contextName,
+    required bool enforceTableSessionLimit,
+  }) async {
+    final businessProvider = context.read<BusinessProvider>();
+    final access = await businessProvider.canAccessFeatureEnhanced(
+      'basic_sales',
+      context: contextName,
+    );
+
+    if (!mounted) return false;
+    if (!(access['ok'] as bool? ?? false)) {
+      await _showBlockedDialog(
+        title: 'Subscription required',
+        message: businessProvider.getSubscriptionBlockedMessage(
+          feature: 'basic_sales',
+        ),
+      );
+      return false;
+    }
+
+    if (!enforceTableSessionLimit || _resolvedInvoiceType() != 'table') {
+      return true;
+    }
+
+    if (_createsNewBarTableSession(provider)) {
+      final limitType = _barTableLimitType(businessProvider);
+      final currentCount = _openBarTableSessionCount(provider);
+      if (!businessProvider.isWithinLimit(limitType, currentCount)) {
+        await _showBlockedDialog(
+          title: 'Table limit reached',
+          message: businessProvider.getLimitReachedMessage(limitType),
+        );
+        return false;
+      }
+    }
+
+    return true;
   }
 
   Future<CustomerModel?> _showCreateCustomerDialog() async {
@@ -197,6 +366,13 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
   Future<void> _saveInvoice(DrinkProvider provider) async {
     if (_cart.isEmpty) return;
+    if (!await _ensureBarOperationAllowed(
+      provider,
+      contextName: 'bar_save_invoice',
+      enforceTableSessionLimit: true,
+    )) {
+      return;
+    }
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final businessId =
@@ -212,23 +388,43 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
     if (lines.isEmpty) return;
 
     try {
-      final invoice = await provider.createInvoice(
-        lines: lines,
-        invoiceType: _resolvedInvoiceType(),
-        customerId: _selectedCustomer?.id,
-        customerName: _selectedCustomer?.name,
-        customerPhone: _selectedCustomer?.phone,
-        customerEmail: _selectedCustomer?.email,
-        tableLabel: _tableLabelController.text.trim().isEmpty
-            ? null
-            : _tableLabelController.text.trim(),
-        notes: _notesController.text.trim().isEmpty
-            ? null
-            : _notesController.text.trim(),
-        workerId: authProvider.currentUser?.id,
-        workerName: authProvider.currentUser?.fullName,
-        storeId: _selectedStoreId ?? authProvider.currentUser?.storeId,
-      );
+      final wasEditing = _editingInvoiceId != null;
+      final invoice = _editingInvoiceId == null
+          ? await provider.createInvoice(
+              lines: lines,
+              invoiceType: _resolvedInvoiceType(),
+              customerId: _selectedCustomer?.id,
+              customerName: _selectedCustomer?.name,
+              customerPhone: _selectedCustomer?.phone,
+              customerEmail: _selectedCustomer?.email,
+              tableLabel: _tableLabelController.text.trim().isEmpty
+                  ? null
+                  : _tableLabelController.text.trim(),
+              notes: _notesController.text.trim().isEmpty
+                  ? null
+                  : _notesController.text.trim(),
+              workerId: authProvider.currentUser?.id,
+              workerName: authProvider.currentUser?.fullName,
+              storeId: _selectedStoreId ?? authProvider.currentUser?.storeId,
+            )
+          : await provider.updateInvoice(
+              invoiceId: _editingInvoiceId!,
+              lines: lines,
+              invoiceType: _resolvedInvoiceType(),
+              customerId: _selectedCustomer?.id,
+              customerName: _selectedCustomer?.name,
+              customerPhone: _selectedCustomer?.phone,
+              customerEmail: _selectedCustomer?.email,
+              tableLabel: _tableLabelController.text.trim().isEmpty
+                  ? null
+                  : _tableLabelController.text.trim(),
+              notes: _notesController.text.trim().isEmpty
+                  ? null
+                  : _notesController.text.trim(),
+              workerId: authProvider.currentUser?.id,
+              workerName: authProvider.currentUser?.fullName,
+              storeId: _selectedStoreId ?? authProvider.currentUser?.storeId,
+            );
 
       _clearCart();
       _tableLabelController.clear();
@@ -237,17 +433,24 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
       if (!mounted) return;
       setState(() {
         _selectedCustomer = null;
+        _editingInvoiceId = null;
+        _editingInvoiceNumber = null;
         _showCart = false;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-              'Invoice ${invoice.invoiceNumber} saved to Tabs & Invoices'),
+          content: Text(wasEditing
+              ? 'Invoice ${invoice.invoiceNumber} updated'
+              : 'Invoice ${invoice.invoiceNumber} saved to Tabs & Invoices'),
           backgroundColor: Colors.brown.shade700,
         ),
       );
-      Navigator.pushNamed(context, Routes.drinkTabs);
+      if (wasEditing && Navigator.canPop(context)) {
+        Navigator.pop(context, {'updatedInvoiceId': invoice.id});
+      } else {
+        Navigator.pushReplacementNamed(context, Routes.drinkTabs);
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -258,6 +461,13 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
   Future<void> _checkout(DrinkProvider provider) async {
     if (_cart.isEmpty) return;
+    if (!await _ensureBarOperationAllowed(
+      provider,
+      contextName: 'bar_checkout',
+      enforceTableSessionLimit: false,
+    )) {
+      return;
+    }
 
     try {
       // Get business ID from BusinessProvider, fallback to auth
@@ -298,6 +508,65 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
       // Ask user for payment method
       final paymentMethod = await _selectPaymentMethod();
       if (paymentMethod == null) return;
+
+      if (_editingInvoiceId != null) {
+        final updatedInvoice = await provider.updateInvoice(
+          invoiceId: _editingInvoiceId!,
+          lines: lines,
+          invoiceType: _resolvedInvoiceType(),
+          customerId: _selectedCustomer?.id,
+          customerName: _selectedCustomer?.name,
+          customerPhone: _selectedCustomer?.phone,
+          customerEmail: _selectedCustomer?.email,
+          tableLabel: _tableLabelController.text.trim().isEmpty
+              ? null
+              : _tableLabelController.text.trim(),
+          notes: _notesController.text.trim().isEmpty
+              ? null
+              : _notesController.text.trim(),
+          workerId: authProvider.currentUser?.id,
+          workerName: authProvider.currentUser?.fullName,
+          storeId: _selectedStoreId ?? authProvider.currentUser?.storeId,
+        );
+
+        final saleMap = await provider.convertInvoiceToSale(
+          updatedInvoice.id,
+          paymentMethod,
+          workerId: authProvider.currentUser?.id,
+          workerName: authProvider.currentUser?.fullName,
+        );
+
+        _clearCart();
+        _tableLabelController.clear();
+        _notesController.clear();
+
+        if (!mounted) return;
+
+        await ReceiptManager.handlePostSale(context, saleMap);
+        if (!mounted) return;
+
+        setState(() {
+          _selectedCustomer = null;
+          _editingInvoiceId = null;
+          _editingInvoiceNumber = null;
+          _showCart = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${updatedInvoice.invoiceNumber} converted to sale successfully',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        if (Navigator.canPop(context)) {
+          Navigator.pop(context, {'convertedInvoiceId': updatedInvoice.id});
+        } else {
+          Navigator.pushReplacementNamed(context, Routes.drinkTabs);
+        }
+        return;
+      }
 
       final order = Order(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -531,7 +800,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Bar POS System'),
+        title: Text(
+          _editingInvoiceNumber == null
+              ? 'Bar POS System'
+              : 'Edit ${_editingInvoiceNumber!}',
+        ),
         backgroundColor: Colors.brown.shade700,
         elevation: 2,
         actions: [
@@ -579,6 +852,105 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // Customer Selection
+                  Consumer<CustomerProvider>(
+                    builder: (context, customerProvider, _) {
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Customer',
+                              style: AppTextStyles.caption.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: DropdownButtonFormField<String>(
+                                    value: _selectedCustomer?.id,
+                                    isExpanded: true,
+                                    decoration: InputDecoration(
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      hintText: 'Select customer',
+                                    ),
+                                    items: [
+                                      const DropdownMenuItem<String>(
+                                        value: '',
+                                        child: Text('Walk-in customer'),
+                                      ),
+                                      ...customerProvider.customers.map(
+                                        (customer) => DropdownMenuItem<String>(
+                                          value: customer.id,
+                                          child: Text(customer.name),
+                                        ),
+                                      ),
+                                    ],
+                                    onChanged: (value) {
+                                      setState(() {
+                                        if (value == null || value.isEmpty) {
+                                          _selectedCustomer = null;
+                                        } else {
+                                          try {
+                                            _selectedCustomer =
+                                                customerProvider.customers.firstWhere(
+                                              (customer) => customer.id == value,
+                                            );
+                                          } catch (_) {
+                                            _selectedCustomer = null;
+                                          }
+                                        }
+                                      });
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  onPressed: () async {
+                                    final created = await _showCreateCustomerDialog();
+                                    if (!mounted || created == null) return;
+                                    setState(() => _selectedCustomer = created);
+                                  },
+                                  icon: const Icon(Icons.person_add_alt_1),
+                                  tooltip: 'Add new customer',
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.brown.shade50,
+                                    foregroundColor: Colors.brown.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (_selectedCustomer != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                _selectedCustomer!.phone?.isNotEmpty == true
+                                    ? _selectedCustomer!.phone!
+                                    : (_selectedCustomer!.email?.isNotEmpty == true
+                                        ? _selectedCustomer!.email!
+                                        : 'No contact info'),
+                                style: AppTextStyles.caption.copyWith(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+
                   // Store selector
                   Consumer<RetailProvider>(builder: (context, retail, _) {
                     final stores = retail.stores;
@@ -760,9 +1132,12 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
   Widget _buildCartView(DrinkProvider provider) {
     return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      clipBehavior: Clip.none,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Order Review Header
@@ -770,7 +1145,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Order Review',
+                  _editingInvoiceNumber == null
+                      ? 'Order Review'
+                      : 'Editing Saved Tab',
                   style: AppTextStyles.heading4.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -785,6 +1162,26 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
               ],
             ),
             const SizedBox(height: 16),
+
+            if (_editingInvoiceNumber != null) ...[
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.amber.shade200),
+                ),
+                child: Text(
+                  'You are editing $_editingInvoiceNumber. Saving will update the open tab, and payment will convert it into a sale.',
+                  style: AppTextStyles.body2.copyWith(
+                    color: Colors.brown.shade800,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
 
             // Order Items
             ..._cart.entries.map((e) {
@@ -1061,7 +1458,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
             // Action Buttons
             CustomButton(
-              text: 'Save Invoice / Open Tab',
+              text: _editingInvoiceNumber == null
+                  ? 'Save Invoice / Open Tab'
+                  : 'Update Open Invoice',
               backgroundColor: Colors.brown.shade700,
               onPressed: () => _saveInvoice(
                 Provider.of<DrinkProvider>(context, listen: false),
@@ -1069,7 +1468,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
             ),
             const SizedBox(height: 8),
             CustomButton(
-              text: 'Proceed to Payment',
+              text: _editingInvoiceNumber == null
+                  ? 'Proceed to Payment'
+                  : 'Convert Tab to Sale',
               backgroundColor: Colors.green.shade600,
               onPressed: () async {
                 await _checkout(
@@ -1100,7 +1501,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                           _clearCart();
                           _tableLabelController.clear();
                           _notesController.clear();
-                          setState(() => _selectedCustomer = null);
+                          setState(() {
+                            _selectedCustomer = null;
+                            _editingInvoiceId = null;
+                            _editingInvoiceNumber = null;
+                          });
                           Navigator.pop(context);
                           setState(() => _showCart = false);
                         },

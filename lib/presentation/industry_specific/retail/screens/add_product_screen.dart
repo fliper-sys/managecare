@@ -33,16 +33,19 @@ class _AddProductScreenState extends State<AddProductScreen> {
   late TextEditingController _nameController;
   late TextEditingController _priceController;
   late TextEditingController _costController;
+  late TextEditingController _wholesalePriceController;
   late TextEditingController _stockController;
   late TextEditingController _categoryController;
   late TextEditingController _barcodeController;
   late TextEditingController _emojiController;
+  late TextEditingController _saleUnitMultiplierController;
   bool _isLoading = false;
   String? _imageUrl;
   Uint8List? _pendingImageBytes;
   String? _pendingImageFilename;
   String? _selectedStoreId;
   late String _selectedUnit;
+  late String _selectedSaleUnit;
 
   @override
   void initState() {
@@ -52,6 +55,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
         TextEditingController(text: widget.product?.price.toString() ?? '');
     _costController =
         TextEditingController(text: widget.product?.cost.toString() ?? '');
+    _wholesalePriceController = TextEditingController(
+      text: widget.product?.wholesalePrice?.toString() ?? '',
+    );
     _stockController =
         TextEditingController(text: widget.product?.stock.toString() ?? '');
     _categoryController =
@@ -62,6 +68,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
         TextEditingController(text: widget.product?.emoji ?? '📦');
     _imageUrl = widget.product?.imageUrl;
     _selectedUnit = canonicalizeInventoryUnit(widget.product?.unit);
+    _selectedSaleUnit = canonicalizeInventoryUnit(
+      widget.product?.resolvedSaleUnit,
+    );
+    _saleUnitMultiplierController = TextEditingController(
+      text: widget.product?.resolvedSaleUnitMultiplier.toString() ?? '1',
+    );
   }
 
   @override
@@ -69,10 +81,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _nameController.dispose();
     _priceController.dispose();
     _costController.dispose();
+    _wholesalePriceController.dispose();
     _stockController.dispose();
     _categoryController.dispose();
     _barcodeController.dispose();
     _emojiController.dispose();
+    _saleUnitMultiplierController.dispose();
     super.dispose();
   }
 
@@ -274,6 +288,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
         name: _nameController.text,
         price: double.parse(_priceController.text),
         cost: double.tryParse(_costController.text) ?? 0.0,
+        wholesalePrice: _wholesalePriceController.text.trim().isEmpty
+            ? null
+            : double.tryParse(_wholesalePriceController.text.trim()),
         stock: double.parse(_stockController.text),
         category: _categoryController.text.isEmpty
             ? 'Uncategorized'
@@ -283,6 +300,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
         emoji: _emojiController.text.isEmpty ? '📦' : _emojiController.text,
         imageUrl: _imageUrl,
         unit: _selectedUnit,
+        saleUnit: _selectedSaleUnit,
+        saleUnitMultiplier:
+            double.tryParse(_saleUnitMultiplierController.text.trim()) ?? 1.0,
       );
 
       if (widget.product == null) {
@@ -609,6 +629,69 @@ class _AddProductScreenState extends State<AddProductScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            Text('Wholesale / Sale Unit',
+                style: AppTextStyles.heading5.copyWith(
+                  fontWeight: FontWeight.w700,
+                )),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _wholesalePriceController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                hintText: 'Wholesale price (optional)',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _selectedSaleUnit,
+              decoration: InputDecoration(
+                labelText: 'Primary sale unit',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+              ),
+              items: getInventoryUnitOptions(selectedUnit: _selectedSaleUnit)
+                  .map(
+                    (unit) => DropdownMenuItem<String>(
+                      value: unit,
+                      child: Text(inventoryUnitLabel(unit)),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _selectedSaleUnit = canonicalizeInventoryUnit(value));
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _saleUnitMultiplierController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                hintText: 'How many inventory units make 1 sale unit?',
+                helperText:
+                    'Example: carton sold from piece stock = 12, litre sold from mL stock = 1000',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
 
             // Stock
             Text('Stock Quantity',
@@ -638,7 +721,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
                   .toList(),
               onChanged: (value) {
                 if (value == null) return;
-                setState(() => _selectedUnit = canonicalizeInventoryUnit(value));
+                final previousUnit = _selectedUnit;
+                final nextUnit = canonicalizeInventoryUnit(value);
+                setState(() {
+                  _selectedUnit = nextUnit;
+                  if (_selectedSaleUnit == previousUnit ||
+                      _selectedSaleUnit.trim().isEmpty) {
+                    _selectedSaleUnit = nextUnit;
+                  }
+                });
               },
             ),
             const SizedBox(height: 12),

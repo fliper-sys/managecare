@@ -89,7 +89,17 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
       case 'pharmacy':
         return ['manager', 'pharmacist', 'cashier', 'staff'];
       case 'hotel':
-        return ['manager', 'housekeeper', 'frontdesk', 'staff'];
+      case 'hospitality':
+      case 'apartment':
+        return [
+          'manager',
+          'receptionist',
+          'frontdesk',
+          'waiter',
+          'housekeeper',
+          'hr',
+          'staff',
+        ];
       default:
         return ['manager', 'cashier', 'staff', 'assistant'];
     }

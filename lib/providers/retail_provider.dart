@@ -12,25 +12,38 @@ class Product {
   final String name;
   final double price;
   final double cost;
+  final double? wholesalePrice;
   double stock;
   final String category;
   final String? imageUrl;
   final String? barcode;
   final String emoji;
   final String unit; // e.g., L, cyl
+  final String saleUnit;
+  final double saleUnitMultiplier;
 
   Product({
     required this.id,
     required this.name,
     required this.price,
     this.cost = 0.0,
+    this.wholesalePrice,
     required this.stock,
     required this.category,
     this.imageUrl,
     this.barcode,
     this.emoji = '📦',
     this.unit = 'pc',
+    this.saleUnit = '',
+    this.saleUnitMultiplier = 1.0,
   });
+
+  String get resolvedSaleUnit => saleUnit.trim().isEmpty ? unit : saleUnit;
+  double get resolvedSaleUnitMultiplier =>
+      saleUnitMultiplier <= 0 ? 1.0 : saleUnitMultiplier;
+  bool get hasWholesalePricing =>
+      (wholesalePrice ?? 0) > 0 &&
+      (wholesalePrice! - price).abs() > 0.0001;
 
   factory Product.fromFirestore(DocumentSnapshot doc) {
     final raw = doc.data();
@@ -43,6 +56,7 @@ class Product {
       name: data['name'] ?? '',
       price: (data['price'] ?? 0.0).toDouble(),
       cost: (data['cost'] ?? 0.0).toDouble(),
+      wholesalePrice: (data['wholesalePrice'] as num?)?.toDouble(),
       stock: (data['quantity'] as num?)?.toDouble() ??
           (data['stock'] as num?)?.toDouble() ??
           0.0,
@@ -51,6 +65,9 @@ class Product {
       barcode: data['barcode'],
       emoji: data['emoji'] ?? '📦',
       unit: (data['unit'] ?? 'pc').toString(),
+      saleUnit: (data['saleUnit'] ?? data['unit'] ?? 'pc').toString(),
+      saleUnitMultiplier:
+          (data['saleUnitMultiplier'] as num?)?.toDouble() ?? 1.0,
     );
   }
 
@@ -65,6 +82,9 @@ class Product {
       'barcode': barcode,
       'emoji': emoji,
       'unit': unit,
+      'wholesalePrice': wholesalePrice,
+      'saleUnit': resolvedSaleUnit,
+      'saleUnitMultiplier': resolvedSaleUnitMultiplier,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
@@ -185,6 +205,20 @@ class Promotion {
   }
 }
 
+class CartSessionSummary {
+  final String id;
+  final String label;
+  final int itemCount;
+  final bool isActive;
+
+  const CartSessionSummary({
+    required this.id,
+    required this.label,
+    required this.itemCount,
+    required this.isActive,
+  });
+}
+
 class RetailProvider extends ChangeNotifier {
   final FirebaseFirestore _firestore;
   final NotificationAndEmailService _notificationEmailService;
@@ -196,6 +230,10 @@ class RetailProvider extends ChangeNotifier {
 
   // Cart: productId -> qty
   final Map<String, int> _cart = {};
+  final Map<String, Map<String, int>> _cartSessions = {};
+  final Map<String, String> _cartLabels = {};
+  String _activeCartId = 'cart_1';
+  int _cartSessionCounter = 1;
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -213,6 +251,26 @@ class RetailProvider extends ChangeNotifier {
   List<Promotion> get promotions => List.unmodifiable(_promotions);
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  String get activeCartId => _activeCartId;
+  String get activeCartLabel => _cartLabels[_activeCartId] ?? 'Cart 1';
+
+  List<CartSessionSummary> get cartSessions {
+    return _cartSessions.entries.map((entry) {
+      final itemCount = entry.value.values.fold<int>(0, (sum, qty) => sum + qty);
+      return CartSessionSummary(
+        id: entry.key,
+        label: _cartLabels[entry.key] ?? 'Cart',
+        itemCount: itemCount,
+        isActive: entry.key == _activeCartId,
+      );
+    }).toList()
+      ..sort((a, b) {
+        if (a.isActive == b.isActive) {
+          return a.label.compareTo(b.label);
+        }
+        return a.isActive ? -1 : 1;
+      });
+  }
 
   Map<Product, int> get cartItems {
     return Map.fromEntries(
@@ -256,19 +314,94 @@ class RetailProvider extends ChangeNotifier {
       dynamic printerService})
       : _firestore = firestore ?? FirebaseFirestore.instance,
         _notificationEmailService =
-            notificationEmailService ?? NotificationAndEmailService();
-            // printerService parameter unused - for future implementation
+            notificationEmailService ?? NotificationAndEmailService() {
+    _ensureActiveCart();
+    // printerService parameter unused - for future implementation
+  }
+
+  Map<String, int> _ensureActiveCart() {
+    _cartSessions.putIfAbsent(_activeCartId, () => _cart);
+    _cartLabels.putIfAbsent(_activeCartId, () => 'Cart 1');
+    return _cartSessions[_activeCartId]!;
+  }
+
+  void _syncActiveCartSnapshot() {
+    _cartSessions[_activeCartId] = Map<String, int>.from(_cart);
+    _cartLabels.putIfAbsent(_activeCartId, () => 'Cart 1');
+  }
+
+  Future<void> createCartSession({String? label, bool switchToNew = true}) async {
+    _syncActiveCartSnapshot();
+    _cartSessionCounter += 1;
+    final cartId = 'cart_$_cartSessionCounter';
+    _cartLabels[cartId] = (label == null || label.trim().isEmpty)
+        ? 'Cart $_cartSessionCounter'
+        : label.trim();
+    _cartSessions[cartId] = <String, int>{};
+    if (switchToNew) {
+      _activeCartId = cartId;
+      _cart
+        ..clear()
+        ..addAll(_cartSessions[cartId]!);
+    }
+    notifyListeners();
+  }
+
+  void switchCart(String cartId) {
+    if (!_cartSessions.containsKey(cartId) || cartId == _activeCartId) return;
+    _syncActiveCartSnapshot();
+    _activeCartId = cartId;
+    _cart
+      ..clear()
+      ..addAll(_cartSessions[cartId] ?? const <String, int>{});
+    notifyListeners();
+  }
+
+  void renameCart(String cartId, String label) {
+    final trimmed = label.trim();
+    if (trimmed.isEmpty || !_cartSessions.containsKey(cartId)) return;
+    _cartLabels[cartId] = trimmed;
+    notifyListeners();
+  }
+
+  void closeCart(String cartId) {
+    if (!_cartSessions.containsKey(cartId) || _cartSessions.length <= 1) {
+      return;
+    }
+    final wasActive = cartId == _activeCartId;
+    _cartSessions.remove(cartId);
+    _cartLabels.remove(cartId);
+    if (wasActive) {
+      final nextId = _cartSessions.keys.first;
+      _activeCartId = nextId;
+      _cart
+        ..clear()
+        ..addAll(_cartSessions[nextId] ?? const <String, int>{});
+    }
+    notifyListeners();
+  }
 
   // Initialize with business ID
   Future<void> initialize(String businessId) async {
+    final isBusinessSwitch = _businessId != null && _businessId != businessId;
     // if switching business, cancel existing subscriptions
-    if (_businessId != null && _businessId != businessId) {
+    if (isBusinessSwitch) {
       unsubscribeFromSalesHistory();
+      _cart.clear();
+      _cartSessions
+        ..clear()
+        ..['cart_1'] = _cart;
+      _cartLabels
+        ..clear()
+        ..['cart_1'] = 'Cart 1';
+      _activeCartId = 'cart_1';
+      _cartSessionCounter = 1;
     }
     _businessId = businessId;
+    _ensureActiveCart();
     
     // Check if we should skip initialization (already initialized recently)
-    if (_isInitialized && _lastInitTime != null) {
+    if (!isBusinessSwitch && _isInitialized && _lastInitTime != null) {
       final elapsed = DateTime.now().difference(_lastInitTime!);
       if (elapsed < _initMinInterval) {
         print('[RetailProvider] ⏭️ Skipping initialization - last init was ${elapsed.inSeconds}s ago');
@@ -364,6 +497,7 @@ class RetailProvider extends ChangeNotifier {
           name: data['name'] ?? '',
           price: (data['price'] as num?)?.toDouble() ?? 0.0,
           cost: (data['cost'] as num?)?.toDouble() ?? 0.0,
+          wholesalePrice: (data['wholesalePrice'] as num?)?.toDouble(),
           stock: (data['quantity'] as num?)?.toDouble() ??
               0.0, // inventory uses 'quantity' field
           category: data['category'] ?? 'Uncategorized',
@@ -371,6 +505,9 @@ class RetailProvider extends ChangeNotifier {
           barcode: data['barcode'],
           emoji: data['emoji'] ?? '📦',
           unit: (data['unit'] ?? 'pc').toString(),
+          saleUnit: (data['saleUnit'] ?? data['unit'] ?? 'pc').toString(),
+          saleUnitMultiplier:
+              (data['saleUnitMultiplier'] as num?)?.toDouble() ?? 1.0,
         );
       }).toList();
 
@@ -405,6 +542,8 @@ class RetailProvider extends ChangeNotifier {
                 name: raw['name'] ?? raw['item'] ?? '',
                 price: (raw['price'] as num?)?.toDouble() ?? 0.0,
                 cost: (raw['cost'] as num?)?.toDouble() ?? 0.0,
+                wholesalePrice:
+                    (raw['wholesalePrice'] as num?)?.toDouble(),
                 stock: (raw['quantity'] as num?)?.toDouble() ??
                     (raw['qty'] as num?)?.toDouble() ??
                     0.0,
@@ -413,6 +552,10 @@ class RetailProvider extends ChangeNotifier {
                 barcode: raw['barcode'],
                 emoji: raw['emoji'] ?? '📦',
                 unit: (raw['unit'] ?? 'pc').toString(),
+                saleUnit:
+                    (raw['saleUnit'] ?? raw['unit'] ?? 'pc').toString(),
+                saleUnitMultiplier:
+                    (raw['saleUnitMultiplier'] as num?)?.toDouble() ?? 1.0,
               );
               documentProducts.add(prod);
             }
@@ -499,6 +642,12 @@ class RetailProvider extends ChangeNotifier {
         bool hasFuel = false;
         double saleFuelVolume = 0.0;
         double saleAmount = (data['totalAmount'] as num?)?.toDouble() ?? (data['total'] as num?)?.toDouble() ?? 0.0;
+
+        final saleCategory = (data['category'] as String?)?.toLowerCase() ?? '';
+        if (saleCategory.contains('fuel') || saleCategory.contains('petrol') || saleCategory.contains('gas')) {
+          hasFuel = true;
+        }
+
 
         for (final it in items) {
           if (it is! Map<String, dynamic>) continue;
@@ -736,8 +885,12 @@ class RetailProvider extends ChangeNotifier {
         'name': product.name,
         'price': product.price,
         'cost': product.cost,
+        'wholesalePrice': product.wholesalePrice,
         'quantity': product.stock,
         'category': product.category,
+        'unit': product.unit,
+        'saleUnit': product.resolvedSaleUnit,
+        'saleUnitMultiplier': product.resolvedSaleUnitMultiplier,
         'barcode': product.barcode,
         'emoji': product.emoji,
         'imageUrl': product.imageUrl,
@@ -770,8 +923,12 @@ class RetailProvider extends ChangeNotifier {
         'name': product.name,
         'price': product.price,
         'cost': product.cost,
+        'wholesalePrice': product.wholesalePrice,
         'quantity': product.stock,
         'category': product.category,
+        'unit': product.unit,
+        'saleUnit': product.resolvedSaleUnit,
+        'saleUnitMultiplier': product.resolvedSaleUnitMultiplier,
         'barcode': product.barcode,
         'emoji': product.emoji,
         'imageUrl': product.imageUrl,
@@ -855,13 +1012,16 @@ class RetailProvider extends ChangeNotifier {
 
   // Cart management methods
   void addToCart(String productId, {int qty = 1}) {
+    _ensureActiveCart();
     _cart.update(productId, (v) => v + qty, ifAbsent: () => qty);
+    _syncActiveCartSnapshot();
     notifyListeners();
   }
 
   /// Remove product from cart
   void removeFromCart(String productId) {
     _cart.remove(productId);
+    _syncActiveCartSnapshot();
     notifyListeners();
   }
 
@@ -898,11 +1058,13 @@ class RetailProvider extends ChangeNotifier {
     } else {
       _cart[productId] = qty;
     }
+    _syncActiveCartSnapshot();
     notifyListeners();
   }
 
   void clearCart() {
     _cart.clear();
+    _syncActiveCartSnapshot();
     notifyListeners();
   }
 
@@ -921,11 +1083,13 @@ class RetailProvider extends ChangeNotifier {
     Map<String, double>? priceOverrides,
   }) async {
     if (_businessId == null) return false;
+    final activeCartEntries = Map<String, int>.from(_cart);
+    if (activeCartEntries.isEmpty) return false;
 
     try {
       // Compute subtotal applying any price overrides
       double subtotal = 0.0;
-      for (final entry in _cart.entries) {
+      for (final entry in activeCartEntries.entries) {
         final product = _products.firstWhere(
           (p) => p.id == entry.key,
           orElse: () => Product(
@@ -947,7 +1111,9 @@ class RetailProvider extends ChangeNotifier {
 
       // Create sale record for upload
       final saleData = {
-        'items': _cart.entries.map((e) {
+        'cartId': _activeCartId,
+        'cartLabel': activeCartLabel,
+        'items': activeCartEntries.entries.map((e) {
           final product = _products.firstWhere(
             (p) => p.id == e.key,
             orElse: () => Product(
@@ -958,12 +1124,29 @@ class RetailProvider extends ChangeNotifier {
               category: 'Unknown',
             ),
           );
-          final unitPrice = priceOverrides != null && priceOverrides.containsKey(e.key) ? priceOverrides[e.key]! : product.price;
+          final unitPrice = priceOverrides != null && priceOverrides.containsKey(e.key)
+              ? priceOverrides[e.key]!
+              : product.price;
+          final pricingMode = product.hasWholesalePricing &&
+                  product.wholesalePrice != null &&
+                  (unitPrice - product.wholesalePrice!).abs() < 0.0001
+              ? 'wholesale'
+              : 'retail';
           return {
             'productId': e.key,
             'productName': product.name,
+            'name': product.name,
             'quantity': e.value,
             'unitPrice': unitPrice,
+            'price': unitPrice,
+            'cost': product.cost,
+            'costPrice': product.cost,
+            'pricingMode': pricingMode,
+            'inventoryUnit': product.unit,
+            'saleUnit': product.resolvedSaleUnit,
+            'saleUnitMultiplier': product.resolvedSaleUnitMultiplier,
+            'inventoryQuantity':
+                product.resolvedSaleUnitMultiplier * e.value,
             'total': unitPrice * e.value,
           };
         }).toList(),
@@ -1002,7 +1185,7 @@ class RetailProvider extends ChangeNotifier {
         await saleRef.update({'orderId': orderId});
 
         // Update product stock in inventory collection
-        for (final entry in _cart.entries) {
+        for (final entry in activeCartEntries.entries) {
           final product = _products.firstWhere(
             (p) => p.id == entry.key,
             orElse: () => Product(
@@ -1014,7 +1197,10 @@ class RetailProvider extends ChangeNotifier {
             ),
           );
 
-          final newQuantity = (product.stock - entry.value).clamp(0.0, 999999.0);
+          final stockReduction =
+              product.resolvedSaleUnitMultiplier * entry.value;
+          final newQuantity =
+              (product.stock - stockReduction).clamp(0.0, 999999.0);
           await _firestore
               .collection('businesses')
               .doc(_businessId)
@@ -1057,6 +1243,7 @@ class RetailProvider extends ChangeNotifier {
         }
 
         _cart.clear();
+        _syncActiveCartSnapshot();
         await loadProducts(); // Refresh products
         notifyListeners();
 
@@ -1079,6 +1266,7 @@ class RetailProvider extends ChangeNotifier {
 
         // Clear cart and refresh
         _cart.clear();
+        _syncActiveCartSnapshot();
         await loadProducts();
         notifyListeners();
 
@@ -1111,7 +1299,7 @@ class RetailProvider extends ChangeNotifier {
         await dbHelper.insert('sales', localSale);
 
         // Insert items
-        for (final e in _cart.entries) {
+        for (final e in activeCartEntries.entries) {
           final itemId = DateTime.now().millisecondsSinceEpoch.toString() + e.key;
           final product = _products.firstWhere((p) => p.id == e.key, orElse: () => Product(id: e.key, name: 'Unknown', price: 0, stock: 0, category: 'Unknown'));
           final item = {
@@ -1130,7 +1318,8 @@ class RetailProvider extends ChangeNotifier {
           final inv = await dbHelper.query('inventory', where: 'id = ? AND businessId = ?', whereArgs: [e.key, _businessId]);
           if (inv.isNotEmpty) {
             final currentQty = (inv.first['quantity'] as num).toDouble();
-            final newQty = (currentQty - e.value).clamp(0, 999999);
+            final newQty = (currentQty - (product.resolvedSaleUnitMultiplier * e.value))
+                .clamp(0, 999999);
             await dbHelper.update('inventory', {'quantity': newQty, 'syncStatus': 'pending'}, where: 'id = ? AND businessId = ?', whereArgs: [e.key, _businessId]);
           } else {
             await dbHelper.insert('inventory', {
@@ -1138,7 +1327,9 @@ class RetailProvider extends ChangeNotifier {
               'businessId': _businessId!,
               'name': product.name,
               'unitPrice': product.price,
-              'quantity': (0 - e.value).toDouble().clamp(0, 999999),
+              'quantity': (0 - (product.resolvedSaleUnitMultiplier * e.value))
+                  .toDouble()
+                  .clamp(0, 999999),
               'createdAt': DateTime.now().toIso8601String(),
               'syncStatus': 'pending',
             });
@@ -1156,6 +1347,7 @@ class RetailProvider extends ChangeNotifier {
 
         // Clear cart and refresh
         _cart.clear();
+        _syncActiveCartSnapshot();
         await loadProducts();
         notifyListeners();
 
@@ -1249,6 +1441,7 @@ class RetailProvider extends ChangeNotifier {
       'taxRate': 0.0,
       'discount': 0.0,
       'total': paid,
+      'totalAmount': paid,
       'paymentMethod': paymentMethod,
       'customerEmail': customerEmail,
       'customerName': customerName,

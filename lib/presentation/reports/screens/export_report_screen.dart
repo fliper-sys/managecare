@@ -375,9 +375,10 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
     final reportsProvider = context.read<ReportsProvider>();
     final authProvider = context.read<AuthProvider>();
     final businessProvider = context.read<BusinessProvider>();
+    final currentBusiness = businessProvider.currentBusiness;
     final businessId = businessProvider.currentBusiness?.id ??
         authProvider.currentUser?.businessId;
-    final businessName = businessProvider.currentBusiness?.name ??
+    final businessName = currentBusiness?.name ??
         authProvider.currentUser?.fullName ??
         'Business';
 
@@ -466,6 +467,12 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
             cashier: cashierName,
             poweredByText: footerWithPowered,
             showQrCode: false,
+            businessLogoUrl: currentBusiness?.logoUrl,
+            businessAddress: currentBusiness?.address,
+            businessPhone: currentBusiness?.phone,
+            businessEmail: currentBusiness?.email,
+            subscriptionTier: currentBusiness?.subscriptionTier,
+            businessClass: currentBusiness?.businessClass,
           );
           // Trigger download
           fileName = 'Financial_Report_$timestamp.pdf';

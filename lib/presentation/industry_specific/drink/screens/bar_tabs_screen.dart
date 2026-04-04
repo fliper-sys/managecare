@@ -133,6 +133,33 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
     }
   }
 
+  Future<void> _handleEditInvoice(BarInvoice invoice) async {
+    await Navigator.pushNamed(
+      context,
+      Routes.drinkPos,
+      arguments: {'invoiceId': invoice.id},
+    );
+  }
+
+  Future<void> _handleReopenInvoice(BarInvoice invoice) async {
+    try {
+      await context.read<DrinkProvider>().reopenInvoice(invoice.id);
+      if (!mounted) return;
+      setState(() => _filter = 'open');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${invoice.invoiceNumber} reopened for editing'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to reopen invoice: $e')),
+      );
+    }
+  }
+
   List<BarInvoice> _filterInvoices(List<BarInvoice> invoices) {
     switch (_filter) {
       case 'converted':
@@ -271,6 +298,15 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                 const SizedBox(height: 16),
                 if (invoice.status == 'open') ...[
                   CustomButton(
+                    text: 'Edit Invoice',
+                    type: ButtonType.outlined,
+                    onPressed: () async {
+                      Navigator.of(sheetContext).pop();
+                      await _handleEditInvoice(invoice);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  CustomButton(
                     text: 'Convert to Sale',
                     backgroundColor: Colors.green.shade600,
                     onPressed: () async {
@@ -287,6 +323,17 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                     onPressed: () async {
                       Navigator.of(sheetContext).pop();
                       await _handleCancelInvoice(invoice);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (invoice.status == 'cancelled') ...[
+                  CustomButton(
+                    text: 'Reopen Invoice',
+                    backgroundColor: Colors.orange.shade700,
+                    onPressed: () async {
+                      Navigator.of(sheetContext).pop();
+                      await _handleReopenInvoice(invoice);
                     },
                   ),
                   const SizedBox(height: 8),
@@ -467,30 +514,52 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                                     ),
                                     if (invoice.status == 'open') ...[
                                       const SizedBox(height: 12),
-                                      Row(
+                                      Column(
                                         children: [
-                                          Expanded(
-                                            child: CustomButton(
-                                              text: 'Convert to Sale',
-                                              backgroundColor:
-                                                  Colors.green.shade600,
-                                              onPressed: () =>
-                                                  _handleConvertInvoice(invoice),
-                                            ),
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: CustomButton(
+                                                  text: 'Edit',
+                                                  type: ButtonType.outlined,
+                                                  onPressed: () =>
+                                                      _handleEditInvoice(
+                                                          invoice),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Expanded(
+                                                child: CustomButton(
+                                                  text: 'Convert',
+                                                  backgroundColor:
+                                                      Colors.green.shade600,
+                                                  onPressed: () =>
+                                                      _handleConvertInvoice(
+                                                          invoice),
+                                                ),
+                                              ),
+                                            ],
                                           ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: CustomButton(
-                                              text: 'Cancel',
-                                              type: ButtonType.outlined,
-                                              backgroundColor:
-                                                  Colors.red.shade300,
-                                              textColor: Colors.red.shade700,
-                                              onPressed: () =>
-                                                  _handleCancelInvoice(invoice),
-                                            ),
+                                          const SizedBox(height: 8),
+                                          CustomButton(
+                                            text: 'Cancel',
+                                            type: ButtonType.outlined,
+                                            backgroundColor:
+                                                Colors.red.shade300,
+                                            textColor: Colors.red.shade700,
+                                            onPressed: () =>
+                                                _handleCancelInvoice(invoice),
                                           ),
                                         ],
+                                      ),
+                                    ],
+                                    if (invoice.status == 'cancelled') ...[
+                                      const SizedBox(height: 12),
+                                      CustomButton(
+                                        text: 'Reopen',
+                                        backgroundColor: Colors.orange.shade700,
+                                        onPressed: () =>
+                                            _handleReopenInvoice(invoice),
                                       ),
                                     ],
                                   ],

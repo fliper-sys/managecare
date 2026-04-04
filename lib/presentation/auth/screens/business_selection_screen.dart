@@ -96,86 +96,203 @@ class BusinessSelectionScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 140,
-            floating: true,
-            pinned: true,
-            elevation: 0,
-            backgroundColor: AppColors.primary,
-            flexibleSpace: FlexibleSpaceBar(
-              title: const Text(
-                'Select Your Business',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-              background: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      AppColors.primary,
-                      AppColors.primaryDark,
-                    ],
-                  ),
-                ),
-                child: Stack(
-                  children: [
-                    Positioned(
-                      right: -50,
-                      top: -50,
-                      child: Container(
-                        width: 150,
-                        height: 150,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+      body: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  isDark ? const Color(0xFF081126) : const Color(0xFFF4F8FD),
+                  isDark ? const Color(0xFF0D2445) : const Color(0xFFEAF1FA),
+                  isDark ? const Color(0xFF13386A) : const Color(0xFFF8FBFF),
+                ],
               ),
             ),
           ),
-          SliverPadding(
-            padding: const EdgeInsets.all(16),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                childAspectRatio: 0.95,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final business = businessTypes[index];
-                  return _BusinessTypeCard(
-                    business: business,
-                    index: index,
-                  )
-                      .animate()
-                      .fadeIn(
-                        duration: Duration(milliseconds: 300 + (index * 50)),
-                      )
-                      .slideX(
-                        begin: -0.2,
-                        end: 0,
-                        duration: Duration(milliseconds: 400 + (index * 50)),
-                        curve: Curves.easeOut,
-                      );
-                },
-                childCount: businessTypes.length,
-              ),
+          _buildAccentOrb(
+            top: -100,
+            right: -60,
+            size: 220,
+            color: AppColors.primary.withOpacity(isDark ? 0.12 : 0.10),
+          ),
+          _buildAccentOrb(
+            bottom: -120,
+            left: -70,
+            size: 240,
+            color: const Color(0xFFF3B35C).withOpacity(isDark ? 0.10 : 0.12),
+          ),
+          SafeArea(
+            child: CustomScrollView(
+              physics: const BouncingScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                    child: Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withOpacity(0.08)
+                            : Colors.white.withOpacity(0.92),
+                        borderRadius: BorderRadius.circular(30),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.white.withOpacity(0.10)
+                              : Colors.white,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(
+                              isDark ? 0.12 : 0.06,
+                            ),
+                            blurRadius: 24,
+                            offset: const Offset(0, 14),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              if (Navigator.of(context).canPop())
+                                IconButton(
+                                  onPressed: () => Navigator.of(context).pop(),
+                                  icon: Icon(
+                                    Icons.arrow_back_rounded,
+                                    color: isDark
+                                        ? Colors.white
+                                        : const Color(0xFF10223F),
+                                  ),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: isDark
+                                        ? Colors.white.withOpacity(0.08)
+                                        : const Color(0xFFF3F6FB),
+                                  ),
+                                ),
+                              if (Navigator.of(context).canPop())
+                                const SizedBox(width: 12),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(
+                                    isDark ? 0.18 : 0.10,
+                                  ),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  'Business setup',
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            'Choose the business you are setting up.',
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.white
+                                  : const Color(0xFF10223F),
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                              height: 1.1,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Pick the category that matches your operations. We will use it to tailor dashboards, inventory tools, and subscription options.',
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.white.withOpacity(0.70)
+                                  : const Color(0xFF61708A),
+                              fontSize: 14,
+                              height: 1.6,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                  sliver: SliverGrid(
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 230,
+                      mainAxisSpacing: 16,
+                      crossAxisSpacing: 16,
+                      mainAxisExtent: 210,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final business = businessTypes[index];
+                        return _BusinessTypeCard(
+                          business: business,
+                          index: index,
+                        )
+                            .animate()
+                            .fadeIn(
+                              duration:
+                                  Duration(milliseconds: 300 + (index * 50)),
+                            )
+                            .slideY(
+                              begin: 0.12,
+                              end: 0,
+                              duration:
+                                  Duration(milliseconds: 350 + (index * 40)),
+                              curve: Curves.easeOutCubic,
+                            );
+                      },
+                      childCount: businessTypes.length,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAccentOrb({
+    double? top,
+    double? right,
+    double? bottom,
+    double? left,
+    required double size,
+    required Color color,
+  }) {
+    return Positioned(
+      top: top,
+      right: right,
+      bottom: bottom,
+      left: left,
+      child: IgnorePointer(
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: [color, Colors.transparent],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -193,6 +310,38 @@ class BusinessTypeOption {
     required this.icon,
     required this.color,
   });
+
+  String get tagline {
+    switch (id) {
+      case 'pharmacy':
+        return 'Prescriptions, stock, and fast checkout.';
+      case 'retail':
+        return 'Inventory, POS, and customer flow.';
+      case 'wholesale':
+        return 'Bulk stock, pricing, and dispatch.';
+      case 'agri':
+        return 'Farm stock, supplies, and field sales.';
+      case 'auto':
+        return 'Repairs, bookings, and service tracking.';
+      case 'salon':
+      case 'barbershop':
+        return 'Appointments, services, and staff activity.';
+      case 'hotel':
+      case 'apartment':
+        return 'Bookings, rooms, guests, and billing.';
+      case 'restaurant':
+      case 'drink':
+        return 'Tables, orders, kitchen, and bar sales.';
+      case 'gas':
+        return 'Pump sales, stock, and station records.';
+      case 'realestate':
+        return 'Properties, clients, and payment records.';
+      case 'gym':
+        return 'Memberships, sessions, and attendance.';
+      default:
+        return 'Tools tailored to your business flow.';
+    }
+  }
 }
 
 class _BusinessTypeCard extends StatefulWidget {
@@ -234,6 +383,8 @@ class _BusinessTypeCardState extends State<_BusinessTypeCard>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return GestureDetector(
       onTap: () {
         Navigator.of(context).pushNamed(
@@ -255,44 +406,45 @@ class _BusinessTypeCardState extends State<_BusinessTypeCard>
         onExit: (_) => setState(() => _isHovered = false),
         child: ScaleTransition(
           scale: _scaleAnimation,
-          child: Card(
-            elevation: _isHovered ? 12 : 4,
-            shadowColor: widget.business.color.withOpacity(0.5),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    widget.business.color.withOpacity(0.02),
-                    Colors.transparent,
-                  ],
-                ),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              color: isDark
+                  ? Colors.white.withOpacity(0.08)
+                  : Colors.white.withOpacity(0.95),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withOpacity(0.10)
+                    : Colors.white,
               ),
+              boxShadow: [
+                BoxShadow(
+                  color: widget.business.color
+                      .withOpacity(_isHovered ? 0.22 : 0.12),
+                  blurRadius: _isHovered ? 24 : 16,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(18),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    width: _isHovered ? 72 : 64,
-                    height: _isHovered ? 72 : 64,
+                    width: _isHovered ? 74 : 66,
+                    height: _isHovered ? 74 : 66,
                     decoration: BoxDecoration(
-                      color: widget.business.color.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: _isHovered
-                          ? [
-                              BoxShadow(
-                                color: widget.business.color
-                                    .withOpacity(0.4),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
-                              ),
-                            ]
-                          : [],
+                      gradient: LinearGradient(
+                        colors: [
+                          widget.business.color.withOpacity(0.20),
+                          widget.business.color.withOpacity(0.08),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
                     ),
                     child: Icon(
                       widget.business.icon,
@@ -300,27 +452,63 @@ class _BusinessTypeCardState extends State<_BusinessTypeCard>
                       size: _isHovered ? 36 : 32,
                     ),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 18),
                   Text(
                     widget.business.name,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black87,
-                      letterSpacing: 0.2,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color:
+                          isDark ? Colors.white : const Color(0xFF10223F),
+                      letterSpacing: 0.1,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  if (_isHovered)
-                    Text(
-                      'Tap to set up',
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: Text(
+                      widget.business.tagline,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 11,
-                        color: widget.business.color,
-                        fontWeight: FontWeight.w500,
+                        fontSize: 12.5,
+                        color: isDark
+                            ? Colors.white.withOpacity(0.68)
+                            : const Color(0xFF61708A),
+                        height: 1.45,
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Text(
+                        'Set up business',
+                        style: TextStyle(
+                          color: widget.business.color,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: widget.business.color.withOpacity(
+                            _isHovered ? 0.18 : 0.12,
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          Icons.arrow_forward_rounded,
+                          size: 18,
+                          color: widget.business.color,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

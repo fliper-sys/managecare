@@ -146,7 +146,7 @@ class _WhatsAppSettingsScreenState extends State<WhatsAppSettingsScreen> {
                           style: AppTextStyles.heading4),
                       const SizedBox(height: 8),
                       const Text(
-                          'WhatsApp configuration is available to Professional and Enterprise plans. Upgrade your subscription to access this feature.'),
+                          'WhatsApp configuration is available on higher subscription tiers. Upgrade this business subscription to access the feature.'),
                       const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: () => Navigator.pushNamed(

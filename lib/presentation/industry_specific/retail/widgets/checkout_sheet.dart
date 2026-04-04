@@ -13,6 +13,7 @@ import '../../../../core/localization/app_localization.dart';
 import '../../../../core/utils/currency.dart';
 import '../../../../providers/retail_provider.dart';
 import '../../../../providers/auth_provider.dart';
+import '../../../../core/utils/worker_permissions.dart';
 import '../../../../data/repositories/worker_repository_impl.dart';
 import '../../../../widgets/profile_avatar.dart';
 import '../../../../services/business_notification_manager.dart';
@@ -35,8 +36,10 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   String? _selectedWorkerId;
   String? _selectedWorkerName;
   late TextEditingController _taxCtrl;
+  late TextEditingController _discountCtrl;
   // Editable tax/discount
   double _taxPercent = 0.0;
+  double _discountAmount = 0.0;
 
   // Worker switching
   List<Map<String, dynamic>> _workers = [];
@@ -49,6 +52,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   @override
   void dispose() {
     _taxCtrl.dispose();
+    _discountCtrl.dispose();
     super.dispose();
   }
 
@@ -56,6 +60,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   void initState() {
     super.initState();
     _taxCtrl = TextEditingController(text: _taxPercent.toStringAsFixed(2));
+    _discountCtrl =
+        TextEditingController(text: _discountAmount.toStringAsFixed(2));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       try {
         final retail = Provider.of<RetailProvider>(context, listen: false);
@@ -70,6 +76,19 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         _loadCustomers();
       } catch (_) {}
     });
+  }
+
+  bool _canApplyDiscount(AuthProvider auth) {
+    final role = auth.currentUser?.role ?? '';
+    return auth.isOwnerUser || WorkerPermissions.canApplyDiscount(role);
+  }
+
+  double _calculateSubtotal(RetailProvider provider) {
+    double subtotal = 0.0;
+    for (final entry in provider.cartItems.entries) {
+      subtotal += entry.key.price * entry.value;
+    }
+    return subtotal;
   }
 
   Future<void> _loadCustomers() async {
@@ -89,7 +108,13 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   Future<void> _loadWorkers() async {
     try {
       final auth = Provider.of<AuthProvider>(context, listen: false);
-      final businessId = auth.currentUser?.primaryBusinessId ?? auth.currentUser?.businessId ?? '';
+      final businessId =
+          Provider.of<BusinessProvider>(context, listen: false)
+              .currentBusiness
+              ?.id ??
+          auth.currentUser?.primaryBusinessId ??
+          auth.currentUser?.businessId ??
+          '';
       if (businessId.isEmpty) return;
       setState(() => _loadingWorkers = true);
       final repo = WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
@@ -211,7 +236,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       }).toList();
 
       final taxAmt = subtotal * (_taxPercent / 100.0);
-      final total = subtotal + taxAmt;
+      final discountAmt = _discountAmount.clamp(0.0, subtotal);
+      final total = subtotal + taxAmt - discountAmt;
 
       final invoiceNumber = 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
 
@@ -222,13 +248,16 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         cartItems: cartItems,
         subtotal: subtotal,
         tax: taxAmt,
-        discount: 0.0,
+        discount: discountAmt,
         total: total,
         customerName: _selectedCustomer?.name ?? 'Walk-in Customer',
         businessAddress: business?.address,
         businessPhone: business?.phone,
         businessEmail: business?.email,
         cashierName: auth.currentUser?.fullName,
+        businessLogoUrl: business?.logoUrl,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
       );
 
       final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
@@ -575,7 +604,14 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<RetailProvider>(context);
+    final auth = Provider.of<AuthProvider>(context);
     final items = provider.cartItems;
+    final canApplyDiscount = _canApplyDiscount(auth);
+    final subtotal = _calculateSubtotal(provider);
+    final safeDiscount = _discountAmount.clamp(0.0, subtotal);
+    final effectiveDiscount = canApplyDiscount ? safeDiscount : 0.0;
+    final taxAmt = subtotal * (_taxPercent / 100.0);
+    final total = subtotal + taxAmt - effectiveDiscount;
 
     return SafeArea(
       child: Padding(
@@ -844,7 +880,50 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: const SizedBox.shrink(),
+                    child: canApplyDiscount
+                        ? TextField(
+                            controller: _discountCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Discount (NGN)',
+                              border: OutlineInputBorder(),
+                            ),
+                            onChanged: (v) {
+                              final parsed = double.tryParse(v) ?? 0.0;
+                              final clamped = parsed.clamp(0.0, subtotal);
+                              setState(() {
+                                _discountAmount = clamped;
+                                if (clamped != parsed) {
+                                  _discountCtrl.text =
+                                      clamped.toStringAsFixed(2);
+                                  _discountCtrl.selection =
+                                      TextSelection.fromPosition(
+                                    TextPosition(
+                                      offset: _discountCtrl.text.length,
+                                    ),
+                                  );
+                                }
+                              });
+                            },
+                          )
+                        : Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: Text(
+                              auth.isOwnerUser
+                                  ? 'Discount unavailable'
+                                  : 'Discounts are limited to managers',
+                              style: AppTextStyles.caption.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
                   ),
                 ],
               ),
@@ -878,26 +957,22 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(AppLocalizations.tr(context, 'total'), style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w700)),
-                  Builder(builder: (_) {
-                    double subtotal = 0.0;
-                    for (final e in provider.cartItems.entries) {
-                      final product = e.key;
-                      final qty = e.value;
-                      final price = product.price;
-                      subtotal += price * qty;
-                    }
-                    final taxAmt = subtotal * (_taxPercent / 100.0);
-                    final total = subtotal + taxAmt;
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text('Subtotal: ${formatCurrency(subtotal)}', style: AppTextStyles.caption),
-                        Text('Tax: ${formatCurrency(taxAmt)}', style: AppTextStyles.caption),
-                        const SizedBox(height: 4),
-                        Text(formatCurrency(total), style: AppTextStyles.heading5.copyWith(fontWeight: FontWeight.w800)),
-                      ],
-                    );
-                  }),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text('Subtotal: ${formatCurrency(subtotal)}', style: AppTextStyles.caption),
+                      Text('Tax: ${formatCurrency(taxAmt)}', style: AppTextStyles.caption),
+                      if (effectiveDiscount > 0)
+                        Text(
+                          'Discount: -${formatCurrency(effectiveDiscount)}',
+                          style: AppTextStyles.caption.copyWith(
+                            color: AppColors.error,
+                          ),
+                        ),
+                      const SizedBox(height: 4),
+                      Text(formatCurrency(total), style: AppTextStyles.heading5.copyWith(fontWeight: FontWeight.w800)),
+                    ],
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -951,7 +1026,10 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                           };
                         }).toList();
                         final taxAmt = subtotal * (_taxPercent / 100.0);
-                        final total = subtotal + taxAmt;
+                        final discountAmt = canApplyDiscount
+                            ? _discountAmount.clamp(0.0, subtotal)
+                            : 0.0;
+                        final total = subtotal + taxAmt - discountAmt;
 
                         final saleMap = {
                           'id': 'SALE-${DateTime.now().millisecondsSinceEpoch}',
@@ -959,6 +1037,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                           'subtotal': subtotal,
                           'tax': taxAmt,
                           'taxRate': _taxPercent,
+                          'discount': discountAmt,
                           'total': total,
                           'totalAmount': total,
                           'finalAmount': total,
@@ -969,6 +1048,10 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                           'customerId': customerId,
                           'customerName': customerName,
                           'customerEmail': customerEmail,
+                          if (discountAmt > 0)
+                            'discountApprovedById': auth.currentUser?.id,
+                          if (discountAmt > 0)
+                            'discountApprovedByName': auth.currentUser?.fullName,
                         };
 
                         final savedOffline = await provider.checkout(
@@ -980,6 +1063,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                           customerName: customerName,
                           storeId: _selectedStoreId ?? auth.currentUser?.storeId,
                           tax: _taxPercent,
+                          discount: discountAmt,
                         );
                         Navigator.of(context).pop();
 
@@ -995,8 +1079,16 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
 
                         // Send push notification to business owners
                         try {
+                          final currentBusinessId =
+                              Provider.of<BusinessProvider>(context,
+                                          listen: false)
+                                      .currentBusiness
+                                      ?.id ??
+                                  auth.currentUser?.primaryBusinessId ??
+                                  auth.currentUser?.businessId ??
+                                  '';
                           await BusinessNotificationManager.instance.notifySaleCompleted(
-                            businessId: auth.currentUser?.businessId ?? '',
+                            businessId: currentBusinessId,
                             customerName: customerName,
                             amount: total,
                             paymentMethod: _selectedPaymentMethod,
@@ -1004,7 +1096,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
 
                           if (total > 100) {
                             await BusinessNotificationManager.instance.notifyLargeSale(
-                              businessId: auth.currentUser?.businessId ?? '',
+                              businessId: currentBusinessId,
                               customerName: customerName,
                               amount: total,
                             );

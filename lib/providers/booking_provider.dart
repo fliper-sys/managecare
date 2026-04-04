@@ -8,9 +8,17 @@ class BookingProvider extends ChangeNotifier {
 
   BookingProvider({BookingRepository? repository}) : _repo = repository ?? BookingRepositoryImpl();
 
-  Future<String> createBooking({required Booking booking, bool requirePayment = false}) async {
+  Future<String> createBooking({
+    required String businessId,
+    required Booking booking,
+    bool requirePayment = false,
+  }) async {
     try {
-      final id = await _repo.createBooking(booking: booking, requirePayment: requirePayment);
+      final id = await _repo.createBooking(
+        businessId: businessId,
+        booking: booking,
+        requirePayment: requirePayment,
+      );
       return id;
     } catch (e) {
       rethrow;

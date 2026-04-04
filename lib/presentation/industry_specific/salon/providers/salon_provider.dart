@@ -248,10 +248,16 @@ class ProductItem {
   ProductItem.fromJson(Map<String, dynamic> json)
       : id = json['id'] ?? '',
         name = json['name'] ?? '',
-        quantity = (json['quantity'] as num?)?.toInt() ?? (json['qty'] as num?)?.toInt() ?? 0,
+        quantity = (json['quantity'] as num?)?.toInt() ??
+            (json['qty'] as num?)?.toInt() ??
+            0,
         price = (json['price'] as num?)?.toDouble() ?? 0.0,
-        minStock = (json['minStock'] as num?)?.toInt() ?? (json['minimumThreshold'] as num?)?.toInt() ?? 10,
-        reorderQuantity = (json['reorderQuantity'] as num?)?.toInt() ?? (json['reorderQuantity'] as num?)?.toInt() ?? 50;
+        minStock = (json['minStock'] as num?)?.toInt() ??
+            (json['minimumThreshold'] as num?)?.toInt() ??
+            10,
+        reorderQuantity = (json['reorderQuantity'] as num?)?.toInt() ??
+            (json['reorderQuantity'] as num?)?.toInt() ??
+            50;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -266,10 +272,20 @@ class ProductItem {
 // ==================== PROVIDER ====================
 
 class SalonProvider extends ChangeNotifier {
-  final FirebaseFirestore? _firestore;
+  final FirebaseFirestore _firestore;
   String? _businessId;
 
-  SalonProvider({FirebaseFirestore? firestore}) : _firestore = firestore;
+  SalonProvider({FirebaseFirestore? firestore})
+      : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  bool get _hasBusinessId => _businessId != null && _businessId!.isNotEmpty;
+
+  bool _ensureBusinessId() {
+    if (_hasBusinessId) return true;
+    _errorMessage = 'No business selected';
+    notifyListeners();
+    return false;
+  }
 
   List<SalonService> _services = [];
   List<SalonAppointment> _appointments = [];
@@ -298,8 +314,10 @@ class SalonProvider extends ChangeNotifier {
   // ==================== SERVICES ====================
 
   Future<void> loadServices() async {
+    if (!_ensureBusinessId()) return;
+
     try {
-      final snapshot = await _firestore!
+      final snapshot = await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('services')
@@ -307,6 +325,20 @@ class SalonProvider extends ChangeNotifier {
       _services = snapshot.docs
           .map((doc) => SalonService.fromJson({...doc.data(), 'id': doc.id}))
           .toList();
+
+      if (_services.isEmpty) {
+        final fallbackSnapshot = await _firestore
+            .collection('salon_services')
+            .where('businessId', isEqualTo: _businessId)
+            .get();
+        if (fallbackSnapshot.docs.isNotEmpty) {
+          _services = fallbackSnapshot.docs
+              .map(
+                  (doc) => SalonService.fromJson({...doc.data(), 'id': doc.id}))
+              .toList();
+        }
+      }
+
       _errorMessage = null;
       notifyListeners();
     } catch (e) {
@@ -317,7 +349,7 @@ class SalonProvider extends ChangeNotifier {
 
   Future<void> addService(SalonService service) async {
     try {
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('services')
@@ -335,7 +367,7 @@ class SalonProvider extends ChangeNotifier {
 
   Future<void> updateService(SalonService service) async {
     try {
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('services')
@@ -353,7 +385,7 @@ class SalonProvider extends ChangeNotifier {
 
   Future<void> deleteService(String serviceId) async {
     try {
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('services')
@@ -372,7 +404,7 @@ class SalonProvider extends ChangeNotifier {
 
   Future<void> loadAppointments() async {
     try {
-final snapshot = await _firestore!
+      final snapshot = await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('appointments')
@@ -391,7 +423,7 @@ final snapshot = await _firestore!
 
   Future<void> createAppointment(SalonAppointment appointment) async {
     try {
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('appointments')
@@ -410,7 +442,8 @@ final snapshot = await _firestore!
     }
   }
 
-  Future<void> _scheduleAppointmentReminders(SalonAppointment appointment) async {
+  Future<void> _scheduleAppointmentReminders(
+      SalonAppointment appointment) async {
     if (_businessId == null) return;
     await BusinessReminderService.instance.scheduleSalonBookingReminders(
       businessId: _businessId!,
@@ -428,9 +461,11 @@ final snapshot = await _firestore!
     final now = DateTime.now();
     final targets = <Map<String, String>>[];
     for (final a in _appointments) {
-      if ((a.status == 'pending' || a.status == 'confirmed') && a.appointmentTime.isAfter(now)) {
+      if ((a.status == 'pending' || a.status == 'confirmed') &&
+          a.appointmentTime.isAfter(now)) {
         final when = a.appointmentTime.toLocal().toString().split('.').first;
-        final msg = 'Hello ${a.clientName}, this is a reminder of your upcoming appointment for ${a.serviceName} on $when at our salon. Reply to confirm or contact us to reschedule.';
+        final msg =
+            'Hello ${a.clientName}, this is a reminder of your upcoming appointment for ${a.serviceName} on $when at our salon. Reply to confirm or contact us to reschedule.';
         if (a.clientPhone.trim().isNotEmpty) {
           targets.add({'phone': a.clientPhone.trim(), 'message': msg});
         }
@@ -446,9 +481,12 @@ final snapshot = await _firestore!
     if (phones.isEmpty) return false;
     // Send an identical message to all recipients; for per-recipient text use loop
     final uniquePhones = phones.toSet().toList();
-    final sample = targets.firstWhere((t) => t['phone'] == uniquePhones.first)['message'] ?? '';
+    final sample = targets
+            .firstWhere((t) => t['phone'] == uniquePhones.first)['message'] ??
+        '';
     final svc = WhatsAppService();
-    return await svc.sendTextToNumbers(businessId: _businessId!, toNumbers: uniquePhones, message: sample);
+    return await svc.sendTextToNumbers(
+        businessId: _businessId!, toNumbers: uniquePhones, message: sample);
   }
 
   /// Builds a readable daily completed bookings report for [date] (defaults to today).
@@ -456,36 +494,49 @@ final snapshot = await _firestore!
     final d = date ?? DateTime.now();
     final start = DateTime(d.year, d.month, d.day);
     final end = start.add(Duration(days: 1));
-    final completed = _appointments.where((a) => a.status == 'completed' && a.appointmentTime.isAfter(start) && a.appointmentTime.isBefore(end)).toList();
+    final completed = _appointments
+        .where((a) =>
+            a.status == 'completed' &&
+            a.appointmentTime.isAfter(start) &&
+            a.appointmentTime.isBefore(end))
+        .toList();
     final lines = <String>[];
     for (var i = 0; i < completed.length; i) {
       final a = completed[i];
       final when = a.appointmentTime.toLocal().toString().split('.').first;
-      lines.add('${i + 1}. ${a.clientName} - ${a.serviceName} - ${a.stylistName} - $when - NGN ${(a.amountPaid ?? 0).toString()}');
+      lines.add(
+          '${i + 1}. ${a.clientName} - ${a.serviceName} - ${a.stylistName} - $when - NGN ${(a.amountPaid ?? 0).toString()}');
     }
-    final header = 'Completed bookings for ${start.toLocal().toIso8601String().split('T').first}: ${completed.length}';
+    final header =
+        'Completed bookings for ${start.toLocal().toIso8601String().split('T').first}: ${completed.length}';
     return [header, ...lines].join('\n');
   }
 
-  Future<bool> sendDailyCompletedBookingsReportViaWhatsApp({required String businessOwnerNumber, DateTime? date}) async {
+  Future<bool> sendDailyCompletedBookingsReportViaWhatsApp(
+      {required String businessOwnerNumber, DateTime? date}) async {
     if (_businessId == null) return false;
     final report = buildDailyCompletedBookingsReport(date: date);
     final svc = WhatsAppService();
-    return await svc.sendTextToNumbers(businessId: _businessId!, toNumbers: [businessOwnerNumber], message: report);
+    return await svc.sendTextToNumbers(
+        businessId: _businessId!,
+        toNumbers: [businessOwnerNumber],
+        message: report);
   }
 
   /// Send the daily completed bookings report to configured business owner(s).
-  Future<bool> sendDailyCompletedBookingsReportToOwners({DateTime? date}) async {
+  Future<bool> sendDailyCompletedBookingsReportToOwners(
+      {DateTime? date}) async {
     if (_businessId == null) return false;
     final report = buildDailyCompletedBookingsReport(date: date);
     final svc = WhatsAppService();
-    return await svc.sendTextToOwners(businessId: _businessId!, message: report);
+    return await svc.sendTextToOwners(
+        businessId: _businessId!, message: report);
   }
 
   Future<void> updateAppointmentStatus(
       String appointmentId, String newStatus) async {
     try {
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('appointments')
@@ -505,7 +556,7 @@ final snapshot = await _firestore!
   Future<void> completeAppointment(String appointmentId, double amountPaid,
       String paymentMethod, double? tipAmount) async {
     try {
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('appointments')
@@ -560,7 +611,7 @@ final snapshot = await _firestore!
           'saleDate': DateTime.now(),
         };
 
-        await _firestore!
+        await _firestore
             .collection('businesses')
             .doc(_businessId)
             .collection('sales')
@@ -569,7 +620,10 @@ final snapshot = await _firestore!
 
         // Best-effort top-level mirror
         try {
-          await _firestore!.collection('sales').doc(saleId).set({...data, 'businessId': _businessId});
+          await _firestore
+              .collection('sales')
+              .doc(saleId)
+              .set({...data, 'businessId': _businessId});
         } catch (_) {}
       } catch (_) {}
       _errorMessage = null;
@@ -583,9 +637,11 @@ final snapshot = await _firestore!
   // ==================== STYLISTS ====================
 
   Future<void> loadStylists() async {
+    if (!_ensureBusinessId()) return;
+
     try {
       // Load explicit stylist documents in business collection first
-      final snapshot = await _firestore!
+      final snapshot = await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('stylists')
@@ -600,7 +656,7 @@ final snapshot = await _firestore!
 
       // Also include workers who have 'stylist' as a role in top-level workers collection
       try {
-        final workersSnap = await _firestore!
+        final workersSnap = await _firestore
             .collection('workers')
             .where('businessId', isEqualTo: _businessId)
             .where('isActive', isEqualTo: true)
@@ -614,10 +670,14 @@ final snapshot = await _firestore!
           // Handle both 'roles' (array) and 'role' (string) fields robustly
           final rolesRaw = data['roles'];
           final List<String> roles = rolesRaw is List
-              ? List<String>.from(rolesRaw.map((r) => r.toString().toLowerCase()))
-              : (data['role'] != null ? [data['role'].toString().toLowerCase()] : []);
+              ? List<String>.from(
+                  rolesRaw.map((r) => r.toString().toLowerCase()))
+              : (data['role'] != null
+                  ? [data['role'].toString().toLowerCase()]
+                  : []);
 
-          final isStylist = roles.any((r) => ['stylist', 'hairstylist', 'barber'].contains(r));
+          final isStylist = roles
+              .any((r) => ['stylist', 'hairstylist', 'barber'].contains(r));
           if (!isStylist) continue;
 
           final stylist = Stylist(
@@ -627,10 +687,12 @@ final snapshot = await _firestore!
             phone: data['phoneNumber'] ?? data['phone'],
             specialization: data['specialization'] ?? 'stylist',
             serviceIds: List<String>.from(data['serviceIds'] ?? []),
-            commissionPercentage: (data['commissionPercentage'] ?? 0).toDouble(),
+            commissionPercentage:
+                (data['commissionPercentage'] ?? 0).toDouble(),
             rating: (data['rating'] ?? 0).toDouble(),
             isActive: data['isActive'] ?? true,
-            createdAt: DateTime.tryParse(data['createdAt']?.toString() ?? '') ?? DateTime.now(),
+            createdAt: DateTime.tryParse(data['createdAt']?.toString() ?? '') ??
+                DateTime.now(),
           );
 
           map[id] = stylist;
@@ -640,6 +702,35 @@ final snapshot = await _firestore!
       }
 
       _stylists = map.values.toList();
+
+      if (_stylists.isEmpty) {
+        final fallbackSnapshot = await _firestore
+            .collection('salon_staff')
+            .where('businessId', isEqualTo: _businessId)
+            .where('role', isEqualTo: 'stylist')
+            .get();
+        if (fallbackSnapshot.docs.isNotEmpty) {
+          _stylists = fallbackSnapshot.docs.map((doc) {
+            final data = doc.data();
+            return Stylist(
+              id: doc.id,
+              name: data['fullName'] ?? data['name'] ?? '',
+              email: data['email'] ?? '',
+              phone: data['phoneNumber'] ?? data['phone'],
+              specialization: data['specialization'] ?? 'stylist',
+              serviceIds: List<String>.from(data['serviceIds'] ?? []),
+              commissionPercentage:
+                  (data['commissionPercentage'] ?? 0).toDouble(),
+              rating: (data['rating'] ?? 0).toDouble(),
+              isActive: data['isActive'] ?? true,
+              createdAt:
+                  DateTime.tryParse(data['createdAt']?.toString() ?? '') ??
+                      DateTime.now(),
+            );
+          }).toList();
+        }
+      }
+
       _errorMessage = null;
       notifyListeners();
     } catch (e) {
@@ -650,7 +741,7 @@ final snapshot = await _firestore!
 
   Future<void> addStylist(Stylist stylist) async {
     try {
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('stylists')
@@ -667,7 +758,7 @@ final snapshot = await _firestore!
 
   Future<void> updateStylist(Stylist stylist) async {
     try {
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('stylists')
@@ -687,12 +778,14 @@ final snapshot = await _firestore!
 
   Future<void> loadProducts() async {
     try {
-final snapshot = await _firestore!
+      final snapshot = await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('inventory')
           .get();
-      _products = snapshot.docs.map((d) => ProductItem.fromJson({'id': d.id, ...d.data()})).toList();
+      _products = snapshot.docs
+          .map((d) => ProductItem.fromJson({'id': d.id, ...d.data()}))
+          .toList();
       _errorMessage = null;
       notifyListeners();
     } catch (e) {
@@ -703,7 +796,7 @@ final snapshot = await _firestore!
 
   Future<void> addProduct(ProductItem product) async {
     try {
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('inventory')
@@ -720,7 +813,7 @@ final snapshot = await _firestore!
 
   Future<void> updateProduct(ProductItem product) async {
     try {
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('inventory')
@@ -738,7 +831,7 @@ final snapshot = await _firestore!
 
   Future<void> deleteProduct(String productId) async {
     try {
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('inventory')
@@ -762,7 +855,7 @@ final snapshot = await _firestore!
       final p = _products[idx];
       p.quantity += delta;
       if (p.quantity < 0) p.quantity = 0;
-      await _firestore!
+      await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('inventory')
@@ -861,17 +954,18 @@ final snapshot = await _firestore!
 
   /// Calculate total commission owed to a stylist based on completed appointments
   double getStylistCommissionTotal(String stylistId) {
-    final stylist = _stylists.firstWhere((s) => s.id == stylistId, orElse: () => Stylist(
-          id: stylistId,
-          name: 'Unknown',
-          email: '',
-          phone: null,
-          specialization: 'stylist',
-          serviceIds: [],
-          commissionPercentage: 0.0,
-          isActive: false,
-          createdAt: DateTime.now(),
-        ));
+    final stylist = _stylists.firstWhere((s) => s.id == stylistId,
+        orElse: () => Stylist(
+              id: stylistId,
+              name: 'Unknown',
+              email: '',
+              phone: null,
+              specialization: 'stylist',
+              serviceIds: [],
+              commissionPercentage: 0.0,
+              isActive: false,
+              createdAt: DateTime.now(),
+            ));
 
     final completed = _appointments
         .where((a) => a.stylistId == stylistId && a.status == 'completed');
@@ -879,18 +973,20 @@ final snapshot = await _firestore!
     return SalonProvider.computeStylistCommission(stylist, completed);
   }
 
-  double getStylistCommissionTotalForPeriod(String stylistId, DateTime start, DateTime end) {
-    final stylist = _stylists.firstWhere((s) => s.id == stylistId, orElse: () => Stylist(
-          id: stylistId,
-          name: 'Unknown',
-          email: '',
-          phone: null,
-          specialization: 'stylist',
-          serviceIds: [],
-          commissionPercentage: 0.0,
-          isActive: false,
-          createdAt: DateTime.now(),
-        ));
+  double getStylistCommissionTotalForPeriod(
+      String stylistId, DateTime start, DateTime end) {
+    final stylist = _stylists.firstWhere((s) => s.id == stylistId,
+        orElse: () => Stylist(
+              id: stylistId,
+              name: 'Unknown',
+              email: '',
+              phone: null,
+              specialization: 'stylist',
+              serviceIds: [],
+              commissionPercentage: 0.0,
+              isActive: false,
+              createdAt: DateTime.now(),
+            ));
 
     final completed = _appointments.where((a) =>
         a.stylistId == stylistId &&
@@ -901,7 +997,8 @@ final snapshot = await _firestore!
     return SalonProvider.computeStylistCommission(stylist, completed);
   }
 
-  Map<String, double> getCommissionsByStylistForPeriod(DateTime start, DateTime end) {
+  Map<String, double> getCommissionsByStylistForPeriod(
+      DateTime start, DateTime end) {
     final Map<String, double> result = {};
     for (final s in _stylists) {
       result[s.id] = getStylistCommissionTotalForPeriod(s.id, start, end);
@@ -909,17 +1006,22 @@ final snapshot = await _firestore!
     return result;
   }
 
-  List<SalonAppointment> getAppointmentsForStylistInPeriod(String stylistId, DateTime start, DateTime end) {
-    return _appointments.where((a) =>
-        a.stylistId == stylistId &&
-        !a.appointmentTime.isBefore(start) &&
-        !a.appointmentTime.isAfter(end)).toList();
+  List<SalonAppointment> getAppointmentsForStylistInPeriod(
+      String stylistId, DateTime start, DateTime end) {
+    return _appointments
+        .where((a) =>
+            a.stylistId == stylistId &&
+            !a.appointmentTime.isBefore(start) &&
+            !a.appointmentTime.isAfter(end))
+        .toList();
   }
 
   /// Pure helper useful for unit tests: computes commission owed based on stylist commission percentage and completed appointments
-  static double computeStylistCommission(Stylist stylist, Iterable<SalonAppointment> appointments) {
+  static double computeStylistCommission(
+      Stylist stylist, Iterable<SalonAppointment> appointments) {
     final pct = stylist.commissionPercentage ?? 0.0;
-    return appointments.fold(0.0, (sum, a) => sum + (a.servicePrice) * (pct / 100.0));
+    return appointments.fold(
+        0.0, (sum, a) => sum + (a.servicePrice) * (pct / 100.0));
   }
 
   /// Reset all provider state - called during logout to clear business data
@@ -968,7 +1070,7 @@ extension SalonProviderSales on SalonProvider {
       final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
 
       try {
-        final snapshot = await _firestore!
+        final snapshot = await _firestore
             .collection('businesses')
             .doc(_businessId)
             .collection('sales')
@@ -987,10 +1089,12 @@ extension SalonProviderSales on SalonProvider {
         return totalSales;
       } catch (e) {
         final msg = e.toString();
-        if (msg.contains('requires an index') || msg.contains('FAILED_PRECONDITION')) {
+        if (msg.contains('requires an index') ||
+            msg.contains('FAILED_PRECONDITION')) {
           try {
-            debugPrint('[SalonProvider] Composite index required; falling back to date-only query for today\'s sales');
-            final fallback = await _firestore!
+            debugPrint(
+                '[SalonProvider] Composite index required; falling back to date-only query for today\'s sales');
+            final fallback = await _firestore
                 .collection('businesses')
                 .doc(_businessId)
                 .collection('sales')
@@ -1000,12 +1104,14 @@ extension SalonProviderSales on SalonProvider {
 
             double totalSales = 0.0;
             for (final doc in fallback.docs) {
-              if ((doc['status'] as String?)?.toLowerCase() != 'completed') continue;
+              if ((doc['status'] as String?)?.toLowerCase() != 'completed')
+                continue;
               final amount = (doc['totalAmount'] as num?)?.toDouble() ?? 0.0;
               totalSales += amount;
             }
 
-            debugPrint('[SalonProvider] Today\'s sales total (fallback): NGN $totalSales');
+            debugPrint(
+                '[SalonProvider] Today\'s sales total (fallback): NGN $totalSales');
             return totalSales;
           } catch (e2) {
             debugPrint('[SalonProvider] Fallback date-only query failed: $e2');
@@ -1022,5 +1128,3 @@ extension SalonProviderSales on SalonProvider {
     }
   }
 }
-
-

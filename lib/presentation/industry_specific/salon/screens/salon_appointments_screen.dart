@@ -241,15 +241,21 @@ class _AppointmentCard extends StatelessWidget {
                 // Show commission earned for completed appointments
                 if (appointment.status == 'completed')
                   Builder(builder: (context) {
-                    final provider = Provider.of<SalonProvider>(context, listen: false);
+                    final provider =
+                        Provider.of<SalonProvider>(context, listen: false);
                     double pct = 0.0;
                     try {
-                      final s = provider.stylists.firstWhere((x) => x.id == appointment.stylistId);
+                      final s = provider.stylists
+                          .firstWhere((x) => x.id == appointment.stylistId);
                       pct = s.commissionPercentage ?? 0.0;
                     } catch (_) {}
-                    final amount = (appointment.amountPaid != null && appointment.amountPaid! > 0) ? appointment.amountPaid! : appointment.servicePrice;
+                    final amount = (appointment.amountPaid != null &&
+                            appointment.amountPaid! > 0)
+                        ? appointment.amountPaid!
+                        : appointment.servicePrice;
                     final commission = amount * (pct / 100.0);
-                    return _InfoRow(label: 'Commission', value: formatCurrency(commission));
+                    return _InfoRow(
+                        label: 'Commission', value: formatCurrency(commission));
                   }),
                 const SizedBox(height: 12),
                 if (appointment.status == 'pending')
@@ -485,6 +491,8 @@ class _CreateAppointmentDialogState extends State<_CreateAppointmentDialog> {
     _clientPhoneCtrl = TextEditingController();
     _clientEmailCtrl = TextEditingController();
     _notesCtrl = TextEditingController();
+    widget.provider.loadServices();
+    widget.provider.loadStylists();
   }
 
   @override
@@ -543,9 +551,11 @@ class _CreateAppointmentDialogState extends State<_CreateAppointmentDialog> {
                   // Auto-select first stylist who can perform the service
                   if (_selectedService != null) {
                     final candidates = widget.provider.stylists
-                        .where((st) => st.serviceIds.contains(_selectedService!.id))
+                        .where((st) =>
+                            st.serviceIds.contains(_selectedService!.id))
                         .toList();
-                    _selectedStylist = candidates.isNotEmpty ? candidates.first : null;
+                    _selectedStylist =
+                        candidates.isNotEmpty ? candidates.first : null;
                   } else {
                     _selectedStylist = null;
                   }
@@ -557,10 +567,13 @@ class _CreateAppointmentDialogState extends State<_CreateAppointmentDialog> {
                 hint: const Text('Select Stylist'),
                 isExpanded: true,
                 items: widget.provider.stylists
-                    .where((s) => _selectedService == null || s.serviceIds.contains(_selectedService!.id))
+                    .where((s) =>
+                        _selectedService == null ||
+                        s.serviceIds.contains(_selectedService!.id))
                     .map((s) => DropdownMenuItem(value: s, child: Text(s.name)))
                     .toList(),
-                onChanged: (stylist) => setState(() => _selectedStylist = stylist),
+                onChanged: (stylist) =>
+                    setState(() => _selectedStylist = stylist),
               ),
               const SizedBox(height: 12),
               GestureDetector(
@@ -658,4 +671,3 @@ class _CreateAppointmentDialogState extends State<_CreateAppointmentDialog> {
     );
   }
 }
-

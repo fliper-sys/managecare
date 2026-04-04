@@ -22,6 +22,35 @@ class ApartmentRepositoryImpl implements ApartmentRepository {
   }
 
   @override
+  Future<void> updateApartment({
+    required String businessId,
+    required String apartmentId,
+    required Map<String, dynamic> update,
+  }) async {
+    await _apartmentsRef(businessId).doc(apartmentId).update({
+      ...update,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
+  Future<void> deleteApartment({
+    required String businessId,
+    required String apartmentId,
+  }) async {
+    final apartmentRef = _apartmentsRef(businessId).doc(apartmentId);
+    final unitsSnapshot = await apartmentRef.collection('units').get();
+    final batch = _firestore.batch();
+
+    for (final doc in unitsSnapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    batch.delete(apartmentRef);
+
+    await batch.commit();
+  }
+
+  @override
   Future<List<Unit>> fetchUnits({required String businessId, required String apartmentId}) async {
     final snap = await _apartmentsRef(businessId).doc(apartmentId).collection('units').orderBy('name').get();
     return snap.docs.map((d) => Unit.fromFirestore(d)).toList();

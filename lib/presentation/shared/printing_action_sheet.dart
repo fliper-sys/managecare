@@ -292,6 +292,13 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
           poweredByText: footerWithPowered,
           showQrCode: settings?.showQrCode ?? false,
           receiptUrlBase: settings?.receiptUrlBase,
+          discount: (widget.saleData['discount'] ?? 0.0).toDouble(),
+          businessLogoUrl: business?.logoUrl,
+          businessAddress: business?.address,
+          businessPhone: business?.phone,
+          businessEmail: business?.email,
+          subscriptionTier: business?.subscriptionTier,
+          businessClass: business?.businessClass,
         );
 
         setState(() {
@@ -320,6 +327,13 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
           poweredByText: footerWithPowered,
           showQrCode: settings?.showQrCode ?? false,
           receiptUrlBase: settings?.receiptUrlBase,
+          discount: (widget.saleData['discount'] ?? 0.0).toDouble(),
+          businessLogoUrl: business?.logoUrl,
+          businessAddress: business?.address,
+          businessPhone: business?.phone,
+          businessEmail: business?.email,
+          subscriptionTier: business?.subscriptionTier,
+          businessClass: business?.businessClass,
         );
 
         setState(() {
@@ -428,6 +442,13 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
         poweredByText: footerWithPowered,
         showQrCode: settings?.showQrCode ?? false,
         receiptUrlBase: settings?.receiptUrlBase,
+        discount: (widget.saleData['discount'] ?? 0.0).toDouble(),
+        businessLogoUrl: business?.logoUrl,
+        businessAddress: business?.address,
+        businessPhone: business?.phone,
+        businessEmail: business?.email,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
       );
 
       setState(() {

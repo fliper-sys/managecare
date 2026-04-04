@@ -67,7 +67,7 @@ class _NotificationLogsScreenState extends State<NotificationLogsScreen> {
                           style: AppTextStyles.heading4),
                       const SizedBox(height: 8),
                       const Text(
-                          'Notification logs are available to Professional and Enterprise plans.'),
+                          'Notification logs are available on higher subscription tiers.'),
                       const SizedBox(height: 16),
                       ElevatedButton(
                         onPressed: () => Navigator.pushNamed(

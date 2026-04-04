@@ -82,6 +82,7 @@ class Routes {
   // Industry-Specific Routes - Gas
   static const String gasDashboard = '/gas';
   static const String gasPump = '/gas/pump';
+  static const String gasStock = '/gas/stock';
   static const String gasSalesHistory = '/gas/history';
 
   // Product Installation
@@ -187,6 +188,8 @@ class Routes {
   static const String hotelRestaurant = '/hotel/restaurant';
   static const String hotelBar = '/hotel/bar';
   static const String hotelBilling = '/hotel/billing';
+  static const String hotelHallBookings = '/hotel/hall-bookings';
+  static const String hotelPoolBookings = '/hotel/pool-bookings';
 
   // Industry-Specific Routes - Drink/Bar
   static const String drinkDashboard = '/drink';
@@ -208,6 +211,7 @@ class Routes {
   static const String restaurantKitchen = '/restaurant/kitchen';
   static const String restaurantMenu = '/restaurant/menu';
   static const String restaurantManageMenu = '/restaurant/manage-menu';
+  static const String restaurantStock = '/restaurant/stock';
   static const String restaurantReservations = '/restaurant/reservations';
   static const String restaurantDelivery = '/restaurant/delivery';
   static const String restaurantWaiters = '/restaurant/waiters';
@@ -227,6 +231,12 @@ class Routes {
   static const String realEstateCreateTicket = '/realestate/maintenance/create';
   static const String realEstateDocuments = '/realestate/documents';
 
+  // Industry-Specific Routes - Apartment
+  static const String apartmentDashboard = '/apartment';
+  static const String apartmentUnits = '/apartment/units';
+  static const String apartmentBookings = '/apartment/bookings';
+  static const String apartmentCreateBooking = '/apartment/bookings/create';
+
   // Industry-Specific Routes - Gym
   static const String gymDashboard = '/gym';
   static const String gymMembers = '/gym/members';
@@ -235,6 +245,9 @@ class Routes {
   static const String gymMemberships = '/gym/memberships';
   static const String gymClasses = '/gym/classes';
   static const String gymCalendar = '/gym/calendar';
+  static const String gymEquipment = '/gym/equipment';
+  static const String gymAttendance = '/gym/attendance';
+  static const String gymMemberProgress = '/gym/members/progress';
 
   // Admin Routes
   static const String adminLogin = '/admin_login';

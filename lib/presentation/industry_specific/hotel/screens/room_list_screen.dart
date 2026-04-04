@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
 
+import '../../../../providers/business_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 import 'create_room_screen.dart'; // Assumed import based on previous context
 
@@ -16,6 +17,56 @@ class RoomListScreen extends StatefulWidget {
 class _RoomListScreenState extends State<RoomListScreen> {
   String _filterType = 'all'; // all, available, occupied, maintenance
   String _sortBy = 'number'; // number, price, status
+
+  Future<void> _showBlockedDialog({
+    required String title,
+    required String message,
+  }) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<bool> _ensureCanCreateRoom() async {
+    final businessProvider = context.read<BusinessProvider>();
+    final access = await businessProvider.canAccessFeatureEnhanced(
+      'basic_sales',
+      context: 'hotel_room_list_add_room',
+    );
+
+    if (!mounted) return false;
+    if (!(access['ok'] as bool? ?? false)) {
+      await _showBlockedDialog(
+        title: 'Subscription required',
+        message: businessProvider.getSubscriptionBlockedMessage(
+          feature: 'basic_sales',
+        ),
+      );
+      return false;
+    }
+
+    final roomCount = context.read<HotelProvider>().rooms.length;
+    if (!businessProvider.isWithinLimit('rooms', roomCount)) {
+      await _showBlockedDialog(
+        title: 'Room limit reached',
+        message: businessProvider.getLimitReachedMessage('rooms'),
+      );
+      return false;
+    }
+
+    return true;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -94,9 +145,13 @@ class _RoomListScreenState extends State<RoomListScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-            // Navigate to Create Room Screen
-             Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateRoomScreen()));
+        onPressed: () async {
+          if (!await _ensureCanCreateRoom()) return;
+          if (!mounted) return;
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const CreateRoomScreen()),
+          );
         },
         backgroundColor: AppColors.primary,
         icon: const Icon(Icons.add),

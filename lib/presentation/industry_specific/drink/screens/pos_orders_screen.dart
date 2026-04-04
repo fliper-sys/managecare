@@ -5,6 +5,7 @@ import '../../../../providers/business_provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../services/email_service.dart';
 import '../../../../core/constants/routes.dart';
+import '../../../../core/utils/currency.dart';
 
 class POSOrdersScreen extends StatefulWidget {
   const POSOrdersScreen({super.key});
@@ -234,15 +235,14 @@ class _POSOrdersScreenState extends State<POSOrdersScreen> {
                             final authProvider = Provider.of<AuthProvider>(
                                 context,
                                 listen: false);
-                            final tier = businessProvider
-                                    .currentBusiness?.subscriptionTier ??
-                                '';
-                            final isPro =
-                                tier == 'professional' || tier == 'enterprise';
+                            final canSendLowStockAlert =
+                                businessProvider.hasFeatureAccess(
+                              'email_receipts',
+                            );
                             final bType = businessProvider
                                     .currentBusiness?.businessType ??
                                 '';
-                            if (isPro &&
+                            if (canSendLowStockAlert &&
                                 (bType == 'drink' || bType == 'auto')) {
                               final low = provider.getLowStockDrinks();
                               if (low.isNotEmpty) {
@@ -283,8 +283,7 @@ class _POSOrdersScreenState extends State<POSOrdersScreen> {
                     child: ListTile(
                       leading: const Icon(Icons.receipt_long),
                       title: Text('Order #${order.id}'),
-                      subtitle:
-                          Text('Total: \$${order.total().toStringAsFixed(2)}'),
+                      subtitle: Text('Total: ${formatCurrency(order.total())}'),
                       trailing: PopupMenuButton<String>(
                         onSelected: (status) async {
                           if (status == 'paid') {
@@ -394,7 +393,7 @@ class _OrderDetailsSheet extends StatelessWidget {
                       style: const TextStyle(fontSize: 24)),
               title: Text(drink?.name ?? 'Unknown'),
               subtitle: Text('${line.quantityBottles} bottles'),
-              trailing: Text('\$${line.lineTotal().toStringAsFixed(2)}'),
+              trailing: Text(formatCurrency(line.lineTotal())),
             );
           }),
           const SizedBox(height: 8),

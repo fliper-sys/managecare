@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../widgets/async_button.dart';
 import '../../../../widgets/custom_button.dart';
 import '../../../../services/receipt_manager.dart';
@@ -60,276 +61,320 @@ class _PendingOrdersAndCheckoutScreenState
     }
 
     final provider = context.read<RestaurantProvider>();
-    final order = provider.orders.firstWhere((o) => o.id == _selectedOrderId);
+    final order = _selectedOrderFromProvider(provider);
+    if (order == null) {
+      setState(() {
+        _selectedOrderId = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The selected order is no longer available')),
+      );
+      return;
+    }
 
     // Show payment confirmation
     _showPaymentConfirmation(context, order);
   }
 
+  RestaurantOrder? _selectedOrderFromProvider(RestaurantProvider provider) {
+    final selectedId = _selectedOrderId;
+    if (selectedId == null) return null;
+
+    for (final order in provider.orders) {
+      if (order.id == selectedId) {
+        return order;
+      }
+    }
+
+    return null;
+  }
+
   void _showPaymentConfirmation(BuildContext context, RestaurantOrder order) {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 500),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(12)),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(Icons.check_circle,
-                        color: AppColors.success, size: 48),
-                    SizedBox(height: 12),
-                    Text('Payment Confirmation', style: AppTextStyles.heading3),
-                  ],
-                ),
-              ),
+      builder: (dialogContext) {
+        final size = MediaQuery.sizeOf(dialogContext);
+        final isCompact = size.width < 560;
 
-              Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Order Details
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.background,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Order ID:',
-                                  style: AppTextStyles.body1),
-                              Text(
-                                order.id.length >= 6 ? order.id.substring(order.id.length - 6) : order.id,
-                                style: AppTextStyles.body1
-                                    .copyWith(fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Table:', style: AppTextStyles.body1),
-                              Text(
-                                'Table ${order.tableNumber ?? 'N/A'}',
-                                style: AppTextStyles.body1
-                                    .copyWith(fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Items:', style: AppTextStyles.body1),
-                              Text(
-                                '${order.items.length} items (${order.items.fold(0, (sum, item) => sum + item.quantity)} qty)',
-                                style: AppTextStyles.body1
-                                    .copyWith(fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-                          const Divider(),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Subtotal:',
-                                  style: AppTextStyles.body2),
-                              Text('\$${order.subtotal.toStringAsFixed(2)}',
-                                  style: AppTextStyles.body2),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Tax:', style: AppTextStyles.body2),
-                              Text('\$${order.tax.toStringAsFixed(2)}',
-                                  style: AppTextStyles.body2),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Discount:',
-                                  style: AppTextStyles.body2),
-                              Text('-\$${order.discount.toStringAsFixed(2)}',
-                                  style: AppTextStyles.body2
-                                      .copyWith(color: AppColors.success)),
-                            ],
-                          ),
-                          const Divider(),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('TOTAL:',
-                                  style: AppTextStyles.heading4
-                                      .copyWith(fontWeight: FontWeight.w600)),
-                              Text(
-                                '\$${order.total.toStringAsFixed(2)}',
-                                style: AppTextStyles.heading4.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.success,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+        return Dialog(
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: isCompact ? 12 : 16,
+            vertical: 16,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 520,
+              maxHeight: size.height * 0.92,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.1),
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(12)),
                     ),
-
-                    // Store selector
-                    Consumer<RetailProvider>(builder: (context, retail, _) {
-                      final stores = retail.stores;
-                      if (stores.isEmpty) return const SizedBox.shrink();
-                      final auth = Provider.of<AuthProvider>(context, listen: false);
-                      String selectedStore = auth.currentUser?.storeId ?? '';
-
-                      return StatefulBuilder(builder: (ctx, setState) {
-                        selectedStore = selectedStore.isEmpty && stores.isNotEmpty ? stores.first.id : selectedStore;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12.0),
-                          child: Row(
+                    child: const Column(
+                      children: [
+                        Icon(Icons.check_circle,
+                            color: AppColors.success, size: 48),
+                        SizedBox(height: 12),
+                        Text('Payment Confirmation', style: AppTextStyles.heading3),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      isCompact ? 16 : 24,
+                      20,
+                      isCompact ? 16 : 24,
+                      16,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppColors.background,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Column(
                             children: [
-                              const Expanded(child: Text('Store', style: AppTextStyles.body1)),
-                              SizedBox(
-                                width: 220,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: AppColors.border),
-                                  ),
-                                  child: DropdownButtonHideUnderline(
-                                    child: DropdownButton<String>(
-                                      value: selectedStore,
-                                      isExpanded: true,
-                                      items: stores.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
-                                      onChanged: (val) => setState(() {
-                                        selectedStore = val ?? selectedStore;
-                                        _dialogSelectedStore = selectedStore;
-                                      }),
+                              _DetailRow(
+                                label: 'Order ID',
+                                value: order.id.length >= 6
+                                    ? order.id.substring(order.id.length - 6)
+                                    : order.id,
+                              ),
+                              _DetailRow(
+                                label: 'Table',
+                                value: 'Table ${order.tableNumber ?? 'N/A'}',
+                              ),
+                              _DetailRow(
+                                label: 'Items',
+                                value:
+                                    '${order.items.length} items (${order.items.fold<int>(0, (sum, item) => sum + item.quantity)} qty)',
+                              ),
+                              const Divider(),
+                              _DetailRow(
+                                label: 'Subtotal',
+                                value: formatCurrency(order.subtotal),
+                              ),
+                              _DetailRow(
+                                label: 'Tax',
+                                value: formatCurrency(order.tax),
+                              ),
+                              _DetailRow(
+                                label: 'Discount',
+                                value: '-${formatCurrency(order.discount)}',
+                              ),
+                              const Divider(),
+                              _DetailRow(
+                                label: 'TOTAL',
+                                value: formatCurrency(order.total),
+                                isBold: true,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Consumer<RetailProvider>(builder: (context, retail, _) {
+                          final stores = retail.stores;
+                          if (stores.isEmpty) return const SizedBox.shrink();
+                          final auth =
+                              Provider.of<AuthProvider>(context, listen: false);
+                          String selectedStore = auth.currentUser?.storeId ?? '';
+
+                          return StatefulBuilder(builder: (ctx, setState) {
+                            selectedStore = selectedStore.isEmpty && stores.isNotEmpty
+                                ? stores.first.id
+                                : selectedStore;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Wrap(
+                                runSpacing: 12,
+                                spacing: 12,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  Text(
+                                    'Store',
+                                    style: AppTextStyles.body1.copyWith(
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
+                                  ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      minWidth: isCompact ? size.width * 0.55 : 220,
+                                      maxWidth: isCompact ? size.width * 0.72 : 260,
+                                    ),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(color: AppColors.border),
+                                      ),
+                                      child: DropdownButtonHideUnderline(
+                                        child: DropdownButton<String>(
+                                          value: selectedStore,
+                                          isExpanded: true,
+                                          items: stores
+                                              .map((s) => DropdownMenuItem(
+                                                    value: s.id,
+                                                    child: Text(
+                                                      s.name,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                    ),
+                                                  ))
+                                              .toList(),
+                                          onChanged: (val) => setState(() {
+                                            selectedStore = val ?? selectedStore;
+                                            _dialogSelectedStore = selectedStore;
+                                          }),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          });
+                        }),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Payment Method',
+                          style: AppTextStyles.body1.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.background,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Text(
+                            _paymentMethod == 'cash'
+                                ? 'Cash Payment'
+                                : 'Card Payment',
+                            style: AppTextStyles.body1.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppColors.success.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: AppColors.success.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.check_circle,
+                                  color: AppColors.success),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Payment confirmed. Receipt and invoice actions are ready.',
+                                  style: AppTextStyles.body2
+                                      .copyWith(color: AppColors.success),
                                 ),
                               ),
                             ],
                           ),
-                        );
-                      });
-                    }),
-
-                    const SizedBox(height: 20),
-
-                    // Payment Method
-                    Text('Payment Method:',
-                        style: AppTextStyles.body1
-                            .copyWith(fontWeight: FontWeight.w600)),
-
-                    const SizedBox(height: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: AppColors.background,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: Text(
-                        _paymentMethod == 'cash'
-                            ? 'Cash Payment'
-                            : 'Card Payment',
-                        style: AppTextStyles.body1
-                            .copyWith(fontWeight: FontWeight.w600),
-                      ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 20),
-
-                    // Success Message
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.success.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                            color: AppColors.success.withOpacity(0.3)),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.check_circle,
-                              color: AppColors.success),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Payment confirmed! Receipt will be printed.',
-                              style: AppTextStyles.body2
-                                  .copyWith(color: AppColors.success),
-                            ),
-                          ),
-                        ],
-                      ),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      isCompact ? 16 : 20,
+                      0,
+                      isCompact ? 16 : 20,
+                      16,
                     ),
-                  ],
-                ),
-              ),
-
-              // Action Buttons
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    CustomButton(
-                      text: 'Generate PDF Invoice',
-                      backgroundColor: Colors.blue,
-                      onPressed: () => _generatePdfInvoice(order),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
+                    child: Column(
                       children: [
-                        Expanded(
-                          child: CustomButton(
+                        CustomButton(
+                          text: 'Generate PDF Invoice',
+                          backgroundColor: Colors.blue,
+                          onPressed: () => _generatePdfInvoice(order),
+                        ),
+                        const SizedBox(height: 8),
+                        if (isCompact) ...[
+                          CustomButton(
                             text: 'Print Receipt',
                             backgroundColor: Colors.blue,
                             onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
+                              ScaffoldMessenger.of(dialogContext).showSnackBar(
                                 const SnackBar(
-                                    content: Text('Receipt sent to printer')),
+                                  content: Text('Receipt sent to printer'),
+                                ),
                               );
-                        },
-                      ),
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                          AsyncCustomButton(
+                            text: 'Confirm & Close',
+                            onPressed: () async =>
+                                await _confirmAndCompleteOrder(dialogContext, order),
+                          ),
+                        ] else
+                          Row(
+                            children: [
+                              Expanded(
+                                child: CustomButton(
+                                  text: 'Print Receipt',
+                                  backgroundColor: Colors.blue,
+                                  onPressed: () {
+                                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Receipt sent to printer'),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: AsyncCustomButton(
+                                  text: 'Confirm & Close',
+                                  onPressed: () async => await _confirmAndCompleteOrder(
+                                    dialogContext,
+                                    order,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: AsyncCustomButton(
-                        text: 'Confirm & Close',
-                        onPressed: () async => await _confirmAndCompleteOrder(context, order),
-                      ),
-                    ),
-                  ],
-                ),
-            ] ),
-          )],
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -371,6 +416,9 @@ class _PendingOrdersAndCheckoutScreenState
         businessPhone: business?.phone,
         businessEmail: business?.email,
         cashierName: authProvider.currentUser?.fullName,
+        businessLogoUrl: business?.logoUrl,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
       );
 
       final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
@@ -458,7 +506,7 @@ class _PendingOrdersAndCheckoutScreenState
           final pmResult = await PaymentService().processPayment(
             context: context,
             amount: order.total,
-            currency: 'USD',
+            currency: 'NGN',
             email: order.customerEmail ?? '',
             fullName: order.customerName ?? (authProvider.currentUser?.fullName ?? 'Guest'),
             txRef: txRef,
@@ -568,12 +616,16 @@ class _PendingOrdersAndCheckoutScreenState
                 id: prod.id,
                 name: prod.name,
                 price: prod.price,
-                  cost: prod.cost.toDouble(),
+                cost: prod.cost.toDouble(),
+                wholesalePrice: prod.wholesalePrice,
                 stock: newStock.toDouble(),
                 category: prod.category,
                 imageUrl: prod.imageUrl,
                 barcode: prod.barcode,
                 emoji: prod.emoji,
+                unit: prod.unit,
+                saleUnit: prod.resolvedSaleUnit,
+                saleUnitMultiplier: prod.resolvedSaleUnitMultiplier,
               );
               await retail.updateProduct(prod.id, updated);
             }
@@ -671,251 +723,355 @@ class _PendingOrdersAndCheckoutScreenState
               unpaidOrders.where((o) => o.status == 'preparing').toList();
           final readyOrders =
               unpaidOrders.where((o) => o.status == 'ready').toList();
+          final awaitingPaymentOrders = unpaidOrders
+              .where((o) => o.status == 'served' || o.status == 'completed')
+              .toList();
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompact = constraints.maxWidth < 960;
+              final checkoutHeight = _selectedOrderId == null ? 180.0 : 320.0;
+              final checkoutWidth =
+                  (constraints.maxWidth * 0.34).clamp(320.0, 380.0).toDouble();
 
-          return Row(
-            children: [
-              // Left: All Orders
-              Expanded(
-                flex: 2,
-                child: Column(
+              final ordersPane = _buildOrdersPane(
+                context: context,
+                unpaidOrders: unpaidOrders,
+                pendingOrders: pendingOrders,
+                preparingOrders: preparingOrders,
+                readyOrders: readyOrders,
+                awaitingPaymentOrders: awaitingPaymentOrders,
+              );
+
+              final checkoutPane = _buildCheckoutPanel(
+                context: context,
+                provider: provider,
+                isCompact: isCompact,
+              );
+
+              if (isCompact) {
+                return Column(
                   children: [
-                    // Tabs
-                    Container(
-                      decoration: const BoxDecoration(
-                        color: AppColors.surface,
-                        border:
-                            Border(bottom: BorderSide(color: AppColors.border)),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Active Orders Awaiting Payment',
-                                style: AppTextStyles.heading3),
-                            const SizedBox(height: 16),
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: [
-                                  _OrderStatusBadge(
-                                    label: 'Payment Queue',
-                                    count: unpaidOrders.length,
-                                    color: AppColors.error,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  _OrderStatusBadge(
-                                    label: 'Pending',
-                                    count: pendingOrders.length,
-                                    color: AppColors.warning,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  _OrderStatusBadge(
-                                    label: 'Preparing',
-                                    count: preparingOrders.length,
-                                    color: AppColors.primary,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  _OrderStatusBadge(
-                                    label: 'Ready to Serve',
-                                    count: readyOrders.length,
-                                    color: AppColors.success,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // Orders List
-                    Expanded(
-                      child: ListView(
-                        padding: const EdgeInsets.all(16),
-                        children: [
-                          // Pending Orders
-                          if (pendingOrders.isNotEmpty) ...[
-                            const Text('Pending Orders',
-                                style: AppTextStyles.heading3),
-                            const SizedBox(height: 12),
-                            ...pendingOrders.map(
-                                (order) => _buildOrderCard(order, context)),
-                            const SizedBox(height: 24),
-                          ],
-
-                          // Preparing Orders
-                          if (preparingOrders.isNotEmpty) ...[
-                            const Text('Preparing',
-                                style: AppTextStyles.heading3),
-                            const SizedBox(height: 12),
-                            ...preparingOrders.map(
-                                (order) => _buildOrderCard(order, context)),
-                            const SizedBox(height: 24),
-                          ],
-
-                          // Ready Orders
-                          if (readyOrders.isNotEmpty) ...[
-                            const Text('Ready to Serve',
-                                style: AppTextStyles.heading3),
-                            const SizedBox(height: 12),
-                            ...readyOrders.map(
-                                (order) => _buildOrderCard(order, context)),
-                          ],
-
-                          if (pendingOrders.isEmpty &&
-                              preparingOrders.isEmpty &&
-                              readyOrders.isEmpty)
-                            Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(32),
-                                child: Text(
-                                  'No unpaid active orders',
-                                  style: AppTextStyles.body1
-                                      .copyWith(color: AppColors.textSecondary),
-                                ),
-                              ),
-                            ),
-                        ],
+                    Expanded(child: ordersPane),
+                    SafeArea(
+                      top: false,
+                      child: SizedBox(
+                        height: checkoutHeight,
+                        child: checkoutPane,
                       ),
                     ),
                   ],
-                ),
-              ),
+                );
+              }
 
-              // Right: Checkout Panel
-              Container(
-                width: 320,
-                decoration: const BoxDecoration(
-                  color: AppColors.surface,
-                  border: Border(left: BorderSide(color: AppColors.border)),
-                ),
-                child: Column(
-                  children: [
-                    // Header
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.1),
-                        border: const Border(
-                            bottom: BorderSide(color: AppColors.border)),
-                      ),
-                      child: Text('Checkout',
-                          style: AppTextStyles.heading3
-                              .copyWith(color: AppColors.primary)),
-                    ),
-
-                    // Selected Order Details
-                    if (_selectedOrderId != null)
-                      Expanded(
-                        child: Consumer<RestaurantProvider>(
-                          builder: (context, provider, _) {
-                            final order = provider.orders
-                                .firstWhere((o) => o.id == _selectedOrderId);
-                            return SingleChildScrollView(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Order Details',
-                                      style: AppTextStyles.body1.copyWith(
-                                          fontWeight: FontWeight.w600)),
-                                  const SizedBox(height: 12),
-                                  _DetailRow(
-                                      label: 'Table',
-                                      value: 'Table ${order.tableNumber ?? 'N/A'}'),
-                                  _DetailRow(
-                                      label: 'Items',
-                                      value: '${order.items.length}'),
-                                  _DetailRow(
-                                      label: 'Status',
-                                      value: order.status.toUpperCase()),
-                                  _DetailRow(
-                                      label: 'Payment',
-                                      value: order.paymentStatus.toUpperCase()),
-                                  const Divider(),
-                                  const SizedBox(height: 12),
-                                  Text('Items',
-                                      style: AppTextStyles.body1.copyWith(
-                                          fontWeight: FontWeight.w600)),
-                                  const SizedBox(height: 8),
-                                  ...order.items.map((item) {
-                                    return Padding(
-                                      padding: const EdgeInsets.only(bottom: 8),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                                '${item.quantity}x ${item.menuItemName}',
-                                                style: AppTextStyles.caption),
-                                          ),
-                                          Text(
-                                              '\$${item.subtotal.toStringAsFixed(2)}',
-                                              style: AppTextStyles.caption
-                                                  .copyWith(
-                                                      fontWeight:
-                                                          FontWeight.w600)),
-                                        ],
-                                      ),
-                                    );
-                                  }),
-                                  const Divider(),
-                                  const SizedBox(height: 12),
-                                  _DetailRow(
-                                      label: 'Subtotal',
-                                      value:
-                                          '\$${order.subtotal.toStringAsFixed(2)}'),
-                                  _DetailRow(
-                                      label: 'Tax',
-                                      value:
-                                          '\$${order.tax.toStringAsFixed(2)}'),
-                                  _DetailRow(
-                                      label: 'Discount',
-                                      value:
-                                          '-\$${order.discount.toStringAsFixed(2)}'),
-                                  const Divider(),
-                                  _DetailRow(
-                                    label: 'TOTAL',
-                                    value:
-                                        '\$${order.total.toStringAsFixed(2)}',
-                                    isBold: true,
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      )
-                    else
-                      Expanded(
-                        child: Center(
-                          child: Text(
-                            'Select an order to checkout',
-                            style: AppTextStyles.body1
-                                .copyWith(color: AppColors.textSecondary),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ),
-
-                    // Checkout Button
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: AsyncCustomButton(
-                        text: 'Process Payment',
-                        onPressed: _selectedOrderId != null
-                            ? () async =>  _processCheckout(context)
-                            : null,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+              return Row(
+                children: [
+                  Expanded(flex: 2, child: ordersPane),
+                  SizedBox(width: checkoutWidth, child: checkoutPane),
+                ],
+              );
+            },
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildOrdersPane({
+    required BuildContext context,
+    required List<RestaurantOrder> unpaidOrders,
+    required List<RestaurantOrder> pendingOrders,
+    required List<RestaurantOrder> preparingOrders,
+    required List<RestaurantOrder> readyOrders,
+    required List<RestaurantOrder> awaitingPaymentOrders,
+  }) {
+    return Column(
+      children: [
+        Container(
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            border: Border(bottom: BorderSide(color: AppColors.border)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Active Orders Awaiting Payment',
+                  style: AppTextStyles.heading3,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Keep service moving while you settle all unpaid tables in one place.',
+                  style: AppTextStyles.body2.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _OrderStatusBadge(
+                        label: 'Payment Queue',
+                        count: unpaidOrders.length,
+                        color: AppColors.error,
+                      ),
+                      const SizedBox(width: 12),
+                      _OrderStatusBadge(
+                        label: 'Pending',
+                        count: pendingOrders.length,
+                        color: AppColors.warning,
+                      ),
+                      const SizedBox(width: 12),
+                      _OrderStatusBadge(
+                        label: 'Preparing',
+                        count: preparingOrders.length,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 12),
+                      _OrderStatusBadge(
+                        label: 'Ready to Serve',
+                        count: readyOrders.length,
+                        color: AppColors.success,
+                      ),
+                      const SizedBox(width: 12),
+                      _OrderStatusBadge(
+                        label: 'Awaiting Payment',
+                        count: awaitingPaymentOrders.length,
+                        color: Colors.deepPurple,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (pendingOrders.isNotEmpty) ...[
+                const Text('Pending Orders', style: AppTextStyles.heading3),
+                const SizedBox(height: 12),
+                ...pendingOrders.map((order) => _buildOrderCard(order, context)),
+                const SizedBox(height: 24),
+              ],
+              if (preparingOrders.isNotEmpty) ...[
+                const Text('Preparing', style: AppTextStyles.heading3),
+                const SizedBox(height: 12),
+                ...preparingOrders.map((order) => _buildOrderCard(order, context)),
+                const SizedBox(height: 24),
+              ],
+              if (readyOrders.isNotEmpty) ...[
+                const Text('Ready to Serve', style: AppTextStyles.heading3),
+                const SizedBox(height: 12),
+                ...readyOrders.map((order) => _buildOrderCard(order, context)),
+                const SizedBox(height: 24),
+              ],
+              if (awaitingPaymentOrders.isNotEmpty) ...[
+                const Text('Awaiting Payment', style: AppTextStyles.heading3),
+                const SizedBox(height: 12),
+                ...awaitingPaymentOrders.map(
+                  (order) => _buildOrderCard(order, context),
+                ),
+              ],
+              if (pendingOrders.isEmpty &&
+                  preparingOrders.isEmpty &&
+                  readyOrders.isEmpty &&
+                  awaitingPaymentOrders.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Text(
+                      'No unpaid active orders',
+                      style: AppTextStyles.body1.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCheckoutPanel({
+    required BuildContext context,
+    required RestaurantProvider provider,
+    required bool isCompact,
+  }) {
+    final selectedOrder = _selectedOrderFromProvider(provider);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border(
+          left: isCompact
+              ? BorderSide.none
+              : const BorderSide(color: AppColors.border),
+          top: isCompact
+              ? const BorderSide(color: AppColors.border)
+              : BorderSide.none,
+        ),
+        borderRadius: isCompact
+            ? const BorderRadius.vertical(top: Radius.circular(24))
+            : BorderRadius.zero,
+        boxShadow: isCompact
+            ? [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 18,
+                  offset: const Offset(0, -6),
+                ),
+              ]
+            : null,
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withOpacity(0.1),
+              border: const Border(
+                bottom: BorderSide(color: AppColors.border),
+              ),
+              borderRadius: isCompact
+                  ? const BorderRadius.vertical(top: Radius.circular(24))
+                  : BorderRadius.zero,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.payments_outlined,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    isCompact ? 'Checkout Summary' : 'Checkout',
+                    style: AppTextStyles.heading3.copyWith(
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (selectedOrder != null)
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Order Details',
+                      style: AppTextStyles.body1.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _DetailRow(
+                      label: 'Table',
+                      value: 'Table ${selectedOrder.tableNumber ?? 'N/A'}',
+                    ),
+                    _DetailRow(
+                      label: 'Items',
+                      value: '${selectedOrder.items.length}',
+                    ),
+                    _DetailRow(
+                      label: 'Status',
+                      value: selectedOrder.status.toUpperCase(),
+                    ),
+                    _DetailRow(
+                      label: 'Payment',
+                      value: selectedOrder.paymentStatus.toUpperCase(),
+                    ),
+                    const Divider(),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Items',
+                      style: AppTextStyles.body1.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ...selectedOrder.items.map((item) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${item.quantity}x ${item.menuItemName}',
+                                style: AppTextStyles.caption,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              formatCurrency(item.subtotal),
+                              style: AppTextStyles.caption.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                    const Divider(),
+                    const SizedBox(height: 12),
+                    _DetailRow(
+                      label: 'Subtotal',
+                      value: formatCurrency(selectedOrder.subtotal),
+                    ),
+                    _DetailRow(
+                      label: 'Tax',
+                      value: formatCurrency(selectedOrder.tax),
+                    ),
+                    _DetailRow(
+                      label: 'Discount',
+                      value: '-${formatCurrency(selectedOrder.discount)}',
+                    ),
+                    const Divider(),
+                    _DetailRow(
+                      label: 'TOTAL',
+                      value: formatCurrency(selectedOrder.total),
+                      isBold: true,
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Text(
+                    'Select an order to checkout',
+                    style: AppTextStyles.body1.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: AsyncCustomButton(
+              text: 'Process Payment',
+              onPressed: selectedOrder != null
+                  ? () async => _processCheckout(context)
+                  : null,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -930,27 +1086,43 @@ class _PendingOrdersAndCheckoutScreenState
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: isSelected
               ? AppColors.primary.withOpacity(0.1)
               : AppColors.background,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isSelected ? AppColors.primary : AppColors.border,
             width: isSelected ? 2 : 1,
           ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: AppColors.primary.withOpacity(0.08),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ]
+              : null,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Text('Table ${order.tableNumber ?? 'N/A'}',
-                    style: AppTextStyles.body1
-                        .copyWith(fontWeight: FontWeight.w600)),
-                Row(
+                Text(
+                  'Table ${order.tableNumber ?? 'N/A'}',
+                  style: AppTextStyles.body1.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -990,7 +1162,7 @@ class _PendingOrdersAndCheckoutScreenState
             ),
             const SizedBox(height: 8),
             Text(
-                '${order.items.length} items • ${order.customerName ?? 'Walk-in'} • \$${order.total.toStringAsFixed(2)}',
+                '${order.items.length} items • ${order.customerName ?? 'Walk-in'} • ${formatCurrency(order.total)}',
                 style: AppTextStyles.caption
                     .copyWith(color: AppColors.textSecondary)),
           ],
@@ -1073,16 +1245,26 @@ class _DetailRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
+          Expanded(
+            child: Text(
+              label,
               style: isBold
                   ? AppTextStyles.body1.copyWith(fontWeight: FontWeight.w600)
-                  : AppTextStyles.body2),
-          Text(value,
+                  : AppTextStyles.body2,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
               style: isBold
                   ? AppTextStyles.body1.copyWith(fontWeight: FontWeight.w600)
-                  : AppTextStyles.body2),
+                  : AppTextStyles.body2,
+            ),
+          ),
         ],
       ),
     );

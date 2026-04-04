@@ -331,7 +331,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Procurement Management'),
         elevation: 0,
@@ -452,14 +452,15 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                             Icon(
                               Icons.inventory_2_outlined,
                               size: 64,
-                              color: AppColors.textSecondary
+                              color: Theme.of(context).colorScheme.onSurface
                                   .withOpacity(0.5),
                             ),
                             const SizedBox(height: 16),
                             Text(
                               'No products found',
                               style: AppTextStyles.subtitle1.copyWith(
-                                color: AppColors.textSecondary,
+                                color:
+                                    Theme.of(context).colorScheme.onSurface,
                               ),
                             ),
                           ],
@@ -496,6 +497,9 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                     ((product['price'] ?? 0) as num).toDouble(),
                                 cost:
                                     ((product['cost'] ?? 0) as num).toDouble(),
+                                wholesalePrice:
+                                    (product['wholesalePrice'] as num?)
+                                        ?.toDouble(),
                                 stock:
                                     ((product['quantity'] ?? 0) as num).toDouble(),
                                 category:
@@ -506,6 +510,13 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                 unit: canonicalizeInventoryUnit(
                                   product['unit']?.toString(),
                                 ),
+                                saleUnit: canonicalizeInventoryUnit(
+                                  product['saleUnit']?.toString(),
+                                ),
+                                saleUnitMultiplier:
+                                    (product['saleUnitMultiplier'] as num?)
+                                            ?.toDouble() ??
+                                        1.0,
                                 emoji: product['emoji'] as String? ?? '📦',
                               );
 
@@ -529,7 +540,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           if (_selectedItems.isNotEmpty)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               child: Row(
                 children: [
                   Expanded(
@@ -572,12 +583,24 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           'quantity': defaultQty,
           'cost': defaultCost,
           'unit': defaultUnit,
+          'batchLabel': '',
+          'expiryDate': null,
           'product': product,
         };
       });
       await Future.delayed(const Duration(milliseconds: 150));
       _editSelectedItem(id);
     }
+  }
+
+  DateTime? _coerceExpiryDate(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String && value.trim().isNotEmpty) {
+      return DateTime.tryParse(value.trim());
+    }
+    return null;
   }
 
   Future<void> _editSelectedItem(String id) async {
@@ -589,9 +612,13 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
 
     final qtyController = TextEditingController(text: (entry['quantity'] as num).toString());
     final costController = TextEditingController(text: (entry['cost'] as double).toString());
+    final batchLabelController = TextEditingController(
+      text: (entry['batchLabel'] ?? '').toString(),
+    );
     String selectedUnit = canonicalizeInventoryUnit(
       (entry['unit'] as String?) ?? (baseUnit.isNotEmpty ? baseUnit : 'pc'),
     );
+    DateTime? selectedExpiryDate = _coerceExpiryDate(entry['expiryDate']);
 
     final sortedUnits = getCompatibleProcurementUnits(baseUnit);
 
@@ -641,10 +668,63 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                   ],
                 ),
               ),
+            if (selectedUnit != baseUnit && baseUnit.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: Row(
+                  children: [
+                    Icon(Icons.sync_alt, size: 16, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Enter the cost per ${inventoryUnitLabel(selectedUnit)}. The app will convert it to ${inventoryUnitLabel(baseUnit)} before saving the batch.',
+                        style: AppTextStyles.caption.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             TextField(
               controller: costController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Cost per unit'),
+              decoration: InputDecoration(
+                labelText: 'Cost per ${inventoryUnitLabel(selectedUnit)}',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: batchLabelController,
+              decoration: const InputDecoration(
+                labelText: 'Batch label / code (optional)',
+              ),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.event_available_outlined),
+              title: const Text('Expiry date'),
+              subtitle: Text(
+                selectedExpiryDate == null
+                    ? 'No expiry selected'
+                    : DateFormat('dd MMM yyyy').format(selectedExpiryDate!),
+              ),
+              trailing: TextButton(
+                onPressed: () async {
+                  final picked = await showDatePicker(
+                    context: ctx,
+                    initialDate: selectedExpiryDate ??
+                        DateTime.now().add(const Duration(days: 30)),
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) {
+                    setState(() => selectedExpiryDate = picked);
+                  }
+                },
+                child: Text(selectedExpiryDate == null ? 'Pick date' : 'Change'),
+              ),
             ),
           ],
         ),
@@ -662,6 +742,8 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         _selectedItems[id]!['quantity'] = newQty;
         _selectedItems[id]!['cost'] = newCost;
         _selectedItems[id]!['unit'] = canonicalizeInventoryUnit(selectedUnit);
+        _selectedItems[id]!['batchLabel'] = batchLabelController.text.trim();
+        _selectedItems[id]!['expiryDate'] = selectedExpiryDate;
       });
     }
   }
@@ -906,17 +988,28 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         );
         final baseUnit = canonicalizeInventoryUnit((prod['unit'] ?? '').toString());
         final qty = (e.value['quantity'] as num?) ?? 0;
+        final rawUnitCost = (e.value['cost'] as num?)?.toDouble() ?? 0.0;
         final normalizedQty = normalizeProcurementQuantity(
           qty,
           selectedUnit,
           baseUnit.isNotEmpty ? baseUnit : selectedUnit,
         );
+        final lineTotal = qty.toDouble() * rawUnitCost;
+        final normalizedUnitCost = normalizedQty == 0
+            ? rawUnitCost
+            : lineTotal / (normalizedQty as num).toDouble();
         return {
           'productId': prod['id'] ?? '',
           'name': prod['name'] ?? '',
           'quantity': normalizedQty,
           'unit': baseUnit.isNotEmpty ? baseUnit : selectedUnit,
-          'cost': e.value['cost'] as double,
+          'cost': normalizedUnitCost,
+          'purchaseQuantity': qty,
+          'purchaseUnit': selectedUnit,
+          'purchaseUnitCost': rawUnitCost,
+          'purchaseTotal': lineTotal,
+          'batchLabel': (e.value['batchLabel'] as String?)?.trim(),
+          'expiryDate': e.value['expiryDate'],
         };
       }).toList();
 
@@ -1076,9 +1169,11 @@ class _ProductCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: AppColors.background,
+                  color: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(
+                    color: Theme.of(context).dividerColor.withOpacity(0.4),
+                  ),
                 ),
                 child: Row(
                   children: [
@@ -1133,7 +1228,12 @@ class _ProductCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary)),
+        Text(
+          label,
+          style: AppTextStyles.caption.copyWith(
+            color: AppColors.textSecondary,
+          ),
+        ),
         Text(value, style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600)),
       ],
     );

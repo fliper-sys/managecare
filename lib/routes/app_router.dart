@@ -17,6 +17,7 @@ import '../presentation/dashboard/analytics/advanced_analytics_dashboard_screen.
 import '../presentation/industry_specific/gas/screens/gas_dashboard_screen.dart';
 import '../presentation/industry_specific/gas/screens/gas_pump_screen.dart';
 import '../presentation/industry_specific/gas/screens/gas_sales_history_screen.dart';
+import '../presentation/industry_specific/gas/screens/gas_stock_screen.dart';
 import '../presentation/industry_specific/wholesale/screens/warehouse_reports_screen.dart';
 import '../presentation/inventory/screens/product_details_screen.dart';
 import '../presentation/reports/screens/aggregated_reports_screen.dart';
@@ -133,6 +134,8 @@ import '../presentation/industry_specific/hotel/screens/front_desk_screen.dart';
 import '../presentation/industry_specific/hotel/screens/guest_management_screen.dart';
 import '../presentation/industry_specific/hotel/screens/housekeeping_screen.dart';
 import '../presentation/industry_specific/hotel/screens/billing_screen.dart';
+import '../presentation/industry_specific/hotel/screens/hall_bookings_screen.dart';
+import '../presentation/industry_specific/hotel/screens/pool_bookings_screen.dart';
 
 import '../presentation/industry_specific/drink/screens/drink_dashboard_screen.dart';
 import '../presentation/industry_specific/drink/screens/drink_orders_history_screen.dart';
@@ -151,12 +154,16 @@ import '../presentation/industry_specific/gym/screens/class_schedule_screen.dart
 import '../presentation/industry_specific/gym/screens/member_detail_screen.dart';
 import '../presentation/industry_specific/gym/screens/trainer_management_screen.dart';
 import '../presentation/industry_specific/gym/screens/gym_calendar_screen.dart';
+import '../presentation/industry_specific/gym/screens/equipment_management_screen.dart';
+import '../presentation/industry_specific/gym/screens/attendance_tracking_screen.dart';
+import '../presentation/industry_specific/gym/screens/member_progress_screen.dart';
 
 import '../presentation/industry_specific/restaurant/screens/restaurant_owner_dashboard.dart';
 import '../presentation/industry_specific/restaurant/screens/create_order_screen.dart';
 import '../presentation/industry_specific/restaurant/screens/kitchen_orders_screen.dart';
 import '../presentation/industry_specific/restaurant/screens/manage_menu_screen.dart';
 import '../presentation/industry_specific/restaurant/screens/pending_orders_checkout_screen.dart';
+import '../presentation/industry_specific/restaurant/screens/restaurant_stock_screen.dart';
 
 
 import '../presentation/industry_specific/realestate/screens/realestate_dashboard_screen.dart';
@@ -171,6 +178,11 @@ import '../presentation/industry_specific/realestate/screens/property_rent_histo
 import '../presentation/industry_specific/realestate/screens/create_ticket_screen.dart';
 import '../presentation/industry_specific/realestate/screens/maintenance_screen.dart';
 import '../presentation/industry_specific/realestate/screens/property_documents_screen.dart';
+import '../presentation/industry_specific/apartment/screens/apartment_dashboard_screen.dart';
+import '../presentation/industry_specific/apartment/screens/unit_management_screen.dart';
+import '../presentation/industry_specific/apartment/screens/booking_list_screen.dart';
+import '../presentation/industry_specific/apartment/screens/booking_form_screen.dart';
+import '../data/models/apartment_model.dart';
 
 // Workers screens
 import '../presentation/workers/screens/workers_list_screen.dart';
@@ -241,6 +253,7 @@ class AppRouter {
           userEmail: args?['userEmail'] ?? '',
           userName: args?['userName'] ?? '',
           businessId: args?['businessId'] as String?,
+          businessType: args?['businessType'] as String?,
           businessTier: args?['businessTier'] as String?,
           businessClass: args?['businessClass'] as String?,
         ));
@@ -251,7 +264,9 @@ class AppRouter {
           userId: args?['userId'] ?? '',
           userEmail: args?['userEmail'] ?? '',
           userName: args?['userName'] ?? '',
-          subscriptionPlan: args?['subscriptionPlan'] ?? 'basic',
+          businessId: args?['businessId'] as String?,
+          businessType: args?['businessType'] as String?,
+          subscriptionPlan: args?['subscriptionPlan'] ?? 'tier1',
           subscriptionAmount:
               (args?['subscriptionAmount'] as num?)?.toDouble() ?? 0.0,
         ));
@@ -527,7 +542,11 @@ class AppRouter {
         return _buildRoute(const PharmacyPosScreen());
 
       case Routes.pharmacyAddPrescription:
-        return _buildRoute(const AddPrescriptionScreen());
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(AddPrescriptionScreen(
+          patientId: args?['patientId']?.toString(),
+          patientName: args?['patientName']?.toString(),
+        ));
 
       case Routes.pharmacyDrugInventory:
         return _buildRoute(const DrugInventoryScreen());
@@ -718,7 +737,10 @@ class AppRouter {
         return _buildRoute(const RestaurantDashboardScreen());
 
       case Routes.hotelBar:
-        return _buildRoute(const BarPosScreenDrink());
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(BarPosScreenDrink(
+          invoiceId: args?['invoiceId']?.toString(),
+        ));
 
       case Routes.hotelGuests:
         return _buildRoute(const GuestManagementScreen());
@@ -728,6 +750,12 @@ class AppRouter {
 
       case Routes.hotelBilling:
         return _buildRoute(const BillingScreen());
+
+      case Routes.hotelHallBookings:
+        return _buildRoute(const HallBookingsScreen());
+
+      case Routes.hotelPoolBookings:
+        return _buildRoute(const PoolBookingsScreen());
 
       // Industry Specific Routes - Drink
       case Routes.drinkDashboard:
@@ -740,7 +768,10 @@ class AppRouter {
         return _buildRoute(const BottleTrackingScreen());
 
       case Routes.drinkPos:
-        return _buildRoute(const BarPosScreenDrink());
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(BarPosScreenDrink(
+          invoiceId: args?['invoiceId']?.toString(),
+        ));
 
       case Routes.drinkTabs:
         return _buildRoute(const BarTabsScreen());
@@ -770,6 +801,22 @@ class AppRouter {
       case Routes.gymCalendar:
         return _buildRoute(const GymCalendarScreen());
 
+      case Routes.gymEquipment:
+        return _buildRoute(const EquipmentManagementScreen());
+
+      case Routes.gymAttendance:
+        return _buildRoute(const AttendanceTrackingScreen());
+
+      case Routes.gymMemberProgress:
+        final args = settings.arguments as Map<String, dynamic>?;
+        final memberId = args?['memberId'] as String?;
+        if (memberId != null) {
+          return _buildRoute(MemberProgressScreen(memberId: memberId));
+        }
+        return _buildRoute(const Scaffold(
+          body: Center(child: Text('Member ID required')),
+        ));
+
       case Routes.gymMembers:
         // fallback to dashboard for full members list for now
         return _buildRoute(const GymDashboardScreen());
@@ -791,6 +838,9 @@ class AppRouter {
       case Routes.restaurantManageMenu:
         return _buildRoute(const ManageMenuScreen());
 
+      case Routes.restaurantStock:
+        return _buildRoute(const RestaurantStockScreen());
+
       case Routes.restaurantOrders:
         return _buildRoute(const PendingOrdersAndCheckoutScreen());
 
@@ -811,6 +861,9 @@ class AppRouter {
 
       case Routes.gasPump:
         return _buildRoute(const GasPumpScreen());
+
+      case Routes.gasStock:
+        return _buildRoute(const GasStockScreen());
 
       case Routes.gasSalesHistory:
         return _buildRoute(const GasSalesHistoryScreen());
@@ -860,6 +913,31 @@ class AppRouter {
 
       case Routes.realEstateDocuments:
         return _buildRoute(const PropertyDocumentsScreen());
+
+      // Industry Specific Routes - Apartment
+      case Routes.apartmentDashboard:
+        return _buildRoute(const ApartmentDashboardScreen());
+
+      case Routes.apartmentUnits:
+        final apartment = settings.arguments;
+        if (apartment is Apartment) {
+          return _buildRoute(UnitManagementScreen(apartment: apartment));
+        }
+        return _buildRoute(const Scaffold(
+          body: Center(child: Text('Apartment details required')),
+        ));
+
+      case Routes.apartmentBookings:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(
+          BookingListScreen(apartmentId: args?['apartmentId'] as String?),
+        );
+
+      case Routes.apartmentCreateBooking:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(
+          BookingFormScreen(apartmentId: args?['apartmentId'] as String?),
+        );
 
       default:
         return _buildRoute(

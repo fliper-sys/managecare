@@ -3,6 +3,9 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../core/utils/currency.dart';
+import 'pdf_utils.dart';
+
 /// Thermal receipt PDF generator
 /// Creates PDFs with exact sizing for thermal printers to minimize paper waste
 class ThermalReceiptPdfGenerator {
@@ -66,8 +69,10 @@ class ThermalReceiptPdfGenerator {
       marginBottom: marginMm * pointsPerMm,
     );
 
-    // Load font
-    final font = pw.Font.courier();
+    // Load a font with reliable currency support where available.
+    final fontResult = await loadDefaultPdfFont();
+    final font = fontResult.font;
+    final currencySymbol = resolvePdfCurrencySymbol(fontResult.supportsNaira);
 
     // Build page
     doc.addPage(
@@ -91,6 +96,7 @@ class ThermalReceiptPdfGenerator {
           showQrCode: showQrCode,
           qrCodeUrl: qrCodeUrl,
           charsPerLine: _getCharsPerLine(paperWidth),
+          currencySymbol: currencySymbol,
         ),
       ),
     );
@@ -118,6 +124,7 @@ class ThermalReceiptPdfGenerator {
     bool showQrCode = false,
     String? qrCodeUrl,
     required int charsPerLine,
+    required String currencySymbol,
   }) {
     final children = <pw.Widget>[];
 
@@ -234,8 +241,11 @@ class ThermalReceiptPdfGenerator {
     // Subtotal
     children.add(
       pw.Text(
-        _formatLineRightAlign('Subtotal:', 'Sh ${subtotal.toStringAsFixed(2)}',
-            charsPerLine),
+        _formatLineRightAlign(
+          'Subtotal:',
+          formatCurrency(subtotal, symbol: currencySymbol),
+          charsPerLine,
+        ),
         style: pw.TextStyle(font: font, fontSize: 8),
       ),
     );
@@ -244,8 +254,11 @@ class ThermalReceiptPdfGenerator {
     if (discount > 0) {
       children.add(
         pw.Text(
-          _formatLineRightAlign('Discount:', 'Sh ${discount.toStringAsFixed(2)}',
-              charsPerLine),
+          _formatLineRightAlign(
+            'Discount:',
+            formatCurrency(discount, symbol: currencySymbol),
+            charsPerLine,
+          ),
           style: pw.TextStyle(font: font, fontSize: 8),
         ),
       );
@@ -255,8 +268,11 @@ class ThermalReceiptPdfGenerator {
     if (tax > 0) {
       children.add(
         pw.Text(
-          _formatLineRightAlign('Tax:', 'Sh ${tax.toStringAsFixed(2)}',
-              charsPerLine),
+          _formatLineRightAlign(
+            'Tax:',
+            formatCurrency(tax, symbol: currencySymbol),
+            charsPerLine,
+          ),
           style: pw.TextStyle(font: font, fontSize: 8),
         ),
       );
@@ -266,8 +282,11 @@ class ThermalReceiptPdfGenerator {
     children.add(_buildSeparator('=', charsPerLine, font));
     children.add(
       pw.Text(
-        _formatLineRightAlign('TOTAL:', 'Sh ${total.toStringAsFixed(2)}',
-            charsPerLine),
+        _formatLineRightAlign(
+          'TOTAL:',
+          formatCurrency(total, symbol: currencySymbol),
+          charsPerLine,
+        ),
         textAlign: pw.TextAlign.center,
         style: pw.TextStyle(
           font: font,

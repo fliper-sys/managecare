@@ -171,6 +171,35 @@ class LocalBusinessStorage {
     }
   }
 
+  Future<bool> clearCurrentBusiness() async {
+    try {
+      await _prefs.remove(_currentBusinessKey);
+      await _prefs.remove(_currentBusinessTypeKey);
+      return true;
+    } catch (e) {
+      print('[LocalBusinessStorage] Error clearing current business: $e');
+      return false;
+    }
+  }
+
+  Future<bool> removeBusiness(String businessId) async {
+    try {
+      await _prefs.remove('$_businessPrefix$businessId');
+      final filtered = getCachedBusinesses()
+          .where((business) => business.id != businessId)
+          .toList();
+      await saveBusinessList(filtered);
+
+      if (getCurrentBusinessId() == businessId) {
+        await clearCurrentBusiness();
+      }
+      return true;
+    } catch (e) {
+      print('[LocalBusinessStorage] Error removing business $businessId: $e');
+      return false;
+    }
+  }
+
   /// Get timestamp of last sync with Firebase
   DateTime? getLastSyncTime() {
     try {

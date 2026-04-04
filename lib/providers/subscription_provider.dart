@@ -42,7 +42,12 @@ class SubscriptionProvider extends ChangeNotifier {
 
       // Validate subscription status
       _isSubscriptionActive = await _subscriptionService
-          .validateAndUpdateSubscriptionStatus(user.id);
+          .validateAndUpdateSubscriptionStatus(
+        user.id,
+        businessId: user.primaryBusinessId.isNotEmpty
+            ? user.primaryBusinessId
+            : user.businessId,
+      );
 
       // Get current plan if subscribed
       if (_isSubscriptionActive && user.subscriptionPlan != null) {
@@ -74,6 +79,9 @@ class SubscriptionProvider extends ChangeNotifier {
         planId: planId,
         transactionId: transactionId,
         amount: amount,
+        businessId: _currentUser!.primaryBusinessId.isNotEmpty
+            ? _currentUser!.primaryBusinessId
+            : _currentUser!.businessId,
       );
 
       if (success) {
@@ -103,6 +111,9 @@ class SubscriptionProvider extends ChangeNotifier {
         planId: planId,
         transactionId: transactionId,
         amount: amount,
+        businessId: _currentUser!.primaryBusinessId.isNotEmpty
+            ? _currentUser!.primaryBusinessId
+            : _currentUser!.businessId,
       );
 
       if (success) {

@@ -20,7 +20,8 @@ class StoreSales {
   final String storeName;
   final double total;
 
-  StoreSales({required this.storeId, required this.storeName, required this.total});
+  StoreSales(
+      {required this.storeId, required this.storeName, required this.total});
 }
 
 /// Simple DTO for per-warehouse totals used across reports screens
@@ -29,7 +30,10 @@ class WarehouseSales {
   final String warehouseName;
   final double total;
 
-  WarehouseSales({required this.warehouseId, required this.warehouseName, required this.total});
+  WarehouseSales(
+      {required this.warehouseId,
+      required this.warehouseName,
+      required this.total});
 }
 
 /// Provider for managing all reports and analytics across the application
@@ -75,6 +79,8 @@ class ReportsProvider extends ChangeNotifier {
   StreamSubscription<QuerySnapshot>? _customersSubscription;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _latestSalesDocs = [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _latestExpensesDocs = [];
+  final Map<String, double> _inventoryCostCache = {};
+  String? _inventoryCostCacheBusinessId;
 
   ReportsProvider({
     FirebaseFirestore? firestore,
@@ -88,19 +94,107 @@ class ReportsProvider extends ChangeNotifier {
 
   bool _triedTimestampSalesQuery = false;
 
+  Future<Map<String, double>> _getInventoryCostMap(
+    String businessId, {
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh &&
+        _inventoryCostCacheBusinessId == businessId &&
+        _inventoryCostCache.isNotEmpty) {
+      return Map<String, double>.from(_inventoryCostCache);
+    }
+
+    try {
+      final snapshot = await _firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('inventory')
+          .get();
+      final nextCache = <String, double>{};
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        nextCache[doc.id] =
+            ((data['averageCost'] ??
+                        data['cost'] ??
+                        data['lastProcurementCost']) as num?)
+                    ?.toDouble() ??
+                0.0;
+      }
+      _inventoryCostCacheBusinessId = businessId;
+      _inventoryCostCache
+        ..clear()
+        ..addAll(nextCache);
+    } catch (e) {
+      debugPrint('[ReportsProvider] Inventory cost fallback load failed: $e');
+    }
+
+    if (_inventoryCostCacheBusinessId == businessId) {
+      return Map<String, double>.from(_inventoryCostCache);
+    }
+    return <String, double>{};
+  }
+
+  double _resolveItemCost(
+    Map<String, dynamic> item,
+    Map<String, double> inventoryCostMap,
+  ) {
+    final directCandidates = <dynamic>[
+      item['cost'],
+      item['costPrice'],
+      item['unitCost'],
+      item['purchasePrice'],
+      item['inventoryCost'],
+    ];
+    for (final candidate in directCandidates) {
+      if (candidate is num) {
+        return candidate.toDouble();
+      }
+    }
+
+    final nestedProduct = item['product'];
+    if (nestedProduct is Map<String, dynamic>) {
+      final nestedCandidates = <dynamic>[
+        nestedProduct['cost'],
+        nestedProduct['costPrice'],
+        nestedProduct['purchasePrice'],
+        nestedProduct['averageCost'],
+      ];
+      for (final candidate in nestedCandidates) {
+        if (candidate is num) {
+          return candidate.toDouble();
+        }
+      }
+    }
+
+    final productId =
+        (item['productId'] ??
+                item['inventoryProductId'] ??
+                item['id'] ??
+                (nestedProduct is Map<String, dynamic>
+                    ? nestedProduct['id']
+                    : null))
+            ?.toString();
+    if (productId == null || productId.isEmpty) {
+      return 0.0;
+    }
+    return inventoryCostMap[productId] ?? 0.0;
+  }
+
   /// Helper to extract error message from wrapped or unwrapped exceptions
   static String extractErrorMessage(dynamic error) {
     try {
       if (error == null) return 'Unknown error';
-      
+
       // Try to access 'error' property for boxed errors (web platform)
       if (error is Map && error.containsKey('error')) {
         return error['error'].toString();
       }
-      
+
       // Handle Future exception where error might be in nested structure
-      if (error.runtimeType.toString().contains('Future') || error.toString().contains('Dart exception thrown')) {
-        debugPrint('[extractErrorMessage] Detected wrapped Future exception, attempting deep extraction');
+      if (error.runtimeType.toString().contains('Future') ||
+          error.toString().contains('Dart exception thrown')) {
+        debugPrint(
+            '[extractErrorMessage] Detected wrapped Future exception, attempting deep extraction');
         // Try to extract from toString which may contain the actual error
         String str = error.toString();
         if (str.isNotEmpty) {
@@ -110,19 +204,19 @@ class ReportsProvider extends ChangeNotifier {
           }
         }
       }
-      
+
       if (error is FirebaseException) {
         final code = error.code;
         final msg = error.message ?? '';
         return '$code${msg.isNotEmpty ? ': $msg' : ''}'.trim();
       }
-      
+
       // For wrapped exceptions, try to extract the actual message
       String str = error.toString();
       if (str.contains('Exception:') && !str.startsWith('Exception')) {
         str = str.split('Exception:').last.trim();
       }
-      
+
       return str.isEmpty ? 'Unknown error' : str;
     } catch (_) {
       return error.toString();
@@ -152,8 +246,11 @@ class ReportsProvider extends ChangeNotifier {
   void setAuthProvider(AuthProvider? authProvider) {
     _authProvider = authProvider;
     // If we gained a businessId, ensure subscriptions are initialized for the default ranges
-    final bid =
-        _currentSubscribedBusinessId ?? _authProvider?.currentUser?.currentBusinessId ?? _authProvider?.currentUser?.preferredBusinessId ?? _authProvider?.currentUser?.businessId ?? '';
+    final bid = _currentSubscribedBusinessId ??
+        _authProvider?.currentUser?.currentBusinessId ??
+        _authProvider?.currentUser?.preferredBusinessId ??
+        _authProvider?.currentUser?.businessId ??
+        '';
     // Defer subscription initialization to the next frame so we don't call
     // notifyListeners() synchronously during a widget build which can cause
     // "setState() or markNeedsBuild() called during build" exceptions.
@@ -256,7 +353,8 @@ class ReportsProvider extends ChangeNotifier {
       try {
         subscribeToFinancialReports(businessId: _currentSubscribedBusinessId);
       } catch (e) {
-        debugPrint('[ReportsProvider] Deferred financial subscription failed: $e');
+        debugPrint(
+            '[ReportsProvider] Deferred financial subscription failed: $e');
       }
     });
     notifyListeners();
@@ -270,8 +368,13 @@ class ReportsProvider extends ChangeNotifier {
 
   /// Get per-store sales totals for a given date range
 
-  Future<List<StoreSales>> getStoreSalesBreakdown({String? businessId, DateTime? start, DateTime? end}) async {
-    final bid = businessId ?? _currentSubscribedBusinessId ?? _authProvider?.currentUser?.currentBusinessId ?? _authProvider?.currentUser?.preferredBusinessId ?? _authProvider?.currentUser?.businessId;
+  Future<List<StoreSales>> getStoreSalesBreakdown(
+      {String? businessId, DateTime? start, DateTime? end}) async {
+    final bid = businessId ??
+        _currentSubscribedBusinessId ??
+        _authProvider?.currentUser?.currentBusinessId ??
+        _authProvider?.currentUser?.preferredBusinessId ??
+        _authProvider?.currentUser?.businessId;
     if (bid == null || bid.isEmpty) throw Exception('No business ID found');
 
     final startDate = start ?? _salesStartDate;
@@ -282,7 +385,8 @@ class ReportsProvider extends ChangeNotifier {
         .collection('businesses')
         .doc(bid)
         .collection('sales')
-        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+        .where('createdAt',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
         .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
 
     var snapshot = await query.get();
@@ -293,8 +397,10 @@ class ReportsProvider extends ChangeNotifier {
           .collection('businesses')
           .doc(bid)
           .collection('sales')
-          .where('timestamp', isGreaterThanOrEqualTo: startDate.millisecondsSinceEpoch)
-          .where('timestamp', isLessThanOrEqualTo: endDate.millisecondsSinceEpoch);
+          .where('timestamp',
+              isGreaterThanOrEqualTo: startDate.millisecondsSinceEpoch)
+          .where('timestamp',
+              isLessThanOrEqualTo: endDate.millisecondsSinceEpoch);
       snapshot = await tsQuery.get();
     }
 
@@ -302,23 +408,34 @@ class ReportsProvider extends ChangeNotifier {
     for (var doc in snapshot.docs) {
       final data = doc.data();
       final storeId = (data['storeId'] as String?)?.toString() ?? 'unassigned';
-      final amount = ((data['finalAmount'] ?? data['totalAmount'] ?? data['total'] ?? 0) as num).toDouble();
+      final amount = ((data['finalAmount'] ??
+              data['totalAmount'] ??
+              data['total'] ??
+              0) as num)
+          .toDouble();
       totals[storeId] = (totals[storeId] ?? 0.0) + amount;
     }
 
     // Map store ids to human-friendly names
-    final storesSnapshot = await _firestore.collection('businesses').doc(bid).collection('stores').get();
+    final storesSnapshot = await _firestore
+        .collection('businesses')
+        .doc(bid)
+        .collection('stores')
+        .get();
     final Map<String, String> storeNames = {};
     for (var s in storesSnapshot.docs) {
       final data = s.data() as Map<String, dynamic>?;
       storeNames[s.id] = (data?['name'] as String?) ?? '';
     }
 
-    final result = totals.entries.map((e) => StoreSales(
-      storeId: e.key,
-      storeName: storeNames[e.key] ?? (e.key == 'unassigned' ? 'Unassigned' : 'Unknown'),
-      total: e.value,
-    )).toList();
+    final result = totals.entries
+        .map((e) => StoreSales(
+              storeId: e.key,
+              storeName: storeNames[e.key] ??
+                  (e.key == 'unassigned' ? 'Unassigned' : 'Unknown'),
+              total: e.value,
+            ))
+        .toList();
 
     result.sort((a, b) => b.total.compareTo(a.total));
     return result;
@@ -326,28 +443,43 @@ class ReportsProvider extends ChangeNotifier {
 
   /// Build warehouse sales from raw sales document maps and a map of warehouse names.
   /// This helper is static so it can be unit tested without needing Firestore.
-  static List<WarehouseSales> buildWarehouseSalesFromRaw(List<Map<String, dynamic>> salesDocs, Map<String, String> warehouseNames) {
+  static List<WarehouseSales> buildWarehouseSalesFromRaw(
+      List<Map<String, dynamic>> salesDocs,
+      Map<String, String> warehouseNames) {
     final Map<String, double> totals = {};
 
     for (final data in salesDocs) {
-      final warehouseId = (data['warehouseId'] as String?)?.toString() ?? 'unassigned';
-      final amount = ((data['finalAmount'] ?? data['totalAmount'] ?? data['total'] ?? 0) as num).toDouble();
+      final warehouseId =
+          (data['warehouseId'] as String?)?.toString() ?? 'unassigned';
+      final amount = ((data['finalAmount'] ??
+              data['totalAmount'] ??
+              data['total'] ??
+              0) as num)
+          .toDouble();
       totals[warehouseId] = (totals[warehouseId] ?? 0.0) + amount;
     }
 
-    final result = totals.entries.map((e) => WarehouseSales(
-      warehouseId: e.key,
-      warehouseName: warehouseNames[e.key] ?? (e.key == 'unassigned' ? 'Unassigned' : 'Unknown'),
-      total: e.value,
-    )).toList();
+    final result = totals.entries
+        .map((e) => WarehouseSales(
+              warehouseId: e.key,
+              warehouseName: warehouseNames[e.key] ??
+                  (e.key == 'unassigned' ? 'Unassigned' : 'Unknown'),
+              total: e.value,
+            ))
+        .toList();
 
     result.sort((a, b) => b.total.compareTo(a.total));
     return result;
   }
 
   /// Get per-warehouse sales totals for a given date range (used by Wholesale)
-  Future<List<WarehouseSales>> getWarehouseSalesBreakdown({String? businessId, DateTime? start, DateTime? end}) async {
-    final bid = businessId ?? _currentSubscribedBusinessId ?? _authProvider?.currentUser?.currentBusinessId ?? _authProvider?.currentUser?.preferredBusinessId ?? _authProvider?.currentUser?.businessId;
+  Future<List<WarehouseSales>> getWarehouseSalesBreakdown(
+      {String? businessId, DateTime? start, DateTime? end}) async {
+    final bid = businessId ??
+        _currentSubscribedBusinessId ??
+        _authProvider?.currentUser?.currentBusinessId ??
+        _authProvider?.currentUser?.preferredBusinessId ??
+        _authProvider?.currentUser?.businessId;
     if (bid == null || bid.isEmpty) throw Exception('No business ID found');
 
     final startDate = start ?? _salesStartDate;
@@ -357,7 +489,8 @@ class ReportsProvider extends ChangeNotifier {
         .collection('businesses')
         .doc(bid)
         .collection('sales')
-        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+        .where('createdAt',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
         .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
 
     var snapshot = await query.get();
@@ -367,15 +500,22 @@ class ReportsProvider extends ChangeNotifier {
           .collection('businesses')
           .doc(bid)
           .collection('sales')
-          .where('timestamp', isGreaterThanOrEqualTo: startDate.millisecondsSinceEpoch)
-          .where('timestamp', isLessThanOrEqualTo: endDate.millisecondsSinceEpoch);
+          .where('timestamp',
+              isGreaterThanOrEqualTo: startDate.millisecondsSinceEpoch)
+          .where('timestamp',
+              isLessThanOrEqualTo: endDate.millisecondsSinceEpoch);
       snapshot = await tsQuery.get();
     }
 
-    final List<Map<String, dynamic>> salesDocs = snapshot.docs.map((d) => d.data()).toList();
+    final List<Map<String, dynamic>> salesDocs =
+        snapshot.docs.map((d) => d.data()).toList();
 
     // Map warehouse ids to friendly names
-    final warehousesSnapshot = await _firestore.collection('businesses').doc(bid).collection('warehouses').get();
+    final warehousesSnapshot = await _firestore
+        .collection('businesses')
+        .doc(bid)
+        .collection('warehouses')
+        .get();
     final Map<String, String> warehouseNames = {};
     for (var s in warehousesSnapshot.docs) {
       final data = s.data() as Map<String, dynamic>?;
@@ -386,8 +526,13 @@ class ReportsProvider extends ChangeNotifier {
   }
 
   /// Get payment method breakdown for a business within a date range (aggregates values per method)
-  Future<Map<String, double>> getPaymentMethodBreakdown({String? businessId, DateTime? start, DateTime? end}) async {
-    final bid = businessId ?? _currentSubscribedBusinessId ?? _authProvider?.currentUser?.currentBusinessId ?? _authProvider?.currentUser?.preferredBusinessId ?? _authProvider?.currentUser?.businessId;
+  Future<Map<String, double>> getPaymentMethodBreakdown(
+      {String? businessId, DateTime? start, DateTime? end}) async {
+    final bid = businessId ??
+        _currentSubscribedBusinessId ??
+        _authProvider?.currentUser?.currentBusinessId ??
+        _authProvider?.currentUser?.preferredBusinessId ??
+        _authProvider?.currentUser?.businessId;
     if (bid == null || bid.isEmpty) throw Exception('No business ID found');
 
     final startDate = start ?? _financialStartDate;
@@ -397,7 +542,8 @@ class ReportsProvider extends ChangeNotifier {
         .collection('businesses')
         .doc(bid)
         .collection('sales')
-        .where('saleDate', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+        .where('saleDate',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
         .where('saleDate', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
 
     var snapshot = await query.get();
@@ -407,7 +553,8 @@ class ReportsProvider extends ChangeNotifier {
           .collection('businesses')
           .doc(bid)
           .collection('sales')
-          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+          .where('createdAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
           .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
       snapshot = await query.get();
     }
@@ -424,7 +571,11 @@ class ReportsProvider extends ChangeNotifier {
         }
       } else {
         final method = (data['paymentMethod'] as String?) ?? 'unknown';
-        final amt = ((data['total'] ?? data['finalAmount'] ?? data['totalAmount'] ?? 0) as num).toDouble();
+        final amt = ((data['total'] ??
+                data['finalAmount'] ??
+                data['totalAmount'] ??
+                0) as num)
+            .toDouble();
         totals[method] = (totals[method] ?? 0.0) + amt;
       }
     }
@@ -440,7 +591,11 @@ class ReportsProvider extends ChangeNotifier {
     String? search,
     int limit = 1000,
   }) async {
-    final bid = businessId ?? _currentSubscribedBusinessId ?? _authProvider?.currentUser?.currentBusinessId ?? _authProvider?.currentUser?.preferredBusinessId ?? _authProvider?.currentUser?.businessId;
+    final bid = businessId ??
+        _currentSubscribedBusinessId ??
+        _authProvider?.currentUser?.currentBusinessId ??
+        _authProvider?.currentUser?.preferredBusinessId ??
+        _authProvider?.currentUser?.businessId;
     if (bid == null || bid.isEmpty) throw Exception('No business ID found');
 
     final startDate = start ?? _salesStartDate;
@@ -455,7 +610,8 @@ class ReportsProvider extends ChangeNotifier {
           .collection('businesses')
           .doc(bid)
           .collection('sales')
-          .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+          .where('createdAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
           .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
           .orderBy('createdAt', descending: true)
           .limit(limit) as dynamic;
@@ -466,7 +622,13 @@ class ReportsProvider extends ChangeNotifier {
 
       // Try to apply createdAt constraints to root query as well
       try {
-        rootQuery = rootQuery.where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate)).where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate)).orderBy('createdAt', descending: true).limit(limit);
+        rootQuery = rootQuery
+            .where('createdAt',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+            .where('createdAt',
+                isLessThanOrEqualTo: Timestamp.fromDate(endDate))
+            .orderBy('createdAt', descending: true)
+            .limit(limit);
       } catch (_) {
         // root docs may not have createdAt as Timestamp or queries may require composite indexes; ignore and fetch by businessId only
         rootQuery = rootQuery.limit(limit);
@@ -485,8 +647,10 @@ class ReportsProvider extends ChangeNotifier {
               .collection('businesses')
               .doc(bid)
               .collection('sales')
-              .where('timestamp', isGreaterThanOrEqualTo: startDate.millisecondsSinceEpoch)
-              .where('timestamp', isLessThanOrEqualTo: endDate.millisecondsSinceEpoch)
+              .where('timestamp',
+                  isGreaterThanOrEqualTo: startDate.millisecondsSinceEpoch)
+              .where('timestamp',
+                  isLessThanOrEqualTo: endDate.millisecondsSinceEpoch)
               .orderBy('timestamp', descending: true)
               .limit(limit);
           final tsSnap = await tsQuery.get();
@@ -496,20 +660,33 @@ class ReportsProvider extends ChangeNotifier {
     } catch (e) {
       // If query failed (e.g., composite index required), attempt more permissive fetches
       String errStr = e.toString();
-      final isIndexError = errStr.contains('failed-precondition') || errStr.contains('index');
+      final isIndexError =
+          errStr.contains('failed-precondition') || errStr.contains('index');
       if (isIndexError) {
-        debugPrint('[ReportsProvider] fetchSalesList requires Firestore composite index. Creating a composite index on (businessId, createdAt) is recommended for better performance.');
+        debugPrint(
+            '[ReportsProvider] fetchSalesList requires Firestore composite index. Creating a composite index on (businessId, createdAt) is recommended for better performance.');
       } else {
-        debugPrint('[ReportsProvider] fetchSalesList primary query failed: $errStr');
+        debugPrint(
+            '[ReportsProvider] fetchSalesList primary query failed: $errStr');
       }
       try {
-        final nestedSnap = await _firestore.collection('businesses').doc(bid).collection('sales').limit(limit).get();
-        final rootSnap = await _firestore.collection('sales').where('businessId', isEqualTo: bid).limit(limit).get();
+        final nestedSnap = await _firestore
+            .collection('businesses')
+            .doc(bid)
+            .collection('sales')
+            .limit(limit)
+            .get();
+        final rootSnap = await _firestore
+            .collection('sales')
+            .where('businessId', isEqualTo: bid)
+            .limit(limit)
+            .get();
         snapshots.add(nestedSnap);
         snapshots.add(rootSnap);
       } catch (e2) {
         final errStr2 = extractErrorMessage(e2);
-        debugPrint('[ReportsProvider] fetchSalesList fallback failed: $errStr2');
+        debugPrint(
+            '[ReportsProvider] fetchSalesList fallback failed: $errStr2');
         rethrow;
       }
     }
@@ -518,15 +695,25 @@ class ReportsProvider extends ChangeNotifier {
     final Map<String, Map<String, dynamic>> combined = {};
     if (snapshots.isNotEmpty) {
       // root snapshot is at index 1 if present, nested at 0
-      for (final doc in (snapshots.length > 1 ? snapshots[1].docs : <QueryDocumentSnapshot>[])) {
-        combined[doc.id] = {...(doc.data() as Map<String, dynamic>), 'id': doc.id};
+      for (final doc in (snapshots.length > 1
+          ? snapshots[1].docs
+          : <QueryDocumentSnapshot>[])) {
+        combined[doc.id] = {
+          ...(doc.data() as Map<String, dynamic>),
+          'id': doc.id
+        };
       }
       for (final doc in snapshots[0].docs) {
-        combined[doc.id] = {...(doc.data() as Map<String, dynamic>), 'id': doc.id};
+        combined[doc.id] = {
+          ...(doc.data() as Map<String, dynamic>),
+          'id': doc.id
+        };
       }
     }
 
-    List<Map<String, dynamic>> list = combined.values.map((m) => {'id': m['id'], 'data': m..remove('id')}).toList();
+    List<Map<String, dynamic>> list = combined.values
+        .map((m) => {'id': m['id'], 'data': m..remove('id')})
+        .toList();
 
     int _createdAtToMillis(dynamic v) {
       if (v == null) return 0;
@@ -542,7 +729,10 @@ class ReportsProvider extends ChangeNotifier {
       return 0;
     }
 
-    list.sort((a, b) => _createdAtToMillis((b['data'] as Map)['createdAt'] ?? (b['data'] as Map)['timestamp']).compareTo(_createdAtToMillis((a['data'] as Map)['createdAt'] ?? (a['data'] as Map)['timestamp'])));
+    list.sort((a, b) => _createdAtToMillis(
+            (b['data'] as Map)['createdAt'] ?? (b['data'] as Map)['timestamp'])
+        .compareTo(_createdAtToMillis((a['data'] as Map)['createdAt'] ??
+            (a['data'] as Map)['timestamp'])));
 
     if (list.length > limit) list = list.sublist(0, limit);
 
@@ -551,14 +741,31 @@ class ReportsProvider extends ChangeNotifier {
       final filtered = list.where((item) {
         final data = item['data'] as Map<String, dynamic>;
         final id = (item['id'] as String).toLowerCase();
-        final customer = (data['customerName'] ?? data['customerDisplayName'] ?? data['customer'] ?? '').toString().toLowerCase();
-        final pm = (data['paymentMethod'] ?? data['payment'] ?? '').toString().toLowerCase();
-        final cashier = (data['cashier'] ?? data['workerName'] ?? data['soldBy'] ?? '').toString().toLowerCase();
+        final customer = (data['customerName'] ??
+                data['customerDisplayName'] ??
+                data['customer'] ??
+                '')
+            .toString()
+            .toLowerCase();
+        final pm = (data['paymentMethod'] ?? data['payment'] ?? '')
+            .toString()
+            .toLowerCase();
+        final cashier =
+            (data['cashier'] ?? data['workerName'] ?? data['soldBy'] ?? '')
+                .toString()
+                .toLowerCase();
         final products = ((data['items'] as List?) ?? []).map((it) {
-          if (it is Map) return ((it['name'] ?? it['productName'] ?? it['title']) ?? '').toString().toLowerCase();
+          if (it is Map)
+            return ((it['name'] ?? it['productName'] ?? it['title']) ?? '')
+                .toString()
+                .toLowerCase();
           return it.toString().toLowerCase();
         }).join(' ');
-        return id.contains(q) || customer.contains(q) || pm.contains(q) || cashier.contains(q) || products.contains(q);
+        return id.contains(q) ||
+            customer.contains(q) ||
+            pm.contains(q) ||
+            cashier.contains(q) ||
+            products.contains(q);
       }).toList();
       return filtered.cast<Map<String, dynamic>>();
     }
@@ -569,12 +776,18 @@ class ReportsProvider extends ChangeNotifier {
   /// Delete a sale document (business-level and optional top-level mirror)
   /// Returns a map with auditId, items and businessId if available so UI can display restored quantities.
   /// Web-specific fallback for deleteSale that avoids complex transaction issues on web platform
-  Future<Map<String, dynamic>?> _deleteSaleWeb(String saleId, String bid) async {
+  Future<Map<String, dynamic>?> _deleteSaleWeb(
+      String saleId, String bid) async {
     try {
-      debugPrint('[ReportsProvider.deleteSaleWeb] Using web fallback for sale deletion');
-      
+      debugPrint(
+          '[ReportsProvider.deleteSaleWeb] Using web fallback for sale deletion');
+
       // Step 1: Read the sale document
-      final saleRef = _firestore.collection('businesses').doc(bid).collection('sales').doc(saleId);
+      final saleRef = _firestore
+          .collection('businesses')
+          .doc(bid)
+          .collection('sales')
+          .doc(saleId);
       final saleSnap = await saleRef.get();
 
       List<dynamic> items = [];
@@ -600,13 +813,17 @@ class ReportsProvider extends ChangeNotifier {
       if (actualBid.isNotEmpty) {
         for (final raw in items) {
           if (raw is! Map<String, dynamic>) continue;
-          final pid = (raw['productId'] ?? raw['id'] ?? raw['product_id'] ?? '').toString();
-          final qtyNum = (raw['quantity'] ?? raw['qty'] ?? raw['quantitySold'] ?? 0);
+          final pid = (raw['productId'] ?? raw['id'] ?? raw['product_id'] ?? '')
+              .toString();
+          final qtyNum =
+              (raw['quantity'] ?? raw['qty'] ?? raw['quantitySold'] ?? 0);
           double qty;
           try {
-            if (qtyNum is num) qty = qtyNum.toDouble();
+            if (qtyNum is num)
+              qty = qtyNum.toDouble();
             else {
-              final cleaned = qtyNum?.toString().replaceAll(RegExp(r'[^0-9.\-]'), '');
+              final cleaned =
+                  qtyNum?.toString().replaceAll(RegExp(r'[^0-9.\-]'), '');
               qty = double.tryParse(cleaned!) ?? 0.0;
             }
           } catch (_) {
@@ -616,7 +833,11 @@ class ReportsProvider extends ChangeNotifier {
           if (pid.isEmpty || qty <= 0) continue;
 
           try {
-            final invRef = _firestore.collection('businesses').doc(actualBid).collection('inventory').doc(pid);
+            final invRef = _firestore
+                .collection('businesses')
+                .doc(actualBid)
+                .collection('inventory')
+                .doc(pid);
             final invSnap = await invRef.get();
 
             if (invSnap.exists) {
@@ -633,14 +854,19 @@ class ReportsProvider extends ChangeNotifier {
               });
             }
           } catch (e) {
-            debugPrint('[ReportsProvider._deleteSaleWeb] Error updating inventory for $pid: $e');
+            debugPrint(
+                '[ReportsProvider._deleteSaleWeb] Error updating inventory for $pid: $e');
             // Continue even if inventory update fails
           }
         }
 
         // Step 3: Create audit log
         try {
-          final auditRef = _firestore.collection('businesses').doc(actualBid).collection('sale_deletions').doc();
+          final auditRef = _firestore
+              .collection('businesses')
+              .doc(actualBid)
+              .collection('sale_deletions')
+              .doc();
           await auditRef.set({
             'saleId': saleId,
             'deletedBy': _authProvider?.currentUser?.id ?? 'system',
@@ -648,7 +874,8 @@ class ReportsProvider extends ChangeNotifier {
             'createdAt': FieldValue.serverTimestamp(),
           });
         } catch (e) {
-          debugPrint('[ReportsProvider._deleteSaleWeb] Error creating audit log: $e');
+          debugPrint(
+              '[ReportsProvider._deleteSaleWeb] Error creating audit log: $e');
         }
       }
 
@@ -658,7 +885,8 @@ class ReportsProvider extends ChangeNotifier {
           await saleRef.delete();
         }
       } catch (e) {
-        debugPrint('[ReportsProvider._deleteSaleWeb] Error deleting business sale: $e');
+        debugPrint(
+            '[ReportsProvider._deleteSaleWeb] Error deleting business sale: $e');
       }
 
       try {
@@ -668,7 +896,8 @@ class ReportsProvider extends ChangeNotifier {
           await rootRef.delete();
         }
       } catch (e) {
-        debugPrint('[ReportsProvider._deleteSaleWeb] Error deleting root sale: $e');
+        debugPrint(
+            '[ReportsProvider._deleteSaleWeb] Error deleting root sale: $e');
       }
 
       // Refresh subscription if active
@@ -678,21 +907,33 @@ class ReportsProvider extends ChangeNotifier {
         }
       } catch (_) {}
 
-      debugPrint('[ReportsProvider._deleteSaleWeb] Sale deletion completed successfully');
-      return {'auditId': null, 'items': items, 'businessId': actualBid, 'success': true};
+      debugPrint(
+          '[ReportsProvider._deleteSaleWeb] Sale deletion completed successfully');
+      return {
+        'auditId': null,
+        'items': items,
+        'businessId': actualBid,
+        'success': true
+      };
     } catch (e, st) {
       final errMsg = extractErrorMessage(e);
-      final fullMsg = 'Sale deletion failed on web: $errMsg - Please check Firebase security rules and try again';
+      final fullMsg =
+          'Sale deletion failed on web: $errMsg - Please check Firebase security rules and try again';
       debugPrint('[ReportsProvider._deleteSaleWeb] Error: $fullMsg');
       debugPrint('[ReportsProvider._deleteSaleWeb] Stack: $st');
-      
+
       return {'success': false, 'error': fullMsg, 'stack': st.toString()};
     }
   }
 
   /// Native/mobile transaction-based deletion (Android, iOS)
-  Future<Map<String, dynamic>?> deleteSale(String saleId, {String? businessId}) async {
-    final bid = businessId ?? _currentSubscribedBusinessId ?? _authProvider?.currentUser?.currentBusinessId ?? _authProvider?.currentUser?.preferredBusinessId ?? _authProvider?.currentUser?.businessId;
+  Future<Map<String, dynamic>?> deleteSale(String saleId,
+      {String? businessId}) async {
+    final bid = businessId ??
+        _currentSubscribedBusinessId ??
+        _authProvider?.currentUser?.currentBusinessId ??
+        _authProvider?.currentUser?.preferredBusinessId ??
+        _authProvider?.currentUser?.businessId;
     if (bid == null || bid.isEmpty) throw Exception('No business ID found');
 
     // Web platform has stricter transaction handling; use fallback for web
@@ -703,7 +944,11 @@ class ReportsProvider extends ChangeNotifier {
     try {
       // Perform atomic restock + delete in a transaction to avoid races and partial updates
       final result = await _firestore.runTransaction((tx) async {
-        final saleRef = _firestore.collection('businesses').doc(bid).collection('sales').doc(saleId);
+        final saleRef = _firestore
+            .collection('businesses')
+            .doc(bid)
+            .collection('sales')
+            .doc(saleId);
         final saleSnap = await tx.get(saleRef);
 
         List<dynamic> items = [];
@@ -729,13 +974,18 @@ class ReportsProvider extends ChangeNotifier {
           final List<Map<String, dynamic>> _deleteErrors = [];
           for (final raw in items) {
             if (raw is! Map<String, dynamic>) continue;
-            final pid = (raw['productId'] ?? raw['id'] ?? raw['product_id'] ?? '').toString();
-            final qtyNum = (raw['quantity'] ?? raw['qty'] ?? raw['quantitySold'] ?? 0);
+            final pid =
+                (raw['productId'] ?? raw['id'] ?? raw['product_id'] ?? '')
+                    .toString();
+            final qtyNum =
+                (raw['quantity'] ?? raw['qty'] ?? raw['quantitySold'] ?? 0);
             double qty;
             try {
-              if (qtyNum is num) qty = qtyNum.toDouble();
+              if (qtyNum is num)
+                qty = qtyNum.toDouble();
               else {
-                final cleaned = qtyNum?.toString().replaceAll(RegExp(r'[^0-9.\-]'), '');
+                final cleaned =
+                    qtyNum?.toString().replaceAll(RegExp(r'[^0-9.\-]'), '');
                 qty = double.tryParse(cleaned!) ?? 0.0;
               }
             } catch (_) {
@@ -745,7 +995,11 @@ class ReportsProvider extends ChangeNotifier {
             if (pid.isEmpty || qty <= 0) continue;
 
             try {
-              final invRef = _firestore.collection('businesses').doc(actualBid).collection('inventory').doc(pid);
+              final invRef = _firestore
+                  .collection('businesses')
+                  .doc(actualBid)
+                  .collection('inventory')
+                  .doc(pid);
               final invSnap = await tx.get(invRef);
 
               if (invSnap.exists) {
@@ -767,7 +1021,11 @@ class ReportsProvider extends ChangeNotifier {
           }
 
           // log the deletion for audit (include any per-item errors)
-          final auditRef = _firestore.collection('businesses').doc(actualBid).collection('sale_deletions').doc();
+          final auditRef = _firestore
+              .collection('businesses')
+              .doc(actualBid)
+              .collection('sale_deletions')
+              .doc();
           tx.set(auditRef, {
             'saleId': saleId,
             'deletedBy': _authProvider?.currentUser?.id ?? 'system',
@@ -784,7 +1042,12 @@ class ReportsProvider extends ChangeNotifier {
           final rootSnap = await tx.get(rootRef);
           if (rootSnap.exists) tx.delete(rootRef);
 
-          final resMap = {'auditId': auditRef.id, 'items': items, 'businessId': actualBid, 'success': true};
+          final resMap = {
+            'auditId': auditRef.id,
+            'items': items,
+            'businessId': actualBid,
+            'success': true
+          };
           return resMap;
         }
 
@@ -794,7 +1057,12 @@ class ReportsProvider extends ChangeNotifier {
         final rootSnap = await tx.get(rootRef);
         if (rootSnap.exists) tx.delete(rootRef);
 
-        return {'auditId': null, 'items': [], 'businessId': null, 'success': true};
+        return {
+          'auditId': null,
+          'items': [],
+          'businessId': null,
+          'success': true
+        };
       });
 
       // refresh subscription if active
@@ -807,23 +1075,27 @@ class ReportsProvider extends ChangeNotifier {
       return result;
     } catch (e, st) {
       final errMsg = extractErrorMessage(e);
-      
+
       // Add context-specific hints
       String fullMsg = errMsg;
       if (errMsg.toLowerCase().contains('permission')) {
-        fullMsg += ' - Check Firestore security rules for sale_deletions and inventory write permissions';
+        fullMsg +=
+            ' - Check Firestore security rules for sale_deletions and inventory write permissions';
       } else if (errMsg.toLowerCase().contains('transaction')) {
-        fullMsg += ' - Ensure Firestore indexes exist for timestamp-based queries';
+        fullMsg +=
+            ' - Ensure Firestore indexes exist for timestamp-based queries';
       } else if (errMsg.toLowerCase().contains('failed') || errMsg.isEmpty) {
-        fullMsg = 'Sale deletion transaction failed. This may be due to: 1) Missing Firestore indexes, 2) Security rule restrictions, or 3) Network connectivity. Check Firebase console.';
+        fullMsg =
+            'Sale deletion transaction failed. This may be due to: 1) Missing Firestore indexes, 2) Security rule restrictions, or 3) Network connectivity. Check Firebase console.';
       }
-      
+
       // Always log the raw error for debugging
-      debugPrint('[ReportsProvider.deleteSale] Raw error type: ${e.runtimeType}');
+      debugPrint(
+          '[ReportsProvider.deleteSale] Raw error type: ${e.runtimeType}');
       debugPrint('[ReportsProvider.deleteSale] Raw error: $e');
       debugPrint('[ReportsProvider.deleteSale] transaction failed: $fullMsg');
       debugPrint('[ReportsProvider.deleteSale] stack trace: $st');
-      
+
       // Return structured error instead of throwing to make UI handling clearer
       return {'success': false, 'error': fullMsg, 'stack': st.toString()};
     }
@@ -839,7 +1111,8 @@ class ReportsProvider extends ChangeNotifier {
         _currentSubscribedBusinessId ??
         _authProvider?.currentUser?.currentBusinessId ??
         _authProvider?.currentUser?.preferredBusinessId ??
-        _authProvider?.currentUser?.businessId ?? '';
+        _authProvider?.currentUser?.businessId ??
+        '';
     _currentSubscribedBusinessId = bid;
     debugPrint(
         '[subscribeToSalesReports] Invoked with businessId: $businessId; resolved bid: $bid; start: $_salesStartDate, end: $_salesEndDate');
@@ -871,9 +1144,10 @@ class ReportsProvider extends ChangeNotifier {
         final items = (data['items'] as List?) ?? [];
         final products = items.map<Map<String, dynamic>>((it) {
           final name = _extractStringValue(it is Map &&
-                  (it['name'] ?? it['productName'] ?? it['title']) != null
-              ? (it['name'] ?? it['productName'] ?? it['title'])
-              : it.toString()) ?? 'Unknown Item';
+                      (it['name'] ?? it['productName'] ?? it['title']) != null
+                  ? (it['name'] ?? it['productName'] ?? it['title'])
+                  : it.toString()) ??
+              'Unknown Item';
           final unitPrice = (it is Map)
               ? (it['price'] ??
                   it['unitPrice'] ??
@@ -904,10 +1178,14 @@ class ReportsProvider extends ChangeNotifier {
               _extractStringValue(data['payment']) ??
               _extractStringValue(data['tenderType']) ??
               'N/A',
-          productNames: products.map((p) => _extractStringValue(p['name']) ?? 'Unknown').toList(),
+          productNames: products
+              .map((p) => _extractStringValue(p['name']) ?? 'Unknown')
+              .toList(),
           products: products,
           receiptId: doc.id,
-          customerId: _extractStringValue(data['customerId']) ?? _extractStringValue(data['customer']) ?? '',
+          customerId: _extractStringValue(data['customerId']) ??
+              _extractStringValue(data['customer']) ??
+              '',
           customerName: _extractStringValue(data['customerName']) ??
               _extractStringValue(data['customerDisplayName']) ??
               '',
@@ -1089,11 +1367,12 @@ class ReportsProvider extends ChangeNotifier {
     });
   }
 
-  void _recomputeFinancialReports(String bid) {
+  Future<void> _recomputeFinancialReports(String bid) async {
     try {
       // Mark that we're computing heavier financial stats (inline load state)
       _isComputingFinancials = true;
       notifyListeners();
+      final inventoryCostMap = await _getInventoryCostMap(bid);
 
       // monthlyData maps month -> (revenue, cogs, otherExpenses)
       final monthlyData = <int, (double, double, double)>{};
@@ -1112,14 +1391,24 @@ class ReportsProvider extends ChangeNotifier {
           double cogsForSale = 0.0;
           for (var item in items) {
             if (item is Map<String, dynamic>) {
-              final itemCost = (item['cost'] ?? item['costPrice'] ?? 0) as num;
-              final itemQty = (item['quantity'] ?? item['qty'] ?? 1) as num;
+              final itemCost = _resolveItemCost(item, inventoryCostMap);
+              final itemQty =
+                  ((item['inventoryQuantity'] ??
+                              item['quantity'] ??
+                              item['qty'] ??
+                              1) as num)
+                          .toDouble();
               cogsForSale += (itemCost * itemQty).toDouble();
             }
           }
           if (monthlyData.containsKey(month)) {
-            final (existingRevenue, existingCogs, existingOther) = monthlyData[month]!;
-            monthlyData[month] = (existingRevenue + revenue, existingCogs + cogsForSale, existingOther);
+            final (existingRevenue, existingCogs, existingOther) =
+                monthlyData[month]!;
+            monthlyData[month] = (
+              existingRevenue + revenue,
+              existingCogs + cogsForSale,
+              existingOther
+            );
           } else {
             monthlyData[month] = (revenue, cogsForSale, 0.0);
           }
@@ -1137,7 +1426,8 @@ class ReportsProvider extends ChangeNotifier {
           final amount = (data['amount'] ?? 0) as num;
           if (monthlyData.containsKey(month)) {
             final (revenue, cogs, existingOther) = monthlyData[month]!;
-            monthlyData[month] = (revenue, cogs, existingOther + amount.toDouble());
+            monthlyData[month] =
+                (revenue, cogs, existingOther + amount.toDouble());
           } else {
             monthlyData[month] = (0.0, 0.0, amount.toDouble());
           }
@@ -1196,10 +1486,24 @@ class ReportsProvider extends ChangeNotifier {
 
     debugPrint(
         '[subscribeToInventoryReports] Invoked with businessId: $businessId; resolved bid: $bid; storeId: $storeId');
-    Query query = _firestore.collection('businesses').doc(bid).collection('inventory');
-    if (storeId != null && storeId.isNotEmpty) query = query.where('storeId', isEqualTo: storeId);
+    Query query =
+        _firestore.collection('businesses').doc(bid).collection('inventory');
+    if (storeId != null && storeId.isNotEmpty)
+      query = query.where('storeId', isEqualTo: storeId);
 
     _inventorySubscription = query.snapshots().listen((snapshot) async {
+      _inventoryCostCacheBusinessId = bid;
+      _inventoryCostCache
+        ..clear()
+        ..addEntries(snapshot.docs.map((doc) {
+          final data = doc.data() as Map<String, dynamic>? ?? {};
+          final cost =
+              ((data['averageCost'] ?? data['cost'] ?? data['lastProcurementCost'])
+                      as num?)
+                  ?.toDouble() ??
+                  0.0;
+          return MapEntry(doc.id, cost);
+        }));
       _inventoryReports = snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>? ?? {};
         return InventoryReport(
@@ -1392,11 +1696,13 @@ class ReportsProvider extends ChangeNotifier {
           'date': Timestamp.fromDate(DateTime.now()),
           'timestamp': DateTime.now().millisecondsSinceEpoch,
         };
-        if (receiptUrl != null && receiptUrl.isNotEmpty) payload['receiptUrl'] = receiptUrl;
+        if (receiptUrl != null && receiptUrl.isNotEmpty)
+          payload['receiptUrl'] = receiptUrl;
 
         await docRef.set(payload);
       } else {
-        debugPrint('[ReportsProvider.addExpense] No business ID available - expense stored locally only');
+        debugPrint(
+            '[ReportsProvider.addExpense] No business ID available - expense stored locally only');
       }
 
       notifyListeners();
@@ -1409,7 +1715,8 @@ class ReportsProvider extends ChangeNotifier {
   Future<void> removeExpense(String expenseId) async {
     try {
       // if expense has an uploaded receipt, attempt to delete it from server
-      final removed = _expenses.where((expense) => expense['id'] == expenseId).toList();
+      final removed =
+          _expenses.where((expense) => expense['id'] == expenseId).toList();
       if (removed.isNotEmpty) {
         final receiptUrl = removed.first['receiptUrl'] as String?;
         if (receiptUrl != null && receiptUrl.isNotEmpty) {
@@ -1417,7 +1724,8 @@ class ReportsProvider extends ChangeNotifier {
             final service = WebEmailReceiptService();
             await service.deleteUploadedFile(receiptUrl);
           } catch (e) {
-            debugPrint('[ReportsProvider.removeExpense] Failed to delete receipt file: $e');
+            debugPrint(
+                '[ReportsProvider.removeExpense] Failed to delete receipt file: $e');
           }
         }
       }
@@ -1509,8 +1817,9 @@ class ReportsProvider extends ChangeNotifier {
       csvBuffer.writeln('Date,Description,Category,Amount,ReceiptUrl');
 
       // Add expense rows sorted by date (newest first)
-      final sortedExpenses = [..._expenses]..sort((a, b) =>
-          _parseDate(b['date']).compareTo(_parseDate(a['date'])));
+      final sortedExpenses = [
+        ..._expenses
+      ]..sort((a, b) => _parseDate(b['date']).compareTo(_parseDate(a['date'])));
 
       for (var expense in sortedExpenses) {
         final date = _parseDate(expense['date']);
@@ -1565,8 +1874,9 @@ class ReportsProvider extends ChangeNotifier {
       pdfContent.writeln('Date | Description | Category | Amount');
       pdfContent.writeln('-' * 50);
 
-      final sortedExpenses = [..._expenses]..sort((a, b) =>
-          _parseDate(b['date']).compareTo(_parseDate(a['date'])));
+      final sortedExpenses = [
+        ..._expenses
+      ]..sort((a, b) => _parseDate(b['date']).compareTo(_parseDate(a['date'])));
 
       for (var expense in sortedExpenses) {
         final date = _parseDate(expense['date']);
@@ -1577,8 +1887,10 @@ class ReportsProvider extends ChangeNotifier {
         final amount =
             formatCurrency((expense['amount'] as num?)?.toDouble() ?? 0.0);
 
-        pdfContent.writeln('$formattedDate | $description | $category | $amount');
-        if (expense['receiptUrl'] != null && expense['receiptUrl'].toString().isNotEmpty) {
+        pdfContent
+            .writeln('$formattedDate | $description | $category | $amount');
+        if (expense['receiptUrl'] != null &&
+            expense['receiptUrl'].toString().isNotEmpty) {
           pdfContent.writeln('Receipt: ${expense['receiptUrl']}');
         }
       }
@@ -1798,6 +2110,7 @@ class ReportsProvider extends ChangeNotifier {
       // Mark computing state while we calculate COGS and expenses
       _isComputingFinancials = true;
       notifyListeners();
+      final inventoryCostMap = await _getInventoryCostMap(bid);
 
       // Group sales by month and calculate totals
       // monthlyData maps month -> (revenue, cogs, otherExpenses)
@@ -1818,8 +2131,13 @@ class ReportsProvider extends ChangeNotifier {
         double saleCogs = 0.0;
         for (var item in items) {
           if (item is Map<String, dynamic>) {
-            final itemCost = (item['cost'] ?? item['costPrice'] ?? 0) as num;
-            final itemQty = (item['quantity'] ?? item['qty'] ?? 1) as num;
+            final itemCost = _resolveItemCost(item, inventoryCostMap);
+            final itemQty =
+                ((item['inventoryQuantity'] ??
+                            item['quantity'] ??
+                            item['qty'] ??
+                            1) as num)
+                        .toDouble();
             final itemCogs = (itemCost * itemQty).toDouble();
             totalCostOfGoods += itemCogs;
             saleCogs += itemCogs;
@@ -1830,8 +2148,13 @@ class ReportsProvider extends ChangeNotifier {
             '[FinancialReport] Sale - Date: $date, Month: $month, Revenue: ₦$revenue, COGS: ₦$saleCogs');
 
         if (monthlyData.containsKey(month)) {
-          final (existingRevenue, existingCogs, existingOther) = monthlyData[month]!;
-          monthlyData[month] = (existingRevenue + revenue, existingCogs + saleCogs, existingOther);
+          final (existingRevenue, existingCogs, existingOther) =
+              monthlyData[month]!;
+          monthlyData[month] = (
+            existingRevenue + revenue,
+            existingCogs + saleCogs,
+            existingOther
+          );
         } else {
           monthlyData[month] = (revenue, saleCogs, 0.0);
         }
@@ -1859,7 +2182,8 @@ class ReportsProvider extends ChangeNotifier {
 
             if (monthlyData.containsKey(month)) {
               final (revenue, cogs, existingOther) = monthlyData[month]!;
-              monthlyData[month] = (revenue, cogs, existingOther + amount.toDouble());
+              monthlyData[month] =
+                  (revenue, cogs, existingOther + amount.toDouble());
             } else {
               monthlyData[month] = (0.0, 0.0, amount.toDouble());
             }
@@ -1881,18 +2205,23 @@ class ReportsProvider extends ChangeNotifier {
           revenue: revenue,
           cogs: cogs,
           expenses: otherExpenses,
-          salaries: otherExpenses * 0.6, // Estimate 60% of other expenses as salaries
-          utilities: otherExpenses * 0.4, // Estimate 40% of other expenses as utilities
+          salaries:
+              otherExpenses * 0.6, // Estimate 60% of other expenses as salaries
+          utilities: otherExpenses *
+              0.4, // Estimate 40% of other expenses as utilities
         );
         debugPrint(
             '[FinancialReport] Month ${report.month}: Revenue=₦${report.revenue}, COGS=₦${report.cogs}, OtherExpenses=₦${report.expenses}');
         return report;
       }).toList();
 
-      debugPrint('[FinancialReport] Total Revenue: ₦${_financialReports.fold(0.0, (sum, r) => sum + r.revenue)}');
-      debugPrint('[FinancialReport] Total Expenses (including COGS): ₦$totalExpenses');
+      debugPrint(
+          '[FinancialReport] Total Revenue: ₦${_financialReports.fold(0.0, (sum, r) => sum + r.revenue)}');
+      debugPrint(
+          '[FinancialReport] Total Expenses (including COGS): ₦$totalExpenses');
       debugPrint('[FinancialReport] Total Cost of Goods: ₦$totalCostOfGoods');
-      debugPrint('[FinancialReport] Net Profit: ₦${_financialReports.fold(0.0, (sum, r) => sum + r.netProfit)}');
+      debugPrint(
+          '[FinancialReport] Net Profit: ₦${_financialReports.fold(0.0, (sum, r) => sum + r.netProfit)}');
 
       _isComputingFinancials = false;
       _isLoading = false;
@@ -1903,13 +2232,12 @@ class ReportsProvider extends ChangeNotifier {
       _isLoading = false;
     }
     notifyListeners();
-
-
   }
 
   // Inventory Report Methods
   /// Generate inventory report with real Firestore data
-  Future<void> generateInventoryReport({String? businessId, String? storeId}) async {
+  Future<void> generateInventoryReport(
+      {String? businessId, String? storeId}) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -1932,8 +2260,10 @@ class ReportsProvider extends ChangeNotifier {
       // Query inventory for current business (optionally scoped to a store)
       debugPrint(
           '[generateInventoryReport] Invoked with businessId: $businessId; resolved bid: $bid; storeId: $storeId');
-      Query query = _firestore.collection('businesses').doc(bid).collection('inventory');
-      if (storeId != null && storeId.isNotEmpty) query = query.where('storeId', isEqualTo: storeId);
+      Query query =
+          _firestore.collection('businesses').doc(bid).collection('inventory');
+      if (storeId != null && storeId.isNotEmpty)
+        query = query.where('storeId', isEqualTo: storeId);
 
       final snapshot = await query.get();
 
@@ -2031,10 +2361,8 @@ class ReportsProvider extends ChangeNotifier {
       return;
     }
 
-    final collectionRef = _firestore
-        .collection('businesses')
-        .doc(bid)
-        .collection('expenses');
+    final collectionRef =
+        _firestore.collection('businesses').doc(bid).collection('expenses');
     _expensesSubscription = collectionRef.snapshots().listen((snapshot) {
       _expenses.clear();
 
@@ -2323,10 +2651,14 @@ class ReportsProvider extends ChangeNotifier {
                             child: pw.Text((p['quantity'] ?? 1).toString())),
                         pw.Padding(
                             padding: const pw.EdgeInsets.all(6),
-                            child: pw.Text(formatCurrency(((p['unitPrice'] ?? 0) as double)))),
+                            child: pw.Text(formatCurrency(
+                                ((p['unitPrice'] ?? 0) as double)))),
                         pw.Padding(
                             padding: const pw.EdgeInsets.all(6),
-                            child: pw.Text(formatCurrency(((((p['unitPrice'] ?? 0) as double) * ((p['quantity'] ?? 1) as num)).toDouble())))),
+                            child: pw.Text(formatCurrency(
+                                ((((p['unitPrice'] ?? 0) as double) *
+                                        ((p['quantity'] ?? 1) as num))
+                                    .toDouble())))),
                         pw.Padding(
                             padding: const pw.EdgeInsets.all(6),
                             child: pw.Text(report.cashier)),
@@ -2686,11 +3018,16 @@ class ReportsProvider extends ChangeNotifier {
         theme: pw.ThemeData.withFont(base: font),
         build: (context) => [
           // Shared header
-          buildPdfHeader(font: font, businessName: 'Manage Care', businessDetails: null, logoBytes: logoBytes),
+          buildPdfHeader(
+              font: font,
+              businessName: 'Manage Care',
+              businessDetails: null,
+              logoBytes: logoBytes),
 
           // Report title
           pw.Text('Inventory Report',
-              style: pw.TextStyle(fontSize: 28, fontWeight: pw.FontWeight.bold)),
+              style:
+                  pw.TextStyle(fontSize: 28, fontWeight: pw.FontWeight.bold)),
           pw.SizedBox(height: 8),
           pw.Text(
               'Generated: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}',
@@ -2716,12 +3053,17 @@ class ReportsProvider extends ChangeNotifier {
                 decoration:
                     const pw.BoxDecoration(color: PdfColor.fromInt(0xFF2C3E50)),
                 children: [
-                  _buildTableCell('Product ID', isHeader: true, color: 0xFFFFFFFF),
-                  _buildTableCell('Product Name', isHeader: true, color: 0xFFFFFFFF),
+                  _buildTableCell('Product ID',
+                      isHeader: true, color: 0xFFFFFFFF),
+                  _buildTableCell('Product Name',
+                      isHeader: true, color: 0xFFFFFFFF),
                   _buildTableCell('Qty', isHeader: true, color: 0xFFFFFFFF),
-                  _buildTableCell('Min Level', isHeader: true, color: 0xFFFFFFFF),
-                  _buildTableCell('Unit Price', isHeader: true, color: 0xFFFFFFFF),
-                  _buildTableCell('Total Value', isHeader: true, color: 0xFFFFFFFF),
+                  _buildTableCell('Min Level',
+                      isHeader: true, color: 0xFFFFFFFF),
+                  _buildTableCell('Unit Price',
+                      isHeader: true, color: 0xFFFFFFFF),
+                  _buildTableCell('Total Value',
+                      isHeader: true, color: 0xFFFFFFFF),
                   _buildTableCell('Status', isHeader: true, color: 0xFFFFFFFF),
                 ],
               ),
@@ -2733,8 +3075,10 @@ class ReportsProvider extends ChangeNotifier {
                     _buildTableCell(report.productName),
                     _buildTableCell(report.quantity.toString()),
                     _buildTableCell(report.reorderLevel.toString()),
-                    _buildTableCell('${symbol}${report.unitPrice.toStringAsFixed(2)}'),
-                    _buildTableCell('${symbol}${report.totalValue.toStringAsFixed(2)}'),
+                    _buildTableCell(
+                        '${symbol}${report.unitPrice.toStringAsFixed(2)}'),
+                    _buildTableCell(
+                        '${symbol}${report.totalValue.toStringAsFixed(2)}'),
                     _buildTableCell(
                       report.isLowStock ? 'Low Stock' : 'OK',
                       color: report.isLowStock ? 0xFFE74C3C : 0xFF27AE60,
@@ -2798,7 +3142,8 @@ class ReportsProvider extends ChangeNotifier {
           pw.TableRow(
             children: [
               _buildTableCell('Total Inventory Value'),
-              _buildTableCell('${symbol}${totalInventoryValue.toStringAsFixed(2)}'),
+              _buildTableCell(
+                  '${symbol}${totalInventoryValue.toStringAsFixed(2)}'),
             ],
           ),
           pw.TableRow(
@@ -2841,16 +3186,18 @@ class ReportsProvider extends ChangeNotifier {
   Map<String, dynamic> getFinancialSummary() {
     double totalRevenue = _financialReports.fold<double>(
         0.0, (sum, report) => sum + report.revenue);
-    double totalCogs = _financialReports.fold<double>(
-        0.0, (sum, report) => sum + report.cogs);
+    double totalCogs =
+        _financialReports.fold<double>(0.0, (sum, report) => sum + report.cogs);
     double totalOtherExpenses = _financialReports.fold<double>(
         0.0, (sum, report) => sum + report.expenses);
 
-    double totalExpenses = totalCogs + totalOtherExpenses;
     double grossProfit = totalRevenue - totalCogs;
-    double netProfit = totalRevenue - totalExpenses;
-    double grossMargin = totalRevenue == 0 ? 0 : (grossProfit / totalRevenue) * 100;
-    double profitMargin = totalRevenue == 0 ? 0 : (netProfit / totalRevenue) * 100;
+    double totalExpenses = totalCogs + totalOtherExpenses;
+    double netProfit = grossProfit - totalOtherExpenses;
+    double grossMargin =
+        totalRevenue == 0 ? 0 : (grossProfit / totalRevenue) * 100;
+    double profitMargin =
+        totalRevenue == 0 ? 0 : (netProfit / totalRevenue) * 100;
 
     debugPrint(
         '[getFinancialSummary] Reports count: ${_financialReports.length}');
@@ -2877,7 +3224,9 @@ class ReportsProvider extends ChangeNotifier {
       'totalExpenses': totalExpenses,
       'grossProfit': grossProfit,
       'grossMargin': grossMargin,
+      'netProfit': netProfit,
       'profit': netProfit, // net profit (backwards compatible)
+      'netProfitMargin': profitMargin,
       'profitMargin': profitMargin,
     };
   }
@@ -3001,8 +3350,9 @@ class FinancialReport {
   /// Gross profit = revenue - COGS
   double get grossProfit => revenue - cogs;
 
-  /// Net profit = revenue - (COGS + other expenses)
-  double get netProfit => revenue - (cogs + expenses);
+  /// Net profit = gross profit - other expenses
+  /// (equivalent to revenue - (COGS + other expenses))
+  double get netProfit => grossProfit - expenses;
 
   /// Backwards-compatible profit value (same as net profit)
   double get profit => netProfit;
@@ -3075,4 +3425,3 @@ class ReportExportHistoryItem {
     return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }
-

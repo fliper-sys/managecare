@@ -404,6 +404,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     HotelProvider provider,
   ) {
     final folioTotal = provider.getReservationBalance(reservation);
+    final folioCharges = provider.getFolioChargesForReservation(reservation.id);
 
     showModalBottomSheet(
       context: context,
@@ -566,6 +567,14 @@ class _BookingsScreenState extends State<BookingsScreen> {
                           _buildPriceRow(
                               'Price per night', formatCurrency(room.pricePerNight)),
                           _buildPriceRow('Nights', 'x ${reservation.nights}'),
+                          if (folioCharges.isNotEmpty) const Divider(),
+                          if (folioCharges.isNotEmpty)
+                            ...folioCharges.take(5).map(
+                                  (charge) => _buildPriceRow(
+                                    charge.description,
+                                    formatCurrency(charge.amount),
+                                  ),
+                                ),
                           const Divider(),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -607,6 +616,81 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     const SizedBox(height: 30),
 
                     // Action Buttons
+                    if (reservation.status == 'confirmed' ||
+                        reservation.status == 'checked-in')
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(color: AppColors.primary),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: () async {
+                            await _showAddChargeDialog(
+                              context,
+                              provider: provider,
+                              reservation: reservation,
+                              room: room,
+                            );
+                            if (!context.mounted) return;
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.receipt_long),
+                          label: const Text(
+                            'Add Extra Charge',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    if (reservation.status == 'confirmed' ||
+                        reservation.status == 'checked-in')
+                      const SizedBox(height: 12),
+
+                    if (reservation.status == 'confirmed' ||
+                        reservation.status == 'checked-in')
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.deepPurple,
+                            side: const BorderSide(color: Colors.deepPurple),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: () async {
+                            await _showExtendStayDialog(
+                              context,
+                              provider: provider,
+                              reservation: reservation,
+                            );
+                            if (!context.mounted) return;
+                            Navigator.pop(context);
+                          },
+                          icon: const Icon(Icons.hotel),
+                          label: const Text(
+                            'Extend Stay',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    if (reservation.status == 'confirmed' ||
+                        reservation.status == 'checked-in')
+                      const SizedBox(height: 12),
+
                     if (reservation.status == 'confirmed')
                       SizedBox(
                         width: double.infinity,
@@ -827,6 +911,178 @@ class _BookingsScreenState extends State<BookingsScreen> {
           Text(label, style: TextStyle(color: Colors.grey[600])),
           Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showAddChargeDialog(
+    BuildContext context, {
+    required HotelProvider provider,
+    required Reservation reservation,
+    required Room room,
+  }) async {
+    final descriptionController = TextEditingController();
+    final amountController = TextEditingController();
+    String category = 'extra_order';
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Add Extra Charge'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: category,
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'extra_order',
+                      child: Text('Extra Order'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'room_service',
+                      child: Text('Room Service'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'mini_bar',
+                      child: Text('Mini Bar'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'laundry',
+                      child: Text('Laundry'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'other',
+                      child: Text('Other'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) category = value;
+                  },
+                  decoration: const InputDecoration(labelText: 'Charge type'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Description',
+                    hintText: 'Describe the extra order or charge',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amountController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Amount',
+                    hintText: '0.00',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) return;
+
+    final amount = double.tryParse(amountController.text.trim());
+    if (amount == null || amount <= 0) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid charge amount')),
+      );
+      return;
+    }
+
+    await provider.addReservationCharge(
+      reservationId: reservation.id,
+      description: descriptionController.text.trim().isEmpty
+          ? 'Extra charge for Room ${room.number}'
+          : descriptionController.text.trim(),
+      amount: amount,
+      category: category,
+      source: 'manual',
+    );
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Added ${formatCurrency(amount)} to ${reservation.guestName}\'s folio',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showExtendStayDialog(
+    BuildContext context, {
+    required HotelProvider provider,
+    required Reservation reservation,
+  }) async {
+    final reasonController = TextEditingController();
+    final nextDate = await showDatePicker(
+      context: context,
+      initialDate: reservation.checkOut.add(const Duration(days: 1)),
+      firstDate: reservation.checkOut.add(const Duration(days: 1)),
+      lastDate: reservation.checkOut.add(const Duration(days: 30)),
+    );
+
+    if (nextDate == null || !context.mounted) return;
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Extend Stay'),
+            content: TextField(
+              controller: reasonController,
+              minLines: 2,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                labelText: 'Extension note',
+                hintText: 'Optional reason or note for the extension',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Extend'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) return;
+
+    await provider.extendReservationStay(
+      reservationId: reservation.id,
+      newCheckOut: nextDate,
+      extensionReason: reasonController.text.trim(),
+    );
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${reservation.guestName} is now booked until ${DateFormat('MMM d, yyyy').format(nextDate)}',
+        ),
       ),
     );
   }

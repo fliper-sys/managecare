@@ -297,8 +297,9 @@ class _AdminSubscriptionsScreenState extends State<AdminSubscriptionsScreen> {
   }
 
   void _showPlanSelector(Map<String, dynamic> business) {
-    final businessClass = (business['businessClass'] ?? 'tier1').toString();
-    final available = SubscriptionService.getPlansForClass(businessClass);
+    final businessType = (business['businessType'] ?? business['type'] ?? 'retail')
+        .toString();
+    final available = SubscriptionService.getPlansForBusinessType(businessType);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,

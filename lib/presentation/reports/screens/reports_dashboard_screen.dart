@@ -294,10 +294,10 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
                         Expanded(
                           child: _MetricCard(
                             title: 'Net Profit',
-                            value: reportsProvider.isComputingFinancials ? 'Calculating...' : formatCurrency((financialSummary['profit'] as num?)?.toDouble() ?? 0.0, decimalDigits: 0),
+                            value: reportsProvider.isComputingFinancials ? 'Calculating...' : formatCurrency((financialSummary['netProfit'] as num?)?.toDouble() ?? (financialSummary['profit'] as num?)?.toDouble() ?? 0.0, decimalDigits: 0),
                             change:
                                 '+${(financialSummary['profitChange'] ?? 0).toStringAsFixed(1)}%',
-                            isPositive: (financialSummary['profit'] ?? 0) >= 0,
+                            isPositive: ((financialSummary['netProfit'] ?? financialSummary['profit']) ?? 0) >= 0,
                             icon: Icons.trending_down,
                             tooltip: 'Net = Revenue - (COGS + Other Expenses)',
                           ),

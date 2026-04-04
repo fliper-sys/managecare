@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/currency.dart';
 
 import '../../../../core/constants/routes.dart';
 import '../../../../providers/hotel_provider.dart';
@@ -15,14 +16,15 @@ class HotelDashboardScreen extends StatelessWidget {
     // Determine permissions once to keep build method clean
     final auth = Provider.of<AuthProvider>(context);
     final role = auth.currentUser?.role ?? '';
+    final isManager = role.toLowerCase() == 'manager';
     final canBook = auth.isOwnerUser ||
         WorkerPermissions.hasPermission(role, 'bookings') ||
         WorkerPermissions.hasPermission(role, 'guest_checkin') ||
-        WorkerPermissions.canManageStaff(role);
+        isManager;
     final canViewService = auth.isOwnerUser ||
         WorkerPermissions.hasPermission(role, 'guest_checkin') ||
-        WorkerPermissions.canManageStaff(role) ||
-        WorkerPermissions.canViewInventory(role);
+        WorkerPermissions.canViewInventory(role) ||
+        isManager;
     final canManageStaff =
         auth.isOwnerUser || WorkerPermissions.canManageStaff(role);
 
@@ -184,7 +186,7 @@ class HotelDashboardScreen extends StatelessWidget {
                           color: Colors.white.withOpacity(0.9), fontSize: 14)),
                   const SizedBox(height: 8),
                   Text(
-                    '₦${sales.toStringAsFixed(0)}',
+                    formatCurrency(sales, decimalDigits: 0),
                     style: const TextStyle(
                         color: Colors.white,
                         fontSize: 32,
@@ -505,6 +507,30 @@ class HotelDashboardScreen extends StatelessWidget {
         label: 'Billing',
         color: Colors.deepOrange,
         onTap: () => Navigator.pushNamed(context, Routes.hotelBilling),
+      ));
+
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.apartment_outlined,
+        label: 'Hall Bookings',
+        color: Colors.blueGrey,
+        onTap: () => Navigator.pushNamed(context, Routes.hotelHallBookings),
+      ));
+
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.pool_outlined,
+        label: 'Pool Bookings',
+        color: Colors.lightBlue,
+        onTap: () => Navigator.pushNamed(context, Routes.hotelPoolBookings),
+      ));
+
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.inventory_2_outlined,
+        label: 'Inventory',
+        color: Colors.green,
+        onTap: () => Navigator.pushNamed(context, Routes.inventory),
       ));
     }
 

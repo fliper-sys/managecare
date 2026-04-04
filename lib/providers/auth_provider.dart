@@ -109,7 +109,8 @@ class AuthProvider with ChangeNotifier {
               _subscriptionValidated = true;
               if (kDebugMode) print('[AuthProvider] Skipping subscription validation for non-owner user during auto-login: ${_currentUser!.id}');
             } else {
-              _subscriptionValidated = await _subscriptionService.validateAndUpdateSubscriptionStatus(_currentUser!.id);
+              _subscriptionValidated =
+                  await _validateSubscriptionForUser(_currentUser!);
             }
           } catch (e) {
             print('[AuthProvider] Error validating subscription during auto-login: $e');
@@ -175,16 +176,7 @@ class AuthProvider with ChangeNotifier {
             if (primaryBiz != null &&
                 primaryBiz.isNotEmpty &&
                 _localBusinessStorage != null) {
-              try {
-                await _localBusinessStorage!.setCurrentBusiness(primaryBiz);
-                final repo = BusinessRepository();
-                final business = await repo.getBusinessById(primaryBiz);
-                if (business != null)
-                  await _localBusinessStorage!.saveBusiness(business);
-              } catch (e) {
-                print(
-                    '[AuthProvider] Error caching business during auto-login: $e');
-              }
+              await _cacheBusinessForUser(primaryBiz);
             }
           } catch (e) {
             print(
@@ -231,6 +223,74 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  String? _resolveCurrentBusinessId([UserModel? user]) {
+    final targetUser = user ?? _currentUser;
+    if (targetUser == null) {
+      return _localBusinessStorage?.getCurrentBusinessId();
+    }
+
+    final currentBusinessId = targetUser.currentBusinessId?.trim() ?? '';
+    if (currentBusinessId.isNotEmpty) return currentBusinessId;
+
+    final primaryBusinessId = targetUser.primaryBusinessId.trim();
+    if (primaryBusinessId.isNotEmpty) return primaryBusinessId;
+
+    final legacyBusinessId = targetUser.businessId.trim();
+    if (legacyBusinessId.isNotEmpty) return legacyBusinessId;
+
+    final cachedBusinessId =
+        _localBusinessStorage?.getCurrentBusinessId()?.trim() ?? '';
+    if (cachedBusinessId.isNotEmpty) return cachedBusinessId;
+
+    return null;
+  }
+
+  Future<void> _cacheBusinessForUser(String? businessId) async {
+    final normalizedBusinessId = businessId?.trim() ?? '';
+    if (normalizedBusinessId.isEmpty || _localBusinessStorage == null) return;
+
+    try {
+      await _localBusinessStorage!.setCurrentBusiness(normalizedBusinessId);
+      final repo = BusinessRepository();
+      final business = await repo.getBusinessById(normalizedBusinessId);
+      if (business != null) {
+        await _localBusinessStorage!.saveBusiness(business);
+      }
+    } catch (e) {
+      print('[AuthProvider] Error caching business $normalizedBusinessId: $e');
+    }
+  }
+
+  Future<bool> _validateSubscriptionForUser(
+    UserModel user, {
+    String? businessId,
+  }) async {
+    if (!user.isOwner) return true;
+
+    final resolvedBusinessId = (businessId?.trim().isNotEmpty == true)
+        ? businessId!.trim()
+        : _resolveCurrentBusinessId(user);
+
+    if (resolvedBusinessId != null && resolvedBusinessId.isNotEmpty) {
+      try {
+        await _subscriptionService.syncUserSubscriptionSummaryFromBusiness(
+          userId: user.id,
+          businessId: resolvedBusinessId,
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          print(
+              '[AuthProvider] Failed to sync subscription summary for $resolvedBusinessId: $e');
+        }
+      }
+    }
+
+    return _subscriptionService.validateAndUpdateSubscriptionStatus(
+      user.id,
+      businessId: resolvedBusinessId,
+    );
+  }
+
   Future<void> _loadCurrentUser(String uid) async {
     try {
       _currentUser = await _authRepository.getCurrentUser(uid);
@@ -242,20 +302,7 @@ class AuthProvider with ChangeNotifier {
         await _localStorage!.saveUser(_currentUser!);
         // Persist primary business id to local business storage too
         try {
-          final bId = _currentUser!.primaryBusinessId;
-          if (bId.isNotEmpty && _localBusinessStorage != null) {
-            await _localBusinessStorage!.setCurrentBusiness(bId);
-            // Attempt to fetch and cache the business details for faster startup
-            try {
-              final repo = BusinessRepository();
-              final business = await repo.getBusinessById(bId);
-              if (business != null) {
-                await _localBusinessStorage!.saveBusiness(business);
-              }
-            } catch (e) {
-              print('[AuthProvider] Error caching business details: $e');
-            }
-          }
+          await _cacheBusinessForUser(_resolveCurrentBusinessId(_currentUser));
         } catch (e) {
           print('[AuthProvider] Error persisting business from user: $e');
         }
@@ -298,10 +345,34 @@ class AuthProvider with ChangeNotifier {
 
           final bool changed =
               updatedUser.currentBusinessId != _currentUser?.currentBusinessId ||
-              updatedUser.preferredBusinessId != _currentUser?.preferredBusinessId ||
-              updatedUser.businessIds.join(',') != _currentUser?.businessIds.join(',') ||
+              updatedUser.preferredBusinessId !=
+                  _currentUser?.preferredBusinessId ||
+              updatedUser.businessIds.join(',') !=
+                  _currentUser?.businessIds.join(',') ||
               updatedUser.fullName != _currentUser?.fullName ||
-              updatedUser.email != _currentUser?.email;
+              updatedUser.email != _currentUser?.email ||
+              updatedUser.role != _currentUser?.role ||
+              updatedUser.businessId != _currentUser?.businessId ||
+              updatedUser.businessType != _currentUser?.businessType ||
+              updatedUser.storeId != _currentUser?.storeId ||
+              updatedUser.phoneNumber != _currentUser?.phoneNumber ||
+              updatedUser.isActive != _currentUser?.isActive ||
+              updatedUser.isOwner != _currentUser?.isOwner ||
+              updatedUser.pin != _currentUser?.pin ||
+              updatedUser.hasActiveSubscription !=
+                  _currentUser?.hasActiveSubscription ||
+              updatedUser.subscriptionPlan !=
+                  _currentUser?.subscriptionPlan ||
+              updatedUser.subscriptionPaymentRequired !=
+                  _currentUser?.subscriptionPaymentRequired ||
+              updatedUser.subscriptionTransactionId !=
+                  _currentUser?.subscriptionTransactionId ||
+              updatedUser.subscriptionAmount !=
+                  _currentUser?.subscriptionAmount ||
+              updatedUser.subscriptionStartDate?.millisecondsSinceEpoch !=
+                  _currentUser?.subscriptionStartDate?.millisecondsSinceEpoch ||
+              updatedUser.subscriptionEndDate?.millisecondsSinceEpoch !=
+                  _currentUser?.subscriptionEndDate?.millisecondsSinceEpoch;
 
           if (changed) {
             _currentUser = updatedUser;
@@ -369,7 +440,8 @@ class AuthProvider with ChangeNotifier {
             _subscriptionValidated = true;
             if (kDebugMode) print('[AuthProvider] Skipping subscription validation for non-owner user during refresh: ${refreshed.id}');
           } else {
-            _subscriptionValidated = await _subscriptionService.validateAndUpdateSubscriptionStatus(refreshed.id);
+            _subscriptionValidated =
+                await _validateSubscriptionForUser(refreshed);
           }
         } catch (e) {
           if (kDebugMode) print('[AuthProvider] Subscription validation failed during refresh: $e');
@@ -377,20 +449,7 @@ class AuthProvider with ChangeNotifier {
 
         // Ensure primary business is cached for faster startup and for providers
         try {
-          final businessId = refreshed.primaryBusinessId;
-          if (businessId.isNotEmpty && _localBusinessStorage != null) {
-            await _localBusinessStorage!.setCurrentBusiness(businessId);
-            try {
-              final repo = BusinessRepository();
-              final business = await repo.getBusinessById(businessId);
-              if (business != null)
-                await _localBusinessStorage!.saveBusiness(business);
-            } catch (e) {
-              if (kDebugMode)
-                print(
-                    '[AuthProvider] Error caching business during refresh: $e');
-            }
-          }
+          await _cacheBusinessForUser(_resolveCurrentBusinessId(refreshed));
         } catch (e) {
           if (kDebugMode)
             print(
@@ -460,7 +519,8 @@ class AuthProvider with ChangeNotifier {
               _subscriptionValidated = true;
               print('[AuthProvider] Skipped subscription validation for non-owner user: ${_currentUser!.id}');
             } else {
-              _subscriptionValidated = await _subscriptionService.validateAndUpdateSubscriptionStatus(_currentUser!.id);
+              _subscriptionValidated =
+                  await _validateSubscriptionForUser(_currentUser!);
               print('[AuthProvider] Subscription validated for user: ${_currentUser!.id}');
             }
           } catch (e) {
@@ -496,7 +556,8 @@ class AuthProvider with ChangeNotifier {
               _subscriptionValidated = true;
               print('[AuthProvider] Skipped subscription validation for non-owner (fallback): ${_currentUser!.id}');
             } else {
-              _subscriptionValidated = await _subscriptionService.validateAndUpdateSubscriptionStatus(_currentUser!.id);
+              _subscriptionValidated =
+                  await _validateSubscriptionForUser(_currentUser!);
               print('[AuthProvider] Subscription validated for user (fallback): ${_currentUser!.id}');
             }
           }
@@ -893,6 +954,8 @@ class AuthProvider with ChangeNotifier {
     String? email,
     String? fullName,
     String? phoneNumber,
+    String? address,
+    String? jobTitle,
     String? photoUrl,
     String? businessId,
     List<String>? businessIds,
@@ -910,6 +973,8 @@ class AuthProvider with ChangeNotifier {
         email: email,
         fullName: fullName,
         phoneNumber: phoneNumber,
+        address: address,
+        jobTitle: jobTitle,
         photoUrl: photoUrl,
         businessId: businessId ?? _currentUser!.businessId,
         businessIds: mergedBusinessIds,
@@ -926,6 +991,8 @@ class AuthProvider with ChangeNotifier {
           email: email,
           fullName: fullName,
           phoneNumber: phoneNumber,
+          address: address,
+          jobTitle: jobTitle,
           photoUrl: photoUrl,
           businessId: businessId,
           businessIds: businessIds,
@@ -1052,6 +1119,7 @@ class AuthProvider with ChangeNotifier {
         final ok = await _localBusinessStorage!.setCurrentBusiness(businessId);
         debugPrint('[AuthProvider] switchBusiness: saved to local business storage: $ok');
       }
+      await _cacheBusinessForUser(businessId);
 
       // Also update Firestore users collection for other clients
       try {
@@ -1063,6 +1131,24 @@ class AuthProvider with ChangeNotifier {
       } catch (e) {
         // ignore best-effort failure
         print('[AuthProvider] Warning: failed to update user doc with currentBusinessId: $e');
+      }
+
+      if (updated.isOwner) {
+        try {
+          await _subscriptionService.syncUserSubscriptionSummaryFromBusiness(
+            userId: updated.id,
+            businessId: businessId,
+          );
+          _subscriptionValidated = await _validateSubscriptionForUser(
+            updated,
+            businessId: businessId,
+          );
+        } catch (e) {
+          print(
+              '[AuthProvider] Warning: failed to refresh subscription after switch: $e');
+        }
+      } else {
+        _subscriptionValidated = true;
       }
 
       notifyListeners();

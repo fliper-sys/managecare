@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
-import '../../../../providers/pharmacy_provider.dart';
 import '../../../../providers/auth_provider.dart';
+import '../../../../providers/business_provider.dart';
+import '../../../../providers/pharmacy_provider.dart';
+import '../../../../services/prescription_print_service.dart';
 
 class PrescriptionDetailScreen extends StatelessWidget {
   final String prescriptionId;
@@ -28,7 +30,21 @@ class PrescriptionDetailScreen extends StatelessWidget {
     final patient = provider.patients
         .cast<Patient?>()
         .firstWhere((pt) => pt?.id == pres.patientId, orElse: () => null);
-    final patientName = patient != null ? patient.name : pres.patientId;
+    final patientName =
+        patient?.name ?? pres.patientName ?? pres.patientId;
+    final patientAge =
+        provider.calculateAge(patient?.dateOfBirth ?? pres.patientDateOfBirth);
+    final businessName = context.read<BusinessProvider>().currentBusiness?.name ??
+        'Pharmacy';
+    final itemRows = pres.items.map((it) {
+      final drug = provider.drugs.cast<Drug?>().firstWhere(
+          (d) => d?.id == it['drugId'],
+          orElse: () => null);
+      return <String, dynamic>{
+        'name': drug?.name ?? (it['drugId']?.toString() ?? 'Unknown drug'),
+        'qty': it['qty'] ?? 1,
+      };
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -46,6 +62,24 @@ class PrescriptionDetailScreen extends StatelessWidget {
             Text('Prescription ID: ${pres.id}'),
             const SizedBox(height: 8),
             Text('Status: ${pres.status}'),
+            if (patientAge != null) ...[
+              const SizedBox(height: 8),
+              Text('Patient Age: $patientAge'),
+            ],
+            if ((pres.prescriber ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Prescriber: ${pres.prescriber}'),
+            ],
+            if ((pres.notes ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Notes: ${pres.notes}'),
+            ],
+            if ((pres.attachmentReference ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${pres.attachmentRequired ? 'Required a' : 'A'}ttachment Reference: ${pres.attachmentReference}',
+              ),
+            ],
             const SizedBox(height: 12),
             const Text('Items:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
@@ -140,6 +174,23 @@ class PrescriptionDetailScreen extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary),
                     child: const Text('Dispense'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await PrescriptionPrintService.printPrescription(
+                        context,
+                        businessName: businessName,
+                        prescription: pres,
+                        patientName: patientName,
+                        itemRows: itemRows,
+                        patientAge: patientAge,
+                      );
+                    },
+                    icon: const Icon(Icons.print_outlined),
+                    label: const Text('Print'),
                   ),
                 ),
                 const SizedBox(width: 12),
