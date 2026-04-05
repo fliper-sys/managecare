@@ -565,9 +565,10 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
   }
 
   void _showExportOptions(BuildContext context) {
+    final pageContext = context;
     showModalBottomSheet(
       context: context,
-      builder: (context) => Container(
+      builder: (sheetContext) => Container(
         padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -579,14 +580,25 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
               leading: const Icon(Icons.picture_as_pdf),
               title: const Text('PDF'),
               onTap: () async {
-                Navigator.pop(context);
-                await context
-                    .read<ReportsProvider>()
-                    .exportFinancialReportToPDF();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('Financial report exported as PDF')),
-                );
+                Navigator.pop(sheetContext);
+                try {
+                  final fileName = await pageContext
+                      .read<ReportsProvider>()
+                      .exportFinancialReportToPDF();
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(pageContext).showSnackBar(
+                    SnackBar(
+                      content: Text('Financial report exported: $fileName'),
+                    ),
+                  );
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(pageContext).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to export financial report: $e'),
+                    ),
+                  );
+                }
               },
             ),
           ],

@@ -8,6 +8,7 @@ import '../../services/whatsapp_service.dart';
 import '../../services/report_service.dart';
 import '../../services/email_service.dart';
 import '../../../core/utils/datetime_utils.dart';
+import '../admin_theme.dart';
 
 extension StringExtension on String {
   String capitalize() {
@@ -44,11 +45,12 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: context.adminBackground,
       appBar: AppBar(
         title: const Text('All Businesses'),
         elevation: 0,
-        backgroundColor: const Color(0xFF1E293B),
-        foregroundColor: Colors.white,
+        backgroundColor: context.adminSurface,
+        foregroundColor: context.adminTextPrimary,
       ),
       floatingActionButton: _selectedBusinessIds.isNotEmpty
           ? FloatingActionButton.extended(
@@ -81,8 +83,15 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
                         decoration: InputDecoration(
                           hintText: 'Search by name, owner, or type...',
                           prefixIcon: const Icon(Icons.search),
+                          filled: true,
+                          fillColor: context.adminSurface,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: context.adminBorder),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: context.adminBorder),
                           ),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 16,
@@ -133,7 +142,7 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
                             'No businesses found',
                             style: TextStyle(
                               fontSize: 16,
-                              color: Colors.grey[600],
+                              color: context.adminTextSecondary,
                             ),
                           ),
                         ],
@@ -167,7 +176,8 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey[300]!),
+          color: context.adminSurface,
+          border: Border.all(color: context.adminBorder),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
@@ -175,9 +185,16 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
           children: [
             Text(
               '$label: ${selected.toUpperCase()}',
-              style: const TextStyle(fontSize: 12),
+              style: TextStyle(
+                fontSize: 12,
+                color: context.adminTextPrimary,
+              ),
             ),
-            const Icon(Icons.arrow_drop_down, size: 18),
+            Icon(
+              Icons.arrow_drop_down,
+              size: 18,
+              color: context.adminTextSecondary,
+            ),
           ],
         ),
       ),
@@ -188,6 +205,7 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
       Function(String) onSelect) {
     showModalBottomSheet(
       context: context,
+      backgroundColor: context.adminSurface,
       builder: (ctx) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -236,10 +254,8 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      decoration: context.adminCardDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.all(12),
@@ -271,8 +287,9 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
         ),
         title: Text(
           name,
-          style: const TextStyle(
+          style: TextStyle(
             fontWeight: FontWeight.w600,
+            color: context.adminTextPrimary,
           ),
         ),
         subtitle: Column(
@@ -281,7 +298,10 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
             const SizedBox(height: 4),
             Text(
               '$owner • $type',
-              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              style: TextStyle(
+                fontSize: 12,
+                color: context.adminTextSecondary,
+              ),
             ),
             const SizedBox(height: 4),
             Row(
@@ -323,13 +343,20 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
                 const Spacer(),
                 Text(
                   '$workers workers',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: context.adminTextSecondary,
+                  ),
                 ),
               ],
             ),
           ],
         ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+        trailing: Icon(
+          Icons.arrow_forward_ios,
+          size: 16,
+          color: context.adminTextTertiary,
+        ),
         onTap: () => _showBusinessDetails(context, business),
       ),
     );
@@ -491,11 +518,12 @@ class BusinessDetailPage extends StatelessWidget {
     }
 
     return Scaffold(
+      backgroundColor: context.adminBackground,
       appBar: AppBar(
         title: const Text('Business Details'),
         elevation: 0,
-        backgroundColor: const Color(0xFF1E293B),
-        foregroundColor: Colors.white,
+        backgroundColor: context.adminSurface,
+        foregroundColor: context.adminTextPrimary,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -555,13 +583,15 @@ class BusinessDetailPage extends StatelessWidget {
 
             // Business Information
             _buildSection(
+              context,
               'Business Information',
               [
-                _buildInfoRow('Owner Name', business['ownerName'] ?? '-'),
-                _buildInfoRow('Email', business['email'] ?? '-'),
-                _buildInfoRow('Phone', business['phone'] ?? '-'),
-                _buildInfoRow('Business Type', business['businessType'] ?? '-'),
+                _buildInfoRow(context, 'Owner Name', business['ownerName'] ?? '-'),
+                _buildInfoRow(context, 'Email', business['email'] ?? '-'),
+                _buildInfoRow(context, 'Phone', business['phone'] ?? '-'),
+                _buildInfoRow(context, 'Business Type', business['businessType'] ?? '-'),
                 _buildInfoRow(
+                  context,
                   'Total Workers',
                   '${business['totalWorkers'] ?? 0}',
                 ),
@@ -596,14 +626,17 @@ class BusinessDetailPage extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                _buildInfoRow('Business Class', businessClass.toUpperCase()),
+                _buildInfoRow(context, 'Business Class', businessClass.toUpperCase()),
                 _buildInfoRow(
+                  context,
                   'Status',
                   business['isActive'] == true ? 'Active' : 'Inactive',
                 ),
                 _buildInfoRow(
+                    context,
                     'Created At', _formatTimestamp(business['createdAt'])),
                 _buildInfoRow(
+                    context,
                     'Updated At', _formatTimestamp(business['updatedAt'])),
               ],
             ),
@@ -612,6 +645,7 @@ class BusinessDetailPage extends StatelessWidget {
             // Features (if available)
             if (business['features'] != null)
               _buildSection(
+                context,
                 'Enabled Features',
                 [
                   ...(business['features'] as List)
@@ -622,6 +656,7 @@ class BusinessDetailPage extends StatelessWidget {
 
             // Workers section
             _buildSection(
+              context,
               'Workers',
               [
                 _buildWorkersList(context, business),
@@ -1196,19 +1231,19 @@ class BusinessDetailPage extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildInfoRow('Email', email),
+            _buildInfoRow(context, 'Email', email),
             const SizedBox(height: 8),
             if (phone.isNotEmpty) ...[
-              _buildInfoRow('Phone', phone),
+              _buildInfoRow(context, 'Phone', phone),
               const SizedBox(height: 8),
             ],
-            _buildInfoRow('Role', role.toUpperCase()),
+            _buildInfoRow(context, 'Role', role.toUpperCase()),
             const SizedBox(height: 8),
-            _buildInfoRow('Joined', joinDate),
+            _buildInfoRow(context, 'Joined', joinDate),
             const SizedBox(height: 8),
-            _buildInfoRow('Subscription Until', subEndDate),
+            _buildInfoRow(context, 'Subscription Until', subEndDate),
             const SizedBox(height: 8),
-            _buildInfoRow('Last Active', lastActive),
+            _buildInfoRow(context, 'Last Active', lastActive),
           ],
         ),
         actions: [
@@ -1941,30 +1976,32 @@ Future<void> _deleteBusinessCompletely(
   }
 }
 
-Widget _buildSection(String title, List<Widget> children) {
+Widget _buildSection(BuildContext context, String title, List<Widget> children) {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Text(
         title,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.bold,
-          color: Color(0xFF1E293B),
+          color: context.adminTextPrimary,
         ),
       ),
       const SizedBox(height: 12),
       Container(
-        decoration: BoxDecoration(
-          color: Colors.grey[50],
+        decoration: context.adminCardDecoration(
+          color: context.adminSurfaceAlt,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey[200]!),
         ),
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
             ...children
-                .map((child) => [child, const Divider(height: 16)])
+                .map((child) => [
+                      child,
+                      Divider(height: 16, color: context.adminBorder),
+                    ])
                 .expand((list) => list)
                 .toList()
               ..removeLast(),
@@ -1975,22 +2012,23 @@ Widget _buildSection(String title, List<Widget> children) {
   );
 }
 
-Widget _buildInfoRow(String label, String value) {
+Widget _buildInfoRow(BuildContext context, String label, String value) {
   return Row(
     mainAxisAlignment: MainAxisAlignment.spaceBetween,
     children: [
       Text(
         label,
         style: TextStyle(
-          color: Colors.grey[600],
+          color: context.adminTextSecondary,
           fontSize: 14,
         ),
       ),
       Text(
         value,
-        style: const TextStyle(
+        style: TextStyle(
           fontWeight: FontWeight.w600,
           fontSize: 14,
+          color: context.adminTextPrimary,
         ),
       ),
     ],

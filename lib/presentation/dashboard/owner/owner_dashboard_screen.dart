@@ -180,7 +180,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   Widget _buildBottomNavBar(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final screenWidth = MediaQuery.sizeOf(context).width;
-    final horizontalPadding = screenWidth < 420 ? 14.0 : 24.0;
+    final isCompact = screenWidth < 390;
+    final horizontalPadding = screenWidth < 420 ? 12.0 : 24.0;
     final navigationItems = [
       _BottomNavItem(icon: Icons.home_rounded, label: 'Home', index: 0),
       _BottomNavItem(icon: Icons.analytics_rounded, label: 'Reports', index: 1),
@@ -188,13 +189,30 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       _BottomNavItem(icon: Icons.person_rounded, label: 'Profile', index: 3),
     ];
 
-    return Container(
-      padding: EdgeInsets.fromLTRB(horizontalPadding, 0, horizontalPadding, 18),
-      color: Colors.transparent,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isDark
+              ? const [Color(0xFF101B2F), Color(0xFF0B1322)]
+              : const [Color(0xFFF7FAFF), Color(0xFFF1F5FF)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
       child: SafeArea(
         top: false,
+        minimum: EdgeInsets.fromLTRB(
+          horizontalPadding,
+          6,
+          horizontalPadding,
+          isCompact ? 12 : 18,
+        ),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          clipBehavior: Clip.antiAlias,
+          padding: EdgeInsets.symmetric(
+            horizontal: isCompact ? 6 : 8,
+            vertical: isCompact ? 6 : 8,
+          ),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: isDark
@@ -203,24 +221,31 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            borderRadius: BorderRadius.circular(32),
+            borderRadius: BorderRadius.circular(isCompact ? 28 : 32),
             border: Border.all(
               color: isDark
-                  ? Colors.white.withOpacity(0.08)
+                  ? Colors.white.withOpacity(0.10)
                   : AppColors.border.withOpacity(0.65),
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.28 : 0.10),
+                color: Colors.black.withOpacity(isDark ? 0.30 : 0.10),
                 blurRadius: 26,
                 offset: const Offset(0, 14),
               ),
             ],
           ),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: navigationItems
-                .map((item) => Expanded(child: _buildNavBarItem(item, isDark)))
+                .map(
+                  (item) => Expanded(
+                    child: _buildNavBarItem(
+                      item,
+                      isDark,
+                      isCompact: isCompact,
+                    ),
+                  ),
+                )
                 .toList(),
           ),
         ),
@@ -228,10 +253,15 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     );
   }
 
-  Widget _buildNavBarItem(_BottomNavItem item, bool isDark) {
+  Widget _buildNavBarItem(
+    _BottomNavItem item,
+    bool isDark, {
+    required bool isCompact,
+  }) {
     final isSelected = item.index == _selectedTabIndex;
     final activeColor = AppColors.primary;
     final inactiveColor = isDark ? Colors.grey[400] : Colors.grey[500];
+    final showInlineLabel = isSelected && !isCompact;
 
     return GestureDetector(
       onTap: () {
@@ -248,13 +278,13 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
           AnimatedContainer(
             duration: const Duration(milliseconds: 280),
             curve: Curves.easeOutCubic,
-            margin: const EdgeInsets.symmetric(horizontal: 4),
+            margin: EdgeInsets.symmetric(horizontal: isCompact ? 2 : 4),
             padding: EdgeInsets.symmetric(
-              horizontal: isSelected ? 12 : 0,
-              vertical: 8,
+              horizontal: showInlineLabel ? 12 : 0,
+              vertical: isCompact ? 6 : 8,
             ),
             decoration: BoxDecoration(
-              gradient: isSelected
+              gradient: showInlineLabel
                   ? LinearGradient(
                       colors: [
                         activeColor,
@@ -263,7 +293,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                     )
                   : null,
               color: isSelected
-                  ? null
+                  ? (isCompact ? activeColor.withOpacity(0.14) : null)
                   : (isDark
                       ? Colors.white.withOpacity(0.04)
                       : Colors.transparent),
@@ -274,11 +304,13 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 34,
-                  height: 34,
+                  width: isCompact ? 32 : 34,
+                  height: isCompact ? 32 : 34,
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? Colors.white.withOpacity(0.18)
+                        ? (isCompact
+                            ? activeColor.withOpacity(0.16)
+                            : Colors.white.withOpacity(0.18))
                         : (isDark
                             ? Colors.white.withOpacity(0.05)
                             : activeColor.withOpacity(0.10)),
@@ -286,8 +318,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                   ),
                   child: Icon(
                     item.icon,
-                    color: isSelected ? Colors.white : inactiveColor,
-                    size: 19,
+                    color: isSelected && !isCompact
+                        ? Colors.white
+                        : (isSelected ? activeColor : inactiveColor),
+                    size: isCompact ? 18 : 19,
                   ),
                 ),
                 AnimatedSwitcher(
@@ -300,7 +334,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                       child: child,
                     ),
                   ),
-                  child: isSelected
+                  child: showInlineLabel
                       ? Padding(
                           key: ValueKey(item.label),
                           padding: const EdgeInsets.only(left: 10, right: 4),
@@ -317,15 +351,22 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 2),
+          SizedBox(height: isCompact ? 4 : 2),
           AnimatedDefaultTextStyle(
             duration: const Duration(milliseconds: 200),
             style: AppTextStyles.caption.copyWith(
-              color: isSelected ? Colors.transparent : inactiveColor,
+              color: isSelected
+                  ? (isCompact ? activeColor : Colors.transparent)
+                  : inactiveColor,
               fontWeight: FontWeight.w600,
-              fontSize: 10.5,
+              fontSize: isCompact ? 10 : 10.5,
             ),
-            child: Text(item.label),
+            child: Text(
+              item.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              softWrap: false,
+            ),
           ),
         ],
       ),

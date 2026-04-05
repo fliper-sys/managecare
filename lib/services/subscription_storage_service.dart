@@ -10,8 +10,15 @@ class SubscriptionStorageService {
   /// Uploads a subscription proof file and returns the download URL
   Future<String?> uploadSubscriptionProof(File file, String userId, String planId) async {
     try {
-      // Create a unique filename
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(file.path)}';
+      // Create a unique filename - handle path safely for web compatibility
+      String fileName;
+      try {
+        fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(file.path)}';
+      } catch (e) {
+        // Fallback for web or when path operations fail
+        final extension = _getFileExtension(file.path);
+        fileName = '${DateTime.now().millisecondsSinceEpoch}_receipt$extension';
+      }
       final storageRef = _storage.ref().child('subscription_proofs/$userId/$planId/$fileName');
 
       // Upload the file
@@ -35,8 +42,15 @@ class SubscriptionStorageService {
     Function(double progress)? onProgress,
   }) async {
     try {
-      // Create a unique filename
-      final fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(file.path)}';
+      // Create a unique filename - handle path safely for web compatibility
+      String fileName;
+      try {
+        fileName = '${DateTime.now().millisecondsSinceEpoch}_${path.basename(file.path)}';
+      } catch (e) {
+        // Fallback for web or when path operations fail
+        final extension = _getFileExtension(file.path);
+        fileName = '${DateTime.now().millisecondsSinceEpoch}_receipt$extension';
+      }
       final storageRef = _storage.ref().child('subscription_proofs/$userId/$planId/$fileName');
 
       // Upload the file with progress tracking
@@ -137,6 +151,19 @@ class SubscriptionStorageService {
     } catch (e) {
       print('Error deleting subscription proof: $e');
       return false;
+    }
+  }
+
+  /// Helper method to extract file extension safely
+  String _getFileExtension(String filePath) {
+    try {
+      final lastDot = filePath.lastIndexOf('.');
+      if (lastDot != -1 && lastDot < filePath.length - 1) {
+        return filePath.substring(lastDot);
+      }
+      return '.jpg'; // Default extension
+    } catch (e) {
+      return '.jpg'; // Default extension for safety
     }
   }
 }

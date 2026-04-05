@@ -1,10 +1,13 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/routes.dart';
@@ -46,6 +49,8 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
   String _selectedPlanId = '';
   bool _isProcessing = false;
   File? _selectedReceipt;
+  Uint8List? _selectedReceiptBytes;
+  String? _selectedReceiptName;
   double _uploadProgress = 0.0;
 
   @override
@@ -109,6 +114,25 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
       (plan) => plan.id == _selectedPlanId,
       orElse: () => plans.first,
     );
+  }
+
+  bool get _hasSelectedReceipt =>
+      _selectedReceipt != null || _selectedReceiptBytes != null;
+
+  void _setSelectedReceipt({
+    File? receipt,
+    Uint8List? receiptBytes,
+    String? displayName,
+  }) {
+    final resolvedName = (displayName?.trim().isNotEmpty == true)
+        ? displayName!.trim()
+        : (receipt != null ? path.basename(receipt.path) : 'receipt.jpg');
+
+    setState(() {
+      _selectedReceipt = receipt;
+      _selectedReceiptBytes = receiptBytes;
+      _selectedReceiptName = resolvedName;
+    });
   }
 
   @override
@@ -222,7 +246,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                           ),
                         const SizedBox(height: 24),
                         _buildUploadSection(currency),
-                        if (_selectedReceipt != null) ...[
+                        if (_hasSelectedReceipt) ...[
                           const SizedBox(height: 16),
                           _buildReceiptPreview(),
                         ],
@@ -237,7 +261,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                         ],
                         const SizedBox(height: 24),
                         ElevatedButton(
-                          onPressed: _selectedReceipt == null || _isProcessing
+                          onPressed: !_hasSelectedReceipt || _isProcessing
                               ? null
                               : () => _submitReceipt(currency),
                           style: ElevatedButton.styleFrom(
@@ -539,13 +563,17 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
           const Icon(Icons.check_circle, color: Colors.green),
           const SizedBox(height: 8),
           Text(
-            _selectedReceipt!.path.split(Platform.pathSeparator).last,
+            _selectedReceiptName ?? 'Selected receipt',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 8),
           TextButton(
-            onPressed: () => setState(() => _selectedReceipt = null),
+            onPressed: () => setState(() {
+              _selectedReceipt = null;
+              _selectedReceiptBytes = null;
+              _selectedReceiptName = null;
+            }),
             child: const Text('Change Receipt'),
           ),
         ],
@@ -697,7 +725,14 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         imageQuality: 80,
       );
       if (image != null) {
-        setState(() => _selectedReceipt = File(image.path));
+        final imageBytes = await image.readAsBytes();
+        _setSelectedReceipt(
+          receipt: !kIsWeb && image.path.isNotEmpty ? File(image.path) : null,
+          receiptBytes: imageBytes,
+          displayName: image.path.isNotEmpty
+              ? path.basename(image.path)
+              : 'camera_receipt.jpg',
+        );
       }
     } catch (e) {
       _showError('Failed to open camera: $e');
@@ -711,7 +746,14 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         imageQuality: 80,
       );
       if (image != null) {
-        setState(() => _selectedReceipt = File(image.path));
+        final imageBytes = await image.readAsBytes();
+        _setSelectedReceipt(
+          receipt: !kIsWeb && image.path.isNotEmpty ? File(image.path) : null,
+          receiptBytes: imageBytes,
+          displayName: image.path.isNotEmpty
+              ? path.basename(image.path)
+              : 'gallery_receipt.jpg',
+        );
       }
     } catch (e) {
       _showError('Failed to open gallery: $e');
@@ -723,11 +765,25 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'],
+        withData: true, // Include bytes for web compatibility
       );
       if (result != null && result.files.isNotEmpty) {
-        final path = result.files.first.path;
-        if (path != null && path.isNotEmpty) {
-          setState(() => _selectedReceipt = File(path));
+        final file = result.files.first;
+        final localFile = !kIsWeb &&
+                file.path != null &&
+                file.path!.isNotEmpty
+            ? File(file.path!)
+            : null;
+
+        if (localFile != null || file.bytes != null) {
+          _setSelectedReceipt(
+            receipt: localFile,
+            receiptBytes: file.bytes,
+            displayName:
+                file.name.isNotEmpty ? file.name : 'receipt.jpg',
+          );
+        } else {
+          _showError('Unable to read the selected receipt file.');
         }
       }
     } catch (e) {
@@ -740,8 +796,22 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'],
+        withData: true, // Include bytes for web compatibility
       );
-      if (result == null || result.files.isEmpty || result.files.first.path == null) {
+      if (result == null || result.files.isEmpty) {
+        return;
+      }
+
+      final file = result.files.first;
+      final fileBytes = file.bytes;
+      final fileToUpload = !kIsWeb &&
+              file.path != null &&
+              file.path!.isNotEmpty
+          ? File(file.path!)
+          : null;
+
+      if (fileBytes == null && fileToUpload == null) {
+        _showError('Unable to process selected file');
         return;
       }
 
@@ -757,8 +827,9 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
       });
 
       final uploadResult = await SubscriptionStorageService()
-          .uploadSubscriptionProofWithProgress(
-        File(result.files.first.path!),
+          .uploadSubscriptionProofBytesWithProgress(
+        fileBytes ?? await fileToUpload!.readAsBytes(),
+        file.name.isNotEmpty ? file.name : 'receipt.jpg',
         widget.userId,
         selectedPlan.id,
         onProgress: (progress) {
@@ -796,7 +867,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
   Future<void> _submitReceipt(String currency) async {
     final businessProvider = context.read<BusinessProvider>();
     final selectedPlan = _selectedPlan(businessProvider);
-    if (_selectedReceipt == null) {
+    if (!_hasSelectedReceipt) {
       _showError('Please select a receipt first.');
       return;
     }
@@ -825,7 +896,9 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         planName: selectedPlan.name,
         amount: selectedPlan.price,
         currency: currency,
-        receiptFile: _selectedReceipt!,
+        receiptFile: _selectedReceipt,
+        receiptBytes: _selectedReceiptBytes,
+        receiptFileName: _selectedReceiptName,
         userEmail: widget.userEmail,
         userName: widget.userName,
         onProgress: (progress) {

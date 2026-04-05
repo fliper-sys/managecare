@@ -100,10 +100,51 @@ class _LoginScreenState extends State<LoginScreen>
         'subscriptionReviewStatus': data['subscriptionReviewStatus'],
         'subscriptionPlan': data['subscriptionPlan'],
         'subscriptionAmount': data['subscriptionAmount'],
+        'hasActiveSubscription': data['isSubscriptionActive'],
+        'isSubscriptionActive': data['isSubscriptionActive'],
+        'subscriptionEndDate': data['subscriptionEndDate'],
       };
     } catch (_) {
       return null;
     }
+  }
+
+  DateTime? _parseSubscriptionDate(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) {
+      return DateTime.tryParse(value);
+    }
+    try {
+      if (value.runtimeType.toString().contains('Timestamp')) {
+        return (value as dynamic).toDate() as DateTime;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  bool _hasActiveCurrentBusinessSubscription(
+      Map<String, dynamic>? subscriptionData) {
+    if (subscriptionData == null) return false;
+
+    final reviewStatus =
+        subscriptionData['subscriptionReviewStatus']?.toString().toLowerCase() ??
+            '';
+    final status =
+        subscriptionData['subscriptionStatus']?.toString().toLowerCase() ?? '';
+    final hasActiveFlag =
+        subscriptionData['hasActiveSubscription'] == true ||
+            subscriptionData['isSubscriptionActive'] == true;
+    final statusLooksActive = reviewStatus == 'approved' ||
+        reviewStatus == 'active' ||
+        status == 'approved' ||
+        status == 'active';
+    final endDate = _parseSubscriptionDate(subscriptionData['subscriptionEndDate']);
+    final isWithinDuration =
+        endDate == null || !DateTime.now().isAfter(endDate);
+
+    return (hasActiveFlag || statusLooksActive) && isWithinDuration;
   }
 
   Future<void> _handleLogin() async {
@@ -141,6 +182,18 @@ class _LoginScreenState extends State<LoginScreen>
     if (!mounted) return;
 
     if (success) {
+      await authProvider.refresh();
+      if (!mounted) return;
+      if (authProvider.currentUser == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('We could not reload your business profile. Please try again.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+        return;
+      }
+
       final user = authProvider.currentUser!;
       final restrictionState = await BusinessRestrictionService()
           .getRestrictionState(
@@ -170,8 +223,13 @@ class _LoginScreenState extends State<LoginScreen>
         final subscriptionData =
             await _fetchBusinessSubscriptionStatus(currentBusinessId);
         final subscriptionStatus =
-            subscriptionData?['subscriptionReviewStatus']?.toString() ??
-                subscriptionData?['subscriptionStatus']?.toString();
+            (subscriptionData?['subscriptionReviewStatus'] ??
+                    subscriptionData?['subscriptionStatus'])
+                ?.toString()
+                .toLowerCase() ??
+                '';
+        final hasActiveCurrentBusinessSubscription =
+            _hasActiveCurrentBusinessSubscription(subscriptionData);
 
         if (!mounted) return;
 
@@ -190,8 +248,8 @@ class _LoginScreenState extends State<LoginScreen>
                   subscriptionData?['subscriptionAmount'] ?? 0.0,
             },
           );
-        } else if (!authProvider.subscriptionValidated ||
-            !user.isSubscriptionValid) {
+        } else if (!(hasActiveCurrentBusinessSubscription ||
+            authProvider.subscriptionValidated)) {
           Navigator.of(context).pushReplacementNamed(
             Routes.subscriptionPayment,
             arguments: {

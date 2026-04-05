@@ -409,7 +409,14 @@ class _PosScreenState extends State<PosScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => showModalBottomSheet(
           context: context,
-          builder: (_) => const CheckoutSheet(),
+          builder: (_) => DraggableScrollableSheet(
+            initialChildSize: 0.9,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            builder: (BuildContext context, ScrollController scrollController) {
+              return CheckoutSheet(scrollController: scrollController);
+            },
+          ),
           isScrollControlled: true,
         ),
         icon: Stack(

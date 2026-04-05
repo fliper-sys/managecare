@@ -24,7 +24,8 @@ import '../../../../providers/customer_provider.dart';
 import '../../../../data/models/customer_model.dart';
 
 class CheckoutSheet extends StatefulWidget {
-  const CheckoutSheet({super.key});
+  final ScrollController? scrollController;
+  const CheckoutSheet({super.key, this.scrollController});
 
   @override
   State<CheckoutSheet> createState() => _CheckoutSheetState();
@@ -620,23 +621,22 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom,
         ),
-        child: SizedBox(
-          height: MediaQuery.of(context).size.height * 0.9,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Material(
-              color: Theme.of(context).cardColor,
-              elevation: 2,
-              borderRadius: BorderRadius.circular(24),
-              clipBehavior: Clip.antiAlias,
-              child: Scrollbar(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Material(
+            color: Theme.of(context).cardColor,
+            elevation: 2,
+            borderRadius: BorderRadius.circular(24),
+            clipBehavior: Clip.antiAlias,
+            child: Scrollbar(
+              child: SingleChildScrollView(
+                controller: widget.scrollController,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
             Center(
               child: Container(
                 width: 44,
@@ -1173,14 +1173,13 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                 ),
               ),
                     ],
-                  ),
+                  ]
                 ),
               ),
             ),
           ),
         ),
-      ),
-    );
+      ));
   }
 }
 

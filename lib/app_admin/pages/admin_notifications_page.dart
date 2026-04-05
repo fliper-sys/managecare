@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/admin_notification_model.dart';
 import '../../../services/admin_notification_service.dart';
+import '../admin_theme.dart';
 
 class AdminNotificationsPage extends StatefulWidget {
   const AdminNotificationsPage({super.key});
@@ -17,11 +18,11 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: context.adminBackground,
       appBar: AppBar(
         title: const Text('Notifications'),
         elevation: 0,
-        backgroundColor: const Color(0xFF1E293B),
-        foregroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
         actions: [
           IconButton(
             icon: Icon(
@@ -67,7 +68,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
                     'No notifications yet',
                     style: TextStyle(
                       fontSize: 18,
-                      color: Colors.grey[600],
+                      color: context.adminTextSecondary,
                     ),
                   ),
                 ],
@@ -132,21 +133,11 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: notification.isRead ? Colors.white : const Color(0xFFF0F9FF),
+        decoration: context.adminCardDecoration(
+          color: notification.isRead
+              ? context.adminSurface
+              : typeColor.withOpacity(context.isAdminDark ? 0.16 : 0.08),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: notification.isRead
-                ? Colors.grey[200]!
-                : typeColor.withOpacity(0.3),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
         ),
         child: InkWell(
           onTap: () {
@@ -184,10 +175,10 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
                             children: [
                               Text(
                                 notification.title,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
-                                  color: Color(0xFF1E293B),
+                                  color: context.adminTextPrimary,
                                 ),
                               ),
                               const SizedBox(height: 4),
@@ -195,7 +186,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
                                 notification.message,
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey[600],
+                                  color: context.adminTextSecondary,
                                 ),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
@@ -223,7 +214,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
                         _formatTime(notification.createdAt),
                         style: TextStyle(
                           fontSize: 11,
-                          color: Colors.grey[500],
+                          color: context.adminTextTertiary,
                         ),
                       ),
                     ],
@@ -241,20 +232,26 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(notification.title),
+        title: Text(
+          notification.title,
+          style: TextStyle(color: context.adminTextPrimary),
+        ),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(notification.message),
+              Text(
+                notification.message,
+                style: TextStyle(color: context.adminTextPrimary),
+              ),
               const SizedBox(height: 16),
               if (notification.data.isNotEmpty) ...[
                 Text(
                   'Details',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: Colors.grey[800],
+                    color: context.adminTextPrimary,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -264,7 +261,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
                         '${entry.key}: ${entry.value}',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey[700],
+                          color: context.adminTextSecondary,
                         ),
                       ),
                     )),
@@ -274,7 +271,7 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
                 _formatDateTime(notification.createdAt),
                 style: TextStyle(
                   fontSize: 11,
-                  color: Colors.grey[500],
+                  color: context.adminTextTertiary,
                 ),
               ),
             ],

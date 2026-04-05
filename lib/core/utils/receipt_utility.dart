@@ -11,6 +11,25 @@ import '../../services/web_download.dart' as web_download;
 
 /// Receipt utility for sharing and downloading receipts
 class ReceiptUtility {
+  static Future<XFile> _createShareFile({
+    required Uint8List bytes,
+    required String fileName,
+    required String mimeType,
+  }) async {
+    if (kIsWeb) {
+      return XFile.fromData(
+        bytes,
+        mimeType: mimeType,
+        name: fileName,
+      );
+    }
+
+    final tempDirectory = await getTemporaryDirectory();
+    final file = File('${tempDirectory.path}/$fileName');
+    await file.writeAsBytes(bytes, flush: true);
+    return XFile(file.path, mimeType: mimeType);
+  }
+
   /// Request file storage permissions
   static Future<bool> requestStoragePermission() async {
     if (kIsWeb) {
@@ -178,15 +197,14 @@ class ReceiptUtility {
       final resolvedFileName = fileName?.endsWith('.png') == true
           ? fileName!
           : '${fileName ?? 'receipt'}.png';
+      final shareFile = await _createShareFile(
+        bytes: imageData,
+        fileName: resolvedFileName,
+        mimeType: 'image/png',
+      );
       final result = await SharePlus.instance.share(
         ShareParams(
-          files: [
-            XFile.fromData(
-              imageData,
-              mimeType: 'image/png',
-              name: resolvedFileName,
-            ),
-          ],
+          files: [shareFile],
           fileNameOverrides: [resolvedFileName],
           text: 'Receipt from $businessName',
           subject: '$businessName Receipt',
@@ -247,15 +265,14 @@ class ReceiptUtility {
       final resolvedFileName = fileName.endsWith('.pdf')
           ? fileName
           : '$fileName.pdf';
+      final shareFile = await _createShareFile(
+        bytes: pdfData,
+        fileName: resolvedFileName,
+        mimeType: 'application/pdf',
+      );
       final result = await SharePlus.instance.share(
         ShareParams(
-          files: [
-            XFile.fromData(
-              pdfData,
-              mimeType: 'application/pdf',
-              name: resolvedFileName,
-            ),
-          ],
+          files: [shareFile],
           fileNameOverrides: [resolvedFileName],
           text: 'Receipt from $businessName',
           subject: '$businessName Receipt',

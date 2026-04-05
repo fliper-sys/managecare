@@ -21,9 +21,11 @@ import '../../../widgets/app_header.dart';
 import '../../../providers/retail_provider.dart';
 import '../../../providers/connectivity_provider.dart';
 import '../../../providers/pharmacy_provider.dart';
+import '../../../providers/customer_provider.dart';
 import '../../../core/utils/receipt_utility.dart';
 import '../../../core/utils/search_utils.dart';
 import '../../../core/utils/inventory_utils.dart';
+import '../../../data/models/customer_model.dart';
 import '../../widgets/product_view_switcher.dart';
 import 'customer_tracking_screen.dart';
 import 'receipt_detail_screen.dart';
@@ -113,10 +115,16 @@ class _SalesScreenState extends State<SalesScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => _CheckoutSheet(
-        items: retail.cartItems,
-        total: retail.cartTotal,
-        onComplete: (customerEmail, customerName, paymentMethod, storeId, taxRate, discount, priceOverrides) async {
+      builder: (sheetContext) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.88,
+        minChildSize: 0.55,
+        maxChildSize: 0.96,
+        builder: (sheetContext, scrollController) => _CheckoutSheet(
+          items: retail.cartItems,
+          total: retail.cartTotal,
+          scrollController: scrollController,
+          onComplete: (customerId, customerEmail, customerName, paymentMethod, storeId, taxRate, discount, priceOverrides) async {
           // Capture sale data before clearing cart
           final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
           final pm = (paymentMethod.isNotEmpty)
@@ -174,6 +182,7 @@ class _SalesScreenState extends State<SalesScreen>
             'paymentBreakdown': [
               {'method': pm, 'amount': finalTotal}
             ],
+            'customerId': customerId,
             'customerEmail': customerEmail,
             'customerName': customerName,
             'createdAt': DateTime.now(),
@@ -185,6 +194,7 @@ class _SalesScreenState extends State<SalesScreen>
 
           final savedOffline = await retail.checkout(
             paymentMethod: pm,
+            customerId: customerId,
             customerEmail: customerEmail,
             customerName: customerName,
             workerId: authProvider.currentUser?.id,
@@ -215,6 +225,20 @@ class _SalesScreenState extends State<SalesScreen>
                 backgroundColor: AppColors.success,
               ),
             );
+          }
+
+          if (!savedOffline && customerId != null && customerId.isNotEmpty) {
+            try {
+              final customerProvider =
+                  Provider.of<CustomerProvider>(context, listen: false);
+              await customerProvider.updateCustomerAfterPurchase(
+                customerId,
+                finalTotal,
+              );
+            } catch (e) {
+              debugPrint(
+                  '[SalesScreen] Failed to update customer summary: $e');
+            }
           }
 
 
@@ -347,6 +371,7 @@ class _SalesScreenState extends State<SalesScreen>
           }
           
         },
+        ),
       ),
     );
   }
@@ -1652,12 +1677,14 @@ class _ProductListTile extends StatelessWidget {
 class _CheckoutSheet extends StatefulWidget {
   final Map<Product, int> items;
   final double total;
-  final Function(String? customerEmail, String? customerName, String paymentMethod, String? storeId, double taxRate, double discount, Map<String, double> priceOverrides) onComplete;
+  final ScrollController? scrollController;
+  final Function(String? customerId, String? customerEmail, String? customerName, String paymentMethod, String? storeId, double taxRate, double discount, Map<String, double> priceOverrides) onComplete;
 
   const _CheckoutSheet({
     required this.items,
     required this.total,
     required this.onComplete,
+    this.scrollController,
   });
 
   @override
@@ -1667,6 +1694,7 @@ class _CheckoutSheet extends StatefulWidget {
 class _CheckoutSheetState extends State<_CheckoutSheet> {
   String _paymentMethod = 'cash';
   String? _selectedStoreId;
+  CustomerModel? _selectedCustomer;
   late TextEditingController _customerEmailController;
   late TextEditingController _customerNameController;
   late TextEditingController _taxRateController;
@@ -1674,6 +1702,271 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   // Per-item price overrides (keyed by product id)
   final Map<String, double> _priceOverrides = {};
+
+  String _resolveBusinessId() {
+    final businessId =
+        context.read<BusinessProvider>().currentBusiness?.id ??
+            context.read<AuthProvider>().currentUser?.primaryBusinessId ??
+            context.read<AuthProvider>().currentUser?.businessId ??
+            '';
+    return businessId.trim();
+  }
+
+  void _applySelectedCustomer(
+    CustomerModel? customer, {
+    bool syncProvider = true,
+  }) {
+    if (syncProvider) {
+      final customerProvider = context.read<CustomerProvider>();
+      if (customer == null) {
+        customerProvider.clearSelectedCustomer();
+      } else {
+        customerProvider.selectCustomer(customer);
+      }
+    }
+
+    setState(() {
+      _selectedCustomer = customer;
+      _customerNameController.text = customer?.name ?? '';
+      _customerEmailController.text = customer?.email ?? '';
+    });
+  }
+
+  Future<void> _loadCustomers() async {
+    try {
+      final businessId = _resolveBusinessId();
+      if (businessId.isEmpty) return;
+
+      final customerProvider = context.read<CustomerProvider>();
+      customerProvider.setBusinessId(businessId);
+      if (customerProvider.customers.isEmpty && !customerProvider.isLoading) {
+        await customerProvider.loadCustomers();
+      }
+
+      if (!mounted) return;
+      _applySelectedCustomer(
+        customerProvider.selectedCustomer,
+        syncProvider: false,
+      );
+    } catch (e) {
+      debugPrint('[SalesCheckoutSheet] Failed to load customers: $e');
+    }
+  }
+
+  Future<CustomerModel?> _showCreateCustomerDialog() async {
+    final nameCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    bool isSaving = false;
+
+    return showDialog<CustomerModel?>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Add customer'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Customer name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Phone number',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email address',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      if (nameCtrl.text.trim().isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Customer name is required'),
+                          ),
+                        );
+                        return;
+                      }
+
+                      setDialogState(() => isSaving = true);
+                      final customerProvider =
+                          context.read<CustomerProvider>();
+                      final created = await customerProvider.createCustomer(
+                        name: nameCtrl.text.trim(),
+                        phone: phoneCtrl.text.trim(),
+                        email: emailCtrl.text.trim(),
+                      );
+                      if (!dialogContext.mounted) return;
+                      Navigator.of(dialogContext).pop(created);
+                    },
+              child: isSaving
+                  ? const SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCustomerSelectionSheet() async {
+    final customerProvider = context.read<CustomerProvider>();
+    final businessId = _resolveBusinessId();
+    if (businessId.isEmpty) return;
+
+    customerProvider.setBusinessId(businessId);
+    if (customerProvider.customers.isEmpty && !customerProvider.isLoading) {
+      await customerProvider.loadCustomers();
+    }
+
+    if (!mounted) return;
+
+    final selected = await showModalBottomSheet<CustomerModel?>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        String query = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            final customers = customerProvider.customers.where((customer) {
+              final q = query.trim().toLowerCase();
+              if (q.isEmpty) return true;
+              return customer.name.toLowerCase().contains(q) ||
+                  (customer.phone?.toLowerCase().contains(q) ?? false) ||
+                  (customer.email?.toLowerCase().contains(q) ?? false);
+            }).toList();
+
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                  bottom: 16 + MediaQuery.of(sheetContext).viewInsets.bottom,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Select customer',
+                            style: AppTextStyles.heading5,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        hintText: 'Search by name, phone, or email',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (value) =>
+                          setSheetState(() => query = value),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          icon: const Icon(Icons.person_outline),
+                          label: const Text('Walk-in customer'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (customerProvider.isLoading)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: CircularProgressIndicator(),
+                      )
+                    else if (customers.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('No customers found'),
+                      )
+                    else
+                      Flexible(
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: customers.length,
+                          separatorBuilder: (_, __) =>
+                              const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final customer = customers[index];
+                            return ListTile(
+                              leading: CircleAvatar(
+                                child: Text(
+                                  customer.name.isNotEmpty
+                                      ? customer.name[0].toUpperCase()
+                                      : '?',
+                                ),
+                              ),
+                              title: Text(customer.name),
+                              subtitle: Text(
+                                customer.phone?.isNotEmpty == true
+                                    ? customer.phone!
+                                    : (customer.email?.isNotEmpty == true
+                                        ? customer.email!
+                                        : 'No contact details'),
+                              ),
+                              onTap: () =>
+                                  Navigator.of(sheetContext).pop(customer),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (!mounted) return;
+    _applySelectedCustomer(selected);
+  }
 
   @override
   void initState() {
@@ -1693,6 +1986,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         final auth = Provider.of<AuthProvider>(context, listen: false);
         if (retail.stores.isEmpty) retail.loadStores();
         _selectedStoreId = auth.currentUser?.storeId;
+        _loadCustomers();
       } catch (_) {}
     });
   }
@@ -2123,15 +2417,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                   AsyncCustomButton(
                     text: 'Complete Sale',
                     onPressed: () async => await widget.onComplete(
-                      _customerEmailController.text.isEmpty
-                          ? null
-                          : _customerEmailController.text,
-                      _customerNameController.text.isEmpty
-                          ? null
-                          : _customerNameController.text,
+                      _selectedCustomer?.id,
+                      _customerEmailController.text.isEmpty ? null : _customerEmailController.text,
+                      _customerNameController.text.isEmpty ? null : _customerNameController.text,
                       _paymentMethod,
                       _selectedStoreId,
-                      double.tryParse(_taxRateController.text) ?? 0,
+                      double.tryParse(_taxRateController.text) ?? 0.0,
                       double.tryParse(_discountController.text) ?? 0,
                       Map<String, double>.from(_priceOverrides),
                     ),
@@ -2206,4 +2497,3 @@ class _PaymentMethodButton extends StatelessWidget {
     );
   }
 }
-

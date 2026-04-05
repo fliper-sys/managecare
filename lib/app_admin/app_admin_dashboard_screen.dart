@@ -4,13 +4,16 @@ import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../providers/admin_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/theme_provider.dart';
 import '../core/theme/app_theme.dart';
 import '../core/utils/currency.dart';
 import '../core/constants/routes.dart';
 import '../routes/app_router.dart';
+import 'admin_theme.dart';
 import 'pages/admin_notifications_page.dart';
 import 'pages/all_businesses_page.dart';
 import 'pages/admin_payments_page.dart';
+import 'pages/business_subscription_overview_page.dart';
 import 'pages/marketers_page.dart';
 import '../providers/marketer_provider.dart';
 
@@ -31,15 +34,18 @@ class AdminDashboardApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AdminProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => MarketerProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
-      child: MaterialApp(
-        title: 'Manage Care ',
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        themeMode: ThemeMode.system,
-        home: DashboardHome(initialIndex: initialIndex),
-        onGenerateRoute: appRouter.onGenerateRoute,
-        debugShowCheckedModeBanner: false,
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) => MaterialApp(
+          title: 'Manage Care ',
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: themeProvider.themeMode,
+          home: DashboardHome(initialIndex: initialIndex),
+          onGenerateRoute: appRouter.onGenerateRoute,
+          debugShowCheckedModeBanner: false,
+        ),
       ),
     );
   }
@@ -82,6 +88,7 @@ class _DashboardHomeState extends State<DashboardHome> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return WillPopScope(
         onWillPop: () async {
           final shouldExit = await showDialog<bool>(
@@ -104,43 +111,60 @@ class _DashboardHomeState extends State<DashboardHome> {
           return false;
         },
         child: Scaffold(
-          body: _pages[_selectedIndex],
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _selectedIndex,
-            onDestinationSelected: (index) =>
-                setState(() => _selectedIndex = index),
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.dashboard_outlined),
-                selectedIcon: Icon(Icons.dashboard_rounded),
-                label: 'Dashboard',
+          backgroundColor: context.adminBackground,
+          body: DecoratedBox(
+            decoration: BoxDecoration(
+              color: context.adminBackground,
+            ),
+            child: _pages[_selectedIndex],
+          ),
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              decoration: context.adminCardDecoration(
+                color: theme.navigationBarTheme.backgroundColor ??
+                    context.adminSurface,
+                borderRadius: BorderRadius.circular(24),
               ),
-              NavigationDestination(
-                icon: Icon(Icons.business_outlined),
-                selectedIcon: Icon(Icons.business_rounded),
-                label: 'Business',
+              child: NavigationBar(
+                selectedIndex: _selectedIndex,
+                onDestinationSelected: (index) =>
+                    setState(() => _selectedIndex = index),
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.dashboard_outlined),
+                    selectedIcon: Icon(Icons.dashboard_rounded),
+                    label: 'Dashboard',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.business_outlined),
+                    selectedIcon: Icon(Icons.business_rounded),
+                    label: 'Business',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.payments_outlined),
+                    selectedIcon: Icon(Icons.payments_rounded),
+                    label: 'Payments',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.groups_outlined),
+                    selectedIcon: Icon(Icons.groups_rounded),
+                    label: 'Users',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.campaign_outlined),
+                    selectedIcon: Icon(Icons.campaign_rounded),
+                    label: 'Marketers',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.settings_outlined),
+                    selectedIcon: Icon(Icons.settings_rounded),
+                    label: 'Settings',
+                  ),
+                ],
               ),
-              NavigationDestination(
-                icon: Icon(Icons.payments_outlined),
-                selectedIcon: Icon(Icons.payments_rounded),
-                label: 'Payments',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.groups_outlined),
-                selectedIcon: Icon(Icons.groups_rounded),
-                label: 'Users',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.campaign_outlined),
-                selectedIcon: Icon(Icons.campaign_rounded),
-                label: 'Marketers',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.settings_outlined),
-                selectedIcon: Icon(Icons.settings_rounded),
-                label: 'Settings',
-              ),
-            ],
+            ),
           ),
         ));
   }
@@ -197,8 +221,10 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: RefreshIndicator(
+    return ColoredBox(
+      color: context.adminBackground,
+      child: SafeArea(
+        child: RefreshIndicator(
         onRefresh: () =>
             context.read<AdminProvider>().fetchAdminStats(force: true),
         child: SingleChildScrollView(
@@ -219,22 +245,22 @@ class _DashboardPageState extends State<DashboardPage> {
                   children: [
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
+                      children: [
                         Text(
                           'ManageCare',
                           style: TextStyle(
                             fontSize: 26,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
+                            color: context.adminTextPrimary,
                             letterSpacing: -0.5,
                           ),
                         ),
-                        SizedBox(height: 4),
+                        const SizedBox(height: 4),
                         Text(
                           'Platform Overview',
                           style: TextStyle(
                             fontSize: 14,
-                            color: Color(0xFF64748B),
+                            color: context.adminTextSecondary,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -356,11 +382,14 @@ class _DashboardPageState extends State<DashboardPage> {
                     setState(() => _searchQuery = value.toLowerCase());
                   },
                   decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF94A3B8)),
+                    prefixIcon: Icon(
+                      Icons.search_rounded,
+                      color: context.adminTextTertiary,
+                    ),
                     hintText: 'Search businesses, users...',
-                    hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                    hintStyle: TextStyle(color: context.adminTextTertiary),
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor: context.adminSurface,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
                       borderSide: BorderSide.none,
@@ -499,7 +528,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF0F172A),
+                    color: context.adminTextPrimary,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -556,6 +585,22 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                     _buildQuickActionTile(
                       context,
+                      title: 'Subscription Overview',
+                      subtitle: 'See owners, start dates, and due dates',
+                      icon: Icons.manage_accounts_rounded,
+                      color: const Color(0xFF14B8A6),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) =>
+                                const BusinessSubscriptionOverviewPage(),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildQuickActionTile(
+                      context,
                       title: 'Notifications',
                       subtitle: 'Broadcast admin notices quickly',
                       icon: Icons.notifications_active_rounded,
@@ -577,7 +622,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0F172A),
+                      color: context.adminSurfaceStrong,
                       borderRadius: BorderRadius.circular(22),
                     ),
                     child: Row(
@@ -632,7 +677,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
-                        color: const Color(0xFF0F172A),
+                        color: context.adminTextPrimary,
                       ),
                     ),
                     TextButton(
@@ -717,7 +762,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     child: Center(
                       child: Text(
                         'No businesses yet',
-                        style: TextStyle(color: Colors.grey[500]),
+                        style: TextStyle(color: context.adminTextSecondary),
                       ),
                     ),
                   ),
@@ -729,7 +774,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF0F172A),
+                    color: context.adminTextPrimary,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -739,7 +784,7 @@ class _DashboardPageState extends State<DashboardPage> {
           },
         ),
       ),
-    ));
+    )));
   }
 
   Widget _buildStatCard(
@@ -754,20 +799,8 @@ class _DashboardPageState extends State<DashboardPage> {
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
+        decoration: context.adminCardDecoration(
           borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.05),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
-            ),
-          ],
-          border: Border.all(
-            color: Colors.grey.withOpacity(0.1),
-            width: 1,
-          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -814,20 +847,20 @@ class _DashboardPageState extends State<DashboardPage> {
             const SizedBox(height: 16),
             Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 28,
                 fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
+                color: context.adminTextPrimary,
                 letterSpacing: -0.5,
               ),
             ),
             const SizedBox(height: 6),
             Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
-                color: Color(0xFF64748B),
+                color: context.adminTextSecondary,
               ),
             ),
             if (onTap != null) ...[
@@ -874,17 +907,8 @@ class _DashboardPageState extends State<DashboardPage> {
       child: Container(
         width: tileWidth,
         padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
+        decoration: context.adminCardDecoration(
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.1)),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.08),
-              blurRadius: 18,
-              offset: const Offset(0, 6),
-            ),
-          ],
         ),
         child: Row(
           children: [
@@ -904,17 +928,17 @@ class _DashboardPageState extends State<DashboardPage> {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF0F172A),
+                      color: context.adminTextPrimary,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     subtitle,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: Color(0xFF64748B),
+                      color: context.adminTextSecondary,
                       height: 1.35,
                     ),
                   ),
@@ -932,16 +956,8 @@ class _DashboardPageState extends State<DashboardPage> {
       Color color, bool isOnline) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      decoration: context.adminCardDecoration(
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Row(
         children: [
@@ -977,7 +993,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: Colors.grey[900],
+                    color: context.adminTextPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -987,7 +1003,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       owner,
                       style: TextStyle(
                         fontSize: 13,
-                        color: const Color(0xFF64748B),
+                        color: context.adminTextSecondary,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1212,30 +1228,38 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
+    return ColoredBox(
+      color: context.adminBackground,
+      child: SafeArea(
+        child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.only(
+            decoration: BoxDecoration(
+              color: context.adminSurface,
+              borderRadius: const BorderRadius.only(
                 bottomLeft: Radius.circular(30),
                 bottomRight: Radius.circular(30),
               ),
-              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(context.isAdminDark ? 0.22 : 0.08),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
             child: Consumer<AdminProvider>(
               builder: (context, admin, _) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'All Businesses',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
+                        color: context.adminTextPrimary,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -1243,19 +1267,23 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                       '${admin.allBusinesses.length} registered businesses',
                       style: TextStyle(
                         fontSize: 14,
-                        color: Color(0xFF64748B),
+                        color: context.adminTextSecondary,
                       ),
                     ),
                     const SizedBox(height: 16),
                     TextField(
                       controller: _searchController,
                       onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
-                      decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF94A3B8)),
+                        decoration: InputDecoration(
+                        prefixIcon: Icon(
+                          Icons.search_rounded,
+                          color: context.adminTextTertiary,
+                        ),
                         hintText: 'Search businesses...',
-                        hintStyle: const TextStyle(color: Color(0xFF94A3B8)),
+                        hintStyle:
+                            TextStyle(color: context.adminTextTertiary),
                         filled: true,
-                        fillColor: const Color(0xFFF8FAFC),
+                        fillColor: context.adminSurfaceAlt,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                       ),
                     ),
@@ -1301,9 +1329,9 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                     });
                   }
                   return Center(
-                    child: Text(
+                        child: Text(
                       'No businesses found',
-                      style: TextStyle(color: Colors.grey[500]),
+                      style: TextStyle(color: context.adminTextSecondary),
                     ),
                   );
                 }
@@ -1361,7 +1389,7 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
           ),
         ],
       ),
-    );
+    ));
   }
 
   Widget _buildBusinessesSummaryChip(String label, String value, Color color) {
@@ -1696,16 +1724,8 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      decoration: context.adminCardDecoration(
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Column(
         children: [
@@ -1739,7 +1759,7 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        color: Colors.grey[900],
+                        color: context.adminTextPrimary,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -1747,7 +1767,7 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                       owner,
                       style: TextStyle(
                         fontSize: 13,
-                        color: Colors.grey[600],
+                        color: context.adminTextSecondary,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1831,7 +1851,7 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
+                    color: context.adminSurfaceAlt,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Column(
@@ -1841,7 +1861,7 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: const Color(0xFF334155),
+                          color: context.adminTextPrimary,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -1849,7 +1869,7 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                         'Users',
                         style: TextStyle(
                           fontSize: 11,
-                          color: const Color(0xFF64748B),
+                          color: context.adminTextSecondary,
                         ),
                       ),
                     ],
@@ -1861,7 +1881,7 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
+                    color: context.adminSurfaceAlt,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Column(
@@ -1873,7 +1893,7 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                           fontWeight: FontWeight.w600,
                           color: isActive
                               ? const Color(0xFF10B981)
-                              : const Color(0xFF334155),
+                              : context.adminTextPrimary,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -1881,7 +1901,7 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
                         'Last Login',
                         style: TextStyle(
                           fontSize: 11,
-                          color: const Color(0xFF64748B),
+                          color: context.adminTextSecondary,
                         ),
                       ),
                     ],
@@ -1967,7 +1987,9 @@ class __BusinessesPageStatefulState extends State<_BusinessesPageStateful> {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFFFEF2F2),
+                color: context.isAdminDark
+                    ? const Color(0xFF3A1318)
+                    : const Color(0xFFFEF2F2),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
@@ -2083,6 +2105,130 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _showSpecificUserNotificationPicker() async {
+    if (_notificationTitleController.text.isEmpty ||
+        _notificationBodyController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter a notification title and body first'),
+        ),
+      );
+      return;
+    }
+
+    final admin = context.read<AdminProvider>();
+    if (admin.allUsers.isEmpty) {
+      await admin.fetchAdminStats(force: true);
+    }
+    if (!mounted) return;
+
+    String query = '';
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.adminSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final users = admin.allUsers.where((user) {
+            if (query.isEmpty) return true;
+            final name = (user['name'] ?? '').toString().toLowerCase();
+            final email = (user['email'] ?? '').toString().toLowerCase();
+            return name.contains(query) || email.contains(query);
+          }).toList();
+
+          return Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              20,
+              20,
+              20 + MediaQuery.of(sheetContext).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Send To Specific User',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: context.adminTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  onChanged: (value) => setSheetState(
+                    () => query = value.trim().toLowerCase(),
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: 'Search by name or email',
+                    prefixIcon: Icon(Icons.search_rounded),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: 360,
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: users.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final user = users[index];
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundColor:
+                              Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                          child: Text(
+                            (user['name']?.toString().isNotEmpty ?? false)
+                                ? user['name'].toString()[0].toUpperCase()
+                                : 'U',
+                          ),
+                        ),
+                        title: Text(
+                          (user['name'] ?? 'Unknown').toString(),
+                          style: TextStyle(color: context.adminTextPrimary),
+                        ),
+                        subtitle: Text(
+                          (user['email'] ?? 'No email').toString(),
+                          style: TextStyle(color: context.adminTextSecondary),
+                        ),
+                        trailing: FilledButton(
+                          onPressed: () async {
+                            final ok = await admin.sendNotificationToUsers(
+                              title: _notificationTitleController.text.trim(),
+                              body: _notificationBodyController.text.trim(),
+                              userIds: [(user['id'] ?? '').toString()],
+                            );
+                            if (!mounted) return;
+                            Navigator.of(sheetContext).pop();
+                            ScaffoldMessenger.of(this.context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  ok
+                                      ? 'Notification sent to ${(user['name'] ?? 'user').toString()}'
+                                      : 'Failed to send notification',
+                                ),
+                              ),
+                            );
+                          },
+                          child: const Text('Send'),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _sendBroadcastEmail() async {
     if (_emailSubjectController.text.isEmpty ||
         _emailBodyController.text.isEmpty) {
@@ -2107,27 +2253,91 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
+    final themeProvider = context.watch<ThemeProvider>();
+    return ColoredBox(
+      color: context.adminBackground,
+      child: SafeArea(
+        child: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Settings',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 26,
                 fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
+                color: context.adminTextPrimary,
               ),
             ),
             const SizedBox(height: 8),
-            const Text('Platform administration and communication tools', style: TextStyle(color: Color(0xFF64748B))),
+            Text(
+              'Platform administration and communication tools',
+              style: TextStyle(color: context.adminTextSecondary),
+            ),
             const SizedBox(height: 20),
 
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: context.adminCardDecoration(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(
+                      themeProvider.isDarkMode
+                          ? Icons.dark_mode_rounded
+                          : Icons.light_mode_rounded,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Dark Mode',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: context.adminTextPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          themeProvider.isDarkMode
+                              ? 'Admin screens use the dark appearance'
+                              : 'Admin screens use the light appearance',
+                          style: TextStyle(color: context.adminTextSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch.adaptive(
+                    value: themeProvider.isDarkMode,
+                    onChanged: themeProvider.setDarkMode,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
             // Admin Communication
-            const Text('Admin Communications',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+            Text(
+              'Admin Communications',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: context.adminTextPrimary,
+              ),
+            ),
             const SizedBox(height: 12),
             TextField(
                 controller: _notificationTitleController,
@@ -2152,6 +2362,12 @@ class _SettingsPageState extends State<SettingsPage> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
             ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _isSending ? null : _showSpecificUserNotificationPicker,
+              icon: const Icon(Icons.person_pin_circle_outlined),
+              label: const Text('Send Notification to Specific User'),
+            ),
             const SizedBox(height: 20),
             TextField(
                 controller: _emailSubjectController,
@@ -2175,12 +2391,12 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SizedBox(height: 24),
 
-            const Text(
+            Text(
               'Restricted Account Support',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF0F172A),
+                color: context.adminTextPrimary,
               ),
             ),
             const SizedBox(height: 12),
@@ -2247,7 +2463,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildSettingItem(
@@ -2259,16 +2475,8 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      decoration: context.adminCardDecoration(
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Row(
         children: [
@@ -2290,7 +2498,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF0F172A),
+                    color: context.adminTextPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -2298,7 +2506,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   subtitle,
                   style: TextStyle(
                     fontSize: 13,
-                    color: const Color(0xFF64748B),
+                    color: context.adminTextSecondary,
                   ),
                 ),
               ],
@@ -2425,29 +2633,37 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
+    return ColoredBox(
+      color: context.adminBackground,
+      child: SafeArea(
+        child: Column(
         children: [
           // Header
           Container(
             padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.only(
+            decoration: BoxDecoration(
+              color: context.adminSurface,
+              borderRadius: const BorderRadius.only(
                 bottomLeft: Radius.circular(30),
                 bottomRight: Radius.circular(30),
               ),
-              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(context.isAdminDark ? 0.22 : 0.08),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Users & Workers',
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F172A),
+                    color: context.adminTextPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -2455,9 +2671,9 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                   builder: (context, admin, _) {
                     return Text(
                       '${admin.allUsers.length} unique records across ${admin.usersTableCount} users and ${admin.workersTableCount} workers rows',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
-                        color: Color(0xFF64748B),
+                        color: context.adminTextSecondary,
                       ),
                     );
                   },
@@ -2467,14 +2683,14 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                 TextField(
                   decoration: InputDecoration(
                     hintText: 'Search by name or email...',
-                    prefixIcon: const Icon(Icons.search, color: Color(0xFF64748B)),
+                    prefixIcon: Icon(Icons.search, color: context.adminTextSecondary),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                      borderSide: BorderSide(color: context.adminBorder),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                      borderSide: BorderSide(color: context.adminBorder),
                     ),
                   ),
                   onChanged: (value) => setState(() => _searchQuery = value),
@@ -2569,7 +2785,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                           'No users found',
                           style: TextStyle(
                             fontSize: 18,
-                            color: Colors.grey[600],
+                            color: context.adminTextSecondary,
                           ),
                         ),
                       ],
@@ -2590,7 +2806,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
           ),
         ],
       ),
-    );
+    ));
   }
 
   Widget _buildFilterButton(String label, String value) {
@@ -2598,8 +2814,11 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
     return ElevatedButton(
       onPressed: () => setState(() => _filterType = value),
       style: ElevatedButton.styleFrom(
-        backgroundColor: isSelected ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
-        foregroundColor: isSelected ? Colors.white : const Color(0xFF64748B),
+        backgroundColor: isSelected
+            ? Theme.of(context).colorScheme.primary
+            : context.adminSurfaceAlt,
+        foregroundColor:
+            isSelected ? Colors.white : context.adminTextSecondary,
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
@@ -2654,14 +2873,15 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
     final hasActiveSubscription = subscriptionValue == true || 
         subscriptionValue == 'true' || 
         subscriptionValue == 1;
-    
-    print('🔍 CARD DEBUG: User "${user['name']}": isSubscriptionActive=$subscriptionValue (type: ${subscriptionValue.runtimeType}), hasActive=$hasActiveSubscription');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade100)),
-      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: context.adminBorder),
+      ),
+      color: context.adminSurface,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -2702,10 +2922,10 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                           Expanded(
                             child: Text(
                               user['name'] ?? 'Unknown',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF0F172A),
+                                color: context.adminTextPrimary,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -2714,7 +2934,9 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: isWorker ? const Color(0xFFEDEDED) : const Color(0xFFDEEBFF),
+                              color: isWorker
+                                  ? const Color(0xFF6B7280).withOpacity(0.16)
+                                  : const Color(0xFF3B82F6).withOpacity(0.16),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
@@ -2722,7 +2944,9 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
-                                color: isWorker ? const Color(0xFF374151) : const Color(0xFF1E40AF),
+                                color: isWorker
+                                    ? const Color(0xFF6B7280)
+                                    : const Color(0xFF2563EB),
                               ),
                             ),
                           ),
@@ -2731,9 +2955,9 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                       const SizedBox(height: 4),
                       Text(
                         user['email'] ?? 'No email',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: Color(0xFF64748B),
+                          color: context.adminTextSecondary,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -2774,7 +2998,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFDCFCE7),
+                  color: const Color(0xFF10B981).withOpacity(0.12),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Row(
@@ -2797,7 +3021,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFEE2E2),
+                  color: const Color(0xFFEF4444).withOpacity(0.12),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Row(
@@ -2820,7 +3044,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
             // Divider
             Container(
               height: 1,
-              color: const Color(0xFFF1F5F9),
+              color: context.adminBorder,
             ),
             const SizedBox(height: 12),
             // Action Buttons
@@ -2831,12 +3055,24 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                 SizedBox(
                   width: 150,
                   child: OutlinedButton.icon(
+                    onPressed: () => _showNotifyUserDialog(context, user),
+                    icon: const Icon(Icons.notifications_active_outlined, size: 16),
+                    label: const Text('Notify'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.primary,
+                      side: BorderSide(color: Theme.of(context).colorScheme.primary),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 150,
+                  child: OutlinedButton.icon(
                     onPressed: () => _showUserDetails(context, user),
                     icon: const Icon(Icons.visibility, size: 16),
                     label: const Text('View'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF0F172A),
-                      side: const BorderSide(color: Color(0xFFE2E8F0)),
+                      foregroundColor: context.adminTextPrimary,
+                      side: BorderSide(color: context.adminBorder),
                     ),
                   ),
                 ),
@@ -2981,6 +3217,74 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showNotifyUserDialog(BuildContext context, Map<String, dynamic> user) {
+    final titleController = TextEditingController();
+    final bodyController = TextEditingController();
+    final recipientId = (user['id'] ?? '').toString();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Notify ${user['name'] ?? 'User'}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(labelText: 'Title'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: bodyController,
+              maxLines: 4,
+              decoration: const InputDecoration(labelText: 'Message'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: recipientId.isEmpty
+                ? null
+                : () async {
+                    if (titleController.text.trim().isEmpty ||
+                        bodyController.text.trim().isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Enter both a title and a message'),
+                        ),
+                      );
+                      return;
+                    }
+                    final ok = await context
+                        .read<AdminProvider>()
+                        .sendNotificationToUsers(
+                          title: titleController.text.trim(),
+                          body: bodyController.text.trim(),
+                          userIds: [recipientId],
+                        );
+                    if (!context.mounted) return;
+                    Navigator.of(ctx).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          ok
+                              ? 'Notification sent to ${(user['name'] ?? 'user').toString()}'
+                              : 'Failed to send notification',
+                        ),
+                      ),
+                    );
+                  },
+            child: const Text('Send'),
           ),
         ],
       ),
@@ -3228,18 +3532,11 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
     String tier,
   ) async {
     final admin = context.read<AdminProvider>();
-    
-    print('🔍 DEBUG: User data passed to approval: $user');
-    
+
     // Get the business ID - users have a businessId field
     String businessId = user['businessId'] ?? user['id'] ?? '';
-    
-    print('🔍 DEBUG: businessId extracted: "$businessId"');
-    print('🔍 DEBUG: user["businessId"] = "${user['businessId']}"');
-    print('🔍 DEBUG: user["id"] = "${user['id']}"');
-    
+
     if (businessId.isEmpty) {
-      print('❌ DEBUG: EMPTY businessId!');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

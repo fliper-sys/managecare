@@ -5,6 +5,7 @@ import '../../core/utils/currency.dart';
 import '../../models/marketer_analytics_model.dart';
 import '../../models/marketer_model.dart';
 import '../../providers/marketer_provider.dart';
+import '../admin_theme.dart';
 
 class MarketersPage extends StatefulWidget {
   const MarketersPage({super.key});
@@ -34,10 +35,10 @@ class _MarketersPageState extends State<MarketersPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SafeArea(
-      child: Consumer<MarketerProvider>(
+    return ColoredBox(
+      color: context.adminBackground,
+      child: SafeArea(
+        child: Consumer<MarketerProvider>(
         builder: (context, marketerProv, _) {
           final snapshots = marketerProv.performanceByMarketerEmail.values.toList();
           final filteredMarketers = marketerProv.marketers.where((marketer) {
@@ -76,11 +77,7 @@ class _MarketersPageState extends State<MarketersPage> {
                 Container(
                   padding: const EdgeInsets.all(22),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF0F172A), Color(0xFF1D4ED8)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    gradient: context.adminHeaderGradient,
                     borderRadius: BorderRadius.circular(28),
                   ),
                   child: Column(
@@ -132,7 +129,7 @@ class _MarketersPageState extends State<MarketersPage> {
                           hintText: 'Search marketers by name, email, or phone',
                           prefixIcon: const Icon(Icons.search_rounded),
                           filled: true,
-                          fillColor: Colors.white,
+                          fillColor: context.adminSurface,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(18),
                             borderSide: BorderSide.none,
@@ -198,17 +195,23 @@ class _MarketersPageState extends State<MarketersPage> {
                 else if (filteredMarketers.isEmpty)
                   Container(
                     padding: const EdgeInsets.all(32),
-                    decoration: BoxDecoration(
-                      color: theme.cardColor,
+                    decoration: context.adminCardDecoration(
                       borderRadius: BorderRadius.circular(24),
                     ),
                     child: Column(
-                      children: const [
-                        Icon(Icons.campaign_outlined, size: 48),
-                        SizedBox(height: 12),
+                      children: [
+                        Icon(
+                          Icons.campaign_outlined,
+                          size: 48,
+                          color: context.adminTextTertiary,
+                        ),
+                        const SizedBox(height: 12),
                         Text(
                           'No marketers match this search',
-                          style: TextStyle(fontWeight: FontWeight.w700),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: context.adminTextPrimary,
+                          ),
                         ),
                       ],
                     ),
@@ -224,6 +227,7 @@ class _MarketersPageState extends State<MarketersPage> {
             ),
           );
         },
+        ),
       ),
     );
   }
@@ -237,17 +241,8 @@ class _MarketersPageState extends State<MarketersPage> {
     return Container(
       width: 190,
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      decoration: context.adminCardDecoration(
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: color.withOpacity(0.08)),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.08),
-            blurRadius: 20,
-            offset: const Offset(0, 6),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -262,17 +257,17 @@ class _MarketersPageState extends State<MarketersPage> {
           const SizedBox(height: 8),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF0F172A),
+              color: context.adminTextPrimary,
             ),
           ),
           const SizedBox(height: 6),
           Text(
             subtitle,
-            style: const TextStyle(
-              color: Color(0xFF64748B),
+            style: TextStyle(
+              color: context.adminTextSecondary,
               height: 1.35,
             ),
           ),
@@ -284,21 +279,27 @@ class _MarketersPageState extends State<MarketersPage> {
   Widget _buildLeaderboardCard(List<MarketerLeaderboardEntry> leaderboard) {
     return Container(
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      decoration: context.adminCardDecoration(
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Monthly Leaderboard',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: context.adminTextPrimary,
+            ),
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             'Admin can now see every marketer progress line, current rank, and projected bonus for the month.',
-            style: TextStyle(color: Color(0xFF64748B), height: 1.45),
+            style: TextStyle(
+              color: context.adminTextSecondary,
+              height: 1.45,
+            ),
           ),
           const SizedBox(height: 14),
           ...leaderboard.map(
@@ -306,9 +307,9 @@ class _MarketersPageState extends State<MarketersPage> {
               margin: const EdgeInsets.only(bottom: 10),
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
+                color: context.adminSurfaceAlt,
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
+                border: Border.all(color: context.adminBorder),
               ),
               child: Row(
                 children: [
@@ -324,12 +325,16 @@ class _MarketersPageState extends State<MarketersPage> {
                       children: [
                         Text(
                           entry.fullName,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: context.adminTextPrimary,
+                          ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           '${entry.monthlyPerformanceCount} wins - ${entry.totalActiveClients} active clients',
-                          style: const TextStyle(color: Color(0xFF64748B)),
+                          style:
+                              TextStyle(color: context.adminTextSecondary),
                         ),
                       ],
                     ),
@@ -339,7 +344,10 @@ class _MarketersPageState extends State<MarketersPage> {
                     children: [
                       Text(
                         formatCurrency(entry.monthlyRewardEarned),
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: context.adminTextPrimary,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -349,7 +357,7 @@ class _MarketersPageState extends State<MarketersPage> {
                         style: TextStyle(
                           color: entry.projectedBonus > 0
                               ? const Color(0xFFEA580C)
-                              : const Color(0xFF64748B),
+                              : context.adminTextSecondary,
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                         ),
@@ -378,16 +386,8 @@ class _MarketersPageState extends State<MarketersPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      decoration: context.adminCardDecoration(
         borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
       ),
       child: Column(
         children: [
@@ -424,23 +424,23 @@ class _MarketersPageState extends State<MarketersPage> {
                   children: [
                     Text(
                       marketer.fullName,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
+                        color: context.adminTextPrimary,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       marketer.email,
-                      style: const TextStyle(color: Color(0xFF64748B)),
+                      style: TextStyle(color: context.adminTextSecondary),
                     ),
                     if ((marketer.phoneNumber ?? '').isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
                         marketer.phoneNumber!,
-                        style: const TextStyle(
-                          color: Color(0xFF94A3B8),
+                        style: TextStyle(
+                          color: context.adminTextTertiary,
                           fontSize: 12,
                         ),
                       ),
@@ -483,8 +483,9 @@ class _MarketersPageState extends State<MarketersPage> {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
+                color: context.adminSurfaceAlt,
                 borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: context.adminBorder),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -494,14 +495,17 @@ class _MarketersPageState extends State<MarketersPage> {
                       Text(
                         'Target progress',
                         style: TextStyle(
-                          color: Colors.grey.shade800,
+                          color: context.adminTextPrimary,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       const Spacer(),
                       Text(
                         '${performance.monthlyPerformanceCount}/${performance.monthlyTarget}',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: context.adminTextPrimary,
+                        ),
                       ),
                     ],
                   ),
@@ -511,7 +515,7 @@ class _MarketersPageState extends State<MarketersPage> {
                     child: LinearProgressIndicator(
                       value: progressValue,
                       minHeight: 10,
-                      backgroundColor: const Color(0xFFE2E8F0),
+                      backgroundColor: context.adminBorder,
                       valueColor:
                           const AlwaysStoppedAnimation(Color(0xFF2563EB)),
                     ),
@@ -604,8 +608,9 @@ class _MarketersPageState extends State<MarketersPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: context.adminSurfaceAlt,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.16)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -621,7 +626,7 @@ class _MarketersPageState extends State<MarketersPage> {
           Text(
             label,
             style: TextStyle(
-              color: color.withOpacity(0.92),
+              color: context.adminTextSecondary,
               fontSize: 12,
             ),
           ),
@@ -904,6 +909,7 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
     final clients = provider.clientsForMarketer(marketer.email);
 
     return Scaffold(
+      backgroundColor: context.adminBackground,
       appBar: AppBar(title: Text(marketer.fullName)),
       body: ListView(
         padding: const EdgeInsets.all(20),
@@ -977,11 +983,12 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
             ],
           ),
           const SizedBox(height: 22),
-          const Text(
+          Text(
             'Registered Clients',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
+              color: context.adminTextPrimary,
             ),
           ),
           const SizedBox(height: 12),
@@ -993,20 +1000,23 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
           else if (clients.isEmpty)
             Container(
               padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
+              decoration: context.adminCardDecoration(
                 borderRadius: BorderRadius.circular(24),
               ),
-              child: const Text('No registered clients yet'),
+              child: Text(
+                'No registered clients yet',
+                style: TextStyle(color: context.adminTextPrimary),
+              ),
             )
           else
             ...clients.map(_buildClientOverviewCard),
           const SizedBox(height: 22),
-          const Text(
+          Text(
             'Referral Activity',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
+              color: context.adminTextPrimary,
             ),
           ),
           const SizedBox(height: 12),
@@ -1018,11 +1028,13 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
           else if (provider.referrals.isEmpty)
             Container(
               padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
+              decoration: context.adminCardDecoration(
                 borderRadius: BorderRadius.circular(24),
               ),
-              child: const Text('No referrals yet'),
+              child: Text(
+                'No referrals yet',
+                style: TextStyle(color: context.adminTextPrimary),
+              ),
             )
           else
             ...provider.referrals.map(_buildReferralCard),
@@ -1041,8 +1053,7 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      decoration: context.adminCardDecoration(
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
@@ -1066,12 +1077,15 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
                   children: [
                     Text(
                       client.fullName,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: context.adminTextPrimary,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       client.userEmail,
-                      style: const TextStyle(color: Color(0xFF64748B)),
+                      style: TextStyle(color: context.adminTextSecondary),
                     ),
                   ],
                 ),
@@ -1122,8 +1136,7 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
     return Container(
       width: 180,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      decoration: context.adminCardDecoration(
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
@@ -1139,10 +1152,10 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
           const SizedBox(height: 8),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontWeight: FontWeight.w800,
               fontSize: 18,
-              color: Color(0xFF0F172A),
+              color: context.adminTextPrimary,
             ),
           ),
         ],
@@ -1199,8 +1212,7 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+      decoration: context.adminCardDecoration(
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
@@ -1221,7 +1233,10 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
               children: [
                 Text(
                   referral.userEmail,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: context.adminTextPrimary,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -1236,8 +1251,8 @@ class _MarketerDetailPageState extends State<MarketerDetailPage> {
                   const SizedBox(height: 4),
                   Text(
                     referral.notes!,
-                    style: const TextStyle(
-                      color: Color(0xFF64748B),
+                    style: TextStyle(
+                      color: context.adminTextSecondary,
                       fontSize: 12,
                     ),
                   ),

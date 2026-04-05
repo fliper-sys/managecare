@@ -66,6 +66,13 @@ class _SplashScreenState extends State<SplashScreen>
           '[SplashScreen] Auth Status: ${authProvider.status}, User: ${authProvider.currentUser?.email}');
 
       if (authProvider.isAuthenticated && authProvider.currentUser != null) {
+        await authProvider.refresh();
+        if (!mounted) return;
+        if (authProvider.currentUser == null) {
+          Navigator.of(context).pushReplacementNamed(Routes.login);
+          return;
+        }
+
         final user = authProvider.currentUser!;
         print(
             '[SplashScreen] User authenticated: ${user.email}, isOwner: ${user.isOwner}');
@@ -100,10 +107,17 @@ class _SplashScreenState extends State<SplashScreen>
               : user.businessId;
           final subscriptionData =
               await _fetchBusinessSubscriptionStatus(currentBusinessId);
+          final hasActiveCurrentBusinessSubscription =
+              _hasActiveCurrentBusinessSubscription(subscriptionData);
 
-          if (subscriptionData != null &&
-              ((subscriptionData['subscriptionReviewStatus'] ?? subscriptionData['subscriptionStatus']) ==
-                  'pending_approval')) {
+          final subscriptionStatus =
+              (subscriptionData?['subscriptionReviewStatus'] ??
+                      subscriptionData?['subscriptionStatus'])
+                  ?.toString()
+                  .toLowerCase() ??
+                  '';
+
+          if (subscriptionStatus == 'pending_approval') {
             // Owner has pending subscription approval
             print('[SplashScreen] Subscription pending approval (owner)');
             if (mounted) {
@@ -116,14 +130,14 @@ class _SplashScreenState extends State<SplashScreen>
                   'businessId': currentBusinessId,
                   'businessType': user.businessType,
                   'subscriptionPlan':
-                      subscriptionData['subscriptionPlan'] ?? 'tier1',
+                      subscriptionData?['subscriptionPlan'] ?? 'tier1',
                   'subscriptionAmount':
-                      subscriptionData['subscriptionAmount'] ?? 0.0,
+                      subscriptionData?['subscriptionAmount'] ?? 0.0,
                 },
               );
             }
-          } else if (!authProvider.subscriptionValidated ||
-              !user.isSubscriptionValid) {
+          } else if (!(hasActiveCurrentBusinessSubscription ||
+              authProvider.subscriptionValidated)) {
             if (mounted) {
               Navigator.of(context).pushReplacementNamed(
                 Routes.subscriptionPayment,
@@ -155,6 +169,44 @@ class _SplashScreenState extends State<SplashScreen>
     }
   }
 
+  DateTime? _parseSubscriptionDate(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) {
+      return DateTime.tryParse(value);
+    }
+    try {
+      if (value.runtimeType.toString().contains('Timestamp')) {
+        return (value as dynamic).toDate() as DateTime;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  bool _hasActiveCurrentBusinessSubscription(
+      Map<String, dynamic>? subscriptionData) {
+    if (subscriptionData == null) return false;
+
+    final reviewStatus =
+        subscriptionData['subscriptionReviewStatus']?.toString().toLowerCase() ??
+            '';
+    final status =
+        subscriptionData['subscriptionStatus']?.toString().toLowerCase() ?? '';
+    final hasActiveFlag =
+        subscriptionData['hasActiveSubscription'] == true ||
+            subscriptionData['isSubscriptionActive'] == true;
+    final statusLooksActive = reviewStatus == 'approved' ||
+        reviewStatus == 'active' ||
+        status == 'approved' ||
+        status == 'active';
+    final endDate = _parseSubscriptionDate(subscriptionData['subscriptionEndDate']);
+    final isWithinDuration =
+        endDate == null || !DateTime.now().isAfter(endDate);
+
+    return (hasActiveFlag || statusLooksActive) && isWithinDuration;
+  }
+
   /// Fetch the latest subscription status from Firestore
   Future<Map<String, dynamic>?> _fetchBusinessSubscriptionStatus(
       String businessId) async {
@@ -173,6 +225,8 @@ class _SplashScreenState extends State<SplashScreen>
           'subscriptionPlan': data['subscriptionPlan'],
           'subscriptionAmount': data['subscriptionAmount'],
           'hasActiveSubscription': data['isSubscriptionActive'],
+          'isSubscriptionActive': data['isSubscriptionActive'],
+          'subscriptionEndDate': data['subscriptionEndDate'],
         };
       }
       return null;

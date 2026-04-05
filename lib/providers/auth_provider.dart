@@ -178,6 +178,20 @@ class AuthProvider with ChangeNotifier {
                 _localBusinessStorage != null) {
               await _cacheBusinessForUser(primaryBiz);
             }
+
+            if (_currentUser != null) {
+              try {
+                if (!_currentUser!.isOwner) {
+                  _subscriptionValidated = true;
+                } else {
+                  _subscriptionValidated =
+                      await _validateSubscriptionForUser(_currentUser!);
+                }
+              } catch (e) {
+                print(
+                    '[AuthProvider] Error revalidating subscription after auto-login refresh: $e');
+              }
+            }
           } catch (e) {
             print(
                 '[AuthProvider] Error refreshing cached user during auto-login: $e');
@@ -261,6 +275,23 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  Future<void> _refreshCurrentUserSnapshot(String userId) async {
+    try {
+      final refreshedUser = await _authRepository.getCurrentUser(userId);
+      if (refreshedUser == null) return;
+
+      _currentUser = refreshedUser;
+
+      if (_localStorage != null) {
+        await _localStorage!.saveUser(refreshedUser);
+      }
+
+      await _cacheBusinessForUser(_resolveCurrentBusinessId(refreshedUser));
+    } catch (e) {
+      print('[AuthProvider] Error refreshing current user snapshot: $e');
+    }
+  }
+
   Future<bool> _validateSubscriptionForUser(
     UserModel user, {
     String? businessId,
@@ -285,10 +316,16 @@ class AuthProvider with ChangeNotifier {
       }
     }
 
-    return _subscriptionService.validateAndUpdateSubscriptionStatus(
+    final isValid = await _subscriptionService.validateAndUpdateSubscriptionStatus(
       user.id,
       businessId: resolvedBusinessId,
     );
+
+    if (_currentUser?.id == user.id) {
+      await _refreshCurrentUserSnapshot(user.id);
+    }
+
+    return isValid;
   }
 
   Future<void> _loadCurrentUser(String uid) async {

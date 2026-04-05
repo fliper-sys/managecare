@@ -63,6 +63,29 @@ class _MarketerLoginScreenState extends State<MarketerLoginScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MarketerProvider>();
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final cardColor =
+        isDark ? const Color(0xFF0E1A2F).withOpacity(0.96) : Colors.white;
+    final titleColor = isDark ? Colors.white : const Color(0xFF06213B);
+    final bodyColor = isDark
+        ? Colors.white.withOpacity(0.74)
+        : Colors.grey.shade600;
+    final supportSurface = isDark
+        ? Colors.white.withOpacity(0.06)
+        : const Color(0xFFF0FDFA);
+    final supportBorder = isDark
+        ? Colors.white.withOpacity(0.10)
+        : const Color(0xFFCCFBF1);
+    final errorBackground = isDark
+        ? const Color(0xFF3A1218)
+        : const Color(0xFFFEF2F2);
+    final errorBorder = isDark
+        ? const Color(0xFF7F1D1D)
+        : const Color(0xFFFECACA);
+    final errorText = isDark
+        ? const Color(0xFFFECACA)
+        : const Color(0xFFB91C1C);
 
     return Scaffold(
       body: Stack(
@@ -144,112 +167,177 @@ class _MarketerLoginScreenState extends State<MarketerLoginScreen> {
                       Container(
                         padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: cardColor,
                           borderRadius: BorderRadius.circular(28),
+                          border: Border.all(
+                            color: isDark
+                                ? Colors.white.withOpacity(0.10)
+                                : Colors.white.withOpacity(0.55),
+                          ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.16),
+                              color: Colors.black.withOpacity(
+                                isDark ? 0.30 : 0.16,
+                              ),
                               blurRadius: 32,
                               offset: const Offset(0, 18),
                             ),
                           ],
                         ),
-                        child: Form(
-                          key: _formKey,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              const Text(
-                                'Welcome back',
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF06213B),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Your marketer access is separate from app admin access.',
-                                style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  height: 1.5,
-                                ),
-                              ),
-                              if (provider.errorMessage != null) ...[
-                                const SizedBox(height: 18),
-                                _InlineStatusCard(
-                                  icon: Icons.error_outline_rounded,
-                                  backgroundColor: const Color(0xFFFEF2F2),
-                                  borderColor: const Color(0xFFFECACA),
-                                  textColor: const Color(0xFFB91C1C),
-                                  message: provider.errorMessage!,
-                                ),
-                              ],
-                              const SizedBox(height: 20),
-                              CustomTextField(
-                                controller: _emailController,
-                                label: 'Marketer email',
-                                hint: 'Enter your email',
-                                keyboardType: TextInputType.emailAddress,
-                                prefixIcon: Icons.alternate_email_rounded,
-                                validator: (value) {
-                                  if (value == null || value.trim().isEmpty) {
-                                    return 'Enter your marketer email';
-                                  }
-                                  if (!value.contains('@')) {
-                                    return 'Enter a valid email';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 16),
-                              CustomTextField(
-                                controller: _passwordController,
-                                label: 'Password',
-                                hint: 'Enter password',
-                                obscureText: _obscurePassword,
-                                prefixIcon: Icons.lock_outline_rounded,
-                                suffixIcon: IconButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _obscurePassword = !_obscurePassword;
-                                    });
-                                  },
-                                  icon: Icon(
-                                    _obscurePassword
-                                        ? Icons.visibility_outlined
-                                        : Icons.visibility_off_outlined,
+                        child: Theme(
+                          data: theme.copyWith(
+                            inputDecorationTheme:
+                                theme.inputDecorationTheme.copyWith(
+                              fillColor: isDark
+                                  ? Colors.white.withOpacity(0.06)
+                                  : const Color(0xFFF8FAFC),
+                            ),
+                          ),
+                          child: Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  'Welcome back',
+                                  style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w800,
+                                    color: titleColor,
                                   ),
                                 ),
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) {
-                                    return 'Enter your password';
-                                  }
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 24),
-                              CustomButton(
-                                text: 'Sign In To Marketer Hub',
-                                icon: Icons.login_rounded,
-                                isLoading: provider.isLoading,
-                                onPressed: provider.isLoading ? null : _submit,
-                                backgroundColor: const Color(0xFF0F766E),
-                              ),
-                              const SizedBox(height: 14),
-                              Row(
-                                children: [
-                                  TextButton(
-                                    onPressed: () {
-                                      Navigator.of(context).pushNamed(
-                                        Routes.marketerForgotPassword,
-                                      );
-                                    },
-                                    child: const Text('Forgot password?'),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Your marketer access is separate from app admin access.',
+                                  style: TextStyle(
+                                    color: bodyColor,
+                                    height: 1.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 18),
+                                Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: supportSurface,
+                                    borderRadius: BorderRadius.circular(18),
+                                    border: Border.all(color: supportBorder),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 38,
+                                        height: 38,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF0F766E)
+                                              .withOpacity(0.14),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                        child: const Icon(
+                                          Icons.security_rounded,
+                                          color: Color(0xFF14B8A6),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          'Use the marketer workspace for referrals, onboarding, and commission follow-ups.',
+                                          style: TextStyle(
+                                            color: bodyColor,
+                                            height: 1.45,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (provider.errorMessage != null) ...[
+                                  const SizedBox(height: 18),
+                                  _InlineStatusCard(
+                                    icon: Icons.error_outline_rounded,
+                                    backgroundColor: errorBackground,
+                                    borderColor: errorBorder,
+                                    textColor: errorText,
+                                    message: provider.errorMessage!,
                                   ),
                                 ],
-                              ),
-                            ],
+                                const SizedBox(height: 20),
+                                CustomTextField(
+                                  controller: _emailController,
+                                  label: 'Marketer email',
+                                  hint: 'Enter your email',
+                                  keyboardType: TextInputType.emailAddress,
+                                  prefixIcon: Icons.alternate_email_rounded,
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return 'Enter your marketer email';
+                                    }
+                                    if (!value.contains('@')) {
+                                      return 'Enter a valid email';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 16),
+                                CustomTextField(
+                                  controller: _passwordController,
+                                  label: 'Password',
+                                  hint: 'Enter password',
+                                  obscureText: _obscurePassword,
+                                  prefixIcon: Icons.lock_outline_rounded,
+                                  suffixIcon: IconButton(
+                                    onPressed: () {
+                                      setState(() {
+                                        _obscurePassword = !_obscurePassword;
+                                      });
+                                    },
+                                    icon: Icon(
+                                      _obscurePassword
+                                          ? Icons.visibility_outlined
+                                          : Icons.visibility_off_outlined,
+                                      color: isDark
+                                          ? Colors.white.withOpacity(0.68)
+                                          : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Enter your password';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 24),
+                                CustomButton(
+                                  text: 'Sign In To Marketer Hub',
+                                  icon: Icons.login_rounded,
+                                  isLoading: provider.isLoading,
+                                  onPressed:
+                                      provider.isLoading ? null : _submit,
+                                  backgroundColor: const Color(0xFF0F766E),
+                                ),
+                                const SizedBox(height: 14),
+                                Row(
+                                  children: [
+                                    TextButton(
+                                      onPressed: () {
+                                        Navigator.of(context).pushNamed(
+                                          Routes.marketerForgotPassword,
+                                        );
+                                      },
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: isDark
+                                            ? const Color(0xFF5EEAD4)
+                                            : const Color(0xFF0F766E),
+                                      ),
+                                      child:
+                                          const Text('Forgot password?'),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),

@@ -1,5 +1,9 @@
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../../core/utils/datetime_utils.dart';
@@ -442,23 +446,148 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     */
   }
 
+  List<Map<String, dynamic>> _buildReceiptPdfItems(
+    List<Map<String, dynamic>> items,
+  ) {
+    return items
+        .map(
+          (item) => {
+            'name': item['name'] ?? 'Item',
+            'quantity': item['quantity'] ?? 1,
+            'unit': item['unit'] ??
+                item['uom'] ??
+                item['saleUnit'] ??
+                item['inventoryUnit'],
+            'price': _asDouble(item['price']),
+          },
+        )
+        .toList();
+  }
+
+  String _resolveCustomerName(Map<String, dynamic> sale) {
+    final customer = sale['customer'];
+    final fallback = sale['customerName']?.toString().trim();
+
+    if (customer is Map) {
+      final nestedName = customer['name'] ??
+          customer['fullName'] ??
+          customer['displayName'] ??
+          fallback;
+      final value = nestedName?.toString().trim();
+      if (value != null && value.isNotEmpty) {
+        return value;
+      }
+    }
+
+    if (fallback != null && fallback.isNotEmpty) {
+      return fallback;
+    }
+
+    return 'Walk-in Customer';
+  }
+
+  String? _resolveCustomerEmail(Map<String, dynamic> sale) {
+    final customer = sale['customer'];
+    if (customer is Map) {
+      final email = customer['email']?.toString().trim();
+      if (email != null && email.isNotEmpty) {
+        return email;
+      }
+    }
+
+    final fallback = sale['customerEmail']?.toString().trim();
+    return fallback == null || fallback.isEmpty ? null : fallback;
+  }
+
+  Future<Uint8List> _captureReceiptCardImage({int attempt = 0}) async {
+    final boundary =
+        _receiptKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+
+    if (boundary == null) {
+      throw StateError('Receipt preview is not ready yet.');
+    }
+
+    if (boundary.debugNeedsPaint && attempt < 3) {
+      await Future<void>.delayed(const Duration(milliseconds: 32));
+      return _captureReceiptCardImage(attempt: attempt + 1);
+    }
+
+    final pixelRatio =
+        (MediaQuery.devicePixelRatioOf(context) * 1.8).clamp(2.0, 4.0).toDouble();
+    final image = await boundary.toImage(pixelRatio: pixelRatio);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+
+    if (byteData == null) {
+      throw StateError('Unable to capture receipt image.');
+    }
+
+    return byteData.buffer.asUint8List();
+  }
+
+  Future<Uint8List> _buildShareImageBytes() async {
+    try {
+      return await _captureReceiptCardImage();
+    } catch (_) {
+      final business = context.read<BusinessProvider>().currentBusiness;
+      return ReceiptAssetService.generateReceiptImage(
+        businessName: business?.name ?? 'Receipt',
+        receiptText: _generateReceiptText(),
+        receiptNumber: widget.sale['id']?.toString(),
+        businessLogoUrl: business?.logoUrl,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
+      );
+    }
+  }
+
+  Future<Uint8List> _buildReceiptPdfBytes() async {
+    final business = context.read<BusinessProvider>().currentBusiness;
+    final sale = _normalizeSale(widget.sale);
+    final receiptSettings = context.read<ReceiptSettingsProvider>().receiptSettings;
+    final items = _normalizeItems(sale['items']);
+
+    return PdfReceiptGenerator.generateReceiptPdfBytes(
+      businessName: business?.name ?? 'Business',
+      receiptNumber: sale['id']?.toString() ??
+          DateTime.now().millisecondsSinceEpoch.toString(),
+      receiptDate: parseTimestamp(sale['date']),
+      items: _buildReceiptPdfItems(items),
+      subtotal: _asDouble(sale['subtotal']),
+      tax: _asDouble(sale['tax']),
+      total: _resolvedSaleTotal(sale),
+      paymentMethod: sale['paymentMethod'] ?? 'Cash',
+      paymentBreakdown: (sale['paymentBreakdown'] as List<dynamic>?)
+          ?.map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(),
+      customerName: _resolveCustomerName(sale),
+      customerEmail: _resolveCustomerEmail(sale),
+      customHeader: receiptSettings?.headerNote,
+      customFooter: receiptSettings?.footerMessage,
+      paperWidth: (receiptSettings?.paperWidth ?? 58).toString(),
+      cashier: sale['workerName'] ?? sale['cashier'] ?? 'Staff',
+      poweredByText: 'Powered by Manage Care',
+      showQrCode: receiptSettings?.showQrCode ?? false,
+      receiptUrlBase: receiptSettings?.receiptUrlBase,
+      discount: _asDouble(sale['discount']),
+      businessLogoUrl: business?.logoUrl,
+      businessAddress: business?.address,
+      businessPhone: business?.phone,
+      businessEmail: business?.email,
+      subscriptionTier: business?.subscriptionTier,
+      businessClass: business?.businessClass,
+    );
+  }
+
   Future<void> _shareReceipt() async {
     try {
-      final receiptText = _generateReceiptText();
       final business = context.read<BusinessProvider>().currentBusiness;
       final fileName = ReceiptUtility.generateReceiptFileName(
         businessName: business?.name ?? 'Receipt',
         orderId: widget.sale['id']?.toString(),
       );
 
-      final imageBytes = await ReceiptAssetService.generateReceiptImage(
-        businessName: business?.name ?? 'Receipt',
-        receiptText: receiptText,
-        receiptNumber: widget.sale['id']?.toString(),
-        businessLogoUrl: business?.logoUrl,
-        subscriptionTier: business?.subscriptionTier,
-        businessClass: business?.businessClass,
-      );
+      final imageBytes = await _buildShareImageBytes();
 
       final success = await ReceiptUtility.shareReceiptAsImage(
         imageData: imageBytes,
@@ -486,21 +615,13 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 
   Future<void> _downloadReceipt() async {
     try {
-      final receiptText = _generateReceiptText();
       final business = context.read<BusinessProvider>().currentBusiness;
       final fileName = ReceiptUtility.generateReceiptFileName(
         businessName: business?.name ?? 'Receipt',
         orderId: widget.sale['id']?.toString(),
       );
 
-      final imageBytes = await ReceiptAssetService.generateReceiptImage(
-        businessName: business?.name ?? 'Receipt',
-        receiptText: receiptText,
-        receiptNumber: widget.sale['id']?.toString(),
-        businessLogoUrl: business?.logoUrl,
-        subscriptionTier: business?.subscriptionTier,
-        businessClass: business?.businessClass,
-      );
+      final imageBytes = await _buildShareImageBytes();
 
       final success = await ReceiptUtility.downloadReceiptAsImage(
         imageData: imageBytes,
@@ -775,49 +896,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       if (kIsWeb) {
         try {
           final sale = _normalizeSale(widget.sale);
-          final items = _normalizeItems(sale['items']);
-          final receiptSettings = context.read<ReceiptSettingsProvider>().receiptSettings;
-          final business = context.read<BusinessProvider>().currentBusiness;
-
-          final formattedItems = items
-                .map((item) => {
-                      'name': item['name'] ?? 'Item',
-                      'quantity': item['quantity'] ?? 1,
-                      'unit': item['unit'] ?? item['uom'] ?? item['saleUnit'] ?? item['inventoryUnit'],
-                      'price': _asDouble(item['price']),
-                    })
-                .toList();
-
-          final cashierName = sale['workerName'] ?? sale['cashier'] ?? 'Staff';
-          final footerWithPowered = (receiptSettings?.footerMessage?.isNotEmpty == true) ? '${receiptSettings!.footerMessage}\nPowered by Manage Care' : 'Powered by Manage Care';
-
-          final pdfBytes = await PdfReceiptGenerator.generateReceiptPdfBytes(
-            businessName: business?.name ?? 'Business',
-            receiptNumber: sale['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
-            receiptDate: parseTimestamp(sale['date']),
-            items: formattedItems,
-            subtotal: _asDouble(sale['subtotal']),
-            tax: _asDouble(sale['tax']),
-            total: _resolvedSaleTotal(sale),
-            paymentMethod: sale['paymentMethod'] ?? 'Cash',
-            paymentBreakdown: (sale['paymentBreakdown'] as List<dynamic>?)?.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>)).toList(),
-            customerName: (sale['customer'] is Map) ? (sale['customer']['name'] ?? sale['customer']['fullName'] ?? 'Customer') : (sale['customerName'] ?? 'Customer'),
-            customerEmail: (sale['customer'] is Map) ? (sale['customer']['email'] ?? '') : (sale['customerEmail'] ?? ''),
-            customHeader: receiptSettings?.headerNote,
-            customFooter: footerWithPowered,
-            paperWidth: (receiptSettings?.paperWidth ?? 58).toString(),
-            cashier: cashierName,
-            poweredByText: footerWithPowered,
-            showQrCode: receiptSettings?.showQrCode ?? false,
-            receiptUrlBase: receiptSettings?.receiptUrlBase,
-            discount: _asDouble(sale['discount']),
-            businessLogoUrl: business?.logoUrl,
-            businessAddress: business?.address,
-            businessPhone: business?.phone,
-            businessEmail: business?.email,
-            subscriptionTier: business?.subscriptionTier,
-            businessClass: business?.businessClass,
-          );
+          final pdfBytes = await _buildReceiptPdfBytes();
 
           final filename = PdfReceiptGenerator.getReceiptFilename(sale['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString());
 
@@ -954,14 +1033,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     try {
       final business = context.read<BusinessProvider>().currentBusiness;
       final sale = widget.sale;
-      final pngBytes = await ReceiptAssetService.generateReceiptImage(
-        businessName: business?.name ?? 'Receipt',
-        receiptText: _generateReceiptText(),
-        receiptNumber: sale['id']?.toString(),
-        businessLogoUrl: business?.logoUrl,
-        subscriptionTier: business?.subscriptionTier,
-        businessClass: business?.businessClass,
-      );
+      final pngBytes = await _buildShareImageBytes();
       final success = await ReceiptUtility.shareReceiptAsImage(
         imageData: pngBytes,
         businessName: business?.name ?? 'Receipt',
@@ -988,82 +1060,33 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     try {
       final business = context.read<BusinessProvider>().currentBusiness;
       final sale = _normalizeSale(widget.sale);
-      final receiptSettings = context.read<ReceiptSettingsProvider>().receiptSettings;
-      final items = _normalizeItems(sale['items']);
-
-      final formattedItems = items
-          .map((item) => {
-                'name': item['name'] ?? 'Item',
-                'quantity': item['quantity'] ?? 1,
-                'unit': item['unit'] ?? item['uom'] ?? item['saleUnit'] ?? item['inventoryUnit'],
-                'price': _asDouble(item['price']),
-              })
-          .toList();
-
-      final cashierName = sale['workerName'] ?? sale['cashier'] ?? 'Staff';
-      final footerWithPowered = (receiptSettings?.footerMessage?.isNotEmpty == true)
-          ? '${receiptSettings!.footerMessage}\nPowered by Manage Care'
-          : 'Powered by Manage Care';
-
-      final pdfBytes = await PdfReceiptGenerator.generateReceiptPdfBytes(
-        businessName: business?.name ?? 'Business',
-        receiptNumber: sale['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        receiptDate: parseTimestamp(sale['date']),
-        items: formattedItems,
-        subtotal: _asDouble(sale['subtotal']),
-        tax: _asDouble(sale['tax']),
-        total: _resolvedSaleTotal(sale),
-        paymentMethod: sale['paymentMethod'] ?? 'Cash',
-        paymentBreakdown: (sale['paymentBreakdown'] as List<dynamic>?)
-            ?.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>))
-            .toList(),
-        customerName: (sale['customer'] is Map)
-            ? (sale['customer']['name'] ?? sale['customer']['fullName'] ?? 'Customer')
-            : (sale['customerName'] ?? 'Customer'),
-        customerEmail: (sale['customer'] is Map)
-            ? (sale['customer']['email'] ?? '')
-            : (sale['customerEmail'] ?? ''),
-        customHeader: receiptSettings?.headerNote,
-        customFooter: footerWithPowered,
-        paperWidth: (receiptSettings?.paperWidth ?? 58).toString(),
-        cashier: cashierName,
-        poweredByText: footerWithPowered,
-        showQrCode: receiptSettings?.showQrCode ?? false,
-        receiptUrlBase: receiptSettings?.receiptUrlBase,
-        discount: _asDouble(sale['discount']),
-        businessLogoUrl: business?.logoUrl,
-        businessAddress: business?.address,
-        businessPhone: business?.phone,
-        businessEmail: business?.email,
-        subscriptionTier: business?.subscriptionTier,
-        businessClass: business?.businessClass,
-      );
+      final pdfBytes = await _buildReceiptPdfBytes();
 
       final fileName = ReceiptUtility.generateReceiptFileName(
         businessName: business?.name ?? 'Receipt',
         orderId: sale['id']?.toString(),
       );
 
-      final saved = kIsWeb
-          ? false
-          : await ReceiptUtility.downloadReceiptAsPDF(
-              pdfData: pdfBytes,
-              fileName: fileName,
-            );
-      final shared = await ReceiptUtility.shareReceiptAsPDF(
+      final saved = await ReceiptUtility.downloadReceiptAsPDF(
         pdfData: pdfBytes,
-        businessName: business?.name ?? 'Business',
         fileName: fileName,
       );
+      final shared = kIsWeb
+          ? false
+          : await ReceiptUtility.shareReceiptAsPDF(
+              pdfData: pdfBytes,
+              businessName: business?.name ?? 'Business',
+              fileName: fileName,
+            );
 
       if (mounted) {
-        final message = saved && !kIsWeb
-            ? (shared
-                ? 'PDF saved and ready to share'
-                : 'PDF saved to downloads')
-            : (shared
-                ? 'PDF shared successfully'
-                : 'Failed to share PDF');
+        final message = saved && shared
+            ? 'PDF saved and share sheet opened'
+            : saved
+                ? 'PDF exported successfully'
+                : shared
+                    ? 'PDF shared successfully'
+                    : 'Failed to export PDF';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
         );
@@ -1301,7 +1324,25 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                               ),
                               textAlign: TextAlign.center,
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 12),
+
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              alignment: WrapAlignment.center,
+                              children: [
+                                _buildReceiptHeaderPill(
+                                  icon: Icons.receipt_long_rounded,
+                                  label:
+                                      '#${sale['id']?.toString() ?? 'N/A'}',
+                                ),
+                                _buildReceiptHeaderPill(
+                                  icon: Icons.event_rounded,
+                                  label: sale['displayDate'] ?? 'Today',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
 
                             // Receipt Type Badge
                             if (widget.isSubscriptionReceipt)
@@ -1548,6 +1589,41 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
           }),
         );
       },
+    );
+  }
+
+  Widget _buildReceiptHeaderPill({
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withAlpha(28),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: Colors.white.withAlpha(48),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 14,
+            color: Colors.white.withAlpha(235),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

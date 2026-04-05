@@ -2,7 +2,11 @@
 library;
 
 import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:path/path.dart' as path;
+
 import '../core/utils/datetime_utils.dart';
 import 'subscription_storage_service.dart';
 
@@ -27,7 +31,9 @@ class ReceiptUploadService {
     required String planName,
     required double amount,
     required String currency,
-    required File receiptFile,
+    File? receiptFile,
+    Uint8List? receiptBytes,
+    String? receiptFileName,
     required String userEmail,
     required String userName,
     Function(double progress)? onProgress,
@@ -43,11 +49,19 @@ class ReceiptUploadService {
       print('[ReceiptUploadService] Upload ID: $uploadId');
 
       // Validate file
-      if (!receiptFile.existsSync()) {
+      if (receiptFile == null && receiptBytes == null) {
         throw Exception('Receipt file not found');
       }
 
-      final fileSize = receiptFile.lengthSync();
+      int fileSize;
+      if (receiptBytes != null) {
+        fileSize = receiptBytes.length;
+      } else {
+        if (!receiptFile!.existsSync()) {
+          throw Exception('Receipt file not found');
+        }
+        fileSize = receiptFile.lengthSync();
+      }
       const maxSize = 10 * 1024 * 1024; // 10 MB
 
       if (fileSize > maxSize) {
@@ -60,12 +74,24 @@ class ReceiptUploadService {
       // Upload receipt to Firebase Storage
       print('[ReceiptUploadService] ▶ Uploading receipt to Firebase Storage...');
       final storageService = SubscriptionStorageService();
-      final uploadResult = await storageService.uploadSubscriptionProofWithProgress(
-        receiptFile,
-        userId,
-        planId,
-        onProgress: onProgress,
+      final normalizedFileName = _resolveReceiptFileName(
+        receiptFileName: receiptFileName,
+        receiptFile: receiptFile,
       );
+      final uploadResult = receiptBytes != null
+          ? await storageService.uploadSubscriptionProofBytesWithProgress(
+              receiptBytes,
+              normalizedFileName,
+              userId,
+              planId,
+              onProgress: onProgress,
+            )
+          : await storageService.uploadSubscriptionProofWithProgress(
+              receiptFile!,
+              userId,
+              planId,
+              onProgress: onProgress,
+            );
 
       if (!uploadResult.success || uploadResult.downloadUrl == null) {
         throw Exception('Firebase Storage upload failed: ${uploadResult.error ?? 'Unknown error'}');
@@ -182,6 +208,26 @@ class ReceiptUploadService {
         notes: data['notes'] as String? ?? '',
       );
     });
+  }
+
+  String _resolveReceiptFileName({
+    required String? receiptFileName,
+    required File? receiptFile,
+  }) {
+    final explicitName = receiptFileName?.trim() ?? '';
+    if (explicitName.isNotEmpty) {
+      return path.basename(explicitName);
+    }
+
+    if (receiptFile != null) {
+      final receiptPath = receiptFile.path.trim();
+      if (receiptPath.isNotEmpty) {
+        final name = path.basename(receiptPath);
+        if (name.isNotEmpty) return name;
+      }
+    }
+
+    return 'receipt_${DateTime.now().millisecondsSinceEpoch}.jpg';
   }
 }
 

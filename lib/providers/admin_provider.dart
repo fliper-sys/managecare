@@ -625,20 +625,166 @@ class AdminProvider extends ChangeNotifier {
         'createdAt': FieldValue.serverTimestamp(),
         'targetUsers': userIds,
         'type': 'notification',
+        'sentBy': _auth.currentUser?.uid,
       });
 
-      // Update each user's notification list
+      // Update each user's notification list. Support both users and workers
+      // records because admin views can be sourced from either collection.
       for (var userId in userIds) {
-        await _firestore
-            .collection('users')
-            .doc(userId)
-            .collection('notifications')
-            .add({
-          'title': title,
-          'body': body,
+        final userDoc = await _firestore.collection('users').doc(userId).get();
+        final workerDoc =
+            await _firestore.collection('workers').doc(userId).get();
+
+        final targets = <DocumentReference<Map<String, dynamic>>>[
+          if (userDoc.exists) userDoc.reference,
+          if (workerDoc.exists) workerDoc.reference,
+        ];
+
+        for (final ref in targets) {
+          await ref.collection('notifications').add({
+            'title': title,
+            'body': body,
+            'read': false,
+            'type': 'notification',
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+        }
+      }
+
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> grantBusinessSubscription({
+    required String businessId,
+    required String businessName,
+    required String tier,
+    required int durationDays,
+    String source = 'admin_manual',
+  }) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      final now = DateTime.now();
+      final endDate = now.add(Duration(days: durationDays));
+      final normalizedTier = tier.toLowerCase();
+      final businessRef = _firestore.collection('businesses').doc(businessId);
+      var approvedPendingCount = 0;
+
+      await businessRef.set({
+        'subscriptionTier': normalizedTier,
+        'subscriptionPlan': '${normalizedTier}_${durationDays}d',
+        'subscriptionStartDate': Timestamp.fromDate(now),
+        'subscriptionEndDate': Timestamp.fromDate(endDate),
+        'subscriptionDurationDays': durationDays,
+        'isSubscriptionActive': true,
+        'subscriptionStatus': 'approved',
+        'subscriptionReviewStatus': 'approved',
+        'subscriptionApprovedAt': Timestamp.now(),
+        'subscriptionApprovedBy': _auth.currentUser?.uid ?? 'system',
+        'subscriptionSource': source,
+        'subscriptionDeclineReason': FieldValue.delete(),
+        'subscriptionDeclinedAt': FieldValue.delete(),
+        'updatedAt': Timestamp.now(),
+      }, SetOptions(merge: true));
+
+      try {
+        final pendingRequests = await _firestore
+            .collection('subscription_requests')
+            .where('businessId', isEqualTo: businessId)
+            .where('status', isEqualTo: 'pending')
+            .get();
+        approvedPendingCount = pendingRequests.docs.length;
+
+        for (final doc in pendingRequests.docs) {
+          await doc.reference.set({
+            'status': 'approved',
+            'subscriptionStatus': 'approved',
+            'approvedAt': FieldValue.serverTimestamp(),
+            'approvedBy': _auth.currentUser?.uid ?? 'system',
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      } catch (_) {}
+
+      await _firestore.collection('subscriptions').add({
+        'businessId': businessId,
+        'businessName': businessName,
+        'tier': normalizedTier,
+        'startDate': Timestamp.fromDate(now),
+        'endDate': Timestamp.fromDate(endDate),
+        'durationDays': durationDays,
+        'isSubscriptionActive': true,
+        'approvedAt': Timestamp.now(),
+        'approvedBy': _auth.currentUser?.uid ?? 'system',
+        'type': source,
+      });
+
+      final idx = _allBusinesses.indexWhere((b) => b['id'] == businessId);
+      if (idx >= 0) {
+        _allBusinesses[idx] = {
+          ..._allBusinesses[idx],
+          'subscriptionTier': normalizedTier,
+          'subscriptionPlan': '${normalizedTier}_${durationDays}d',
+          'subscriptionDurationDays': durationDays,
+          'isSubscriptionActive': true,
+          'subscriptionStatus': 'approved',
+          'subscriptionReviewStatus': 'approved',
+          'subscriptionEndDate': Timestamp.fromDate(endDate),
+          'subscriptionStartDate': Timestamp.fromDate(now),
+          'subscriptionDeclineReason': null,
+          'subscriptionDeclinedAt': null,
+        };
+      }
+
+      for (int i = 0; i < _allUsers.length; i++) {
+        if (_allUsers[i]['businessId'] == businessId) {
+          _allUsers[i] = {
+            ..._allUsers[i],
+            'isSubscriptionActive': true,
+            'subscriptionStatus': 'approved',
+            'subscriptionTier': normalizedTier,
+            'subscriptionPlan': '${normalizedTier}_${durationDays}d',
+            'subscriptionDurationDays': durationDays,
+            'subscriptionEndDate': Timestamp.fromDate(endDate),
+            'subscriptionStartDate': Timestamp.fromDate(now),
+          };
+        }
+      }
+
+      final affectedUsers = await _firestore
+          .collection('users')
+          .where('businessId', isEqualTo: businessId)
+          .get();
+      final endLabel =
+          '${endDate.day}/${endDate.month}/${endDate.year}';
+      for (final userDoc in affectedUsers.docs) {
+        await userDoc.reference.collection('notifications').add({
+          'title': 'Subscription Activated',
+          'body':
+              '$businessName now has a ${normalizedTier.toUpperCase()} subscription active until $endLabel.',
           'read': false,
+          'type': 'subscription',
+          'businessId': businessId,
           'createdAt': FieldValue.serverTimestamp(),
         });
+      }
+
+      _refreshDerivedStatsFromCache();
+      if (approvedPendingCount > 0 && _stats.pendingSubscriptionApprovals > 0) {
+        _stats = _stats.copyWith(
+          pendingSubscriptionApprovals:
+              (_stats.pendingSubscriptionApprovals - approvedPendingCount)
+                  .clamp(0, 999999),
+        );
       }
 
       _isLoading = false;
@@ -1460,115 +1606,13 @@ class AdminProvider extends ChangeNotifier {
       {required String businessId,
       required String businessName,
       required String tier}) async {
-    try {
-      // DON'T notify here - wait until async work is done
-      final now = DateTime.now();
-      final endDate = now.add(const Duration(days: 365));
-      final businessRef = _firestore.collection('businesses').doc(businessId);
-
-      // Update business with subscription details using the exact same fields
-      // that the subscription checker expects
-      print('🔷 DEBUG: Approving subscription for business: $businessId');
-      print('🔷 DEBUG: Setting isSubscriptionActive=true, tier=$tier');
-      
-      await businessRef.update({
-        'subscriptionTier': tier.toLowerCase(),
-        'subscriptionStartDate': Timestamp.fromDate(now),
-        'subscriptionEndDate': Timestamp.fromDate(endDate),
-        'isSubscriptionActive': true, // Use isSubscriptionActive, not subscriptionStatus
-        'subscriptionStatus': 'approved',
-        'subscriptionReviewStatus': 'approved',
-        'subscriptionApprovedAt': Timestamp.now(),
-        'subscriptionApprovedBy': _auth.currentUser?.uid ?? 'system',
-        'subscriptionDeclineReason': FieldValue.delete(),
-        'subscriptionDeclinedAt': FieldValue.delete(),
-        'updatedAt': Timestamp.now(),
-      });
-      
-      print('🔷 DEBUG: Business updated successfully');
-      
-      // Verify the update was successful by reading it back
-      final businessDoc = await businessRef.get();
-      print('🔷 DEBUG: Business data after update: ${businessDoc.data()}');
-
-      try {
-        final pendingRequests = await _firestore
-            .collection('subscription_requests')
-            .where('businessId', isEqualTo: businessId)
-            .where('status', isEqualTo: 'pending')
-            .get();
-
-        for (final doc in pendingRequests.docs) {
-          await doc.reference.set({
-            'status': 'approved',
-            'subscriptionStatus': 'approved',
-            'approvedAt': FieldValue.serverTimestamp(),
-            'approvedBy': _auth.currentUser?.uid ?? 'system',
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
-        }
-      } catch (_) {}
-
-      // Create subscription record for audit trail
-      await _firestore.collection('subscriptions').add({
-        'businessId': businessId,
-        'businessName': businessName,
-        'tier': tier.toLowerCase(),
-        'startDate': Timestamp.fromDate(now),
-        'endDate': Timestamp.fromDate(endDate),
-        'isSubscriptionActive': true,
-        'approvedAt': Timestamp.now(),
-        'approvedBy': _auth.currentUser?.uid ?? 'system',
-        'type': 'one_year',
-      });
-
-      // Update local cache - find and update the business
-      final idx = _allBusinesses.indexWhere((b) => b['id'] == businessId);
-      if (idx >= 0) {
-        _allBusinesses[idx] = {
-          ..._allBusinesses[idx],
-          'subscriptionTier': tier.toLowerCase(),
-          'isSubscriptionActive': true,
-          'subscriptionStatus': 'approved',
-          'subscriptionReviewStatus': 'approved',
-          'subscriptionEndDate': Timestamp.fromDate(endDate),
-          'subscriptionStartDate': Timestamp.fromDate(now),
-          'subscriptionDeclineReason': null,
-          'subscriptionDeclinedAt': null,
-        };
-      }
-
-      // Update all users associated with this business
-      for (int i = 0; i < _allUsers.length; i++) {
-        if (_allUsers[i]['businessId'] == businessId) {
-          _allUsers[i] = {
-            ..._allUsers[i],
-            'isSubscriptionActive': true,
-            'subscriptionStatus': 'approved',
-            'subscriptionTier': tier.toLowerCase(),
-            'subscriptionEndDate': Timestamp.fromDate(endDate),
-            'subscriptionStartDate': Timestamp.fromDate(now),
-          };
-        }
-      }
-
-      _refreshDerivedStatsFromCache();
-      if (_stats.pendingSubscriptionApprovals > 0) {
-        _stats = _stats.copyWith(
-          pendingSubscriptionApprovals:
-              (_stats.pendingSubscriptionApprovals - 1).clamp(0, 999999),
-        );
-      }
-
-      _isLoading = false;
-      notifyListeners(); // Single notification at the end
-      return true;
-    } catch (e) {
-      _errorMessage = e.toString();
-      _isLoading = false;
-      notifyListeners();
-      return false;
-    }
+    return grantBusinessSubscription(
+      businessId: businessId,
+      businessName: businessName,
+      tier: tier,
+      durationDays: 365,
+      source: 'admin_one_year',
+    );
   }
 
   Future<bool> declineOneYearSubscription({
