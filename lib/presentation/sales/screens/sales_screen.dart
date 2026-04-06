@@ -1695,6 +1695,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   String _paymentMethod = 'cash';
   String? _selectedStoreId;
   CustomerModel? _selectedCustomer;
+  ScrollController? _internalScrollController;
   late TextEditingController _customerEmailController;
   late TextEditingController _customerNameController;
   late TextEditingController _taxRateController;
@@ -1702,6 +1703,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   // Per-item price overrides (keyed by product id)
   final Map<String, double> _priceOverrides = {};
+
+  ScrollController get _effectiveScrollController =>
+      widget.scrollController ?? _internalScrollController!;
 
   String _resolveBusinessId() {
     final businessId =
@@ -1856,110 +1860,153 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     final selected = await showModalBottomSheet<CustomerModel?>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         String query = '';
         return StatefulBuilder(
-          builder: (sheetContext, setSheetState) {
-            final customers = customerProvider.customers.where((customer) {
-              final q = query.trim().toLowerCase();
-              if (q.isEmpty) return true;
-              return customer.name.toLowerCase().contains(q) ||
-                  (customer.phone?.toLowerCase().contains(q) ?? false) ||
-                  (customer.email?.toLowerCase().contains(q) ?? false);
-            }).toList();
+          builder: (sheetContext, setSheetState) =>
+              DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.72,
+            minChildSize: 0.42,
+            maxChildSize: 0.92,
+            builder: (sheetContext, scrollController) {
+              final customers = customerProvider.customers.where((customer) {
+                final q = query.trim().toLowerCase();
+                if (q.isEmpty) return true;
+                return customer.name.toLowerCase().contains(q) ||
+                    (customer.phone?.toLowerCase().contains(q) ?? false) ||
+                    (customer.email?.toLowerCase().contains(q) ?? false);
+              }).toList();
 
-            return SafeArea(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                  bottom: 16 + MediaQuery.of(sheetContext).viewInsets.bottom,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Select customer',
-                            style: AppTextStyles.heading5,
+              return SafeArea(
+                top: false,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(sheetContext).colorScheme.surface,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        margin: const EdgeInsets.only(top: 12),
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Theme.of(sheetContext)
+                              .dividerColor
+                              .withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'Select customer',
+                                style: AppTextStyles.heading5,
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () =>
+                                  Navigator.of(sheetContext).pop(),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                        child: TextField(
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.search),
+                            hintText: 'Search by name, phone, or email',
+                            border: OutlineInputBorder(),
                           ),
+                          onChanged: (value) =>
+                              setSheetState(() => query = value),
                         ),
-                        IconButton(
-                          onPressed: () => Navigator.of(sheetContext).pop(),
-                          icon: const Icon(Icons.close),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        hintText: 'Search by name, phone, or email',
-                        border: OutlineInputBorder(),
                       ),
-                      onChanged: (value) =>
-                          setSheetState(() => query = value),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        TextButton.icon(
-                          onPressed: () => Navigator.of(sheetContext).pop(),
-                          icon: const Icon(Icons.person_outline),
-                          label: const Text('Walk-in customer'),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
+                          children: [
+                            TextButton.icon(
+                              onPressed: () =>
+                                  Navigator.of(sheetContext).pop(),
+                              icon: const Icon(Icons.person_outline),
+                              label: const Text('Walk-in customer'),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (customerProvider.isLoading)
-                      const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: CircularProgressIndicator(),
-                      )
-                    else if (customers.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text('No customers found'),
-                      )
-                    else
-                      Flexible(
-                        child: ListView.separated(
-                          shrinkWrap: true,
-                          itemCount: customers.length,
-                          separatorBuilder: (_, __) =>
-                              const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            final customer = customers[index];
-                            return ListTile(
-                              leading: CircleAvatar(
-                                child: Text(
-                                  customer.name.isNotEmpty
-                                      ? customer.name[0].toUpperCase()
-                                      : '?',
+                      ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: customerProvider.isLoading
+                            ? const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: CircularProgressIndicator(),
                                 ),
-                              ),
-                              title: Text(customer.name),
-                              subtitle: Text(
-                                customer.phone?.isNotEmpty == true
-                                    ? customer.phone!
-                                    : (customer.email?.isNotEmpty == true
-                                        ? customer.email!
-                                        : 'No contact details'),
-                              ),
-                              onTap: () =>
-                                  Navigator.of(sheetContext).pop(customer),
-                            );
-                          },
-                        ),
+                              )
+                            : customers.isEmpty
+                                ? const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(24),
+                                      child: Text('No customers found'),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    controller: scrollController,
+                                    padding: EdgeInsets.fromLTRB(
+                                      16,
+                                      0,
+                                      16,
+                                      16 +
+                                          MediaQuery.of(sheetContext)
+                                              .viewInsets
+                                              .bottom,
+                                    ),
+                                    itemCount: customers.length,
+                                    separatorBuilder: (_, __) =>
+                                        const Divider(height: 1),
+                                    itemBuilder: (context, index) {
+                                      final customer = customers[index];
+                                      return ListTile(
+                                        leading: CircleAvatar(
+                                          child: Text(
+                                            customer.name.isNotEmpty
+                                                ? customer.name[0]
+                                                    .toUpperCase()
+                                                : '?',
+                                          ),
+                                        ),
+                                        title: Text(customer.name),
+                                        subtitle: Text(
+                                          customer.phone?.isNotEmpty == true
+                                              ? customer.phone!
+                                              : (customer.email?.isNotEmpty ==
+                                                      true
+                                                  ? customer.email!
+                                                  : 'No contact details'),
+                                        ),
+                                        onTap: () =>
+                                            Navigator.of(sheetContext)
+                                                .pop(customer),
+                                      );
+                                    },
+                                  ),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         );
       },
     );
@@ -1971,6 +2018,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   @override
   void initState() {
     super.initState();
+    if (widget.scrollController == null) {
+      _internalScrollController = ScrollController();
+    }
     _customerEmailController = TextEditingController();
     _customerNameController = TextEditingController();
     _taxRateController = TextEditingController(text: '0');  // Default 0%
@@ -2023,6 +2073,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   @override
   void dispose() {
+    _internalScrollController?.dispose();
     _customerEmailController.dispose();
     _customerNameController.dispose();
     _taxRateController.dispose();
@@ -2033,6 +2084,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   @override
   Widget build(BuildContext context) {
     final entries = widget.items.entries.toList();
+    final customerProvider = context.watch<CustomerProvider>();
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
@@ -2047,11 +2099,15 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
         color: surfaceColor,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 20),
-          child: Column(
-            children: [
+      child: Scrollbar(
+        controller: _effectiveScrollController,
+        thumbVisibility: entries.length > 2,
+        child: SingleChildScrollView(
+          controller: _effectiveScrollController,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 20),
+            child: Column(
+              children: [
               // Handle
               Container(
                 margin: const EdgeInsets.only(top: 12),
@@ -2262,14 +2318,115 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                     ],
                   );
                 }),
-                // Customer Information
-                const Text('Customer Information',
-                    style: AppTextStyles.subtitle1),
+                Text(
+                  'Customer Information',
+                  style: AppTextStyles.subtitle1.copyWith(
+                    color: scheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: theme.cardColor,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            radius: 20,
+                            backgroundColor:
+                                AppColors.primary.withOpacity(isDark ? 0.24 : 0.12),
+                            child: Icon(
+                              _selectedCustomer == null
+                                  ? Icons.person_outline
+                                  : Icons.person,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _selectedCustomer?.name ?? 'Walk-in customer',
+                                  style: AppTextStyles.subtitle1.copyWith(
+                                    color: scheme.onSurface,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _selectedCustomer == null
+                                      ? 'Select an existing customer or create a new one for this sale.'
+                                      : (_selectedCustomer!.phone?.isNotEmpty == true
+                                          ? _selectedCustomer!.phone!
+                                          : (_selectedCustomer!.email?.isNotEmpty == true
+                                              ? _selectedCustomer!.email!
+                                              : 'No saved contact details')),
+                                  style: AppTextStyles.caption.copyWith(
+                                    color: scheme.onSurface.withOpacity(0.7),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (customerProvider.isLoading) ...[
+                        const SizedBox(height: 12),
+                        const LinearProgressIndicator(minHeight: 3),
+                      ],
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: customerProvider.isLoading
+                                ? null
+                                : _showCustomerSelectionSheet,
+                            icon: const Icon(Icons.people_outline),
+                            label: Text(
+                              _selectedCustomer == null
+                                  ? 'Select Customer'
+                                  : 'Change Customer',
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              final created =
+                                  await _showCreateCustomerDialog();
+                              if (!mounted || created == null) return;
+                              _applySelectedCustomer(created);
+                            },
+                            icon: const Icon(Icons.person_add_alt_1),
+                            label: const Text('Add New'),
+                          ),
+                          if (_selectedCustomer != null)
+                            TextButton.icon(
+                              onPressed: () => _applySelectedCustomer(null),
+                              icon: const Icon(Icons.clear),
+                              label: const Text('Clear'),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _customerNameController,
                   decoration: InputDecoration(
-                    hintText: 'Customer name (optional)',
+                    labelText: 'Customer name',
+                    hintText: 'Optional display name on receipt',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -2282,7 +2439,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                   controller: _customerEmailController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
-                    hintText: 'Customer email (optional)',
+                    labelText: 'Customer email',
+                    hintText: 'Optional email for receipt delivery',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -2418,8 +2576,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                     text: 'Complete Sale',
                     onPressed: () async => await widget.onComplete(
                       _selectedCustomer?.id,
-                      _customerEmailController.text.isEmpty ? null : _customerEmailController.text,
-                      _customerNameController.text.isEmpty ? null : _customerNameController.text,
+                      _customerEmailController.text.trim().isEmpty
+                          ? null
+                          : _customerEmailController.text.trim(),
+                      _customerNameController.text.trim().isEmpty
+                          ? null
+                          : _customerNameController.text.trim(),
                       _paymentMethod,
                       _selectedStoreId,
                       double.tryParse(_taxRateController.text) ?? 0.0,
@@ -2432,9 +2594,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
               ),
             ),
           ),
-        ],
+              ],
+            ),
+        ),
       ),
-    )));
+      ),
+    );
   }
 }
 

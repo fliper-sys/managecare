@@ -206,6 +206,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
   String _transactionsSearch = '';
   DateTime? _filterStartDate;
   DateTime? _filterEndDate;
+  bool _isHeaderExpanded = true;
 
   /// Helper method to safely format timestamps for display
   String _formatRequestDate(DateTime date) {
@@ -764,129 +765,149 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Subscription Approvals',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Subscription Approvals',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(_isHeaderExpanded ? Icons.expand_less : Icons.expand_more),
+                        onPressed: () => setState(() => _isHeaderExpanded = !_isHeaderExpanded),
+                        color: Colors.white,
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    'Review payment proofs, approve access, and track processed transactions from one control desk.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white.withOpacity(0.7),
-                    ),
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 300),
+                    child: _isHeaderExpanded
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Review payment proofs, approve access, and track processed transactions from one control desk.',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.white.withOpacity(0.7),
+                                ),
+                              ),
+                              const SizedBox(height: 18),
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    _buildTabButton(
+                                      'Pending',
+                                      0,
+                                      _pendingPayments.length,
+                                      Colors.orange,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _buildTabButton(
+                                      'Approved',
+                                      1,
+                                      _approvedPayments.length,
+                                      Colors.green,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _buildTabButton(
+                                      'Declined',
+                                      2,
+                                      _declinedPayments.length,
+                                      Colors.red,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _buildTabButton(
+                                      'Transactions',
+                                      3,
+                                      _transactions.length,
+                                      Colors.blue,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                children: [
+                                  _buildOverviewCard(
+                                    title: 'Pending',
+                                    value: _pendingPayments.length.toString(),
+                                    color: Colors.orange,
+                                  ),
+                                  _buildOverviewCard(
+                                    title: 'Approved',
+                                    value: _approvedPayments.length.toString(),
+                                    color: Colors.green,
+                                  ),
+                                  _buildOverviewCard(
+                                    title: 'Declined',
+                                    value: _declinedPayments.length.toString(),
+                                    color: Colors.red,
+                                  ),
+                                  _buildOverviewCard(
+                                    title: 'Transactions',
+                                    value: _transactions.length.toString(),
+                                    color: Colors.blue,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                children: [
+                                  _buildAmountChip(
+                                    label: 'Pending Value',
+                                    amount: _sumPaymentAmounts(_pendingPayments),
+                                    color: Colors.orange,
+                                  ),
+                                  _buildAmountChip(
+                                    label: 'Recognized Revenue',
+                                    amount: _sumPaymentAmounts(_approvedPayments),
+                                    color: Colors.green,
+                                  ),
+                                  _buildAmountChip(
+                                    label: 'Recognized Tx Value',
+                                    amount: _transactions
+                                        .where(_isTransactionRecognized)
+                                        .fold<double>(
+                                          0,
+                                          (sum, tx) => sum + tx.amount,
+                                        ),
+                                    color: Colors.blue,
+                                  ),
+                                ],
+                              ),
+                              if (_selectedTabIndex != 3) ...[
+                                const SizedBox(height: 16),
+                                TextField(
+                                  onChanged: (value) => setState(
+                                    () => _paymentsSearch = value.trim().toLowerCase(),
+                                  ),
+                                  decoration: InputDecoration(
+                                    hintText: 'Search user, business, plan, or transaction id',
+                                    prefixIcon: const Icon(Icons.search_rounded),
+                                    filled: true,
+                                    fillColor: context.adminSurface,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(18),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          )
+                        : const SizedBox.shrink(),
                   ),
-                  const SizedBox(height: 18),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _buildTabButton(
-                          'Pending',
-                          0,
-                          _pendingPayments.length,
-                          Colors.orange,
-                        ),
-                        const SizedBox(width: 8),
-                        _buildTabButton(
-                          'Approved',
-                          1,
-                          _approvedPayments.length,
-                          Colors.green,
-                        ),
-                        const SizedBox(width: 8),
-                        _buildTabButton(
-                          'Declined',
-                          2,
-                          _declinedPayments.length,
-                          Colors.red,
-                        ),
-                        const SizedBox(width: 8),
-                        _buildTabButton(
-                          'Transactions',
-                          3,
-                          _transactions.length,
-                          Colors.blue,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      _buildOverviewCard(
-                        title: 'Pending',
-                        value: _pendingPayments.length.toString(),
-                        color: Colors.orange,
-                      ),
-                      _buildOverviewCard(
-                        title: 'Approved',
-                        value: _approvedPayments.length.toString(),
-                        color: Colors.green,
-                      ),
-                      _buildOverviewCard(
-                        title: 'Declined',
-                        value: _declinedPayments.length.toString(),
-                        color: Colors.red,
-                      ),
-                      _buildOverviewCard(
-                        title: 'Transactions',
-                        value: _transactions.length.toString(),
-                        color: Colors.blue,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: [
-                      _buildAmountChip(
-                        label: 'Pending Value',
-                        amount: _sumPaymentAmounts(_pendingPayments),
-                        color: Colors.orange,
-                      ),
-                      _buildAmountChip(
-                        label: 'Recognized Revenue',
-                        amount: _sumPaymentAmounts(_approvedPayments),
-                        color: Colors.green,
-                      ),
-                      _buildAmountChip(
-                        label: 'Recognized Tx Value',
-                        amount: _transactions
-                            .where(_isTransactionRecognized)
-                            .fold<double>(
-                              0,
-                              (sum, tx) => sum + tx.amount,
-                            ),
-                        color: Colors.blue,
-                      ),
-                    ],
-                  ),
-                  if (_selectedTabIndex != 3) ...[
-                    const SizedBox(height: 16),
-                    TextField(
-                      onChanged: (value) => setState(
-                        () => _paymentsSearch = value.trim().toLowerCase(),
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'Search user, business, plan, or transaction id',
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        filled: true,
-                        fillColor: context.adminSurface,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -971,8 +992,8 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
     required Color color,
   }) {
     return Container(
-      constraints: const BoxConstraints(minWidth: 145),
-      padding: const EdgeInsets.all(14),
+      constraints: const BoxConstraints(minWidth: 80),
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(context.isAdminDark ? 0.10 : 0.14),
         borderRadius: BorderRadius.circular(18),
@@ -996,7 +1017,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
             value,
             style: TextStyle(
               color: color,
-              fontSize: 20,
+              fontSize: 14,
               fontWeight: FontWeight.w800,
             ),
           ),

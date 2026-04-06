@@ -49,141 +49,200 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
   int get _cartCount => _cart.values.fold(0, (a, b) => a + b);
 
   Future<void> _showCart(PharmacyProvider provider) async {
-    // show modal bottom sheet to view and edit cart
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
         final controller = TextEditingController(text: _customerName ?? '');
-        return StatefulBuilder(builder: (context, setModalState) {
-          double subtotal() {
-            double s = 0.0;
-            for (final entry in _cart.entries) {
-              Drug? drug;
-              try {
-                drug = provider.drugs.firstWhere((d) => d.id == entry.key);
-              } catch (_) {
-                drug = null;
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            double subtotal() {
+              double s = 0.0;
+              for (final entry in _cart.entries) {
+                Drug? drug;
+                try {
+                  drug = provider.drugs.firstWhere((d) => d.id == entry.key);
+                } catch (_) {
+                  drug = null;
+                }
+                if (drug != null) s += drug.price * entry.value;
               }
-              if (drug != null) s += drug.price * entry.value;
+              return s;
             }
-            return s;
-          }
 
-          return Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              height: MediaQuery.of(ctx).size.height * 0.75,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Cart', style: AppTextStyles.heading4),
-                      IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close))
-                    ],
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.78,
+              minChildSize: 0.45,
+              maxChildSize: 0.95,
+              builder: (sheetContext, scrollController) {
+                return Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(ctx).viewInsets.bottom,
                   ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: _cart.isEmpty
-                        ? const Center(child: Text('Cart is empty'))
-                        : ListView.separated(
-                            itemCount: _cart.length,
-                            separatorBuilder: (_, __) => const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final entry = _cart.entries.elementAt(index);
-                              Drug? drug;
-                              try {
-                                drug = provider.drugs.firstWhere((d) => d.id == entry.key);
-                              } catch (_) {
-                                drug = null;
-                              }
-                              if (drug == null) return const SizedBox.shrink();
-                              final qty = entry.value;
-                              return ListTile(
-                                title: Text(drug.name),
-                                subtitle: Text('₦${drug.price.toStringAsFixed(2)} x $qty'),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.remove_circle_outline),
-                                      onPressed: () {
-                                        setModalState(() {
-                                          final newQty = (_cart[entry.key]! - 1).clamp(0, 999999);
-                                          if (newQty <= 0) _cart.remove(entry.key);
-                                          else _cart[entry.key] = newQty;
-                                        });
-                                        setState(() {});
-                                      },
-                                    ),
-                                    Text('$qty'),
-                                    IconButton(
-                                      icon: const Icon(Icons.add_circle_outline),
-                                      onPressed: () {
-                                        setModalState(() {
-                                          _cart.update(entry.key, (v) => v + 1);
-                                        });
-                                        setState(() {});
-                                      },
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline),
-                                      onPressed: () {
-                                        setModalState(() {
-                                          _cart.remove(entry.key);
-                                        });
-                                        setState(() {});
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: controller,
-                    decoration: const InputDecoration(labelText: 'Customer / Patient name (optional)'),
-                    onChanged: (v) => setModalState(() {}),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Subtotal: ₦${subtotal().toStringAsFixed(2)}', style: AppTextStyles.body1),
-                      Row(
-                        children: [
-                          TextButton(
-                            onPressed: () {
-                              setModalState(() {
-                                _cart.clear();
-                              });
-                              setState(() {});
-                              Navigator.pop(ctx);
-                            },
-                            child: const Text('Clear'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () {
-                              _customerName = controller.text.trim().isEmpty ? null : controller.text.trim();
-                              Navigator.pop(ctx);
-                              _confirmSale(provider, customerName: _customerName);
-                            },
-                            child: const Text('Checkout'),
-                          ),
-                        ],
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: const BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(20),
                       ),
-                    ],
-                  )
-                ],
-              ),
-            ),
-          );
-        });
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            decoration: BoxDecoration(
+                              color: AppColors.border,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Cart', style: AppTextStyles.heading4),
+                            IconButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Expanded(
+                          child: _cart.isEmpty
+                              ? const Center(child: Text('Cart is empty'))
+                              : ListView.separated(
+                                  controller: scrollController,
+                                  itemCount: _cart.length,
+                                  separatorBuilder: (_, __) =>
+                                      const Divider(height: 1),
+                                  itemBuilder: (context, index) {
+                                    final entry = _cart.entries.elementAt(index);
+                                    Drug? drug;
+                                    try {
+                                      drug = provider.drugs.firstWhere(
+                                        (d) => d.id == entry.key,
+                                      );
+                                    } catch (_) {
+                                      drug = null;
+                                    }
+                                    if (drug == null) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final qty = entry.value;
+                                    return ListTile(
+                                      title: Text(drug.name),
+                                      subtitle: Text(
+                                        '₦${drug.price.toStringAsFixed(2)} x $qty',
+                                      ),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.remove_circle_outline,
+                                            ),
+                                            onPressed: () {
+                                              setModalState(() {
+                                                final newQty =
+                                                    (_cart[entry.key]! - 1)
+                                                        .clamp(0, 999999);
+                                                if (newQty <= 0) {
+                                                  _cart.remove(entry.key);
+                                                } else {
+                                                  _cart[entry.key] = newQty;
+                                                }
+                                              });
+                                              setState(() {});
+                                            },
+                                          ),
+                                          Text('$qty'),
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.add_circle_outline,
+                                            ),
+                                            onPressed: () {
+                                              setModalState(() {
+                                                _cart.update(
+                                                  entry.key,
+                                                  (v) => v + 1,
+                                                );
+                                              });
+                                              setState(() {});
+                                            },
+                                          ),
+                                          IconButton(
+                                            icon:
+                                                const Icon(Icons.delete_outline),
+                                            onPressed: () {
+                                              setModalState(() {
+                                                _cart.remove(entry.key);
+                                              });
+                                              setState(() {});
+                                            },
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: controller,
+                          decoration: const InputDecoration(
+                            labelText: 'Customer / Patient name (optional)',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Subtotal: ₦${subtotal().toStringAsFixed(2)}',
+                              style: AppTextStyles.body1,
+                            ),
+                            Row(
+                              children: [
+                                TextButton(
+                                  onPressed: () {
+                                    setModalState(() => _cart.clear());
+                                    setState(() {});
+                                    Navigator.pop(ctx);
+                                  },
+                                  child: const Text('Clear'),
+                                ),
+                                ElevatedButton(
+                                  onPressed: () {
+                                    _customerName = controller.text.trim().isEmpty
+                                        ? null
+                                        : controller.text.trim();
+                                    Navigator.pop(ctx);
+                                    _confirmSale(
+                                      provider,
+                                      customerName: _customerName,
+                                    );
+                                  },
+                                  child: const Text('Checkout'),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
       },
     );
   }

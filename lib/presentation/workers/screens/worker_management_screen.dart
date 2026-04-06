@@ -387,17 +387,31 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                 ),
               ),
               const SizedBox(width: 8),
-              PopupMenuButton(
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  switch (value) {
+                    case 'edit':
+                      _showEditWorkerDialog(workerId, name, role, businessId);
+                      break;
+                    case 'view_details':
+                      _navigateToWorkerDetails(workerId, businessId, businessType);
+                      break;
+                    case 'remove':
+                      _showRemoveWorkerDialog(workerId, name, businessId);
+                      break;
+                  }
+                },
                 itemBuilder: (context) => [
                   const PopupMenuItem(
-                    child: Text('Edit'),
-                  ),
-                  PopupMenuItem(
-                    child: const Text('View Details'),
-                    onTap: () => _navigateToWorkerDetails(
-                        workerId, businessId, businessType),
+                    value: 'edit',
+                    child: Text('Edit Role'),
                   ),
                   const PopupMenuItem(
+                    value: 'view_details',
+                    child: Text('View Details'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'remove',
                     child: Text('Remove'),
                   ),
                 ],
@@ -475,6 +489,137 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     } catch (e) {
       print('[WorkerMgmt] Error fetching workers: $e');
       return <Map<String, dynamic>>[];
+    }
+  }
+
+  void _showEditWorkerDialog(String workerId, String name, String currentRole, String? businessId) {
+    final businessProvider = context.read<BusinessProvider>();
+    final businessType = businessProvider.currentBusiness?.businessType ?? 'retail';
+    final availableRoles = WorkerPermissions.getAvailableRoles(businessType);
+
+    String selectedRole = currentRole;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Edit Role for $name'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Select new role:'),
+              const SizedBox(height: 16),
+              ...availableRoles.map((role) => RadioListTile<String>(
+                title: Text(WorkerPermissions.getRoleDisplayName(role)),
+                value: role,
+                groupValue: selectedRole,
+                onChanged: (value) {
+                  setState(() => selectedRole = value!);
+                },
+              )),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                if (selectedRole != currentRole) {
+                  await _updateWorkerRole(workerId, selectedRole, businessId);
+                }
+                Navigator.of(context).pop();
+                this.setState(() {}); // Refresh the list
+              },
+              child: const Text('Update'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _updateWorkerRole(String workerId, String newRole, String? businessId) async {
+    try {
+      // Update in workers collection
+      await FirebaseFirestore.instance
+          .collection('workers')
+          .doc(workerId)
+          .update({'role': newRole, 'updatedAt': FieldValue.serverTimestamp()});
+
+      // Also update in users collection if exists
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(workerId)
+          .update({'role': newRole, 'updatedAt': FieldValue.serverTimestamp()});
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Worker role updated successfully')),
+        );
+      }
+    } catch (e) {
+      print('[WorkerMgmt] Error updating worker role: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating role: $e')),
+        );
+      }
+    }
+  }
+
+  void _showRemoveWorkerDialog(String workerId, String name, String? businessId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove Worker'),
+        content: Text('Are you sure you want to remove $name from this business?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              await _removeWorker(workerId, businessId);
+              Navigator.of(context).pop();
+              setState(() {}); // Refresh the list
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _removeWorker(String workerId, String? businessId) async {
+    try {
+      // Mark as inactive in workers collection
+      await FirebaseFirestore.instance
+          .collection('workers')
+          .doc(workerId)
+          .update({'isActive': false, 'updatedAt': FieldValue.serverTimestamp()});
+
+      // Update in users collection
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(workerId)
+          .update({'businessId': FieldValue.delete(), 'role': FieldValue.delete(), 'updatedAt': FieldValue.serverTimestamp()});
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Worker removed successfully')),
+        );
+      }
+    } catch (e) {
+      print('[WorkerMgmt] Error removing worker: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error removing worker: $e')),
+        );
+      }
     }
   }
 }
