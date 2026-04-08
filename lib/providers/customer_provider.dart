@@ -18,7 +18,12 @@ class CustomerProvider extends ChangeNotifier {
   String get errorMessage => _errorMessage;
 
   void setBusinessId(String businessId) {
-    _businessId = businessId;
+    if (_businessId != businessId) {
+      _businessId = businessId;
+      _customers.clear();
+      _selectedCustomer = null;
+      _errorMessage = '';
+    }
     notifyListeners();
   }
 

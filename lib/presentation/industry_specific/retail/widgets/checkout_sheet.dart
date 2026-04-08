@@ -94,8 +94,15 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
 
   Future<void> _loadCustomers() async {
     try {
+      final businessId = Provider.of<BusinessProvider>(context, listen: false)
+              .currentBusiness
+              ?.id ??
+          context.read<AuthProvider>().currentUser?.businessId ?? '';
+      if (businessId.isEmpty) return;
+
       final customerProvider =
           Provider.of<CustomerProvider>(context, listen: false);
+      customerProvider.setBusinessId(businessId);
       if (customerProvider.customers.isEmpty && !customerProvider.isLoading) {
         await customerProvider.loadCustomers();
       }
@@ -471,8 +478,15 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   }
 
   Future<void> _showCustomerSelectionSheet() async {
+    final businessId = Provider.of<BusinessProvider>(context, listen: false)
+            .currentBusiness
+            ?.id ??
+        context.read<AuthProvider>().currentUser?.businessId ?? '';
+    if (businessId.isEmpty) return;
+
     final customerProvider =
         Provider.of<CustomerProvider>(context, listen: false);
+    customerProvider.setBusinessId(businessId);
     if (customerProvider.customers.isEmpty && !customerProvider.isLoading) {
       await customerProvider.loadCustomers();
     }

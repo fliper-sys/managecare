@@ -206,6 +206,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
                           value: formatCurrency((financialSummary['totalExpenses'] as num?)?.toDouble() ?? 0.0),
                           icon: Icons.trending_down,
                           color: AppColors.error,
+                          subtitle: 'Operating expenses excluding Cost of Goods Sold (COGS)',
                         ),
                       ),
                     ],

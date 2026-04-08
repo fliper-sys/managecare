@@ -76,12 +76,14 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final userStoreId = authProvider.currentUser?.storeId;
 
-      var inventoryData = await _repository.getInventory(businessId, storeId: userStoreId);
+      var inventoryData =
+          await _repository.getInventory(businessId, storeId: userStoreId);
 
       // Fallback: if primary query returned no results, try broader fetches
       if ((inventoryData.isEmpty) && businessId.isNotEmpty) {
         try {
-          final allItems = await _repository.fetchInventory(storeId: userStoreId);
+          final allItems =
+              await _repository.fetchInventory(storeId: userStoreId);
           final userBizId = authProvider.currentUser?.businessId ?? '';
           final businessName = businessProvider.currentBusiness?.name ?? '';
 
@@ -135,10 +137,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
       // If there are pharmacy drugs cached locally (offline-first), merge them in so they are visible here
       try {
-        final pharmacyProvider = Provider.of<PharmacyProvider>(context, listen: false);
+        final pharmacyProvider =
+            Provider.of<PharmacyProvider>(context, listen: false);
         for (final d in pharmacyProvider.drugs) {
           final nameKey = d.name.toLowerCase();
-          final exists = items.any((it) => (it['name'] ?? '').toString().toLowerCase() == nameKey);
+          final exists = items.any(
+              (it) => (it['name'] ?? '').toString().toLowerCase() == nameKey);
           if (!exists) {
             items.add({
               'id': 'pharmacy_${d.id}',
@@ -204,10 +208,11 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       final minStock = item['minStock'] ?? 10;
 
       final searchQuery = _searchController.text;
-      
+
       // Use enhanced search that checks name, barcode, and SKU with fuzzy matching
       final matchesSearch = searchQuery.isEmpty ||
-          SearchUtils.matchesSearchQuery(name, barcode.isNotEmpty ? barcode : null, searchQuery) ||
+          SearchUtils.matchesSearchQuery(
+              name, barcode.isNotEmpty ? barcode : null, searchQuery) ||
           SearchUtils.matchesSearchQuery(sku, null, searchQuery);
 
       final matchesCategory =
@@ -248,7 +253,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                 'Export Inventory',
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
-              subtitle: Text('Exports the inventory currently visible on this screen'),
+              subtitle: Text(
+                  'Exports the inventory currently visible on this screen'),
             ),
             ListTile(
               leading: const Icon(Icons.table_chart_outlined),
@@ -351,9 +357,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete product'),
-        content: Text('Are you sure you want to delete "${name}"? This action cannot be undone.'),
+        content: Text(
+            'Are you sure you want to delete "${name}"? This action cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
@@ -369,7 +378,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     final businessId = businessProvider.currentBusiness?.id ?? '';
 
     if (businessId.isEmpty && !id.startsWith('pharmacy_')) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete: no business context')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Failed to delete: no business context')));
       return;
     }
 
@@ -401,7 +411,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
           backup = null;
         }
 
-        await pharmProv.removeDrug(drugId, persist: true, businessId: businessId);
+        await pharmProv.removeDrug(drugId,
+            persist: true, businessId: businessId);
 
         // Close progress dialog
         Navigator.pop(context);
@@ -419,7 +430,10 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   builder: (context) => AlertDialog(
                     content: Row(
                       children: const [
-                        SizedBox(width: 24, height: 24, child: CircularProgressIndicator()),
+                        SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator()),
                         SizedBox(width: 16),
                         Expanded(child: Text('Restoring...')),
                       ],
@@ -429,11 +443,14 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
                 try {
                   if (backup != null) {
-                    pharmProv.addDrug(backup, persist: true, businessId: businessId);
+                    pharmProv.addDrug(backup,
+                        persist: true, businessId: businessId);
                     await _loadInventory();
                   }
                 } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Restore failed: $e'), backgroundColor: Colors.red));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Restore failed: $e'),
+                      backgroundColor: Colors.red));
                 } finally {
                   Navigator.pop(context);
                 }
@@ -483,7 +500,10 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   builder: (context) => AlertDialog(
                     content: Row(
                       children: const [
-                        SizedBox(width: 24, height: 24, child: CircularProgressIndicator()),
+                        SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator()),
                         SizedBox(width: 16),
                         Expanded(child: Text('Restoring...')),
                       ],
@@ -495,7 +515,9 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   await repo.syncInventoryToFirestore(original);
                   await _loadInventory();
                 } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Restore failed: $e'), backgroundColor: Colors.red));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Restore failed: $e'),
+                      backgroundColor: Colors.red));
                 } finally {
                   Navigator.pop(context);
                 }
@@ -509,15 +531,22 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       await _loadInventory();
     } catch (e) {
       // Close progress dialog if still open
-      try { Navigator.pop(context); } catch (_) {}
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to delete: $e'), backgroundColor: Colors.red));
+      try {
+        Navigator.pop(context);
+      } catch (_) {}
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Failed to delete: $e'), backgroundColor: Colors.red));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Inventory'),
         elevation: 0,
@@ -550,12 +579,15 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
             },
           ),
           Builder(builder: (context) {
-            final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+            final business =
+                Provider.of<BusinessProvider>(context, listen: false)
+                    .currentBusiness;
             if (business != null && business.businessType == 'restaurant') {
               return IconButton(
                 icon: const Icon(Icons.menu_book),
                 tooltip: 'Open Menu',
-                onPressed: () => Navigator.pushNamed(context, Routes.restaurantMenu),
+                onPressed: () =>
+                    Navigator.pushNamed(context, Routes.restaurantMenu),
               );
             }
             return const SizedBox.shrink();
@@ -584,7 +616,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               final businessProvider = context.read<BusinessProvider>();
               if (businessProvider.currentBusiness == null) return;
 
-              final retail = Provider.of<RetailProvider>(context, listen: false);
+              final retail =
+                  Provider.of<RetailProvider>(context, listen: false);
               final stores = retail.stores;
               if (stores.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -626,14 +659,19 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
               if (selected == null || selected.isEmpty) return;
 
-              final repo = InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
+              final repo = InventoryRepositoryImpl(
+                  firestore: FirebaseFirestore.instance);
               try {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Assigning...')));
-                final count = await repo.assignAllInventoryToStore(businessProvider.currentBusiness!.id, selected);
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Assigned $count items to store')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Assigning...')));
+                final count = await repo.assignAllInventoryToStore(
+                    businessProvider.currentBusiness!.id, selected);
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Assigned $count items to store')));
                 await _loadInventory();
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Migration failed: $e')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Migration failed: $e')));
               }
             },
           ),
@@ -650,16 +688,16 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                 // Search Bar
                 TextField(
                   controller: _searchController,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: scheme.onPrimary),
                   decoration: InputDecoration(
                     hintText: 'Search products...',
                     hintStyle:
-                        TextStyle(color: Colors.white.withOpacity(0.7)),
-                    prefixIcon: const Icon(Icons.search, color: Colors.white),
+                        TextStyle(color: scheme.onPrimary.withOpacity(0.7)),
+                    prefixIcon: Icon(Icons.search, color: scheme.onPrimary),
                     suffixIcon: IconButton(
                       icon: Stack(
                         children: [
-                          const Icon(Icons.tune, color: Colors.white),
+                          Icon(Icons.tune, color: scheme.onPrimary),
                           if (_selectedCategory != 'All' || _showLowStock)
                             Positioned(
                               right: 0,
@@ -678,7 +716,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                       onPressed: _showFilterSheet,
                     ),
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.2),
+                    fillColor: scheme.onPrimary.withOpacity(0.2),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -706,7 +744,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => const LowStockProductsScreen(),
+                                    builder: (context) =>
+                                        const LowStockProductsScreen(),
                                   ),
                                 );
                               }
@@ -738,7 +777,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
           // Category Chips
           Container(
             height: 50,
-            color: Colors.white,
+            color: theme.cardColor,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -757,13 +796,14 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                       });
                       _filterInventory();
                     },
-                    backgroundColor: Colors.white,
+                    backgroundColor: theme.cardColor,
                     selectedColor: AppColors.primary.withOpacity(0.1),
                     checkmarkColor: AppColors.primary,
                     labelStyle: TextStyle(
                       color: isSelected
                           ? AppColors.primary
-                          : AppColors.textSecondary,
+                          : theme.textTheme.bodyMedium?.color ??
+                              scheme.onSurface,
                       fontWeight:
                           isSelected ? FontWeight.w600 : FontWeight.normal,
                     ),
@@ -879,12 +919,17 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
+        color: scheme.onPrimary.withOpacity(0.18),
         borderRadius: BorderRadius.circular(12),
-        border: isClickable ? Border.all(color: Colors.white.withOpacity(0.4), width: 1.5) : null,
+        border: isClickable
+            ? Border.all(color: scheme.onPrimary.withOpacity(0.4), width: 1.5)
+            : null,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -903,7 +948,7 @@ class _StatCard extends StatelessWidget {
           Text(
             label,
             style: AppTextStyles.caption.copyWith(
-              color: Colors.white.withOpacity(0.9),
+              color: scheme.onPrimary.withOpacity(0.9),
             ),
           ),
         ],
@@ -951,11 +996,13 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: theme.cardColor,
           borderRadius: BorderRadius.circular(16),
           boxShadow: AppColors.cardShadow,
         ),
@@ -989,9 +1036,11 @@ class _ProductCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        if (category.toLowerCase() == 'pharmacy' || id.startsWith('pharmacy_'))
+                        if (category.toLowerCase() == 'pharmacy' ||
+                            id.startsWith('pharmacy_'))
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
                               color: AppColors.pharmacy.withOpacity(0.12),
                               borderRadius: BorderRadius.circular(8),
@@ -999,13 +1048,18 @@ class _ProductCard extends StatelessWidget {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Text('💊', style: TextStyle(fontSize: 12)),
+                                const Text('💊',
+                                    style: TextStyle(fontSize: 12)),
                                 const SizedBox(width: 6),
-                                Text('Pharmacy', style: AppTextStyles.caption.copyWith(color: AppColors.pharmacy)),
+                                Text('Pharmacy',
+                                    style: AppTextStyles.caption
+                                        .copyWith(color: AppColors.pharmacy)),
                               ],
                             ),
                           ),
-                        if (category.toLowerCase() == 'pharmacy' || id.startsWith('pharmacy_')) const SizedBox(width: 8),
+                        if (category.toLowerCase() == 'pharmacy' ||
+                            id.startsWith('pharmacy_'))
+                          const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             sku,
@@ -1072,10 +1126,11 @@ class _ProductCard extends StatelessWidget {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.edit_outlined, size: 20),
-                        onPressed: () => Navigator.pushNamed(context, Routes.inventoryEdit, arguments: {'productId': id}),
+                        onPressed: () => Navigator.pushNamed(
+                            context, Routes.inventoryEdit,
+                            arguments: {'productId': id}),
                         style: IconButton.styleFrom(
-                          backgroundColor:
-                              AppColors.primary.withOpacity(0.1),
+                          backgroundColor: AppColors.primary.withOpacity(0.1),
                           foregroundColor: AppColors.primary,
                           padding: const EdgeInsets.all(8),
                         ),
@@ -1085,8 +1140,7 @@ class _ProductCard extends StatelessWidget {
                         icon: const Icon(Icons.delete_outline, size: 20),
                         onPressed: onDelete,
                         style: IconButton.styleFrom(
-                          backgroundColor:
-                              AppColors.error.withOpacity(0.1),
+                          backgroundColor: AppColors.error.withOpacity(0.1),
                           foregroundColor: AppColors.error,
                           padding: const EdgeInsets.all(8),
                         ),
@@ -1137,10 +1191,12 @@ class _FilterSheetState extends State<_FilterSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Container(
       height: MediaQuery.of(context).size.height * 0.7,
-      decoration: const BoxDecoration(
-        color: Colors.white,
+      decoration: BoxDecoration(
+        color: theme.cardColor,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
@@ -1151,7 +1207,7 @@ class _FilterSheetState extends State<_FilterSheet> {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.grey[300],
+              color: theme.dividerColor.withOpacity(0.7),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -1197,7 +1253,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                         onSelected: (selected) {
                           setState(() => _category = category);
                         },
-                        backgroundColor: Colors.white,
+                        backgroundColor: theme.cardColor,
                         selectedColor: AppColors.primary.withOpacity(0.1),
                         checkmarkColor: AppColors.primary,
                         side: BorderSide(
@@ -1294,4 +1350,3 @@ class _RadioOption extends StatelessWidget {
     );
   }
 }
-

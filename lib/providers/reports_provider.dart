@@ -3192,8 +3192,9 @@ class ReportsProvider extends ChangeNotifier {
         0.0, (sum, report) => sum + report.expenses);
 
     double grossProfit = totalRevenue - totalCogs;
-    double totalExpenses = totalCogs + totalOtherExpenses;
-    double netProfit = grossProfit - totalOtherExpenses;
+    double totalExpenses = totalOtherExpenses; // operating expenses only
+    double totalAllExpenses = totalCogs + totalOtherExpenses;
+    double netProfit = totalRevenue - totalCogs - totalOtherExpenses;
     double grossMargin =
         totalRevenue == 0 ? 0 : (grossProfit / totalRevenue) * 100;
     double profitMargin =
@@ -3206,9 +3207,9 @@ class ReportsProvider extends ChangeNotifier {
     debugPrint(
         '[getFinancialSummary] Total COGS: ${totalCogs.toStringAsFixed(2)}');
     debugPrint(
-        '[getFinancialSummary] Total Other Expenses: ${totalOtherExpenses.toStringAsFixed(2)}');
+        '[getFinancialSummary] Total Operating Expenses: ${totalExpenses.toStringAsFixed(2)}');
     debugPrint(
-        '[getFinancialSummary] Total Expenses: ${totalExpenses.toStringAsFixed(2)}');
+        '[getFinancialSummary] Total Expenses (including COGS): ${totalAllExpenses.toStringAsFixed(2)}');
     debugPrint(
         '[getFinancialSummary] Gross Profit: ${grossProfit.toStringAsFixed(2)}');
     debugPrint(
@@ -3222,6 +3223,8 @@ class ReportsProvider extends ChangeNotifier {
       'totalRevenue': totalRevenue,
       'totalCogs': totalCogs,
       'totalExpenses': totalExpenses,
+      'totalOtherExpenses': totalOtherExpenses,
+      'totalAllExpenses': totalAllExpenses,
       'grossProfit': grossProfit,
       'grossMargin': grossMargin,
       'netProfit': netProfit,

@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -10,6 +15,8 @@ import '../../../providers/auth_provider.dart';
 import '../../../core/constants/routes.dart';
 import '../../../services/receipt_manager.dart';
 import '../../../services/email_service.dart';
+import '../../../services/pdf_invoice_generator.dart';
+import '../../../services/web_download.dart' as web_download;
 import '../../../services/web_email_receipt_service.dart';
 import '../../../services/notification_and_email_service.dart';
 import '../../../services/barcode_service.dart';
@@ -65,7 +72,7 @@ class _SalesScreenState extends State<SalesScreen>
   bool _isGridView = true; // Toggle between grid and list view
 
   // Save reference to RetailProvider for safe cleanup in dispose()
-  late RetailProvider _retailProvider; 
+  late RetailProvider _retailProvider;
 
   @override
   void initState() {
@@ -124,257 +131,365 @@ class _SalesScreenState extends State<SalesScreen>
           items: retail.cartItems,
           total: retail.cartTotal,
           scrollController: scrollController,
-          onComplete: (customerId, customerEmail, customerName, paymentMethod, storeId, taxRate, discount, priceOverrides) async {
-          // Capture sale data before clearing cart
-          final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
-          final pm = (paymentMethod.isNotEmpty)
-              ? (paymentMethod[0].toUpperCase() + paymentMethod.substring(1))
-              : 'Cash';
+          onComplete: (customerId, customerEmail, customerName, paymentMethod,
+              storeId, taxRate, discount, priceOverrides) async {
+            // Capture sale data before clearing cart
+            final business =
+                Provider.of<BusinessProvider>(context, listen: false)
+                    .currentBusiness;
+            final pm = (paymentMethod.isNotEmpty)
+                ? (paymentMethod[0].toUpperCase() + paymentMethod.substring(1))
+                : 'Cash';
 
-          // Build items using provided price overrides
-          double subtotal = 0.0;
-          final items = retail.cartItems.entries.map((e) {
-            final unitPrice = priceOverrides[e.key.id] ?? e.key.price;
-            final total = unitPrice * e.value;
-            final pricingMode = e.key.hasWholesalePricing &&
-                    e.key.wholesalePrice != null &&
-                    (unitPrice - e.key.wholesalePrice!).abs() < 0.0001
-                ? 'wholesale'
-                : 'retail';
-            subtotal += total;
-            return {
-              'productId': e.key.id,
-              'productName': e.key.name,
-              'name': e.key.name,
-              'quantity': e.value,
-              'unitPrice': unitPrice,
-              'price': unitPrice,
-              'cost': e.key.cost,
-              'costPrice': e.key.cost,
-              'pricingMode': pricingMode,
-              'inventoryUnit': e.key.unit,
-              'saleUnit': e.key.resolvedSaleUnit,
-              'saleUnitMultiplier': e.key.resolvedSaleUnitMultiplier,
-              'inventoryQuantity':
-                  e.key.resolvedSaleUnitMultiplier * e.value,
-              'total': total,
+            // Build items using provided price overrides
+            double subtotal = 0.0;
+            final items = retail.cartItems.entries.map((e) {
+              final unitPrice = priceOverrides[e.key.id] ?? e.key.price;
+              final total = unitPrice * e.value;
+              final pricingMode = e.key.hasWholesalePricing &&
+                      e.key.wholesalePrice != null &&
+                      (unitPrice - e.key.wholesalePrice!).abs() < 0.0001
+                  ? 'wholesale'
+                  : 'retail';
+              subtotal += total;
+              return {
+                'productId': e.key.id,
+                'productName': e.key.name,
+                'name': e.key.name,
+                'quantity': e.value,
+                'unitPrice': unitPrice,
+                'price': unitPrice,
+                'cost': e.key.cost,
+                'costPrice': e.key.cost,
+                'pricingMode': pricingMode,
+                'inventoryUnit': e.key.unit,
+                'saleUnit': e.key.resolvedSaleUnit,
+                'saleUnitMultiplier': e.key.resolvedSaleUnitMultiplier,
+                'inventoryQuantity': e.key.resolvedSaleUnitMultiplier * e.value,
+                'total': total,
+              };
+            }).toList();
+
+            // Calculate tax and discount amounts
+            final taxAmount = subtotal * (taxRate / 100);
+            final discountAmount = discount;
+            final finalTotal = subtotal + taxAmount - discountAmount;
+
+            final saleMap = {
+              'id': 'SALE-${DateTime.now().millisecondsSinceEpoch}',
+              // Human friendly reference id for display and quick ref
+              'referenceId': ReceiptUtility.generateReferenceId(business?.name),
+              'cartId': retail.activeCartId,
+              'cartLabel': cartLabelBeforeCheckout,
+              'items': items,
+              'subtotal': subtotal,
+              'tax': taxAmount,
+              'taxRate': taxRate,
+              'discount': discountAmount,
+              'total': finalTotal,
+              'paymentMethod': pm,
+              'paymentBreakdown': [
+                {'method': pm, 'amount': finalTotal}
+              ],
+              'customerId': customerId,
+              'customerEmail': customerEmail,
+              'customerName': customerName,
+              'createdAt': DateTime.now(),
+              if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
             };
-          }).toList();
 
-          // Calculate tax and discount amounts
-          final taxAmount = subtotal * (taxRate / 100);
-          final discountAmount = discount;
-          final finalTotal = subtotal + taxAmount - discountAmount;
-
-          final saleMap = {
-            'id': 'SALE-${DateTime.now().millisecondsSinceEpoch}',
-            // Human friendly reference id for display and quick ref
-            'referenceId': ReceiptUtility.generateReferenceId(business?.name),
-            'cartId': retail.activeCartId,
-            'cartLabel': cartLabelBeforeCheckout,
-            'items': items,
-            'subtotal': subtotal,
-            'tax': taxAmount,
-            'taxRate': taxRate,
-            'discount': discountAmount,
-            'total': finalTotal,
-            'paymentMethod': pm,
-            'paymentBreakdown': [
-              {'method': pm, 'amount': finalTotal}
-            ],
-            'customerId': customerId,
-            'customerEmail': customerEmail,
-            'customerName': customerName,
-            'createdAt': DateTime.now(),
-            if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
-          };
-
-          final authProvider =
-              Provider.of<AuthProvider>(context, listen: false);
-
-          final savedOffline = await retail.checkout(
-            paymentMethod: pm,
-            customerId: customerId,
-            customerEmail: customerEmail,
-            customerName: customerName,
-            workerId: authProvider.currentUser?.id,
-            workerName: authProvider.currentUser?.fullName,
-            storeId: storeId,
-            tax: taxAmount,
-            discount: discountAmount,
-            priceOverrides: priceOverrides,
-          );
-
-          // Close sheet using sheet context
-          if (sheetContext.mounted) Navigator.pop(sheetContext);
-
-          // Use the main screen context for notifications
-          if (!context.mounted) return;
-
-          if (savedOffline) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Sale recorded offline and will sync when online'),
-                backgroundColor: AppColors.warning,
-              ),
-            );
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Sale completed successfully!'),
-                backgroundColor: AppColors.success,
-              ),
-            );
-          }
-
-          if (!savedOffline && customerId != null && customerId.isNotEmpty) {
-            try {
-              final customerProvider =
-                  Provider.of<CustomerProvider>(context, listen: false);
-              await customerProvider.updateCustomerAfterPurchase(
-                customerId,
-                finalTotal,
-              );
-            } catch (e) {
-              debugPrint(
-                  '[SalesScreen] Failed to update customer summary: $e');
-            }
-          }
-
-
-          try {
-            final businessProvider =
-                Provider.of<BusinessProvider>(context, listen: false);
             final authProvider =
                 Provider.of<AuthProvider>(context, listen: false);
-            final connectivity = Provider.of<ConnectivityProvider>(context, listen: false);
-            final isConnected = connectivity.isConnected;
-            final business = businessProvider.currentBusiness;
 
-            if (business != null && isConnected) {
-              final emailService = WebEmailReceiptService();
-              // Only send receipt email if customer email is provided
-              if (customerEmail != null && customerEmail.isNotEmpty) {
-                await emailService.sendReceiptEmail(
-                  recipientEmail: customerEmail,
-                  receiptNumber: saleMap['id'].toString(),
-                  businessName: business.name,
-                  customerName: customerName ?? 'Valued Customer',
-                  totalAmount: saleMap['total'] as double,
-                  subtotal: saleMap['subtotal'] as double,
-                  tax: saleMap['tax'] as double,
-                  items: (saleMap['items'] as List)
-                      .map((item) => {
-                            'name': item['name'],
-                            'quantity': item['quantity'],
-                            'price': item['price'],
-                          })
-                      .toList(),
-                  paymentMethod: pm,
-                  businessLogo: business.logoUrl,
-                  businessContact: business.phone,
+            final savedOffline = await retail.checkout(
+              paymentMethod: pm,
+              customerId: customerId,
+              customerEmail: customerEmail,
+              customerName: customerName,
+              workerId: authProvider.currentUser?.id,
+              workerName: authProvider.currentUser?.fullName,
+              storeId: storeId,
+              tax: taxAmount,
+              discount: discountAmount,
+              priceOverrides: priceOverrides,
+            );
+
+            // Close sheet using sheet context
+            if (sheetContext.mounted) Navigator.pop(sheetContext);
+
+            // Use the main screen context for notifications
+            if (!context.mounted) return;
+
+            if (savedOffline) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content:
+                      Text('Sale recorded offline and will sync when online'),
+                  backgroundColor: AppColors.warning,
+                ),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Sale completed successfully!'),
+                  backgroundColor: AppColors.success,
+                ),
+              );
+            }
+
+            if (!savedOffline && customerId != null && customerId.isNotEmpty) {
+              try {
+                final customerProvider =
+                    Provider.of<CustomerProvider>(context, listen: false);
+                await customerProvider.updateCustomerAfterPurchase(
+                  customerId,
+                  finalTotal,
                 );
-
-                // Send sales notification to owner if owner email available
-                final ownerEmail = authProvider.currentUser?.email ?? business.email ?? '';
-                if (ownerEmail.isNotEmpty) {
-                  final ownerSuccess = await emailService.sendSalesNotification(
-                    ownerEmail: ownerEmail,
-                    businessName: business.name,
-                    customerName: customerName ?? 'Walk-in Customer',
-                    customerEmail: customerEmail,
-                    totalAmount: saleMap['total'] as double,
-                    items: (saleMap['items'] as List).map((item) => {
-                      'name': item['name'],
-                      'quantity': item['quantity'],
-                      'price': item['price'],
-                    }).toList(),
-                    paymentMethod: pm,
-                    receiptNumber: saleMap['id'].toString(),
-                  );
-
-                  // Log notification attempt
-                  try {
-                    final notif = NotificationAndEmailService();
-                    final businessId = business.id;
-                    await notif.logNotificationEvent(
-                      businessId: businessId,
-                      type: 'sale',
-                      channel: 'email',
-                      recipient: ownerEmail,
-                      success: ownerSuccess,
-                      orderId: saleMap['id'].toString(),
-                    );
-                  } catch (e) {
-                    debugPrint('[SalesScreen] Notification log failed: $e');
-                  }
-                }
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Receipt and notification emails sent!'),
-                    backgroundColor: Colors.green,
-                    duration: Duration(seconds: 2),
-                  ),
-                );
+              } catch (e) {
+                debugPrint(
+                    '[SalesScreen] Failed to update customer summary: $e');
               }
             }
-          } catch (e) {
-            debugPrint('[SalesScreen] Error sending emails: $e');
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Sale completed but emails failed: $e'),
-                backgroundColor: Colors.orange,
-              ),
-            );
-          }
 
-          // Small delay to ensure sheet is closed
-          await Future.delayed(const Duration(milliseconds: 500));
+            try {
+              final businessProvider =
+                  Provider.of<BusinessProvider>(context, listen: false);
+              final authProvider =
+                  Provider.of<AuthProvider>(context, listen: false);
+              final connectivity =
+                  Provider.of<ConnectivityProvider>(context, listen: false);
+              final isConnected = connectivity.isConnected;
+              final business = businessProvider.currentBusiness;
 
-          // Send order success email if business is on Pro tier (existing behavior)
-          try {
-            final businessProvider =
-                Provider.of<BusinessProvider>(context, listen: false);
-            final authProvider =
-                Provider.of<AuthProvider>(context, listen: false);
-            final canSendOrderEmail =
-                businessProvider.hasFeatureAccess('email_receipts');
-            final userEmail = authProvider.currentUser?.email;
-            if (canSendOrderEmail &&
-                userEmail != null &&
-                userEmail.isNotEmpty) {
-              await EmailService().sendOrderSuccessAlert(
-                userEmail,
-                {
-                  'order_type': 'retail_sale',
-                  'itemsCount': cartItemCountBeforeCheckout.toString(),
-                  'total': cartTotalBeforeCheckout.toStringAsFixed(2),
-                  'cartLabel': cartLabelBeforeCheckout,
-                },
+              if (business != null && isConnected) {
+                final emailService = WebEmailReceiptService();
+                // Only send receipt email if customer email is provided
+                if (customerEmail != null && customerEmail.isNotEmpty) {
+                  await emailService.sendReceiptEmail(
+                    recipientEmail: customerEmail,
+                    receiptNumber: saleMap['id'].toString(),
+                    businessName: business.name,
+                    customerName: customerName ?? 'Valued Customer',
+                    totalAmount: saleMap['total'] as double,
+                    subtotal: saleMap['subtotal'] as double,
+                    tax: saleMap['tax'] as double,
+                    items: (saleMap['items'] as List)
+                        .map((item) => {
+                              'name': item['name'],
+                              'quantity': item['quantity'],
+                              'price': item['price'],
+                            })
+                        .toList(),
+                    paymentMethod: pm,
+                    businessLogo: business.logoUrl,
+                    businessContact: business.phone,
+                  );
+
+                  // Send sales notification to owner if owner email available
+                  final ownerEmail =
+                      authProvider.currentUser?.email ?? business.email ?? '';
+                  if (ownerEmail.isNotEmpty) {
+                    final ownerSuccess =
+                        await emailService.sendSalesNotification(
+                      ownerEmail: ownerEmail,
+                      businessName: business.name,
+                      customerName: customerName ?? 'Walk-in Customer',
+                      customerEmail: customerEmail,
+                      totalAmount: saleMap['total'] as double,
+                      items: (saleMap['items'] as List)
+                          .map((item) => {
+                                'name': item['name'],
+                                'quantity': item['quantity'],
+                                'price': item['price'],
+                              })
+                          .toList(),
+                      paymentMethod: pm,
+                      receiptNumber: saleMap['id'].toString(),
+                    );
+
+                    // Log notification attempt
+                    try {
+                      final notif = NotificationAndEmailService();
+                      final businessId = business.id;
+                      await notif.logNotificationEvent(
+                        businessId: businessId,
+                        type: 'sale',
+                        channel: 'email',
+                        recipient: ownerEmail,
+                        success: ownerSuccess,
+                        orderId: saleMap['id'].toString(),
+                      );
+                    } catch (e) {
+                      debugPrint('[SalesScreen] Notification log failed: $e');
+                    }
+                  }
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Receipt and notification emails sent!'),
+                      backgroundColor: Colors.green,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              }
+            } catch (e) {
+              debugPrint('[SalesScreen] Error sending emails: $e');
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Sale completed but emails failed: $e'),
+                  backgroundColor: Colors.orange,
+                ),
               );
             }
-          } catch (_) {}
 
-          // Post-sale receipt actions - Show receipt options dialog
-          if (!context.mounted) {
-            debugPrint('[SalesScreen] Context not mounted for receipt dialog');
-            return;
-          }
+            // Small delay to ensure sheet is closed
+            await Future.delayed(const Duration(milliseconds: 500));
 
-          try {
-            debugPrint('[SalesScreen] Showing receipt dialog');
-            await ReceiptManager.handlePostSale(context, saleMap);
-            debugPrint('[SalesScreen] Receipt dialog completed');
-          } catch (e) {
-            debugPrint('[SalesScreen] Receipt handling error: $e');
-          }
-          
-        },
+            // Send order success email if business is on Pro tier (existing behavior)
+            try {
+              final businessProvider =
+                  Provider.of<BusinessProvider>(context, listen: false);
+              final authProvider =
+                  Provider.of<AuthProvider>(context, listen: false);
+              final canSendOrderEmail =
+                  businessProvider.hasFeatureAccess('email_receipts');
+              final userEmail = authProvider.currentUser?.email;
+              if (canSendOrderEmail &&
+                  userEmail != null &&
+                  userEmail.isNotEmpty) {
+                await EmailService().sendOrderSuccessAlert(
+                  userEmail,
+                  {
+                    'order_type': 'retail_sale',
+                    'itemsCount': cartItemCountBeforeCheckout.toString(),
+                    'total': cartTotalBeforeCheckout.toStringAsFixed(2),
+                    'cartLabel': cartLabelBeforeCheckout,
+                  },
+                );
+              }
+            } catch (_) {}
+
+            // Post-sale receipt actions - Show receipt options dialog
+            if (!context.mounted) {
+              debugPrint(
+                  '[SalesScreen] Context not mounted for receipt dialog');
+              return;
+            }
+
+            try {
+              debugPrint('[SalesScreen] Showing receipt dialog');
+              await ReceiptManager.handlePostSale(context, saleMap);
+              debugPrint('[SalesScreen] Receipt dialog completed');
+            } catch (e) {
+              debugPrint('[SalesScreen] Receipt handling error: $e');
+            }
+          },
         ),
       ),
     );
   }
+
+  Future<void> _generateInvoice(RetailProvider retail) async {
+    try {
+      if (retail.cartItems.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Add items to cart before generating an invoice.')),
+        );
+        return;
+      }
+
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+      final customerProvider = Provider.of<CustomerProvider>(context, listen: false);
+      final selectedCustomer = customerProvider.selectedCustomer;
+
+      double subtotal = 0.0;
+      final cartItems = retail.cartItems.entries.map((entry) {
+        final price = entry.key.price;
+        final itemTotal = price * entry.value;
+        subtotal += itemTotal;
+        return {
+          'name': entry.key.name,
+          'menuItemName': entry.key.name,
+          'quantity': entry.value,
+          'price': price,
+          'unitPrice': price,
+          'subtotal': itemTotal,
+          'total': itemTotal,
+          'specialInstructions': null,
+          'selectedOptions': [],
+        };
+      }).toList();
+
+      final invoiceNumber = 'INV-${DateTime.now().millisecondsSinceEpoch}';
+      final tax = 0.0;
+      final discount = 0.0;
+      final total = subtotal + tax - discount;
+
+      final pdfBytes = await PdfInvoiceGenerator.generateInvoicePdfBytes(
+        businessName: business?.name ?? 'Manage Care',
+        invoiceNumber: invoiceNumber,
+        invoiceDate: DateTime.now(),
+        cartItems: cartItems,
+        subtotal: subtotal,
+        tax: tax,
+        discount: discount,
+        total: total,
+        customerName: selectedCustomer?.name ?? 'Walk-in Customer',
+        customerEmail: selectedCustomer?.email,
+        businessAddress: business?.address,
+        businessPhone: business?.phone,
+        businessEmail: business?.email,
+        cashierName: auth.currentUser?.fullName,
+        businessLogoUrl: business?.logoUrl,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
+      );
+
+      final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
+      if (kIsWeb) {
+        web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Invoice downloaded: $filename')),
+        );
+      } else {
+        await _sharePdfOnMobile(pdfBytes, filename);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invoice generation failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _sharePdfOnMobile(Uint8List pdfBytes, String filename) async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/$filename');
+      await file.writeAsBytes(pdfBytes);
+      await Share.shareXFiles([XFile(file.path)], text: 'Invoice PDF', subject: 'Invoice');
+    } catch (e) {
+      try {
+        final docsDir = await getApplicationDocumentsDirectory();
+        final file = File('${docsDir.path}/$filename');
+        await file.writeAsBytes(pdfBytes);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Invoice saved: ${file.path}')),
+        );
+      } catch (e2) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error saving invoice PDF')),
+        );
+      }
+    }
+  }
+
   Future<void> _loadSalesHistory() async {
     if (_loadingHistory) return;
 
@@ -391,7 +506,8 @@ class _SalesScreenState extends State<SalesScreen>
           _salesHistory = history;
           _hasMoreHistory = history.length >= _historyLimit;
           _loadingHistory = false;
-          print('[SalesScreen] Loaded ${history.length} sales records (limit: $_historyLimit)');
+          print(
+              '[SalesScreen] Loaded ${history.length} sales records (limit: $_historyLimit)');
         });
       }
     } catch (e) {
@@ -402,7 +518,8 @@ class _SalesScreenState extends State<SalesScreen>
     }
   }
 
-  Future<void> _promptNewCart(BuildContext context, RetailProvider retail) async {
+  Future<void> _promptNewCart(
+      BuildContext context, RetailProvider retail) async {
     final controller = TextEditingController(
       text: 'Cart ${retail.cartSessions.length + 1}',
     );
@@ -483,7 +600,8 @@ class _SalesScreenState extends State<SalesScreen>
             children: [
               Text(
                 'Open Carts',
-                style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w700),
+                style:
+                    AppTextStyles.body1.copyWith(fontWeight: FontWeight.w700),
               ),
               const Spacer(),
               TextButton.icon(
@@ -517,7 +635,8 @@ class _SalesScreenState extends State<SalesScreen>
                 return Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: GestureDetector(
-                    onLongPress: () => _promptRenameCart(context, retail, session),
+                    onLongPress: () =>
+                        _promptRenameCart(context, retail, session),
                     child: chip,
                   ),
                 );
@@ -530,7 +649,8 @@ class _SalesScreenState extends State<SalesScreen>
   }
 
   /// Handle a scanned barcode (either from camera or handheld keyboard scanner)
-  Future<void> _handleScannedBarcode(String barcode, {String source = 'camera'}) async {
+  Future<void> _handleScannedBarcode(String barcode,
+      {String source = 'camera'}) async {
     final b = barcode.trim();
     if (b.isEmpty) return;
 
@@ -560,12 +680,16 @@ class _SalesScreenState extends State<SalesScreen>
         // Try exact match first
         if (SearchUtils.matchesBarcode(p.barcode, b)) {
           // Prefer exact numeric match
-          if (SearchUtils.extractNumeric(p.barcode!) == SearchUtils.extractNumeric(b)) {
+          if (SearchUtils.extractNumeric(p.barcode!) ==
+              SearchUtils.extractNumeric(b)) {
             product = p;
             break; // Exact match found, use it
           }
           // Track fuzzy matches
-          final score = SearchUtils.areBarcodesSimilar(p.barcode!, b, threshold: 2) ? 0.9 : 0.7;
+          final score =
+              SearchUtils.areBarcodesSimilar(p.barcode!, b, threshold: 2)
+                  ? 0.9
+                  : 0.7;
           if (score > bestFuzzyScore) {
             bestFuzzyScore = score;
             fuzzyMatch = p;
@@ -616,9 +740,12 @@ class _SalesScreenState extends State<SalesScreen>
   @override
   Widget build(BuildContext context) {
     final retail = context.watch<RetailProvider>();
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('New Sale'),
         elevation: 0,
@@ -628,7 +755,9 @@ class _SalesScreenState extends State<SalesScreen>
             tooltip: 'Refresh products',
             onPressed: () async {
               try {
-                final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+                final business =
+                    Provider.of<BusinessProvider>(context, listen: false)
+                        .currentBusiness;
                 if (business != null) {
                   await retail.loadProducts();
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -684,12 +813,15 @@ class _SalesScreenState extends State<SalesScreen>
             },
           ),
           Builder(builder: (context) {
-            final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+            final business =
+                Provider.of<BusinessProvider>(context, listen: false)
+                    .currentBusiness;
             if (business != null && business.businessType == 'restaurant') {
               return IconButton(
                 icon: const Icon(Icons.menu_book),
                 tooltip: 'Open Menu',
-                onPressed: () => Navigator.pushNamed(context, Routes.restaurantMenu),
+                onPressed: () =>
+                    Navigator.pushNamed(context, Routes.restaurantMenu),
               );
             }
             return const SizedBox.shrink();
@@ -698,7 +830,8 @@ class _SalesScreenState extends State<SalesScreen>
             icon: const Icon(Icons.history_rounded),
             onPressed: () {
               Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const SalesHistoryScreen()),
+                MaterialPageRoute(
+                    builder: (context) => const SalesHistoryScreen()),
               );
             },
           ),
@@ -722,7 +855,7 @@ class _SalesScreenState extends State<SalesScreen>
           // Handheld scanner input (keyboard wedge)
           if (_handheldMode)
             Container(
-              color: AppColors.surface,
+              color: theme.cardColor,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
@@ -736,10 +869,12 @@ class _SalesScreenState extends State<SalesScreen>
                       ),
                       onSubmitted: (value) async {
                         if (value.trim().isEmpty) return;
-                        await _handleScannedBarcode(value.trim(), source: 'handheld');
+                        await _handleScannedBarcode(value.trim(),
+                            source: 'handheld');
                         _handheldController.clear();
                         // keep focus for next scan
-                        Future.delayed(const Duration(milliseconds: 50), () => _handheldFocusNode.requestFocus());
+                        Future.delayed(const Duration(milliseconds: 50),
+                            () => _handheldFocusNode.requestFocus());
                       },
                     ),
                   ),
@@ -772,96 +907,115 @@ class _SalesScreenState extends State<SalesScreen>
                   children: [
                     ProductViewSwitcher(
                       isGridView: _isGridView,
-                      onToggle: () => setState(() => _isGridView = !_isGridView),
+                      onToggle: () =>
+                          setState(() => _isGridView = !_isGridView),
                     ),
                     IconButton(
                       icon: const Icon(Icons.filter_list, color: Colors.white),
                       onPressed: () async {
-                    final res = await showModalBottomSheet<Map<String, dynamic>>(
-                      context: context,
-                      isScrollControlled: true,
-                      builder: (ctx) {
-                        var tempInStock = _filterInStockOnly;
-                        var tempSort = _productSort;
-                        return StatefulBuilder(builder: (c, s) {
-                          return Padding(
-                            padding: EdgeInsets.only(bottom: MediaQuery.of(c).viewInsets.bottom),
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('Filter products', style: AppTextStyles.heading5),
-                                  const SizedBox(height: 12),
-                                  SwitchListTile(
-                                    title: const Text('In stock only'),
-                                    value: tempInStock,
-                                    onChanged: (v) => s(() => tempInStock = v),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  const Text('Sort by', style: AppTextStyles.body2),
-                                  RadioListTile<String>(
-                                    title: const Text('None'),
-                                    value: 'none',
-                                    groupValue: tempSort,
-                                    onChanged: (v) => s(() => tempSort = v ?? 'none'),
-                                  ),
-                                  RadioListTile<String>(
-                                    title: const Text('Price - Low to High'),
-                                    value: 'priceAsc',
-                                    groupValue: tempSort,
-                                    onChanged: (v) => s(() => tempSort = v ?? 'priceAsc'),
-                                  ),
-                                  RadioListTile<String>(
-                                    title: const Text('Price - High to Low'),
-                                    value: 'priceDesc',
-                                    groupValue: tempSort,
-                                    onChanged: (v) => s(() => tempSort = v ?? 'priceDesc'),
-                                  ),
-                                  RadioListTile<String>(
-                                    title: const Text('Name (A - Z)'),
-                                    value: 'name',
-                                    groupValue: tempSort,
-                                    onChanged: (v) => s(() => tempSort = v ?? 'name'),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
+                        final res =
+                            await showModalBottomSheet<Map<String, dynamic>>(
+                          context: context,
+                          isScrollControlled: true,
+                          builder: (ctx) {
+                            var tempInStock = _filterInStockOnly;
+                            var tempSort = _productSort;
+                            return StatefulBuilder(builder: (c, s) {
+                              return Padding(
+                                padding: EdgeInsets.only(
+                                    bottom: MediaQuery.of(c).viewInsets.bottom),
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      TextButton(onPressed: () => Navigator.of(c).pop(), child: const Text('Cancel')),
-                                      const SizedBox(width: 8),
-                                      ElevatedButton(
-                                        onPressed: () {
-                                          Navigator.of(c).pop({'inStock': tempInStock, 'sort': tempSort});
-                                        },
-                                        child: const Text('Apply'),
+                                      const Text('Filter products',
+                                          style: AppTextStyles.heading5),
+                                      const SizedBox(height: 12),
+                                      SwitchListTile(
+                                        title: const Text('In stock only'),
+                                        value: tempInStock,
+                                        onChanged: (v) =>
+                                            s(() => tempInStock = v),
                                       ),
+                                      const SizedBox(height: 8),
+                                      const Text('Sort by',
+                                          style: AppTextStyles.body2),
+                                      RadioListTile<String>(
+                                        title: const Text('None'),
+                                        value: 'none',
+                                        groupValue: tempSort,
+                                        onChanged: (v) =>
+                                            s(() => tempSort = v ?? 'none'),
+                                      ),
+                                      RadioListTile<String>(
+                                        title:
+                                            const Text('Price - Low to High'),
+                                        value: 'priceAsc',
+                                        groupValue: tempSort,
+                                        onChanged: (v) =>
+                                            s(() => tempSort = v ?? 'priceAsc'),
+                                      ),
+                                      RadioListTile<String>(
+                                        title:
+                                            const Text('Price - High to Low'),
+                                        value: 'priceDesc',
+                                        groupValue: tempSort,
+                                        onChanged: (v) => s(
+                                            () => tempSort = v ?? 'priceDesc'),
+                                      ),
+                                      RadioListTile<String>(
+                                        title: const Text('Name (A - Z)'),
+                                        value: 'name',
+                                        groupValue: tempSort,
+                                        onChanged: (v) =>
+                                            s(() => tempSort = v ?? 'name'),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: [
+                                          TextButton(
+                                              onPressed: () =>
+                                                  Navigator.of(c).pop(),
+                                              child: const Text('Cancel')),
+                                          const SizedBox(width: 8),
+                                          ElevatedButton(
+                                            onPressed: () {
+                                              Navigator.of(c).pop({
+                                                'inStock': tempInStock,
+                                                'sort': tempSort
+                                              });
+                                            },
+                                            child: const Text('Apply'),
+                                          ),
+                                        ],
+                                      )
                                     ],
-                                  )
-                                ],
-                              ),
-                            ),
-                          );
-                        });
-                      },
-                    );
+                                  ),
+                                ),
+                              );
+                            });
+                          },
+                        );
 
-                    if (res != null) {
-                      setState(() {
-                        _filterInStockOnly = res['inStock'] as bool? ?? false;
-                        _productSort = res['sort'] as String? ?? 'none';
-                      });
-                    }
-                    },
+                        if (res != null) {
+                          setState(() {
+                            _filterInStockOnly =
+                                res['inStock'] as bool? ?? false;
+                            _productSort = res['sort'] as String? ?? 'none';
+                          });
+                        }
+                      },
                     ),
                   ],
                 ),
                 filled: true,
-                fillColor: Theme.of(context)
-                    .colorScheme
-                    .onPrimary
-                    .withOpacity(0.12),
+                fillColor:
+                    Theme.of(context).colorScheme.onPrimary.withOpacity(0.12),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -1070,6 +1224,20 @@ class _SalesScreenState extends State<SalesScreen>
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async => await _generateInvoice(retail),
+              icon: const Icon(Icons.receipt_long),
+              label: const Text('Generate Invoice'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
             child: CustomButton(
               text: 'Proceed to Checkout',
               onPressed: () => _showCheckout(context, retail),
@@ -1088,10 +1256,17 @@ class _SalesScreenState extends State<SalesScreen>
             final q = _historyQuery.toLowerCase();
             final id = (sale['id'] ?? '').toString().toLowerCase();
             final ref = (sale['referenceId'] ?? '').toString().toLowerCase();
-            final customer = (sale['customerName'] ?? sale['customer'] ?? '').toString().toLowerCase();
+            final customer = (sale['customerName'] ?? sale['customer'] ?? '')
+                .toString()
+                .toLowerCase();
             final worker = (sale['workerName'] ?? '').toString().toLowerCase();
-            final payment = (sale['paymentMethod'] ?? '').toString().toLowerCase();
-            return id.contains(q) || ref.contains(q) || customer.contains(q) || worker.contains(q) || payment.contains(q);
+            final payment =
+                (sale['paymentMethod'] ?? '').toString().toLowerCase();
+            return id.contains(q) ||
+                ref.contains(q) ||
+                customer.contains(q) ||
+                worker.contains(q) ||
+                payment.contains(q);
           }).toList();
 
     return Column(
@@ -1102,7 +1277,8 @@ class _SalesScreenState extends State<SalesScreen>
           child: TextField(
             controller: _historySearchController,
             decoration: InputDecoration(
-              hintText: 'Search history by order ID, customer, worker or payment...',
+              hintText:
+                  'Search history by order ID, customer, worker or payment...',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: _historyQuery.isNotEmpty
                   ? GestureDetector(
@@ -1115,8 +1291,10 @@ class _SalesScreenState extends State<SalesScreen>
                       child: const Icon(Icons.close),
                     )
                   : null,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             ),
             onChanged: (v) => setState(() => _historyQuery = v.trim()),
           ),
@@ -1135,11 +1313,16 @@ class _SalesScreenState extends State<SalesScreen>
                             const Icon(Icons.history,
                                 size: 80, color: AppColors.textTertiary),
                             const SizedBox(height: 16),
-                            const Text('No sales found', style: AppTextStyles.heading3),
+                            const Text('No sales found',
+                                style: AppTextStyles.heading3),
                             const SizedBox(height: 8),
-                            const Text('Try a different query or pull to refresh', style: AppTextStyles.body1),
+                            const Text(
+                                'Try a different query or pull to refresh',
+                                style: AppTextStyles.body1),
                             const SizedBox(height: 24),
-                            CustomButton(text: 'Load History', onPressed: _loadSalesHistory),
+                            CustomButton(
+                                text: 'Load History',
+                                onPressed: _loadSalesHistory),
                           ],
                         ),
                       ))
@@ -1164,11 +1347,14 @@ class _SalesScreenState extends State<SalesScreen>
                                           });
                                           _loadSalesHistory();
                                           // refresh realtime subscription with new limit
-                                          context.read<RetailProvider>().subscribeToSalesHistory((sales) {
+                                          context
+                                              .read<RetailProvider>()
+                                              .subscribeToSalesHistory((sales) {
                                             if (!mounted) return;
                                             setState(() {
                                               _salesHistory = sales;
-                                              _hasMoreHistory = sales.length >= _historyLimit;
+                                              _hasMoreHistory =
+                                                  sales.length >= _historyLimit;
                                             });
                                           }, limit: _historyLimit);
                                         },
@@ -1181,7 +1367,8 @@ class _SalesScreenState extends State<SalesScreen>
                       final sale = filtered[index];
                       final createdAt = sale['createdAt'] as Timestamp?;
                       final formattedTime = createdAt != null
-                          ? DateFormat('dd/MM/yyyy HH:mm').format(createdAt.toDate())
+                          ? DateFormat('dd/MM/yyyy HH:mm')
+                              .format(createdAt.toDate())
                           : 'Unknown time';
                       final amount = sale['totalAmount'] as num? ?? 0;
                       final worker = sale['workerName'] ?? 'Unknown';
@@ -1190,29 +1377,42 @@ class _SalesScreenState extends State<SalesScreen>
                       return InkWell(
                         onTap: () => _showSaleDetails(context, sale),
                         child: Card(
-                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          margin: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
                           child: Padding(
                             padding: const EdgeInsets.all(12),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text('Sale #${sale['referenceId'] ?? sale['id']}', style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w600)),
-                                    Text('\u20a6${amount.toStringAsFixed(2)}', style: AppTextStyles.heading4.copyWith(color: AppColors.primary)),
+                                    Text(
+                                        'Sale #${sale['referenceId'] ?? sale['id']}',
+                                        style: AppTextStyles.body1.copyWith(
+                                            fontWeight: FontWeight.w600)),
+                                    Text('\u20a6${amount.toStringAsFixed(2)}',
+                                        style: AppTextStyles.heading4.copyWith(
+                                            color: AppColors.primary)),
                                   ],
                                 ),
                                 const SizedBox(height: 8),
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text(worker, style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w500)),
-                                    Text(formattedTime, style: AppTextStyles.body2.copyWith(color: AppColors.textSecondary)),
+                                    Text(worker,
+                                        style: AppTextStyles.body2.copyWith(
+                                            fontWeight: FontWeight.w500)),
+                                    Text(formattedTime,
+                                        style: AppTextStyles.body2.copyWith(
+                                            color: AppColors.textSecondary)),
                                   ],
                                 ),
                                 const SizedBox(height: 8),
-                                Text('$itemCount item(s)', style: AppTextStyles.body2),
+                                Text('$itemCount item(s)',
+                                    style: AppTextStyles.body2),
                                 const SizedBox(height: 8),
                                 Align(
                                   alignment: Alignment.centerRight,
@@ -1221,14 +1421,19 @@ class _SalesScreenState extends State<SalesScreen>
                                     children: [
                                       OutlinedButton.icon(
                                         onPressed: () {
-                                          Navigator.of(context).push(MaterialPageRoute(builder: (context) => ReceiptDetailScreen(saleData: sale)));
+                                          Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                  builder: (context) =>
+                                                      ReceiptDetailScreen(
+                                                          saleData: sale)));
                                         },
                                         icon: const Icon(Icons.receipt_long),
                                         label: const Text('View Receipt'),
                                       ),
                                       const SizedBox(width: 8),
                                       TextButton(
-                                        onPressed: () => _showSaleDetails(context, sale),
+                                        onPressed: () =>
+                                            _showSaleDetails(context, sale),
                                         child: const Text('Details'),
                                       ),
                                     ],
@@ -1264,7 +1469,8 @@ class _SalesScreenState extends State<SalesScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Sale #${sale['referenceId'] ?? sale['id']}', style: AppTextStyles.heading3),
+              Text('Sale #${sale['referenceId'] ?? sale['id']}',
+                  style: AppTextStyles.heading3),
               const SizedBox(height: 12),
               ...items.map((i) {
                 final item = i as Map<String, dynamic>;
@@ -1314,7 +1520,8 @@ class _SalesScreenState extends State<SalesScreen>
                         Navigator.pop(c);
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (context) => ReceiptDetailScreen(saleData: sale),
+                            builder: (context) =>
+                                ReceiptDetailScreen(saleData: sale),
                           ),
                         );
                       },
@@ -1344,7 +1551,12 @@ class _ProductsGrid extends StatelessWidget {
   final bool isGridView;
   final Function(Product) onAddToCart;
 
-  const _ProductsGrid({required this.searchQuery, this.inStockOnly = false, this.sortBy = 'none', this.isGridView = true, required this.onAddToCart});
+  const _ProductsGrid(
+      {required this.searchQuery,
+      this.inStockOnly = false,
+      this.sortBy = 'none',
+      this.isGridView = true,
+      required this.onAddToCart});
 
   @override
   Widget build(BuildContext context) {
@@ -1379,14 +1591,17 @@ class _ProductsGrid extends StatelessWidget {
     var products = searchQuery.isEmpty
         ? combined
         : combined
-            .where((p) => SearchUtils.matchesSearchQuery(p.name, p.barcode, searchQuery))
+            .where((p) =>
+                SearchUtils.matchesSearchQuery(p.name, p.barcode, searchQuery))
             .toList();
 
     // Sort by relevance if there's a search query
     if (searchQuery.isNotEmpty) {
       products.sort((a, b) {
-        final scoreA = SearchUtils.calculateRelevanceScore(a.name, a.barcode, searchQuery);
-        final scoreB = SearchUtils.calculateRelevanceScore(b.name, b.barcode, searchQuery);
+        final scoreA =
+            SearchUtils.calculateRelevanceScore(a.name, a.barcode, searchQuery);
+        final scoreB =
+            SearchUtils.calculateRelevanceScore(b.name, b.barcode, searchQuery);
         return scoreB.compareTo(scoreA); // Higher score first
       });
     }
@@ -1402,7 +1617,8 @@ class _ProductsGrid extends StatelessWidget {
     } else if (sortBy == 'priceDesc') {
       products.sort((a, b) => b.price.compareTo(a.price));
     } else if (sortBy == 'name') {
-      products.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      products
+          .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     }
 
     if (products.isEmpty) {
@@ -1425,7 +1641,7 @@ class _ProductsGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        
+
         // Grid view configuration
         int crossAxisCount = 2;
         if (width >= 1200) {
@@ -1533,9 +1749,11 @@ class _ProductCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
-                if (product.category.toLowerCase() == 'pharmacy' || product.id.startsWith('pharmacy:'))
+                if (product.category.toLowerCase() == 'pharmacy' ||
+                    product.id.startsWith('pharmacy:'))
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: AppColors.pharmacy.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(8),
@@ -1545,7 +1763,9 @@ class _ProductCard extends StatelessWidget {
                       children: [
                         const Text('💊', style: TextStyle(fontSize: 12)),
                         const SizedBox(width: 6),
-                        Text('Pharmacy', style: AppTextStyles.caption.copyWith(color: AppColors.pharmacy)),
+                        Text('Pharmacy',
+                            style: AppTextStyles.caption
+                                .copyWith(color: AppColors.pharmacy)),
                       ],
                     ),
                   ),
@@ -1616,15 +1836,18 @@ class _ProductListTile extends StatelessWidget {
                     imageUrl: product.imageUrl!,
                     fit: BoxFit.cover,
                     placeholder: (c, u) => Center(
-                      child: Text(product.emoji, style: const TextStyle(fontSize: 32)),
+                      child: Text(product.emoji,
+                          style: const TextStyle(fontSize: 32)),
                     ),
                     errorWidget: (c, u, e) => Center(
-                      child: Text(product.emoji, style: const TextStyle(fontSize: 32)),
+                      child: Text(product.emoji,
+                          style: const TextStyle(fontSize: 32)),
                     ),
                   ),
                 )
               : Center(
-                  child: Text(product.emoji, style: const TextStyle(fontSize: 32)),
+                  child:
+                      Text(product.emoji, style: const TextStyle(fontSize: 32)),
                 ),
         ),
         title: Text(
@@ -1635,16 +1858,20 @@ class _ProductListTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 4),
-            if (product.category.toLowerCase() == 'pharmacy' || product.id.startsWith('pharmacy:'))
+            if (product.category.toLowerCase() == 'pharmacy' ||
+                product.id.startsWith('pharmacy:'))
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: AppColors.pharmacy.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: Text('Pharmacy', style: AppTextStyles.caption.copyWith(color: AppColors.pharmacy, fontSize: 11)),
+                  child: Text('Pharmacy',
+                      style: AppTextStyles.caption
+                          .copyWith(color: AppColors.pharmacy, fontSize: 11)),
                 ),
               ),
             Text(
@@ -1678,7 +1905,15 @@ class _CheckoutSheet extends StatefulWidget {
   final Map<Product, int> items;
   final double total;
   final ScrollController? scrollController;
-  final Function(String? customerId, String? customerEmail, String? customerName, String paymentMethod, String? storeId, double taxRate, double discount, Map<String, double> priceOverrides) onComplete;
+  final Function(
+      String? customerId,
+      String? customerEmail,
+      String? customerName,
+      String paymentMethod,
+      String? storeId,
+      double taxRate,
+      double discount,
+      Map<String, double> priceOverrides) onComplete;
 
   const _CheckoutSheet({
     required this.items,
@@ -1708,11 +1943,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       widget.scrollController ?? _internalScrollController!;
 
   String _resolveBusinessId() {
-    final businessId =
-        context.read<BusinessProvider>().currentBusiness?.id ??
-            context.read<AuthProvider>().currentUser?.primaryBusinessId ??
-            context.read<AuthProvider>().currentUser?.businessId ??
-            '';
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
+        context.read<AuthProvider>().currentUser?.primaryBusinessId ??
+        context.read<AuthProvider>().currentUser?.businessId ??
+        '';
     return businessId.trim();
   }
 
@@ -1802,9 +2036,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           ),
           actions: [
             TextButton(
-              onPressed: isSaving
-                  ? null
-                  : () => Navigator.of(dialogContext).pop(),
+              onPressed:
+                  isSaving ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
@@ -1821,8 +2054,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                       }
 
                       setDialogState(() => isSaving = true);
-                      final customerProvider =
-                          context.read<CustomerProvider>();
+                      final customerProvider = context.read<CustomerProvider>();
                       final created = await customerProvider.createCustomer(
                         name: nameCtrl.text.trim(),
                         phone: phoneCtrl.text.trim(),
@@ -1848,7 +2080,15 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   Future<void> _showCustomerSelectionSheet() async {
     final customerProvider = context.read<CustomerProvider>();
     final businessId = _resolveBusinessId();
-    if (businessId.isEmpty) return;
+    if (businessId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to load customers. Please select a business.'),
+        ),
+      );
+      return;
+    }
 
     customerProvider.setBusinessId(businessId);
     if (customerProvider.customers.isEmpty && !customerProvider.isLoading) {
@@ -1864,8 +2104,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       builder: (sheetContext) {
         String query = '';
         return StatefulBuilder(
-          builder: (sheetContext, setSheetState) =>
-              DraggableScrollableSheet(
+          builder: (sheetContext, setSheetState) => DraggableScrollableSheet(
             expand: false,
             initialChildSize: 0.72,
             minChildSize: 0.42,
@@ -1912,8 +2151,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                               ),
                             ),
                             IconButton(
-                              onPressed: () =>
-                                  Navigator.of(sheetContext).pop(),
+                              onPressed: () => Navigator.of(sheetContext).pop(),
                               icon: const Icon(Icons.close),
                             ),
                           ],
@@ -1936,8 +2174,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                         child: Row(
                           children: [
                             TextButton.icon(
-                              onPressed: () =>
-                                  Navigator.of(sheetContext).pop(),
+                              onPressed: () => Navigator.of(sheetContext).pop(),
                               icon: const Icon(Icons.person_outline),
                               label: const Text('Walk-in customer'),
                             ),
@@ -1980,8 +2217,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                         leading: CircleAvatar(
                                           child: Text(
                                             customer.name.isNotEmpty
-                                                ? customer.name[0]
-                                                    .toUpperCase()
+                                                ? customer.name[0].toUpperCase()
                                                 : '?',
                                           ),
                                         ),
@@ -1994,9 +2230,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                                   ? customer.email!
                                                   : 'No contact details'),
                                         ),
-                                        onTap: () =>
-                                            Navigator.of(sheetContext)
-                                                .pop(customer),
+                                        onTap: () => Navigator.of(sheetContext)
+                                            .pop(customer),
                                       );
                                     },
                                   ),
@@ -2023,8 +2258,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     }
     _customerEmailController = TextEditingController();
     _customerNameController = TextEditingController();
-    _taxRateController = TextEditingController(text: '0');  // Default 0%
-    _discountController = TextEditingController(text: '0');  // Default 0
+    _taxRateController = TextEditingController(text: '0'); // Default 0%
+    _discountController = TextEditingController(text: '0'); // Default 0
 
     // Initialize price overrides with current product prices
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2047,7 +2282,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   }
 
   double _computedSubtotal() {
-    return widget.items.entries.fold(0.0, (s, e) => s + _lineTotal(e.key, e.value));
+    return widget.items.entries
+        .fold(0.0, (s, e) => s + _lineTotal(e.key, e.value));
   }
 
   String _pricingModeFor(Product product) {
@@ -2108,496 +2344,540 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
             padding: const EdgeInsets.only(bottom: 20),
             child: Column(
               children: [
-              // Handle
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: theme.dividerColor.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(2),
+                // Handle
+                Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: theme.dividerColor.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
 
-              // Header
-              Padding(
-                padding: const EdgeInsets.all(20),
-                child: Row(
-                  children: [
-                    const Text('Cart', style: AppTextStyles.heading3),
-                    const Spacer(),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Cart Items (shrinkWrapped so the outer SingleChildScrollView handles scrolling)
-              ListView.separated(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: entries.length,
-                separatorBuilder: (_, __) => const Divider(height: 24),
-                itemBuilder: (context, index) {
-                  final entry = entries[index];
-                  final item = entry.key;
-                  final qty = entry.value;
-                  return Row(
+                // Header
+                Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.name,
-                              style: AppTextStyles.subtitle1.copyWith(
-                                color: scheme.onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _saleUnitSummary(item),
-                              style: AppTextStyles.caption.copyWith(
-                                color: scheme.onSurface.withOpacity(0.66),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                SizedBox(
-                                  width: 120,
-                                  child: TextFormField(
-                                    initialValue: (_priceOverrides[item.id] ?? item.price).toStringAsFixed(2),
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    decoration: InputDecoration(
-                                      prefixText: '₦',
-                                      isDense: true,
-                                      filled: true,
-                                      fillColor: theme.inputDecorationTheme.fillColor ??
-                                          theme.cardColor,
-                                      contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                                    ),
-                                    onChanged: (v) {
-                                      final parsed = double.tryParse(v.replaceAll(',', '')) ?? 0.0;
-                                      setState(() {
-                                        _priceOverrides[item.id] = parsed;
-                                      });
-                                    },
-                                  ),
+                      const Text('Cart', style: AppTextStyles.heading3),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Cart Items (shrinkWrapped so the outer SingleChildScrollView handles scrolling)
+                ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: entries.length,
+                  separatorBuilder: (_, __) => const Divider(height: 24),
+                  itemBuilder: (context, index) {
+                    final entry = entries[index];
+                    final item = entry.key;
+                    final qty = entry.value;
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.name,
+                                style: AppTextStyles.subtitle1.copyWith(
+                                  color: scheme.onSurface,
                                 ),
-                              ],
-                            ),
-                            if (item.hasWholesalePricing) ...[
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _saleUnitSummary(item),
+                                style: AppTextStyles.caption.copyWith(
+                                  color: scheme.onSurface.withOpacity(0.66),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
                                 children: [
-                                  ChoiceChip(
-                                    label: Text('Retail ₦${item.price.toStringAsFixed(2)}'),
-                                    selected: _pricingModeFor(item) == 'retail',
-                                    onSelected: (_) {
-                                      setState(() {
-                                        _priceOverrides[item.id] = item.price;
-                                      });
-                                    },
-                                  ),
-                                  ChoiceChip(
-                                    label: Text(
-                                      'Wholesale ₦${item.wholesalePrice!.toStringAsFixed(2)}',
+                                  SizedBox(
+                                    width: 120,
+                                    child: TextFormField(
+                                      initialValue: (_priceOverrides[item.id] ??
+                                              item.price)
+                                          .toStringAsFixed(2),
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                              decimal: true),
+                                      decoration: InputDecoration(
+                                        prefixText: '₦',
+                                        isDense: true,
+                                        filled: true,
+                                        fillColor: theme.inputDecorationTheme
+                                                .fillColor ??
+                                            theme.cardColor,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                                vertical: 12, horizontal: 8),
+                                      ),
+                                      onChanged: (v) {
+                                        final parsed = double.tryParse(
+                                                v.replaceAll(',', '')) ??
+                                            0.0;
+                                        setState(() {
+                                          _priceOverrides[item.id] = parsed;
+                                        });
+                                      },
                                     ),
-                                    selected: _pricingModeFor(item) == 'wholesale',
-                                    onSelected: (_) {
-                                      setState(() {
-                                        _priceOverrides[item.id] = item.wholesalePrice!;
-                                      });
-                                    },
                                   ),
                                 ],
                               ),
+                              if (item.hasWholesalePricing) ...[
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    ChoiceChip(
+                                      label: Text(
+                                          'Retail ₦${item.price.toStringAsFixed(2)}'),
+                                      selected:
+                                          _pricingModeFor(item) == 'retail',
+                                      onSelected: (_) {
+                                        setState(() {
+                                          _priceOverrides[item.id] = item.price;
+                                        });
+                                      },
+                                    ),
+                                    ChoiceChip(
+                                      label: Text(
+                                        'Wholesale ₦${item.wholesalePrice!.toStringAsFixed(2)}',
+                                      ),
+                                      selected:
+                                          _pricingModeFor(item) == 'wholesale',
+                                      onSelected: (_) {
+                                        setState(() {
+                                          _priceOverrides[item.id] =
+                                              item.wholesalePrice!;
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
-                          ],
-                        ),
-                      ),
-
-                      // Quantity Adjustment Buttons
-                      Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.remove_circle_outline),
-                            onPressed: qty > 1
-                                ? () {
-                                    final retail = context.read<RetailProvider>();
-                                    retail.updateQty(item.id, qty - 1);
-                                    setState(() {});
-                                  }
-                                : null,
-                            tooltip: 'Decrease quantity',
                           ),
-                          SizedBox(
-                            width: 40,
-                            child: Center(
-                              child: Text(
-                                qty.toString(),
-                                style: AppTextStyles.heading5,
+                        ),
+
+                        // Quantity Adjustment Buttons
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.remove_circle_outline),
+                              onPressed: qty > 1
+                                  ? () {
+                                      final retail =
+                                          context.read<RetailProvider>();
+                                      retail.updateQty(item.id, qty - 1);
+                                      setState(() {});
+                                    }
+                                  : null,
+                              tooltip: 'Decrease quantity',
+                            ),
+                            SizedBox(
+                              width: 40,
+                              child: Center(
+                                child: Text(
+                                  qty.toString(),
+                                  style: AppTextStyles.heading5,
+                                ),
                               ),
                             ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle_outline),
-                            onPressed: () {
-                              final retail = context.read<RetailProvider>();
-                              retail.addToCart(item.id);
-                              setState(() {});
-                            },
-                            tooltip: 'Increase quantity',
-                          ),
-                        ],
-                      ),
-
-                      SizedBox(
-                        width: 100,
-                        child: Text(
-                          '₦${(_lineTotal(item, qty)).toStringAsFixed(2)}',
-                          style: AppTextStyles.heading5.copyWith(
-                            color: scheme.onSurface,
-                          ),
-                          textAlign: TextAlign.right,
+                            IconButton(
+                              icon: const Icon(Icons.add_circle_outline),
+                              onPressed: () {
+                                final retail = context.read<RetailProvider>();
+                                retail.addToCart(item.id);
+                                setState(() {});
+                              },
+                              tooltip: 'Increase quantity',
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
-                  );
-                },
-              ),
 
-          // Payment Method & Store Selection
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: mutedSurface,
-              border: Border(
-                top: BorderSide(color: borderColor),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Store Selector
-                Consumer<RetailProvider>(builder: (context, retail, _) {
-                  final stores = retail.stores;
-                  if (stores.isEmpty) return const SizedBox.shrink();
-                  final auth = Provider.of<AuthProvider>(context, listen: false);
-                  final defaultId = _selectedStoreId ?? auth.currentUser?.storeId ?? stores.first.id;
-                  _selectedStoreId ??= defaultId;
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Select Store', style: AppTextStyles.subtitle1),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: theme.cardColor,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: borderColor),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _selectedStoreId,
-                            isExpanded: true,
-                            items: stores.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
-                            onChanged: (val) => setState(() => _selectedStoreId = val),
+                        SizedBox(
+                          width: 100,
+                          child: Text(
+                            '₦${(_lineTotal(item, qty)).toStringAsFixed(2)}',
+                            style: AppTextStyles.heading5.copyWith(
+                              color: scheme.onSurface,
+                            ),
+                            textAlign: TextAlign.right,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                  );
-                }),
-                Text(
-                  'Customer Information',
-                  style: AppTextStyles.subtitle1.copyWith(
-                    color: scheme.onSurface,
-                  ),
+                      ],
+                    );
+                  },
                 ),
-                const SizedBox(height: 12),
+
+                // Payment Method & Store Selection
                 Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: theme.cardColor,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: borderColor),
+                    color: mutedSurface,
+                    border: Border(
+                      top: BorderSide(color: borderColor),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CircleAvatar(
-                            radius: 20,
-                            backgroundColor:
-                                AppColors.primary.withOpacity(isDark ? 0.24 : 0.12),
-                            child: Icon(
-                              _selectedCustomer == null
-                                  ? Icons.person_outline
-                                  : Icons.person,
-                              color: AppColors.primary,
+                      // Store Selector
+                      Consumer<RetailProvider>(builder: (context, retail, _) {
+                        final stores = retail.stores;
+                        if (stores.isEmpty) return const SizedBox.shrink();
+                        final auth =
+                            Provider.of<AuthProvider>(context, listen: false);
+                        final defaultId = _selectedStoreId ??
+                            auth.currentUser?.storeId ??
+                            stores.first.id;
+                        _selectedStoreId ??= defaultId;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Select Store',
+                                style: AppTextStyles.subtitle1),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: theme.cardColor,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: borderColor),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _selectedStoreId,
+                                  isExpanded: true,
+                                  items: stores
+                                      .map((s) => DropdownMenuItem(
+                                          value: s.id, child: Text(s.name)))
+                                      .toList(),
+                                  onChanged: (val) =>
+                                      setState(() => _selectedStoreId = val),
+                                ),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
+                            const SizedBox(height: 12),
+                          ],
+                        );
+                      }),
+                      Text(
+                        'Customer Information',
+                        style: AppTextStyles.subtitle1.copyWith(
+                          color: scheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: theme.cardColor,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: borderColor),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  _selectedCustomer?.name ?? 'Walk-in customer',
-                                  style: AppTextStyles.subtitle1.copyWith(
-                                    color: scheme.onSurface,
-                                    fontWeight: FontWeight.w600,
+                                CircleAvatar(
+                                  radius: 20,
+                                  backgroundColor: AppColors.primary
+                                      .withOpacity(isDark ? 0.24 : 0.12),
+                                  child: Icon(
+                                    _selectedCustomer == null
+                                        ? Icons.person_outline
+                                        : Icons.person,
+                                    color: AppColors.primary,
                                   ),
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _selectedCustomer == null
-                                      ? 'Select an existing customer or create a new one for this sale.'
-                                      : (_selectedCustomer!.phone?.isNotEmpty == true
-                                          ? _selectedCustomer!.phone!
-                                          : (_selectedCustomer!.email?.isNotEmpty == true
-                                              ? _selectedCustomer!.email!
-                                              : 'No saved contact details')),
-                                  style: AppTextStyles.caption.copyWith(
-                                    color: scheme.onSurface.withOpacity(0.7),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _selectedCustomer?.name ??
+                                            'Walk-in customer',
+                                        style: AppTextStyles.subtitle1.copyWith(
+                                          color: scheme.onSurface,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _selectedCustomer == null
+                                            ? 'Select an existing customer or create a new one for this sale.'
+                                            : (_selectedCustomer!
+                                                        .phone?.isNotEmpty ==
+                                                    true
+                                                ? _selectedCustomer!.phone!
+                                                : (_selectedCustomer!.email
+                                                            ?.isNotEmpty ==
+                                                        true
+                                                    ? _selectedCustomer!.email!
+                                                    : 'No saved contact details')),
+                                        style: AppTextStyles.caption.copyWith(
+                                          color:
+                                              scheme.onSurface.withOpacity(0.7),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
                             ),
-                          ),
-                        ],
+                            if (customerProvider.isLoading) ...[
+                              const SizedBox(height: 12),
+                              const LinearProgressIndicator(minHeight: 3),
+                            ],
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: customerProvider.isLoading
+                                      ? null
+                                      : _showCustomerSelectionSheet,
+                                  icon: const Icon(Icons.people_outline),
+                                  label: Text(
+                                    _selectedCustomer == null
+                                        ? 'Select Customer'
+                                        : 'Change Customer',
+                                  ),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final created =
+                                        await _showCreateCustomerDialog();
+                                    if (!mounted || created == null) return;
+                                    _applySelectedCustomer(created);
+                                  },
+                                  icon: const Icon(Icons.person_add_alt_1),
+                                  label: const Text('Add New'),
+                                ),
+                                if (_selectedCustomer != null)
+                                  TextButton.icon(
+                                    onPressed: () =>
+                                        _applySelectedCustomer(null),
+                                    icon: const Icon(Icons.clear),
+                                    label: const Text('Clear'),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
-                      if (customerProvider.isLoading) ...[
-                        const SizedBox(height: 12),
-                        const LinearProgressIndicator(minHeight: 3),
-                      ],
                       const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
+                      TextField(
+                        controller: _customerNameController,
+                        decoration: InputDecoration(
+                          labelText: 'Customer name',
+                          hintText: 'Optional display name on receipt',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _customerEmailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: InputDecoration(
+                          labelText: 'Customer email',
+                          hintText: 'Optional email for receipt delivery',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text('Payment Method',
+                          style: AppTextStyles.subtitle1),
+                      const SizedBox(height: 12),
+                      Row(
                         children: [
-                          OutlinedButton.icon(
-                            onPressed: customerProvider.isLoading
-                                ? null
-                                : _showCustomerSelectionSheet,
-                            icon: const Icon(Icons.people_outline),
-                            label: Text(
-                              _selectedCustomer == null
-                                  ? 'Select Customer'
-                                  : 'Change Customer',
+                          _PaymentMethodButton(
+                            label: 'Cash',
+                            icon: Icons.payments_rounded,
+                            isSelected: _paymentMethod == 'cash',
+                            onTap: () =>
+                                setState(() => _paymentMethod = 'cash'),
+                          ),
+                          const SizedBox(width: 12),
+                          _PaymentMethodButton(
+                            label: 'Card',
+                            icon: Icons.credit_card_rounded,
+                            isSelected: _paymentMethod == 'card',
+                            onTap: () =>
+                                setState(() => _paymentMethod = 'card'),
+                          ),
+                          const SizedBox(width: 12),
+                          _PaymentMethodButton(
+                            label: 'Transfer',
+                            icon: Icons.account_balance_rounded,
+                            isSelected: _paymentMethod == 'transfer',
+                            onTap: () =>
+                                setState(() => _paymentMethod = 'transfer'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      const Text('Tax & Discount',
+                          style: AppTextStyles.subtitle1),
+                      const SizedBox(height: 12),
+                      // Tax Field
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text('Tax (%)', style: AppTextStyles.body2),
+                          ),
+                          SizedBox(
+                            width: 100,
+                            child: TextFormField(
+                              controller: _taxRateController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              decoration: InputDecoration(
+                                hintText: '0',
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 8),
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(4)),
+                              ),
+                              onChanged: (_) => setState(() {}),
                             ),
                           ),
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              final created =
-                                  await _showCreateCustomerDialog();
-                              if (!mounted || created == null) return;
-                              _applySelectedCustomer(created);
-                            },
-                            icon: const Icon(Icons.person_add_alt_1),
-                            label: const Text('Add New'),
+                          const SizedBox(width: 8),
+                          Text(
+                              '₦${(_computedSubtotal() * ((double.tryParse(_taxRateController.text) ?? 0) / 100)).toStringAsFixed(2)}',
+                              style: AppTextStyles.caption),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      // Discount Field
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text('Discount (₦)',
+                                style: AppTextStyles.body2),
                           ),
-                          if (_selectedCustomer != null)
-                            TextButton.icon(
-                              onPressed: () => _applySelectedCustomer(null),
-                              icon: const Icon(Icons.clear),
-                              label: const Text('Clear'),
+                          SizedBox(
+                            width: 100,
+                            child: TextFormField(
+                              controller: _discountController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              decoration: InputDecoration(
+                                hintText: '0',
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 8),
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(4)),
+                              ),
+                              onChanged: (_) => setState(() {}),
                             ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                              '-₦${(double.tryParse(_discountController.text) ?? 0).toStringAsFixed(2)}',
+                              style: AppTextStyles.caption
+                                  .copyWith(color: AppColors.success)),
                         ],
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _customerNameController,
-                  decoration: InputDecoration(
-                    labelText: 'Customer name',
-                    hintText: 'Optional display name on receipt',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _customerEmailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(
-                    labelText: 'Customer email',
-                    hintText: 'Optional email for receipt delivery',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                const Text('Payment Method', style: AppTextStyles.subtitle1),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _PaymentMethodButton(
-                      label: 'Cash',
-                      icon: Icons.payments_rounded,
-                      isSelected: _paymentMethod == 'cash',
-                      onTap: () => setState(() => _paymentMethod = 'cash'),
-                    ),
-                    const SizedBox(width: 12),
-                    _PaymentMethodButton(
-                      label: 'Card',
-                      icon: Icons.credit_card_rounded,
-                      isSelected: _paymentMethod == 'card',
-                      onTap: () => setState(() => _paymentMethod = 'card'),
-                    ),
-                    const SizedBox(width: 12),
-                    _PaymentMethodButton(
-                      label: 'Transfer',
-                      icon: Icons.account_balance_rounded,
-                      isSelected: _paymentMethod == 'transfer',
-                      onTap: () => setState(() => _paymentMethod = 'transfer'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Text('Tax & Discount', style: AppTextStyles.subtitle1),
-                const SizedBox(height: 12),
-                // Tax Field
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text('Tax (%)',
-                          style: AppTextStyles.body2),
-                    ),
-                    SizedBox(
-                      width: 100,
-                      child: TextFormField(
-                        controller: _taxRateController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: InputDecoration(
-                          hintText: '0',
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
-                        ),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                        '₦${(_computedSubtotal() * ((double.tryParse(_taxRateController.text) ?? 0) / 100)).toStringAsFixed(2)}',
-                        style: AppTextStyles.caption),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                // Discount Field
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text('Discount (₦)',
-                          style: AppTextStyles.body2),
-                    ),
-                    SizedBox(
-                      width: 100,
-                      child: TextFormField(
-                        controller: _discountController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: InputDecoration(
-                          hintText: '0',
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
-                        ),
-                        onChanged: (_) => setState(() {}),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                        '-₦${(double.tryParse(_discountController.text) ?? 0).toStringAsFixed(2)}',
-                        style: AppTextStyles.caption.copyWith(color: AppColors.success)),
-                  ],
-                ),
-              ],
-            ),
-          ),
 
-          // Total & Checkout
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: theme.cardColor,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(isDark ? 0.24 : 0.10),
-                  blurRadius: 20,
-                  offset: const Offset(0, -5),
-                ),
-              ],
-            ),
-            child: SafeArea(
-              top: false,
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Total',
-                        style: AppTextStyles.heading4.copyWith(
-                          color: scheme.onSurface,
-                        ),
-                      ),
-                      Text(
-                        '₦${(_computedSubtotal() + (_computedSubtotal() * ((double.tryParse(_taxRateController.text) ?? 0) / 100)) - (double.tryParse(_discountController.text) ?? 0)).toStringAsFixed(2)}',
-                        style: AppTextStyles.price.copyWith(
-                          color: scheme.onSurface,
-                        ),
+                // Total & Checkout
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: theme.cardColor,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(isDark ? 0.24 : 0.10),
+                        blurRadius: 20,
+                        offset: const Offset(0, -5),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  AsyncCustomButton(
-                    text: 'Complete Sale',
-                    onPressed: () async => await widget.onComplete(
-                      _selectedCustomer?.id,
-                      _customerEmailController.text.trim().isEmpty
-                          ? null
-                          : _customerEmailController.text.trim(),
-                      _customerNameController.text.trim().isEmpty
-                          ? null
-                          : _customerNameController.text.trim(),
-                      _paymentMethod,
-                      _selectedStoreId,
-                      double.tryParse(_taxRateController.text) ?? 0.0,
-                      double.tryParse(_discountController.text) ?? 0,
-                      Map<String, double>.from(_priceOverrides),
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Total',
+                              style: AppTextStyles.heading4.copyWith(
+                                color: scheme.onSurface,
+                              ),
+                            ),
+                            Text(
+                              '₦${(_computedSubtotal() + (_computedSubtotal() * ((double.tryParse(_taxRateController.text) ?? 0) / 100)) - (double.tryParse(_discountController.text) ?? 0)).toStringAsFixed(2)}',
+                              style: AppTextStyles.price.copyWith(
+                                color: scheme.onSurface,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        AsyncCustomButton(
+                          text: 'Complete Sale',
+                          onPressed: () async => await widget.onComplete(
+                            _selectedCustomer?.id,
+                            _customerEmailController.text.trim().isEmpty
+                                ? null
+                                : _customerEmailController.text.trim(),
+                            _customerNameController.text.trim().isEmpty
+                                ? null
+                                : _customerNameController.text.trim(),
+                            _paymentMethod,
+                            _selectedStoreId,
+                            double.tryParse(_taxRateController.text) ?? 0.0,
+                            double.tryParse(_discountController.text) ?? 0,
+                            Map<String, double>.from(_priceOverrides),
+                          ),
+                          icon: Icons.check_circle_outline,
+                        ),
+                      ],
                     ),
-                    icon: Icons.check_circle_outline,
                   ),
-                ],
-              ),
-            ),
-          ),
+                ),
               ],
             ),
+          ),
         ),
-      ),
       ),
     );
   }
@@ -2636,10 +2916,7 @@ class _PaymentMethodButton extends StatelessWidget {
                 icon,
                 color: isSelected
                     ? Theme.of(context).colorScheme.onPrimary
-                    : Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withOpacity(0.7),
+                    : Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
                 size: 24,
               ),
               const SizedBox(height: 4),

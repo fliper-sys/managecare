@@ -51,13 +51,17 @@ class ReceiptSettingsProvider extends ChangeNotifier {
     if (_receiptSettings == null) return;
 
     try {
-      final updatedSettings = settings.copyWith(updatedAt: DateTime.now());
+      final businessId = settings.businessId;
+      final updatedSettings = settings.copyWith(
+        id: businessId,
+        updatedAt: DateTime.now(),
+      );
 
       await _firestore
           .collection('businesses')
-          .doc(settings.businessId)
+          .doc(businessId)
           .collection('receipt_settings')
-          .doc(settings.id)
+          .doc(businessId)
           .set(updatedSettings.toFirestore());
 
       // Also persist a small receipt summary into the parent business document
@@ -65,6 +69,7 @@ class ReceiptSettingsProvider extends ChangeNotifier {
       // receipt settings without querying a subcollection.
       try {
         final summary = {
+          'businessId': businessId,
           'invoicePrefix': updatedSettings.invoicePrefix,
           'paperWidth': updatedSettings.paperWidth,
           'headerNote': updatedSettings.headerNote,

@@ -271,8 +271,7 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
                             change:
                                 '+${(financialSummary['expensesChange'] ?? 0).toStringAsFixed(1)}%',
                             isPositive: false,
-                            icon: Icons.trending_down,
-                          ),
+                            icon: Icons.trending_down,                          tooltip: 'Total operating expenses for the selected period. Excludes Cost of Goods Sold (COGS).',                          ),
                         ),
                       ],
                     ),

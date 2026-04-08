@@ -36,7 +36,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   // Selection for batch procurement: productId -> { 'quantity': num/double, 'cost': double, 'product': Map }
   final Map<String, Map<String, dynamic>> _selectedItems = {};
   final _currencyFormat = NumberFormat('#,##0.00', 'en_US');
-  bool _isSubmitting = false;/* quantities can be fractional for liquids */
+  bool _isSubmitting = false; /* quantities can be fractional for liquids */
 
   @override
   void initState() {
@@ -155,20 +155,26 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
 
       // Include pharmacy drugs as inventory-like products (if any)
       try {
-        final pharmacyProvider = Provider.of<PharmacyProvider>(context, listen: false);
-        final pharmacyItems = pharmacyProvider.drugs.map((d) => {
-              'id': 'pharmacy_${d.id}',
-              'name': d.name,
-              'price': d.price,
-              'quantity': d.stock,
-              'category': 'Pharmacy',
-              'emoji': '💊',
-            }).toList();
+        final pharmacyProvider =
+            Provider.of<PharmacyProvider>(context, listen: false);
+        final pharmacyItems = pharmacyProvider.drugs
+            .map((d) => {
+                  'id': 'pharmacy_${d.id}',
+                  'name': d.name,
+                  'price': d.price,
+                  'quantity': d.stock,
+                  'category': 'Pharmacy',
+                  'emoji': '💊',
+                })
+            .toList();
 
         // Merge, preferring explicit inventory collection items when names collide
-        final existingNames = allProducts.map((p) => (p['name'] ?? '').toString().toLowerCase()).toSet();
+        final existingNames = allProducts
+            .map((p) => (p['name'] ?? '').toString().toLowerCase())
+            .toSet();
         for (final pi in pharmacyItems) {
-          if (!existingNames.contains((pi['name'] ?? '').toString().toLowerCase())) {
+          if (!existingNames
+              .contains((pi['name'] ?? '').toString().toLowerCase())) {
             allProducts.add(pi);
           }
         }
@@ -201,9 +207,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
               final sku = (product['sku'] ?? '').toString();
               final barcode = (product['barcode'] ?? '').toString();
               final category = (product['category'] ?? '').toString();
-              
+
               // Use enhanced search for all fields with fuzzy matching
-              return SearchUtils.matchesSearchQuery(name, barcode.isNotEmpty ? barcode : null, query) ||
+              return SearchUtils.matchesSearchQuery(
+                      name, barcode.isNotEmpty ? barcode : null, query) ||
                   SearchUtils.matchesSearchQuery(sku, null, query) ||
                   SearchUtils.matchesSearchQuery(category, null, query);
             }).toList();
@@ -216,15 +223,16 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       _filterProducts();
       return;
     }
-    
+
     setState(() {
       _filteredProducts = _products.where((product) {
         final productBarcode = (product['barcode'] ?? '').toString();
         // Use fuzzy barcode matching
-        return SearchUtils.matchesBarcode(productBarcode.isNotEmpty ? productBarcode : null, barcode);
+        return SearchUtils.matchesBarcode(
+            productBarcode.isNotEmpty ? productBarcode : null, barcode);
       }).toList();
     });
-    
+
     // If exactly one product matches, auto-select it
     if (_filteredProducts.length == 1) {
       final product = _filteredProducts[0];
@@ -236,7 +244,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   Future<void> _scanBarcode() async {
     try {
       final navigator = Navigator.of(context);
-      
+
       final result = await navigator.push<String>(
         MaterialPageRoute(
           builder: (context) => Scaffold(
@@ -330,8 +338,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Procurement Management'),
         elevation: 0,
@@ -342,7 +354,8 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
             tooltip: 'Procurement History',
             icon: const Icon(Icons.history_outlined),
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ProcurementHistoryScreen()),
+              MaterialPageRoute(
+                  builder: (_) => const ProcurementHistoryScreen()),
             ),
           ),
         ],
@@ -373,22 +386,22 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                 // Product Name/SKU Search
                 TextField(
                   controller: _searchController,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: scheme.onPrimary),
                   decoration: InputDecoration(
                     hintText: 'Search by product name, SKU, or category...',
                     hintStyle:
-                        TextStyle(color: Colors.white.withOpacity(0.7)),
-                    prefixIcon: const Icon(Icons.search, color: Colors.white),
+                        TextStyle(color: scheme.onPrimary.withOpacity(0.7)),
+                    prefixIcon: Icon(Icons.search, color: scheme.onPrimary),
                     suffixIcon: _searchController.text.isNotEmpty
                         ? IconButton(
-                            icon: const Icon(Icons.clear, color: Colors.white),
+                            icon: Icon(Icons.clear, color: scheme.onPrimary),
                             onPressed: () {
                               _searchController.clear();
                             },
                           )
                         : null,
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.2),
+                    fillColor: scheme.onPrimary.withOpacity(0.2),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -400,32 +413,32 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                 // Barcode Input
                 TextField(
                   controller: _barcodeController,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: scheme.onPrimary),
                   decoration: InputDecoration(
                     hintText: 'Scan or enter barcode...',
                     hintStyle:
-                        TextStyle(color: Colors.white.withOpacity(0.7)),
-                    prefixIcon: const Icon(Icons.qr_code_2, color: Colors.white),
+                        TextStyle(color: scheme.onPrimary.withOpacity(0.7)),
+                    prefixIcon: Icon(Icons.qr_code_2, color: scheme.onPrimary),
                     suffixIcon: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (_barcodeController.text.isNotEmpty)
                           IconButton(
-                            icon: const Icon(Icons.clear, color: Colors.white),
+                            icon: Icon(Icons.clear, color: scheme.onPrimary),
                             onPressed: () {
                               _barcodeController.clear();
                               _filterProducts();
                             },
                           ),
                         IconButton(
-                          icon: const Icon(Icons.camera_alt, color: Colors.white),
+                          icon: Icon(Icons.camera_alt, color: scheme.onPrimary),
                           onPressed: _scanBarcode,
                           tooltip: 'Scan barcode',
                         ),
                       ],
                     ),
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.2),
+                    fillColor: scheme.onPrimary.withOpacity(0.2),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -446,93 +459,102 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                   ? const Center(child: CircularProgressIndicator())
                   : _filteredProducts.isEmpty
                       ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.inventory_2_outlined,
-                              size: 64,
-                              color: Theme.of(context).colorScheme.onSurface
-                                  .withOpacity(0.5),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No products found',
-                              style: AppTextStyles.subtitle1.copyWith(
-                                color:
-                                    Theme.of(context).colorScheme.onSurface,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.inventory_2_outlined,
+                                size: 64,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withOpacity(0.5),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 16),
+                              Text(
+                                'No products found',
+                                style: AppTextStyles.subtitle1.copyWith(
+                                  color:
+                                      Theme.of(context).colorScheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _filteredProducts.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            final product = _filteredProducts[index];
+                            return _ProductCard(
+                              product: product,
+                              isSelected:
+                                  _selectedItems.containsKey(product['id']),
+                              onSelectToggle: () => _toggleSelect(product),
+                              onCardTap: () =>
+                                  _openProductProcurements(product),
+                              onIncrease: () {
+                                final current =
+                                    ((product['quantity'] ?? 0) as num);
+                                _updateProductQuantity(product, current + 1);
+                              },
+                              onDecrease: () {
+                                final current =
+                                    ((product['quantity'] ?? 0) as num);
+                                if (current > 0) {
+                                  _updateProductQuantity(product, current - 1);
+                                }
+                              },
+                              onQuantityChanged: (newQuantity) =>
+                                  _updateProductQuantity(product, newQuantity),
+                              onEdit: () async {
+                                // Convert map to Product and open edit screen
+                                final p = Product(
+                                  id: product['id'] as String? ?? '',
+                                  name: (product['name'] ?? '').toString(),
+                                  price: ((product['price'] ?? 0) as num)
+                                      .toDouble(),
+                                  cost: ((product['cost'] ?? 0) as num)
+                                      .toDouble(),
+                                  wholesalePrice:
+                                      (product['wholesalePrice'] as num?)
+                                          ?.toDouble(),
+                                  stock: ((product['quantity'] ?? 0) as num)
+                                      .toDouble(),
+                                  category:
+                                      (product['category'] ?? 'Uncategorized')
+                                          .toString(),
+                                  imageUrl: product['imageUrl'] as String?,
+                                  barcode: product['barcode'] as String?,
+                                  unit: canonicalizeInventoryUnit(
+                                    product['unit']?.toString(),
+                                  ),
+                                  saleUnit: canonicalizeInventoryUnit(
+                                    product['saleUnit']?.toString(),
+                                  ),
+                                  saleUnitMultiplier:
+                                      (product['saleUnitMultiplier'] as num?)
+                                              ?.toDouble() ??
+                                          1.0,
+                                  emoji: product['emoji'] as String? ?? '📦',
+                                );
+
+                                final result = await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        AddProductScreen(product: p),
+                                  ),
+                                );
+
+                                if (result == true) {
+                                  await _loadProducts();
+                                }
+                              },
+                            );
+                          },
                         ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _filteredProducts.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemBuilder: (context, index) {
-                          final product = _filteredProducts[index];
-                          return _ProductCard(
-                            product: product,
-                            isSelected: _selectedItems.containsKey(product['id']),
-                            onSelectToggle: () => _toggleSelect(product),
-                            onCardTap: () => _openProductProcurements(product),
-                            onIncrease: () {
-                              final current = ((product['quantity'] ?? 0) as num);
-                              _updateProductQuantity(product, current + 1);
-                            },
-                            onDecrease: () {
-                              final current = ((product['quantity'] ?? 0) as num);
-                              if (current > 0) {
-                                _updateProductQuantity(product, current - 1);
-                              }
-                            },
-                            onQuantityChanged: (newQuantity) => _updateProductQuantity(product, newQuantity),
-                            onEdit: () async {
-                              // Convert map to Product and open edit screen
-                              final p = Product(
-                                id: product['id'] as String? ?? '',
-                                name: (product['name'] ?? '').toString(),
-                                price:
-                                    ((product['price'] ?? 0) as num).toDouble(),
-                                cost:
-                                    ((product['cost'] ?? 0) as num).toDouble(),
-                                wholesalePrice:
-                                    (product['wholesalePrice'] as num?)
-                                        ?.toDouble(),
-                                stock:
-                                    ((product['quantity'] ?? 0) as num).toDouble(),
-                                category:
-                                    (product['category'] ?? 'Uncategorized')
-                                        .toString(),
-                                imageUrl: product['imageUrl'] as String?,
-                                barcode: product['barcode'] as String?,
-                                unit: canonicalizeInventoryUnit(
-                                  product['unit']?.toString(),
-                                ),
-                                saleUnit: canonicalizeInventoryUnit(
-                                  product['saleUnit']?.toString(),
-                                ),
-                                saleUnitMultiplier:
-                                    (product['saleUnitMultiplier'] as num?)
-                                            ?.toDouble() ??
-                                        1.0,
-                                emoji: product['emoji'] as String? ?? '📦',
-                              );
-
-                              final result = await Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => AddProductScreen(product: p),
-                                ),
-                              );
-
-                              if (result == true) {
-                                await _loadProducts();
-                              }
-                            },
-                          );
-                        },
-                      ),
             ),
           ),
 
@@ -547,17 +569,28 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('${_selectedItems.length} items selected', style: AppTextStyles.body2),
+                        Text('${_selectedItems.length} items selected',
+                            style: AppTextStyles.body2),
                         const SizedBox(height: 4),
-                        Text('Total: ₦${_currencyFormat.format(_selectedItems.values.fold(0.0, (s, e) => s + ((e['quantity'] as num) * (e['cost'] as double))))}', style: AppTextStyles.subtitle2.copyWith(fontWeight: FontWeight.bold)), 
+                        Text(
+                            'Total: ₦${_currencyFormat.format(_selectedItems.values.fold(0.0, (s, e) => s + ((e['quantity'] as num) * (e['cost'] as double))))}',
+                            style: AppTextStyles.subtitle2
+                                .copyWith(fontWeight: FontWeight.bold)),
                       ],
                     ),
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton.icon(
-                    icon: _isSubmitting ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.check),
+                    icon: _isSubmitting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Icon(Icons.check),
                     label: const Text('Submit Procurement'),
-                    onPressed: _isSubmitting ? null : _submitSelectedProcurement,
+                    onPressed:
+                        _isSubmitting ? null : _submitSelectedProcurement,
                   ),
                 ],
               ),
@@ -575,9 +608,11 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       setState(() => _selectedItems.remove(id));
     } else {
       final defaultQty = 1;
-      final defaultCost = ((product['cost'] ?? product['price'] ?? 0) as num).toDouble();
+      final defaultCost =
+          ((product['cost'] ?? product['price'] ?? 0) as num).toDouble();
       // default unit is the product's unit if available
-      final defaultUnit = canonicalizeInventoryUnit(product['unit']?.toString());
+      final defaultUnit =
+          canonicalizeInventoryUnit(product['unit']?.toString());
       setState(() {
         _selectedItems[id] = {
           'quantity': defaultQty,
@@ -608,10 +643,13 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     if (entry == null) return;
 
     final product = entry['product'] as Map<String, dynamic>;
-    final baseUnit = canonicalizeInventoryUnit((product['unit'] ?? '').toString());
+    final baseUnit =
+        canonicalizeInventoryUnit((product['unit'] ?? '').toString());
 
-    final qtyController = TextEditingController(text: (entry['quantity'] as num).toString());
-    final costController = TextEditingController(text: (entry['cost'] as double).toString());
+    final qtyController =
+        TextEditingController(text: (entry['quantity'] as num).toString());
+    final costController =
+        TextEditingController(text: (entry['cost'] as double).toString());
     final batchLabelController = TextEditingController(
       text: (entry['batchLabel'] ?? '').toString(),
     );
@@ -624,120 +662,139 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
 
     final result = await showDialog<bool>(
       context: context,
-      builder: (_) => StatefulBuilder(builder: (ctx, setState) => AlertDialog(
-        title: const Text('Edit selected product'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(entry['product']['name'] ?? ''),
-            const SizedBox(height: 8),
-            TextField(
-              controller: qtyController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Quantity to add'),
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              value: selectedUnit,
-              decoration: const InputDecoration(labelText: 'Unit'),
-              items: sortedUnits
-                  .map(
-                    (u) => DropdownMenuItem(
-                      value: u,
-                      child: Text(inventoryUnitLabel(u)),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (v) => setState(() { selectedUnit = v ?? selectedUnit; }),
-            ),
-            const SizedBox(height: 8),
-            // UX hint: show conversion note when user selects 'ton' for products tracked in 'kg'
-            if (selectedUnit == 'ton' && baseUnit == 'kg')
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8.0),
-                child: Row(
+      builder: (_) => StatefulBuilder(
+          builder: (ctx, setState) => AlertDialog(
+                title: const Text('Edit selected product'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.info_outline, size: 16, color: AppColors.primary),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Note: quantities entered in tons will be converted to kilograms on save (1 ton = 1000 kg).',
-                        style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
-                      ),
+                    Text(entry['product']['name'] ?? ''),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: qtyController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration:
+                          const InputDecoration(labelText: 'Quantity to add'),
                     ),
-                  ],
-                ),
-              ),
-            if (selectedUnit != baseUnit && baseUnit.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8.0),
-                child: Row(
-                  children: [
-                    Icon(Icons.sync_alt, size: 16, color: AppColors.primary),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Enter the cost per ${inventoryUnitLabel(selectedUnit)}. The app will convert it to ${inventoryUnitLabel(baseUnit)} before saving the batch.',
-                        style: AppTextStyles.caption.copyWith(
-                          color: AppColors.textSecondary,
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: selectedUnit,
+                      decoration: const InputDecoration(labelText: 'Unit'),
+                      items: sortedUnits
+                          .map(
+                            (u) => DropdownMenuItem(
+                              value: u,
+                              child: Text(inventoryUnitLabel(u)),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) => setState(() {
+                        selectedUnit = v ?? selectedUnit;
+                      }),
+                    ),
+                    const SizedBox(height: 8),
+                    // UX hint: show conversion note when user selects 'ton' for products tracked in 'kg'
+                    if (selectedUnit == 'ton' && baseUnit == 'kg')
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline,
+                                size: 16, color: AppColors.primary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Note: quantities entered in tons will be converted to kilograms on save (1 ton = 1000 kg).',
+                                style: AppTextStyles.caption
+                                    .copyWith(color: AppColors.textSecondary),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                    if (selectedUnit != baseUnit && baseUnit.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: Row(
+                          children: [
+                            Icon(Icons.sync_alt,
+                                size: 16, color: AppColors.primary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Enter the cost per ${inventoryUnitLabel(selectedUnit)}. The app will convert it to ${inventoryUnitLabel(baseUnit)} before saving the batch.',
+                                style: AppTextStyles.caption.copyWith(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    TextField(
+                      controller: costController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: InputDecoration(
+                        labelText:
+                            'Cost per ${inventoryUnitLabel(selectedUnit)}',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: batchLabelController,
+                      decoration: const InputDecoration(
+                        labelText: 'Batch label / code (optional)',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.event_available_outlined),
+                      title: const Text('Expiry date'),
+                      subtitle: Text(
+                        selectedExpiryDate == null
+                            ? 'No expiry selected'
+                            : DateFormat('dd MMM yyyy')
+                                .format(selectedExpiryDate!),
+                      ),
+                      trailing: TextButton(
+                        onPressed: () async {
+                          final picked = await showDatePicker(
+                            context: ctx,
+                            initialDate: selectedExpiryDate ??
+                                DateTime.now().add(const Duration(days: 30)),
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2100),
+                          );
+                          if (picked != null) {
+                            setState(() => selectedExpiryDate = picked);
+                          }
+                        },
+                        child: Text(selectedExpiryDate == null
+                            ? 'Pick date'
+                            : 'Change'),
+                      ),
                     ),
                   ],
                 ),
-              ),
-            TextField(
-              controller: costController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                labelText: 'Cost per ${inventoryUnitLabel(selectedUnit)}',
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: batchLabelController,
-              decoration: const InputDecoration(
-                labelText: 'Batch label / code (optional)',
-              ),
-            ),
-            const SizedBox(height: 8),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.event_available_outlined),
-              title: const Text('Expiry date'),
-              subtitle: Text(
-                selectedExpiryDate == null
-                    ? 'No expiry selected'
-                    : DateFormat('dd MMM yyyy').format(selectedExpiryDate!),
-              ),
-              trailing: TextButton(
-                onPressed: () async {
-                  final picked = await showDatePicker(
-                    context: ctx,
-                    initialDate: selectedExpiryDate ??
-                        DateTime.now().add(const Duration(days: 30)),
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime(2100),
-                  );
-                  if (picked != null) {
-                    setState(() => selectedExpiryDate = picked);
-                  }
-                },
-                child: Text(selectedExpiryDate == null ? 'Pick date' : 'Change'),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Save')),
-        ],
-      )),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: const Text('Cancel')),
+                  ElevatedButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: const Text('Save')),
+                ],
+              )),
     );
 
     if (result == true) {
-      final newQty = double.tryParse(qtyController.text) ?? (entry['quantity'] as num);
-      final newCost = double.tryParse(costController.text) ?? (entry['cost'] as double);
+      final newQty =
+          double.tryParse(qtyController.text) ?? (entry['quantity'] as num);
+      final newCost =
+          double.tryParse(costController.text) ?? (entry['cost'] as double);
       setState(() {
         _selectedItems[id]!['quantity'] = newQty;
         _selectedItems[id]!['cost'] = newCost;
@@ -751,9 +808,13 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   void _openProductProcurements(Map<String, dynamic> product) {
     final id = product['id'] as String? ?? '';
     if (id.isEmpty) return;
-    final businessId = context.read<BusinessProvider>().currentBusiness?.id ?? '';
+    final businessId =
+        context.read<BusinessProvider>().currentBusiness?.id ?? '';
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ProductProcurementsScreen(businessId: businessId, productId: id, productName: product['name'] ?? ''),
+      builder: (_) => ProductProcurementsScreen(
+          businessId: businessId,
+          productId: id,
+          productName: product['name'] ?? ''),
     ));
   }
 
@@ -765,10 +826,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       context: context,
       builder: (_) {
         final suppliers = context.read<RetailProvider>().suppliers;
-        String? selectedSupplierId = suppliers.isNotEmpty ? suppliers.first.id : null;
-        String? selectedSupplierName = suppliers.isNotEmpty ? suppliers.first.name : null;
+        String? selectedSupplierId =
+            suppliers.isNotEmpty ? suppliers.first.id : null;
+        String? selectedSupplierName =
+            suppliers.isNotEmpty ? suppliers.first.name : null;
         final invoiceController = TextEditingController();
-        
+
         // Reference image upload state
         String? uploadedReferenceImageUrl;
         bool isUploadingReferenceImage = false;
@@ -786,187 +849,226 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Are you sure you want to increase stock for ${_selectedItems.length} items and record procurement?'),
-                      const SizedBox(height: 16),
-                      
-                      // Reference Image Upload Section
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: AppColors.primary.withOpacity(0.3), width: 1),
-                          borderRadius: BorderRadius.circular(8),
-                          color: AppColors.primary.withOpacity(0.05),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
+                    Text(
+                        'Are you sure you want to increase stock for ${_selectedItems.length} items and record procurement?'),
+                    const SizedBox(height: 16),
+
+                    // Reference Image Upload Section
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                            color: AppColors.primary.withOpacity(0.3),
+                            width: 1),
+                        borderRadius: BorderRadius.circular(8),
+                        color: AppColors.primary.withOpacity(0.05),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: double.infinity,
+                            child: Row(
+                              children: [
+                                Icon(Icons.image_outlined,
+                                    size: 18, color: AppColors.primary),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: const Text(
+                                      'Reference Image (optional)',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 12)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
+                          // Show preview if image uploaded
+                          if (uploadedReferenceImageUrl != null) ...[
+                            Container(
                               width: double.infinity,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(6),
+                                color: Colors.grey[200],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: CachedNetworkImage(
+                                  imageUrl: uploadedReferenceImageUrl!,
+                                  height: 120,
+                                  fit: BoxFit.cover,
+                                  placeholder: (context, url) => Container(
+                                    color: AppColors.primary.withOpacity(0.1),
+                                    child: const Center(
+                                        child: CircularProgressIndicator()),
+                                  ),
+                                  errorWidget: (context, url, error) =>
+                                      Container(
+                                    color: AppColors.error.withOpacity(0.1),
+                                    child:
+                                        const Center(child: Icon(Icons.error)),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+
+                          // Upload button
+                          ElevatedButton.icon(
+                            onPressed: isUploadingReferenceImage
+                                ? null
+                                : () async {
+                                    try {
+                                      final picker = ImagePicker();
+                                      final xfile = await picker.pickImage(
+                                          source: ImageSource.gallery,
+                                          imageQuality: 85);
+                                      if (xfile == null) return;
+
+                                      final bytes = await xfile.readAsBytes();
+                                      final filename = xfile.name;
+
+                                      setState(() {
+                                        isUploadingReferenceImage = true;
+                                        referenceImageError = null;
+                                      });
+
+                                      final url = await EmailService()
+                                          .uploadBytes(bytes, filename);
+
+                                      if (url == null) {
+                                        setState(() {
+                                          referenceImageError = 'Upload failed';
+                                          isUploadingReferenceImage = false;
+                                        });
+                                        return;
+                                      }
+
+                                      final cachebustedUrl =
+                                          '$url?t=${DateTime.now().millisecondsSinceEpoch}';
+                                      setState(() {
+                                        uploadedReferenceImageUrl =
+                                            cachebustedUrl;
+                                        isUploadingReferenceImage = false;
+                                        referenceImageError = null;
+                                      });
+                                    } catch (e) {
+                                      setState(() {
+                                        referenceImageError = 'Error: $e';
+                                        isUploadingReferenceImage = false;
+                                      });
+                                    }
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: uploadedReferenceImageUrl != null
+                                  ? AppColors.success
+                                  : AppColors.primary,
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 8, horizontal: 12),
+                              minimumSize: const Size(double.infinity, 36),
+                            ),
+                            icon: isUploadingReferenceImage
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                          Colors.white),
+                                    ),
+                                  )
+                                : Icon(
+                                    uploadedReferenceImageUrl != null
+                                        ? Icons.check_circle
+                                        : Icons.photo_library,
+                                    size: 16),
+                            label: Text(
+                              isUploadingReferenceImage
+                                  ? 'Uploading...'
+                                  : uploadedReferenceImageUrl != null
+                                      ? 'Image Added'
+                                      : 'Select Reference Image',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
+
+                          if (referenceImageError != null) ...[
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: AppColors.error.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
                               child: Row(
                                 children: [
-                                  Icon(Icons.image_outlined, size: 18, color: AppColors.primary),
-                                  const SizedBox(width: 8),
+                                  Icon(Icons.error_outline,
+                                      color: AppColors.error, size: 14),
+                                  const SizedBox(width: 6),
                                   Expanded(
-                                    child: const Text('Reference Image (optional)', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
+                                    child: Text(
+                                      referenceImageError!,
+                                      style: TextStyle(
+                                          color: AppColors.error, fontSize: 11),
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            
-                            // Show preview if image uploaded
-                            if (uploadedReferenceImageUrl != null) ...[
-                              Container(
-                                width: double.infinity,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(6),
-                                  color: Colors.grey[200],
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(6),
-                                  child: CachedNetworkImage(
-                                    imageUrl: uploadedReferenceImageUrl!,
-                                    height: 120,
-                                    fit: BoxFit.cover,
-                                    placeholder: (context, url) => Container(
-                                      color: AppColors.primary.withOpacity(0.1),
-                                      child: const Center(child: CircularProgressIndicator()),
-                                    ),
-                                    errorWidget: (context, url, error) => Container(
-                                      color: AppColors.error.withOpacity(0.1),
-                                      child: const Center(child: Icon(Icons.error)),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                            ],
-                            
-                            // Upload button
-                            ElevatedButton.icon(
-                              onPressed: isUploadingReferenceImage
-                                  ? null
-                                  : () async {
-                                      try {
-                                        final picker = ImagePicker();
-                                        final xfile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-                                        if (xfile == null) return;
-                                        
-                                        final bytes = await xfile.readAsBytes();
-                                        final filename = xfile.name;
-
-                                        setState(() {
-                                          isUploadingReferenceImage = true;
-                                          referenceImageError = null;
-                                        });
-
-                                        final url = await EmailService().uploadBytes(bytes, filename);
-                                        
-                                        if (url == null) {
-                                          setState(() {
-                                            referenceImageError = 'Upload failed';
-                                            isUploadingReferenceImage = false;
-                                          });
-                                          return;
-                                        }
-
-                                        final cachebustedUrl = '$url?t=${DateTime.now().millisecondsSinceEpoch}';
-                                        setState(() {
-                                          uploadedReferenceImageUrl = cachebustedUrl;
-                                          isUploadingReferenceImage = false;
-                                          referenceImageError = null;
-                                        });
-                                      } catch (e) {
-                                        setState(() {
-                                          referenceImageError = 'Error: $e';
-                                          isUploadingReferenceImage = false;
-                                        });
-                                      }
-                                    },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: uploadedReferenceImageUrl != null ? AppColors.success : AppColors.primary,
-                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                                minimumSize: const Size(double.infinity, 36),
-                              ),
-                              icon: isUploadingReferenceImage
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                      ),
-                                    )
-                                  : Icon(uploadedReferenceImageUrl != null ? Icons.check_circle : Icons.photo_library, size: 16),
-                              label: Text(
-                                isUploadingReferenceImage
-                                    ? 'Uploading...'
-                                    : uploadedReferenceImageUrl != null
-                                        ? 'Image Added'
-                                        : 'Select Reference Image',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ),
-                            
-                                if (referenceImageError != null) ...[
-                              const SizedBox(height: 8),
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: AppColors.error.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.error_outline, color: AppColors.error, size: 14),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        referenceImageError!,
-                                        style: TextStyle(color: AppColors.error, fontSize: 11),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
                           ],
-                        ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      
-                      // Supplier and Invoice fields
-                      if (suppliers.isNotEmpty)
-                        DropdownButtonFormField<String>(
-                          value: selectedSupplierId,
-                          items: suppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
-                          onChanged: (v) {
-                            final s = suppliers.firstWhere((sup) => sup.id == v, orElse: () => suppliers.first);
-                            setState(() {
-                              selectedSupplierId = s.id;
-                              selectedSupplierName = s.name;
-                            });
-                          },
-                          decoration: const InputDecoration(labelText: 'Supplier (optional)'),
-                        ),
-                      if (suppliers.isNotEmpty) const SizedBox(height: 12),
-                      TextField(
-                        controller: invoiceController,
-                        decoration: const InputDecoration(labelText: 'Invoice / Reference (optional)'),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Supplier and Invoice fields
+                    if (suppliers.isNotEmpty)
+                      DropdownButtonFormField<String>(
+                        value: selectedSupplierId,
+                        items: suppliers
+                            .map((s) => DropdownMenuItem(
+                                value: s.id, child: Text(s.name)))
+                            .toList(),
+                        onChanged: (v) {
+                          final s = suppliers.firstWhere((sup) => sup.id == v,
+                              orElse: () => suppliers.first);
+                          setState(() {
+                            selectedSupplierId = s.id;
+                            selectedSupplierName = s.name;
+                          });
+                        },
+                        decoration: const InputDecoration(
+                            labelText: 'Supplier (optional)'),
                       ),
-                    ],
-                  ),
+                    if (suppliers.isNotEmpty) const SizedBox(height: 12),
+                    TextField(
+                      controller: invoiceController,
+                      decoration: const InputDecoration(
+                          labelText: 'Invoice / Reference (optional)'),
+                    ),
+                  ],
                 ),
               ),
-           
+            ),
             actions: [
-              TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-              ElevatedButton(onPressed: isUploadingReferenceImage ? null : () => Navigator.of(context).pop({
-                'supplierId': selectedSupplierId,
-                'supplierName': selectedSupplierName,
-                'invoiceRef': invoiceController.text.isNotEmpty ? invoiceController.text : null,
-                'referenceImageUrl': uploadedReferenceImageUrl,
-              }), child: const Text('Confirm')),
+              TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: isUploadingReferenceImage
+                      ? null
+                      : () => Navigator.of(context).pop({
+                            'supplierId': selectedSupplierId,
+                            'supplierName': selectedSupplierName,
+                            'invoiceRef': invoiceController.text.isNotEmpty
+                                ? invoiceController.text
+                                : null,
+                            'referenceImageUrl': uploadedReferenceImageUrl,
+                          }),
+                  child: const Text('Confirm')),
             ],
           );
         });
@@ -986,7 +1088,8 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         final selectedUnit = canonicalizeInventoryUnit(
           (e.value['unit'] as String?) ?? (prod['unit'] ?? ''),
         );
-        final baseUnit = canonicalizeInventoryUnit((prod['unit'] ?? '').toString());
+        final baseUnit =
+            canonicalizeInventoryUnit((prod['unit'] ?? '').toString());
         final qty = (e.value['quantity'] as num?) ?? 0;
         final rawUnitCost = (e.value['cost'] as num?)?.toDouble() ?? 0.0;
         final normalizedQty = normalizeProcurementQuantity(
@@ -1024,7 +1127,9 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Procurement $id recorded for ${items.length} items'), backgroundColor: AppColors.success));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Procurement $id recorded for ${items.length} items'),
+            backgroundColor: AppColors.success));
       }
 
       setState(() {
@@ -1035,11 +1140,15 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       await _loadProducts();
     } catch (e) {
       debugPrint('[ProcurementScreen] Error submitting procurement: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Error submitting procurement'), backgroundColor: AppColors.error));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: const Text('Error submitting procurement'),
+            backgroundColor: AppColors.error));
       setState(() => _isSubmitting = false);
     }
   }
 }
+
 class _ProductCard extends StatelessWidget {
   final Map<String, dynamic> product;
   final VoidCallback onIncrease;
@@ -1075,12 +1184,17 @@ class _ProductCard extends StatelessWidget {
     final price = ((product['price'] ?? 0) as num).toDouble();
     final cost = ((product['cost'] ?? 0) as num).toDouble();
 
+    final theme = Theme.of(context);
+
     return Card(
+      color: theme.cardColor,
       elevation: 2,
       margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: lowStock ? BorderSide(color: AppColors.error.withOpacity(0.5), width: 1) : BorderSide.none,
+        side: lowStock
+            ? BorderSide(color: AppColors.error.withOpacity(0.5), width: 1)
+            : BorderSide.none,
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
@@ -1107,7 +1221,8 @@ class _ProductCard extends StatelessWidget {
                       color: AppColors.primary.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Text(emoji.toString(), style: const TextStyle(fontSize: 24)),
+                    child: Text(emoji.toString(),
+                        style: const TextStyle(fontSize: 24)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -1116,7 +1231,8 @@ class _ProductCard extends StatelessWidget {
                       children: [
                         Text(
                           name.toString(),
-                          style: AppTextStyles.subtitle1.copyWith(fontWeight: FontWeight.bold),
+                          style: AppTextStyles.subtitle1
+                              .copyWith(fontWeight: FontWeight.bold),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1126,9 +1242,13 @@ class _ProductCard extends StatelessWidget {
                           runSpacing: 4,
                           children: [
                             _buildTag(category.toString(), Colors.blue),
-                            if (sku.toString().isNotEmpty) _buildTag(sku.toString(), Colors.grey),
-                            if (barcode.toString().isNotEmpty) _buildTag('BC: ${barcode.toString()}', Colors.purple),
-                            if (lowStock) _buildTag('Low Stock', AppColors.error),
+                            if (sku.toString().isNotEmpty)
+                              _buildTag(sku.toString(), Colors.grey),
+                            if (barcode.toString().isNotEmpty)
+                              _buildTag(
+                                  'BC: ${barcode.toString()}', Colors.purple),
+                            if (lowStock)
+                              _buildTag('Low Stock', AppColors.error),
                           ],
                         ),
                       ],
@@ -1148,19 +1268,20 @@ class _ProductCard extends StatelessWidget {
                         ]),
                       ),
                     ],
-                    icon: const Icon(Icons.more_vert, color: Colors.grey),
+                    icon: Icon(Icons.more_vert, color: theme.iconTheme.color),
                   ),
                 ],
               ),
               const Divider(height: 24),
-              
+
               // Metrics Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _buildMetric('Price', '₦${price.toStringAsFixed(2)}'),
                   _buildMetric('Cost', '₦${cost.toStringAsFixed(2)}'),
-                  _buildMetric('Value', '₦${(price * stock).toStringAsFixed(2)}'),
+                  _buildMetric(
+                      'Value', '₦${(price * stock).toStringAsFixed(2)}'),
                 ],
               ),
               const SizedBox(height: 16),
@@ -1179,11 +1300,14 @@ class _ProductCard extends StatelessWidget {
                   children: [
                     const Text('Current Stock:', style: AppTextStyles.caption),
                     const Spacer(),
-                    _buildIconButton(Icons.remove, AppColors.error, stock > 0 ? onDecrease : null),
+                    _buildIconButton(Icons.remove, AppColors.error,
+                        stock > 0 ? onDecrease : null),
                     Container(
                       constraints: const BoxConstraints(minWidth: 40),
                       alignment: Alignment.center,
-                      child: Text('$stock', style: AppTextStyles.subtitle1.copyWith(fontWeight: FontWeight.bold)),
+                      child: Text('$stock',
+                          style: AppTextStyles.subtitle1
+                              .copyWith(fontWeight: FontWeight.bold)),
                     ),
                     _buildIconButton(Icons.add, AppColors.success, onIncrease),
                     const SizedBox(width: 8),
@@ -1191,12 +1315,17 @@ class _ProductCard extends StatelessWidget {
                     InkWell(
                       onTap: () => onQuantityChanged(stock + 10),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: AppColors.primary.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: Text('+10', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 12)),
+                        child: Text('+10',
+                            style: TextStyle(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12)),
                       ),
                     ),
                   ],
@@ -1219,7 +1348,8 @@ class _ProductCard extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w500),
+        style:
+            TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w500),
       ),
     );
   }
@@ -1234,7 +1364,8 @@ class _ProductCard extends StatelessWidget {
             color: AppColors.textSecondary,
           ),
         ),
-        Text(value, style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600)),
+        Text(value,
+            style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600)),
       ],
     );
   }
