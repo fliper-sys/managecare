@@ -147,6 +147,7 @@ class Routes {
   static const String autoCreateServiceOrder = '/auto/service-orders/create';
   static const String autoJobCards = '/auto/job-cards';
   static const String autoVehicleHistory = '/auto/vehicles';
+  static const String autoCreateVehicle = '/auto/vehicles/create';
   static const String autoPartsInventory = '/auto/parts';
   static const String autoMechanicSchedule = '/auto/mechanics';
   static const String autoDiagnostics = '/auto/diagnostics';

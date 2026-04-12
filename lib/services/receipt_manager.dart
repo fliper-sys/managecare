@@ -30,6 +30,13 @@ class ReceiptManager {
 
       final business = businessProvider.currentBusiness;
       final settings = receiptProvider.receiptSettings;
+      final rawStoreName = (sale['storeName'] ??
+              sale['store_name'] ??
+              (sale['store'] is Map ? sale['store']['name'] : null))
+          ?.toString()
+          .trim();
+      final storeName =
+          (rawStoreName != null && rawStoreName.isNotEmpty) ? rawStoreName : null;
 
       // Build items in expected structure for ThermalPrintingService
       final items = <Map<String, dynamic>>[];
@@ -70,8 +77,21 @@ class ReceiptManager {
           }
 
           // Capture unit when available so receipts can format quantities correctly (e.g., L -> 3 decimals)
-          final unitRaw =
-              (it['unit'] ?? it['unitName'] ?? it['uom'] ?? '').toString();
+          final unitRaw = (it['unit'] ??
+                  it['unitName'] ??
+                  it['uom'] ??
+                  it['saleUnit'] ??
+                  it['inventoryUnit'] ??
+                  it['resolvedSaleUnit'] ??
+                  it['selectedUnit'] ??
+                  ((it['product'] is Map)
+                      ? (it['product']['saleUnit'] ??
+                          it['product']['unit'] ??
+                          it['product']['unitName'] ??
+                          it['product']['uom'])
+                      : null) ??
+                  '')
+              .toString();
 
           items.add({
             'name': name,
@@ -100,6 +120,7 @@ class ReceiptManager {
             auth.currentUser?.fullName ??
             auth.currentUser?.email ??
             'POS',
+        storeName: storeName,
       );
 
       // Do not generate PDFs automatically for pump/fuel sales. Defer generation

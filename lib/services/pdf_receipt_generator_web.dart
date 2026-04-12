@@ -9,6 +9,7 @@ import 'pdf_utils.dart';
 class PdfReceiptGenerator {
   static Future<Uint8List> generateReceiptPdfBytes({
     required String businessName,
+    String? storeName,
     required String receiptNumber,
     required DateTime receiptDate,
     required List<Map<String, dynamic>> items,
@@ -47,6 +48,9 @@ class PdfReceiptGenerator {
     final safeCustomer =
         customerName.trim().isEmpty ? 'Walk-in Customer' : customerName.trim();
     final headerDetails = [
+      if ((storeName ?? '').trim().isNotEmpty &&
+          storeName!.trim().toLowerCase() != businessName.trim().toLowerCase())
+        storeName.trim(),
       if ((businessAddress ?? '').trim().isNotEmpty) businessAddress!.trim(),
       if ((businessPhone ?? '').trim().isNotEmpty) 'Tel: ${businessPhone!.trim()}',
       if ((businessEmail ?? '').trim().isNotEmpty) businessEmail!.trim(),
@@ -698,11 +702,18 @@ class PdfReceiptGenerator {
   }
 
   static String _displayQty(double quantity, {String unit = ''}) {
-    if (quantity % 1 == 0) return quantity.toInt().toString();
-    if (unit.trim().isEmpty) return _trimTrailingZeros(quantity.toString());
-    return _trimTrailingZeros(
-      quantity.toStringAsFixed(_quantityDecimalsForUnit(unit)),
-    );
+    final trimmedUnit = unit.trim();
+    final quantityText = quantity % 1 == 0
+        ? quantity.toInt().toString()
+        : trimmedUnit.isEmpty
+            ? _trimTrailingZeros(quantity.toString())
+            : _trimTrailingZeros(
+                quantity.toStringAsFixed(_quantityDecimalsForUnit(trimmedUnit)),
+              );
+    if (trimmedUnit.isEmpty) {
+      return quantityText;
+    }
+    return '$quantityText $trimmedUnit';
   }
 
   static String _money(double value, String symbol) {

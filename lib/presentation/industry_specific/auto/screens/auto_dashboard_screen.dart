@@ -181,6 +181,13 @@ class _AutoDashboardScreenState extends State<AutoDashboardScreen> {
                         ),
                         const SizedBox(width: 12),
                         _QuickActionBtn(
+                          icon: Icons.directions_car, 
+                          label: 'Vehicle', 
+                          color: Colors.indigo,
+                          onTap: () => Navigator.pushNamed(context, Routes.autoCreateVehicle),
+                        ),
+                        const SizedBox(width: 12),
+                        _QuickActionBtn(
                           icon: Icons.print, 
                           label: 'Printer Settings', 
                           color: Colors.purple,

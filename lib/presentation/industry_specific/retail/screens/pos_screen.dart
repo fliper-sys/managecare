@@ -5,7 +5,6 @@ import '../../../../core/theme/text_styles.dart';
 import '../../../../core/utils/search_utils.dart';
 import '../../../widgets/product_view_switcher.dart';
 import '../../../../providers/retail_provider.dart';
-import '../../../../providers/auth_provider.dart';
 import '../../../../services/barcode_service.dart';
 import '../../../../services/analytics_service.dart'; 
 
@@ -19,12 +18,14 @@ class PosScreen extends StatefulWidget {
 }
 
 class _PosScreenState extends State<PosScreen> {
+  static const String _allStoresValue = '__all_stores__';
+
   late TextEditingController _searchController;
   String _searchQuery = '';
   String _selectedCategory = 'All';
 
   // Currently selected store for filtering products in POS
-  String? _selectedStoreId; 
+  String _selectedStoreId = _allStoresValue;
 
   // Handheld scanner mode
   bool _handheldMode = false;
@@ -112,19 +113,11 @@ class _PosScreenState extends State<PosScreen> {
       body: Consumer<RetailProvider>(
         builder: (context, retailProvider, _) {
           // Ensure stores are loaded and the POS uses the selected store to filter products
-          final auth = Provider.of<AuthProvider>(context, listen: false);
           if (retailProvider.stores.isEmpty) {
             retailProvider.loadStores();
           }
 
           final stores = retailProvider.stores;
-          // When stores first become available, pick a default selected store and load products for it
-          if (_selectedStoreId == null && stores.isNotEmpty) {
-            _selectedStoreId = auth.currentUser?.storeId ?? stores.first.id;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              retailProvider.loadProducts(storeId: _selectedStoreId);
-            });
-          }
 
           // Get unique categories
           final categories = {
@@ -208,16 +201,28 @@ class _PosScreenState extends State<PosScreen> {
                       Expanded(
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String>(
-                            value: _selectedStoreId ?? retailProvider.stores.first.id,
+                            value: _selectedStoreId,
                             isExpanded: true,
-                            items: retailProvider.stores
-                                .map((s) => DropdownMenuItem(value: s.id, child: Text(s.name)))
-                                .toList(),
+                            items: [
+                              const DropdownMenuItem(
+                                value: _allStoresValue,
+                                child: Text('All Stores'),
+                              ),
+                              ...retailProvider.stores.map(
+                                (s) => DropdownMenuItem(
+                                  value: s.id,
+                                  child: Text(s.name),
+                                ),
+                              ),
+                            ],
                             onChanged: (val) {
                               if (val == null) return;
                               setState(() => _selectedStoreId = val);
-                              // Load products for the newly selected store
-                              retailProvider.loadProducts(storeId: val);
+                              if (val == _allStoresValue) {
+                                retailProvider.loadProducts();
+                              } else {
+                                retailProvider.loadProducts(storeId: val);
+                              }
                             },
                           ),
                         ),

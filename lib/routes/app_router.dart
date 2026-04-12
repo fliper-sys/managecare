@@ -108,6 +108,8 @@ import '../presentation/industry_specific/auto/screens/bookings_screen.dart'
     as auto_bookings;
 import '../presentation/industry_specific/auto/screens/invoices_screen.dart';
 import '../presentation/industry_specific/auto/screens/mechanic_schedule_screen.dart';
+import '../presentation/industry_specific/auto/screens/vehicle_history_screen.dart';
+import '../presentation/industry_specific/auto/screens/create_vehicle_screen.dart';
 
 import '../presentation/industry_specific/barber_shop/screens/barber_shop_dashboard_screen.dart';
 import '../presentation/industry_specific/barber_shop/screens/barber_shop_appointments_screen.dart';
@@ -670,6 +672,12 @@ class AppRouter {
 
       case Routes.autoJobCards:
         return _buildRoute(const RepairJobsScreen());
+
+      case Routes.autoVehicleHistory:
+        return _buildRoute(const VehicleHistoryScreen());
+
+      case Routes.autoCreateVehicle:
+        return _buildRoute(const CreateVehicleScreen());
 
       // Industry Specific Routes - Barbershop
       case Routes.barberShopDashboard:

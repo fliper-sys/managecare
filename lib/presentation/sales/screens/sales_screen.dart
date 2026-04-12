@@ -174,6 +174,15 @@ class _SalesScreenState extends State<SalesScreen>
             final taxAmount = subtotal * (taxRate / 100);
             final discountAmount = discount;
             final finalTotal = subtotal + taxAmount - discountAmount;
+            String? storeName;
+            if (storeId != null && storeId.isNotEmpty) {
+              for (final store in retail.stores) {
+                if (store.id == storeId) {
+                  storeName = store.name;
+                  break;
+                }
+              }
+            }
 
             final saleMap = {
               'id': 'SALE-${DateTime.now().millisecondsSinceEpoch}',
@@ -196,6 +205,8 @@ class _SalesScreenState extends State<SalesScreen>
               'customerName': customerName,
               'createdAt': DateTime.now(),
               if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
+              if (storeName != null && storeName.isNotEmpty)
+                'storeName': storeName,
             };
 
             final authProvider =

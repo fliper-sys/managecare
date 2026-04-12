@@ -238,7 +238,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
     required Color color,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
         borderRadius: BorderRadius.circular(14),
@@ -251,7 +251,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
             label,
             style: TextStyle(
               color: color.withOpacity(0.9),
-              fontSize: 12,
+              fontSize: 10,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -790,14 +790,6 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                         ? Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'Review payment proofs, approve access, and track processed transactions from one control desk.',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.white.withOpacity(0.7),
-                                ),
-                              ),
-                              const SizedBox(height: 18),
                               SingleChildScrollView(
                                 scrollDirection: Axis.horizontal,
                                 child: Row(
@@ -831,33 +823,6 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                                     ),
                                   ],
                                 ),
-                              ),
-                              const SizedBox(height: 16),
-                              Wrap(
-                                spacing: 12,
-                                runSpacing: 12,
-                                children: [
-                                  _buildOverviewCard(
-                                    title: 'Pending',
-                                    value: _pendingPayments.length.toString(),
-                                    color: Colors.orange,
-                                  ),
-                                  _buildOverviewCard(
-                                    title: 'Approved',
-                                    value: _approvedPayments.length.toString(),
-                                    color: Colors.green,
-                                  ),
-                                  _buildOverviewCard(
-                                    title: 'Declined',
-                                    value: _declinedPayments.length.toString(),
-                                    color: Colors.red,
-                                  ),
-                                  _buildOverviewCard(
-                                    title: 'Transactions',
-                                    value: _transactions.length.toString(),
-                                    color: Colors.blue,
-                                  ),
-                                ],
                               ),
                               const SizedBox(height: 16),
                               Wrap(

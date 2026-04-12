@@ -165,7 +165,9 @@ class EscPosReceiptGenerator {
   }
 
   static void _printItem(EscPosBuffer buffer, ReceiptLineItem item, int charsPerLine) {
-    final itemName = item.name.length > 12 ? item.name.substring(0, 12) : item.name;
+    final displayName = _displayItemName(item);
+    final itemName =
+        displayName.length > 12 ? displayName.substring(0, 12) : displayName;
     final qtyDecimals = _getDecimalPlacesForUnit(item.unit);
     final qty = item.quantity.toStringAsFixed(qtyDecimals).padLeft(4);
     final price = '${item.unitPrice.toStringAsFixed(2)}'.padLeft(6);
@@ -175,7 +177,7 @@ class EscPosReceiptGenerator {
   }
 
   static void _printFormalItem(EscPosBuffer buffer, ReceiptLineItem item, int nameWidth, int qtyWidth, int unitWidth, int totalWidth, String currencySymbol) {
-    final wrapped = _wrapText(item.name, nameWidth);
+    final wrapped = _wrapText(_displayItemName(item), nameWidth);
     final qtyDecimals = _getDecimalPlacesForUnit(item.unit);
     final qtyStr = item.quantity.toStringAsFixed(qtyDecimals).padLeft(qtyWidth);
     final unitStr = _formatCurrency(item.unitPrice, currencySymbol).padLeft(unitWidth);
@@ -265,12 +267,56 @@ class EscPosReceiptGenerator {
     }
     
     // Count/Quantity units: use 0 decimals
-    if (['unit', 'units', 'pcs', 'pieces', 'pc', 'piece', 'count', 'no', 'nos', 'items', 'item'].contains(unitLower)) {
+    if ([
+      'unit',
+      'units',
+      'pcs',
+      'pieces',
+      'pc',
+      'piece',
+      'count',
+      'no',
+      'nos',
+      'items',
+      'item',
+      'pack',
+      'packs',
+      'pac',
+      'pacs',
+      'pkt',
+      'pkts',
+      'bag',
+      'bags',
+      'box',
+      'boxes',
+      'bottle',
+      'bottles',
+      'carton',
+      'cartons',
+      'sachet',
+      'sachets',
+      'roll',
+      'rolls',
+    ].contains(unitLower)) {
       return 0;
     }
     
     // Default: 2 decimals for liquid/continuous measurements
     return 2;
+  }
+
+  static String _displayItemName(ReceiptLineItem item) {
+    final unit = item.unit?.trim() ?? '';
+    if (unit.isEmpty) {
+      return item.name;
+    }
+    final normalizedName = item.name.toLowerCase();
+    final normalizedUnit = unit.toLowerCase();
+    if (normalizedName.contains('($normalizedUnit)') ||
+        normalizedName.endsWith(' $normalizedUnit')) {
+      return item.name;
+    }
+    return '${item.name} ($unit)';
   }
 }
 

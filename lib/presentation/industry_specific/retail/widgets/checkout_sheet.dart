@@ -1069,6 +1069,18 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                             _selectedCustomer?.name ?? 'Walk-in Customer';
                         final customerEmail = _selectedCustomer?.email;
                         final customerId = _selectedCustomer?.id;
+                        final storeIdForReceipt =
+                            _selectedStoreId ?? auth.currentUser?.storeId;
+                        String? storeNameForReceipt;
+                        if (storeIdForReceipt != null &&
+                            storeIdForReceipt.isNotEmpty) {
+                          for (final store in provider.stores) {
+                            if (store.id == storeIdForReceipt) {
+                              storeNameForReceipt = store.name;
+                              break;
+                            }
+                          }
+                        }
                         final saleItems = provider.cartItems.entries.map((e) {
                           final product = e.key;
                           final qty = e.value;
@@ -1079,6 +1091,9 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                             'name': product.name,
                             'quantity': qty,
                             'price': price,
+                            'unit': product.resolvedSaleUnit,
+                            'saleUnit': product.resolvedSaleUnit,
+                            'inventoryUnit': product.unit,
                           };
                         }).toList();
                         final taxAmt = subtotal * (_taxPercent / 100.0);
@@ -1108,6 +1123,12 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                             'discountApprovedById': auth.currentUser?.id,
                           if (discountAmt > 0)
                             'discountApprovedByName': auth.currentUser?.fullName,
+                          if (storeIdForReceipt != null &&
+                              storeIdForReceipt.isNotEmpty)
+                            'storeId': storeIdForReceipt,
+                          if (storeNameForReceipt != null &&
+                              storeNameForReceipt.isNotEmpty)
+                            'storeName': storeNameForReceipt,
                         };
 
                         final savedOffline = await provider.checkout(
@@ -1117,7 +1138,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                           customerId: customerId,
                           customerEmail: customerEmail,
                           customerName: customerName,
-                          storeId: _selectedStoreId ?? auth.currentUser?.storeId,
+                          storeId: storeIdForReceipt,
                           tax: _taxPercent,
                           discount: discountAmt,
                         );
@@ -1196,4 +1217,3 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       ));
   }
 }
-

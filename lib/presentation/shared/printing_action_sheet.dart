@@ -122,6 +122,95 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
     return s[0].toUpperCase() + (s.length > 1 ? s.substring(1).toLowerCase() : '');
   }
 
+  String? _copyLabelForReceipt(int index, int totalCopies) {
+    if (totalCopies < 2) {
+      return null;
+    }
+    if (index == 0) {
+      return 'CUSTOMER COPY';
+    }
+    if (index == 1) {
+      return 'BUSINESS COPY';
+    }
+    return 'COPY ${index + 1}';
+  }
+
+  String _copyNameForDisplay(int index, int totalCopies) {
+    final label = _copyLabelForReceipt(index, totalCopies);
+    if (label == null) {
+      return 'Receipt';
+    }
+    return toBeginningOfSentenceCase(label.toLowerCase()) ?? label;
+  }
+
+  Future<bool> _confirmPrintAdditionalCopy(String copyName) async {
+    if (!mounted) {
+      return false;
+    }
+
+    final normalizedName = copyName.toLowerCase();
+    final content = normalizedName == 'business copy'
+        ? 'Customer copy has been printed. Do you want to print the business copy now?'
+        : 'The previous copy has been printed. Do you want to print the $normalizedName now?';
+
+    final shouldPrint = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Print $normalizedName?'),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Not now'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Print'),
+          ),
+        ],
+      ),
+    );
+
+    return shouldPrint ?? false;
+  }
+
+  String? _extractItemUnit(Map<String, dynamic> item) {
+    final rawUnit = (item['unit'] ??
+            item['unitName'] ??
+            item['uom'] ??
+            item['saleUnit'] ??
+            item['inventoryUnit'] ??
+            item['resolvedSaleUnit'] ??
+            item['selectedUnit'] ??
+            ((item['product'] is Map)
+                ? (item['product']['saleUnit'] ??
+                    item['product']['unit'] ??
+                    item['product']['unitName'] ??
+                    item['product']['uom'])
+                : null) ??
+            '')
+        .toString()
+        .trim();
+    return rawUnit.isEmpty ? null : rawUnit;
+  }
+
+  String? _receiptStoreName() {
+    final rawStoreName = (widget.saleData['storeName'] ??
+            widget.saleData['store_name'] ??
+            (widget.saleData['store'] is Map
+                ? widget.saleData['store']['name']
+                : null))
+        ?.toString()
+        .trim();
+    if (rawStoreName == null || rawStoreName.isEmpty) {
+      return null;
+    }
+    if (rawStoreName.toLowerCase() == widget.businessName.trim().toLowerCase()) {
+      return null;
+    }
+    return rawStoreName;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -233,11 +322,13 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
           // 🔥 FIX: Calculate subtotal from line totals
           final lineTotal = (e['total'] != null) ? ThermalPrintingService.parseDouble(e['total']) : (quantity * price);
           calculatedSubtotal += lineTotal;
+          final unit = _extractItemUnit(e);
 
           return {
             'name': name,
             'quantity': quantity,
             'price': price,
+            if (unit != null) 'unit': unit,
           };
         }
         return {'name': 'Item', 'quantity': 1, 'price': 0.0};
@@ -275,6 +366,7 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
       if (kIsWeb) {
         final bytes = await PdfReceiptGenerator.generateReceiptPdfBytes(
           businessName: widget.businessName,
+          storeName: _receiptStoreName(),
           receiptNumber: receiptNumber,
           receiptDate: receiptDate,
           items: itemsList,
@@ -310,6 +402,7 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
       } else {
         final file = await PdfReceiptGenerator.generateReceiptPdf(
           businessName: widget.businessName,
+          storeName: _receiptStoreName(),
           receiptNumber: receiptNumber,
           receiptDate: receiptDate,
           items: itemsList,
@@ -395,11 +488,13 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
           // 🔥 FIX: Calculate subtotal from line totals
           final lineTotal = (e['total'] != null) ? ThermalPrintingService.parseDouble(e['total']) : (quantity * price);
           calculatedSubtotal += lineTotal;
+          final unit = _extractItemUnit(e);
 
           return {
             'name': name,
             'quantity': quantity,
             'price': price,
+            if (unit != null) 'unit': unit,
           };
         }
         return {'name': 'Item', 'quantity': 1, 'price': 0.0};
@@ -663,8 +758,7 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
           subtotal += lineTotal;
 
           // Extract unit information if available
-          final unitRaw = (e['unit'] ?? e['unitName'] ?? e['uom'] ?? 
-              ((e['product'] is Map) ? (e['product']['unit'] ?? e['product']['unitName'] ?? e['product']['uom']) : null) ?? '').toString();
+          final unitRaw = _extractItemUnit(e);
 
           itemsList.add(
             ReceiptLineItem(
@@ -672,7 +766,7 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
               quantity: quantity,
               unitPrice: price,
               total: lineTotal,
-              unit: unitRaw.isNotEmpty ? unitRaw : null,
+              unit: unitRaw,
             ),
           );
         }
@@ -694,12 +788,7 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
 
       final receipts = <Uint8List>[];
       for (var i = 0; i < copies; i++) {
-        String? copyLabel;
-        if (copies >= 2) {
-          if (i == 0) copyLabel = 'CUSTOMER COPY';
-          else if (i == 1) copyLabel = 'BUSINESS COPY';
-          else copyLabel = 'COPY ${i + 1}';
-        }
+        final copyLabel = _copyLabelForReceipt(i, copies);
 
         final bytes = EscPosReceiptGenerator.generateReceipt(
           businessName: widget.businessName,
@@ -712,7 +801,7 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
           total: totalAmount,
           paymentMethod: widget.saleData['paymentMethod'] ?? 'Cash',
           cashier: cashierName,
-          storeName: widget.businessName,
+          storeName: _receiptStoreName(),
           // 🔥 NEW: Include business address and phone on receipt
           storeAddress: business?.city != null && business!.city!.isNotEmpty ? business.city : null,
           storeTelephone: business?.phone != null && business!.phone!.isNotEmpty ? business.phone : null,
@@ -902,6 +991,7 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
           });
           return;
         }
+        targetMac = selectedPrinter.address;
       }
 
       if (targetMac == null || targetMac.isEmpty) {
@@ -926,18 +1016,66 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
         return;
       }
 
-      // Print each receipt
+      var printedCount = 0;
+      String? skippedCopyName;
+      String? failedCopyName;
+
       for (var i = 0; i < receipts.length; i++) {
-        setState(() => _statusMessage = 'Printing receipt ${i + 1}/${receipts.length}...');
-        await thermalService.printRawBytes(receipts[i]);
-        if (i < receipts.length - 1) {
-          await Future.delayed(const Duration(milliseconds: 500)); // Delay between copies
+        final copyName = _copyNameForDisplay(i, receipts.length);
+
+        if (i > 0) {
+          final shouldPrint = await _confirmPrintAdditionalCopy(copyName);
+          if (!shouldPrint) {
+            skippedCopyName = copyName;
+            break;
+          }
         }
+
+        final currentStatus = await thermalService.printerManager.checkPrinterStatus();
+        if (currentStatus != PrinterStatus.connected) {
+          setState(() {
+            _statusMessage = 'Printer not connected. Please check connection.';
+            _statusColor = Colors.orange;
+          });
+          return;
+        }
+
+        setState(() => _statusMessage = 'Printing ${copyName.toLowerCase()}...');
+        final success = await thermalService.printRawBytes(receipts[i]);
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (!success) {
+          failedCopyName = copyName;
+          break;
+        }
+        printedCount++;
       }
 
       setState(() {
-        _statusMessage = 'Receipt printed successfully!';
-        _statusColor = Colors.green;
+        if (failedCopyName != null) {
+          _statusMessage = 'Failed to print ${failedCopyName.toLowerCase()}. Check printer power & connection.';
+          _statusColor = Colors.red;
+        } else if (skippedCopyName != null) {
+          if (printedCount == 1 && receipts.length >= 2) {
+            final firstCopyName = _copyNameForDisplay(0, receipts.length);
+            _statusMessage = '$firstCopyName printed. $skippedCopyName skipped.';
+          } else {
+            final copyText = printedCount == 1 ? 'copy' : 'copies';
+            _statusMessage = '$printedCount receipt $copyText printed. $skippedCopyName skipped.';
+          }
+          _statusColor = Colors.green;
+        } else if (printedCount == receipts.length) {
+          if (receipts.length == 2) {
+            _statusMessage = 'Customer and business copies printed successfully!';
+          } else if (receipts.length == 1) {
+            _statusMessage = 'Receipt printed successfully!';
+          } else {
+            _statusMessage = '$printedCount receipt copies printed successfully!';
+          }
+          _statusColor = Colors.green;
+        } else {
+          _statusMessage = 'Print failed. Check printer power & connection.';
+          _statusColor = Colors.red;
+        }
       });
     } catch (e) {
       setState(() {

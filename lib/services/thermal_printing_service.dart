@@ -327,6 +327,7 @@ class ThermalPrintingService {
     required String paymentMethod,
     String? orderId,
     String? cashier,
+    String? storeName,
   }) {
     final sb = StringBuffer();
 
@@ -334,6 +335,13 @@ class ThermalPrintingService {
     final title = businessName.toUpperCase();
     final titlePadding = ((paperWidth ~/ 2) - (title.length ~/ 2)).clamp(0, paperWidth);
     sb.writeln(' ' * titlePadding + title);
+    final trimmedStoreName = storeName?.trim() ?? '';
+    if (trimmedStoreName.isNotEmpty &&
+        trimmedStoreName.toLowerCase() != businessName.trim().toLowerCase()) {
+      final storePadding =
+          ((paperWidth ~/ 2) - (trimmedStoreName.length ~/ 2)).clamp(0, paperWidth);
+      sb.writeln(' ' * storePadding + trimmedStoreName);
+    }
     sb.writeln('-' * paperWidth);
 
     // Date & Invoice
@@ -364,16 +372,19 @@ class ThermalPrintingService {
       final itemTotal = (item['total'] != null) ? parseDouble(item['total']) : (qty * price);
 
       // Determine decimal places based on unit (for fuel/volume: 2-3 decimals, for counts: 0)
-      final unit = (item['unit'] ?? '').toString().toLowerCase();
+      final unit = _resolveReceiptItemUnit(item);
+      final displayName = _appendUnitToItemName(name, unit);
       final qtyDecimals = _getDecimalPlacesForUnit(unit);
       final qtyPrice = '${qty.toStringAsFixed(qtyDecimals)} x ${price.toStringAsFixed(2)}';
-      final lineName = name.length > nameColWidth ? name.substring(0, nameColWidth) : name;
+      final lineName = displayName.length > nameColWidth
+          ? displayName.substring(0, nameColWidth)
+          : displayName;
 
       sb.writeln('${_padRight(lineName, nameColWidth)} ${_padLeft(qtyPrice, amountColWidth)} ${_padLeft('₦' + itemTotal.toStringAsFixed(2), priceColWidth)}');
 
       // If name wraps, continue on next line(s)
-      if (name.length > nameColWidth) {
-        final remaining = name.substring(nameColWidth);
+      if (displayName.length > nameColWidth) {
+        final remaining = displayName.substring(nameColWidth);
         sb.writeln(_padRight(remaining, paperWidth));
       }
     }
@@ -415,7 +426,37 @@ class ThermalPrintingService {
     }
     
     // Count/Quantity units: use 0 decimals
-    if (['unit', 'units', 'pcs', 'pieces', 'pc', 'piece', 'count', 'no', 'nos', 'items', 'item'].contains(unit)) {
+    if ([
+      'unit',
+      'units',
+      'pcs',
+      'pieces',
+      'pc',
+      'piece',
+      'count',
+      'no',
+      'nos',
+      'items',
+      'item',
+      'pack',
+      'packs',
+      'pac',
+      'pacs',
+      'pkt',
+      'pkts',
+      'bag',
+      'bags',
+      'box',
+      'boxes',
+      'bottle',
+      'bottles',
+      'carton',
+      'cartons',
+      'sachet',
+      'sachets',
+      'roll',
+      'rolls',
+    ].contains(unit)) {
       return 0;
     }
     
@@ -433,6 +474,31 @@ class ThermalPrintingService {
   static String _padLeft(String text, int width) {
     if (text.length >= width) return text.substring(text.length - width);
     return ' ' * (width - text.length) + text;
+  }
+
+  static String _resolveReceiptItemUnit(Map<String, dynamic> item) {
+    return (item['unit'] ??
+            item['unitName'] ??
+            item['uom'] ??
+            item['saleUnit'] ??
+            item['inventoryUnit'] ??
+            item['resolvedSaleUnit'] ??
+            item['selectedUnit'] ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
+  }
+
+  static String _appendUnitToItemName(String name, String unit) {
+    if (unit.isEmpty) {
+      return name;
+    }
+    final normalizedName = name.toLowerCase();
+    if (normalizedName.contains('($unit)') || normalizedName.endsWith(' $unit')) {
+      return name;
+    }
+    return '$name ($unit)';
   }
 
   /// Get available Bluetooth printers
