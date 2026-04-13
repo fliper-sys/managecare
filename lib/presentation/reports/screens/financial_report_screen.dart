@@ -1,5 +1,8 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -7,6 +10,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/reports_provider.dart';
+import '../../../services/financial_report_pdf_service.dart';
 import '../../../core/constants/routes.dart';
 import '../../../core/utils/formatters.dart';
 import '../widgets/date_range_picker.dart';
@@ -62,6 +66,187 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
         'totalCost': 0.0,
         'itemCount': 0,
       };
+    }
+  }
+
+  String _formatMonthLabel(int month) {
+    return DateFormat.MMM().format(DateTime(2000, month));
+  }
+
+  DateTime _parseTransactionDate(dynamic raw) {
+    if (raw is DateTime) return raw;
+    if (raw is String) {
+      return DateTime.tryParse(raw) ?? DateTime.now();
+    }
+    return DateTime.now();
+  }
+
+  List<FinancialReportTransactionRow> _buildTransactionRows(
+      ReportsProvider reportsProvider) {
+    final rawTransactions = reportsProvider.getDetailedTransactions() ?? [];
+    return rawTransactions.map((transaction) {
+      return FinancialReportTransactionRow(
+        date: _parseTransactionDate(transaction['date']),
+        description: (transaction['description'] ?? 'Sale').toString(),
+        type: (transaction['type'] ?? 'Sale').toString(),
+        amount: ((transaction['amount'] ?? 0) as num).toDouble(),
+        paymentMethod: (transaction['paymentMethod'] ?? 'N/A').toString(),
+        cashier: (transaction['cashier'] ?? 'N/A').toString(),
+        itemCount: (transaction['items'] as num?)?.toInt() ?? 0,
+      );
+    }).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+  }
+
+  FinancialReportPdfData _buildPdfData({
+    required ReportsProvider reportsProvider,
+    required Map<String, double> paymentBreakdown,
+  }) {
+    final business = context.read<BusinessProvider>().currentBusiness;
+    final authProvider = context.read<AuthProvider>();
+    final financialSummary = reportsProvider.getFinancialSummary();
+    final inventorySummary = reportsProvider.getInventorySummary();
+    final periodRows = [...reportsProvider.financialReports]
+      ..sort((a, b) => a.month.compareTo(b.month));
+
+    return FinancialReportPdfData(
+      businessName:
+          business?.name ?? authProvider.currentUser?.fullName ?? 'Business',
+      businessAddress: business?.address,
+      businessPhone: business?.phone,
+      businessEmail: business?.email,
+      businessTaxId: business?.taxId,
+      businessLogoUrl: business?.logoUrl,
+      subscriptionTier: business?.subscriptionTier,
+      businessClass: business?.businessClass,
+      startDate: reportsProvider.financialStartDate,
+      endDate: reportsProvider.financialEndDate,
+      generatedAt: DateTime.now(),
+      generatedBy: authProvider.currentUser?.fullName,
+      totalRevenue:
+          (financialSummary['totalRevenue'] as num?)?.toDouble() ?? 0.0,
+      totalCogs: (financialSummary['totalCogs'] as num?)?.toDouble() ?? 0.0,
+      totalOperatingExpenses:
+          (financialSummary['totalExpenses'] as num?)?.toDouble() ?? 0.0,
+      grossProfit:
+          (financialSummary['grossProfit'] as num?)?.toDouble() ?? 0.0,
+      netProfit: (financialSummary['profit'] as num?)?.toDouble() ?? 0.0,
+      grossMargin:
+          (financialSummary['grossMargin'] as num?)?.toDouble() ?? 0.0,
+      netProfitMargin:
+          (financialSummary['profitMargin'] as num?)?.toDouble() ?? 0.0,
+      inventoryValue:
+          (inventorySummary['inventoryValue'] as num?)?.toDouble() ?? 0.0,
+      inventoryItemCount: (inventorySummary['totalItems'] as num?)?.toInt() ?? 0,
+      periods: periodRows
+          .map(
+            (report) => FinancialReportPeriodRow(
+              label: _formatMonthLabel(report.month),
+              revenue: report.revenue,
+              cogs: report.cogs,
+              operatingExpenses: report.expenses,
+              salariesEstimate: report.salaries,
+              utilitiesEstimate: report.utilities,
+            ),
+          )
+          .toList(),
+      transactions: _buildTransactionRows(reportsProvider),
+      paymentBreakdown: paymentBreakdown,
+    );
+  }
+
+  Future<void> _exportFinancialReport(
+    FinancialReportPdfOptions options,
+  ) async {
+    final reportsProvider = context.read<ReportsProvider>();
+    final authProvider = context.read<AuthProvider>();
+    final businessProvider = context.read<BusinessProvider>();
+    final businessId =
+        businessProvider.currentBusiness?.id ?? authProvider.currentUser?.businessId;
+
+    if (businessId == null || businessId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No business selected for export')),
+      );
+      return;
+    }
+
+    final navigator = Navigator.of(context, rootNavigator: true);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Dialog(
+        child: Padding(
+          padding: EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Building your custom financial PDF...'),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      Map<String, double> paymentBreakdown = <String, double>{};
+      if (options.includePaymentBreakdown) {
+        try {
+          paymentBreakdown = await reportsProvider.getPaymentMethodBreakdown(
+            businessId: businessId,
+            start: reportsProvider.financialStartDate,
+            end: reportsProvider.financialEndDate,
+          );
+        } catch (_) {
+          paymentBreakdown = <String, double>{};
+        }
+      }
+
+      final data = _buildPdfData(
+        reportsProvider: reportsProvider,
+        paymentBreakdown: paymentBreakdown,
+      );
+
+      final result = await FinancialReportPdfService.exportPdf(
+        data: data,
+        options: options,
+        fileBaseName: options.title.trim().isEmpty
+            ? 'Financial_Report'
+            : options.title.trim(),
+      );
+
+      reportsProvider.addExportHistory(
+        fileName: result.fileName,
+        format: 'pdf',
+        reportType: 'financial',
+        bytes: result.bytes,
+      );
+
+      if (navigator.canPop()) {
+        navigator.pop();
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Financial report ready: ${result.fileName}'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+    } catch (e) {
+      if (navigator.canPop()) {
+        navigator.pop();
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to export financial report: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -316,7 +501,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
                   const SizedBox(height: 24),
 
                   // Monthly Comparison Table
-                  _buildMonthlyTable(reportsProvider),
+                  _buildEnhancedMonthlyTable(reportsProvider),
                 ],
               ),
             ),
@@ -423,7 +608,7 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
                     final idx = value.toInt();
                     if (idx < 0 || idx >= data.length)
                       return const SizedBox.shrink();
-                    return Text('${data[idx].month}',
+                    return Text(_formatMonthLabel(data[idx].month),
                         style: Theme.of(context).textTheme.bodySmall);
                   },
                   reservedSize: 24)),
@@ -453,8 +638,20 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
       return const SizedBox.shrink();
     }
 
-    final firstReport = reportsProvider.financialReports.first;
-    final totalExpenses = firstReport.expenses;
+    final summary = reportsProvider.getFinancialSummary();
+    final totalCogs = (summary['totalCogs'] as num?)?.toDouble() ?? 0.0;
+    final totalOperating =
+        (summary['totalExpenses'] as num?)?.toDouble() ?? 0.0;
+    final totalTrackedExpenses =
+        (summary['totalAllExpenses'] as num?)?.toDouble() ?? 0.0;
+    final estimatedSalaries = reportsProvider.financialReports.fold<double>(
+      0,
+      (sum, report) => sum + report.salaries,
+    );
+    final estimatedUtilities = reportsProvider.financialReports.fold<double>(
+      0,
+      (sum, report) => sum + report.utilities,
+    );
 
     return Card(
       elevation: 2,
@@ -466,23 +663,80 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
           children: [
             const Text('Expense Breakdown', style: AppTextStyles.heading2),
             const SizedBox(height: 16),
-            _buildExpenseItem('Salaries', firstReport.salaries, totalExpenses),
+            Text(
+              'COGS comes from sold inventory. Salaries and utilities are estimated from recorded operating expenses.',
+              style:
+                  AppTextStyles.caption.copyWith(color: context.reportMutedText),
+            ),
+            const SizedBox(height: 12),
+            _buildExpenseBreakdownItem(
+              'Cost of Goods Sold',
+              totalCogs,
+              totalTrackedExpenses,
+            ),
             const Divider(),
-            _buildExpenseItem(
-                'Utilities', firstReport.utilities, totalExpenses),
+            _buildExpenseBreakdownItem(
+              'Operating Expenses',
+              totalOperating,
+              totalTrackedExpenses,
+            ),
             const Divider(),
-            _buildExpenseItem(
-                'Other',
-                firstReport.expenses -
-                    firstReport.salaries -
-                    firstReport.utilities,
-                totalExpenses),
+            _buildExpenseBreakdownItem(
+              'Estimated Salaries',
+              estimatedSalaries,
+              totalTrackedExpenses,
+            ),
+            const Divider(),
+            _buildExpenseBreakdownItem(
+              'Estimated Utilities',
+              estimatedUtilities,
+              totalTrackedExpenses,
+            ),
           ],
         ),
       ),
     );
   }
 
+  Widget _buildExpenseBreakdownItem(String label, double amount, double total) {
+    final percentage = total == 0 ? 0 : (amount / total) * 100;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(
+                formatCurrency(amount),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: percentage / 100,
+              minHeight: 6,
+              backgroundColor: Theme.of(context).dividerColor,
+              valueColor: const AlwaysStoppedAnimation<Color>(AppColors.error),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '${percentage.toStringAsFixed(1)}%',
+            style:
+                AppTextStyles.caption.copyWith(color: context.reportMutedText),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ignore: unused_element
   Widget _buildExpenseItem(String label, double amount, double total) {
     final percentage = total == 0 ? 0 : (amount / total) * 100;
     return Padding(
@@ -517,6 +771,71 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
     );
   }
 
+  Widget _buildEnhancedMonthlyTable(ReportsProvider reportsProvider) {
+    final monthlyReports = [...reportsProvider.financialReports]
+      ..sort((a, b) => a.month.compareTo(b.month));
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Monthly Breakdown', style: AppTextStyles.heading2),
+            const SizedBox(height: 16),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                headingRowColor: WidgetStatePropertyAll(
+                  AppColors.primary.withOpacity(0.1),
+                ),
+                columns: const [
+                  DataColumn(label: Text('Month')),
+                  DataColumn(label: Text('Revenue')),
+                  DataColumn(label: Text('COGS')),
+                  DataColumn(label: Text('OpEx')),
+                  DataColumn(label: Text('Gross')),
+                  DataColumn(label: Text('Net')),
+                  DataColumn(label: Text('Margin')),
+                ],
+                rows: monthlyReports
+                    .map(
+                      (report) => DataRow(
+                        cells: [
+                          DataCell(Text(_formatMonthLabel(report.month))),
+                          DataCell(Text(formatCurrency(report.revenue))),
+                          DataCell(Text(formatCurrency(report.cogs))),
+                          DataCell(Text(formatCurrency(report.expenses))),
+                          DataCell(Text(formatCurrency(report.grossProfit))),
+                          DataCell(
+                            Text(
+                              formatCurrency(report.profit),
+                              style: TextStyle(
+                                color: report.profit >= 0
+                                    ? AppColors.success
+                                    : AppColors.error,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            Text('${report.profitMargin.toStringAsFixed(1)}%'),
+                          ),
+                        ],
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ignore: unused_element
   Widget _buildMonthlyTable(ReportsProvider reportsProvider) {
     return Card(
       elevation: 2,
@@ -565,46 +884,340 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
     );
   }
 
-  void _showExportOptions(BuildContext context) {
-    final pageContext = context;
-    showModalBottomSheet(
+  Future<void> _showExportOptions(BuildContext context) async {
+    final reportsProvider = context.read<ReportsProvider>();
+    final transactionCount = reportsProvider.getDetailedTransactions()?.length ?? 0;
+
+    final options = await showModalBottomSheet<FinancialReportPdfOptions>(
       context: context,
-      builder: (sheetContext) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Export As',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: const Icon(Icons.picture_as_pdf),
-              title: const Text('PDF'),
-              onTap: () async {
-                Navigator.pop(sheetContext);
-                try {
-                  final fileName = await pageContext
-                      .read<ReportsProvider>()
-                      .exportFinancialReportToPDF();
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(pageContext).showSnackBar(
-                    SnackBar(
-                      content: Text('Financial report exported: $fileName'),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _FinancialReportExportSheet(
+        initialOptions: const FinancialReportPdfOptions(),
+        startDate: reportsProvider.financialStartDate,
+        endDate: reportsProvider.financialEndDate,
+        monthCount: reportsProvider.financialReports.length,
+        transactionCount: transactionCount,
+      ),
+    );
+
+    if (!mounted || options == null) return;
+    await _exportFinancialReport(options);
+  }
+}
+
+class _FinancialReportExportSheet extends StatefulWidget {
+  final FinancialReportPdfOptions initialOptions;
+  final DateTime startDate;
+  final DateTime endDate;
+  final int monthCount;
+  final int transactionCount;
+
+  const _FinancialReportExportSheet({
+    required this.initialOptions,
+    required this.startDate,
+    required this.endDate,
+    required this.monthCount,
+    required this.transactionCount,
+  });
+
+  @override
+  State<_FinancialReportExportSheet> createState() =>
+      _FinancialReportExportSheetState();
+}
+
+class _FinancialReportExportSheetState
+    extends State<_FinancialReportExportSheet> {
+  late final TextEditingController _titleController;
+  late final TextEditingController _noteController;
+  late FinancialReportPdfOptions _options;
+
+  @override
+  void initState() {
+    super.initState();
+    _options = widget.initialOptions;
+    _titleController = TextEditingController(text: widget.initialOptions.title);
+    _noteController = TextEditingController(text: widget.initialOptions.note);
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dateLabel =
+        '${DateFormat('dd MMM yyyy').format(widget.startDate)} - ${DateFormat('dd MMM yyyy').format(widget.endDate)}';
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        decoration: BoxDecoration(
+          color: context.reportSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 16,
+          bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: context.reportBorder,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Custom Financial PDF',
+                style: AppTextStyles.heading3,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'The export uses the date range currently selected on this page.',
+                style: AppTextStyles.body2
+                    .copyWith(color: context.reportMutedText),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _InfoChip(
+                    icon: Icons.calendar_today_outlined,
+                    label: dateLabel,
+                  ),
+                  _InfoChip(
+                    icon: Icons.bar_chart_outlined,
+                    label: '${widget.monthCount} monthly records',
+                  ),
+                  _InfoChip(
+                    icon: Icons.receipt_long_outlined,
+                    label: '${widget.transactionCount} transactions loaded',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              TextField(
+                controller: _titleController,
+                decoration: InputDecoration(
+                  labelText: 'Report title',
+                  hintText: 'Financial Performance Report',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _noteController,
+                minLines: 2,
+                maxLines: 4,
+                decoration: InputDecoration(
+                  labelText: 'Prepared notes',
+                  hintText:
+                      'Optional commentary to include at the top of the PDF',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: context.reportBorder),
+                ),
+                child: Column(
+                  children: [
+                    _ExportSwitchTile(
+                      title: 'Performance snapshot',
+                      subtitle: 'Revenue, margins, expenses, and inventory value',
+                      value: _options.includeSummary,
+                      onChanged: (value) => setState(
+                        () => _options =
+                            _options.copyWith(includeSummary: value),
+                      ),
                     ),
-                  );
-                } catch (e) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(pageContext).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to export financial report: $e'),
+                    const Divider(height: 1),
+                    _ExportSwitchTile(
+                      title: 'Insights',
+                      subtitle: 'Auto-generated summary observations',
+                      value: _options.includeInsights,
+                      onChanged: (value) => setState(
+                        () => _options =
+                            _options.copyWith(includeInsights: value),
+                      ),
                     ),
-                  );
-                }
-              },
-            ),
-          ],
+                    const Divider(height: 1),
+                    _ExportSwitchTile(
+                      title: 'Expense structure',
+                      subtitle: 'COGS, operating expenses, and estimates',
+                      value: _options.includeExpenseBreakdown,
+                      onChanged: (value) => setState(
+                        () => _options = _options.copyWith(
+                          includeExpenseBreakdown: value,
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    _ExportSwitchTile(
+                      title: 'Payment mix',
+                      subtitle: 'How revenue is distributed by payment method',
+                      value: _options.includePaymentBreakdown,
+                      onChanged: (value) => setState(
+                        () => _options = _options.copyWith(
+                          includePaymentBreakdown: value,
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    _ExportSwitchTile(
+                      title: 'Inventory snapshot',
+                      subtitle: 'Current stock value and item count',
+                      value: _options.includeInventorySummary,
+                      onChanged: (value) => setState(
+                        () => _options = _options.copyWith(
+                          includeInventorySummary: value,
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    _ExportSwitchTile(
+                      title: 'Monthly table',
+                      subtitle: 'Month-by-month revenue, COGS, and profit',
+                      value: _options.includeMonthlyBreakdown,
+                      onChanged: (value) => setState(
+                        () => _options = _options.copyWith(
+                          includeMonthlyBreakdown: value,
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    _ExportSwitchTile(
+                      title: 'Transaction ledger',
+                      subtitle:
+                          'Append the most recent loaded transactions to the PDF',
+                      value: _options.includeTransactions,
+                      onChanged: (value) => setState(
+                        () => _options = _options.copyWith(
+                          includeTransactions: value,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop(
+                          _options.copyWith(
+                            title: _titleController.text.trim().isEmpty
+                                ? 'Financial Performance Report'
+                                : _titleController.text.trim(),
+                            note: _noteController.text.trim(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.picture_as_pdf),
+                      label: const Text('Generate PDF'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _InfoChip({
+    required this.icon,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: context.reportBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppColors.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: AppTextStyles.caption.copyWith(
+              color: context.reportMutedText,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExportSwitchTile extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _ExportSwitchTile({
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SwitchListTile.adaptive(
+      value: value,
+      onChanged: onChanged,
+      title: Text(title, style: AppTextStyles.body2),
+      subtitle: Text(
+        subtitle,
+        style: AppTextStyles.caption.copyWith(color: context.reportMutedText),
+      ),
+      activeColor: AppColors.primary,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
     );
   }
 }
@@ -672,7 +1285,7 @@ class LineChartPainter extends CustomPainter {
       ..strokeWidth = 2;
 
     final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
+      textDirection: ui.TextDirection.ltr,
     );
 
     for (int i = 0; i < points.length; i++) {
@@ -715,5 +1328,3 @@ class LineChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(LineChartPainter oldDelegate) => false;
 }
-
-

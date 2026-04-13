@@ -974,7 +974,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             child: Center(
               child: Text(
-                name[0],
+                name.isNotEmpty ? name[0].toUpperCase() : '?',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 20,

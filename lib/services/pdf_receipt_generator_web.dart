@@ -212,6 +212,7 @@ class PdfReceiptGenerator {
 
   static Future<dynamic> generateReceiptPdf({
     required String businessName,
+    String? storeName,
     required String receiptNumber,
     required DateTime receiptDate,
     required List<Map<String, dynamic>> items,

@@ -102,8 +102,7 @@ class MarketerProvider extends ChangeNotifier {
   ReferralRecord? _pickPrimaryReferral(List<ReferralRecord> referrals) {
     if (referrals.isEmpty) return null;
 
-    final sorted = [...referrals]
-      ..sort((a, b) {
+    final sorted = [...referrals]..sort((a, b) {
         final statusOrder = {
           'approved': 3,
           'pending': 2,
@@ -209,8 +208,7 @@ class MarketerProvider extends ChangeNotifier {
           results[2] as QuerySnapshot<Map<String, dynamic>>;
       final referralsSnapshot =
           results[3] as QuerySnapshot<Map<String, dynamic>>;
-      final rewardsSnapshot =
-          results[4] as QuerySnapshot<Map<String, dynamic>>;
+      final rewardsSnapshot = results[4] as QuerySnapshot<Map<String, dynamic>>;
       final settingsSnapshot =
           results[5] as DocumentSnapshot<Map<String, dynamic>>;
 
@@ -218,9 +216,11 @@ class MarketerProvider extends ChangeNotifier {
       final monthStart = _monthStart(now);
       final periodKey = _buildPeriodKey(monthStart);
 
-      _rewardConfig = MarketerRewardConfig.fromSettings(settingsSnapshot.data());
-      _marketers =
-          marketersSnapshot.docs.map((doc) => MarketerModel.fromFirestore(doc)).toList();
+      _rewardConfig =
+          MarketerRewardConfig.fromSettings(settingsSnapshot.data());
+      _marketers = marketersSnapshot.docs
+          .map((doc) => MarketerModel.fromFirestore(doc))
+          .toList();
 
       final usersById = <String, Map<String, dynamic>>{};
       final linkedUserIdsByMarketer = <String, Set<String>>{};
@@ -247,17 +247,22 @@ class MarketerProvider extends ChangeNotifier {
 
         final ownerId = _readString(data['ownerId']);
         if (ownerId.isEmpty) continue;
-        businessesByOwnerId.putIfAbsent(ownerId, () => <Map<String, dynamic>>[]);
+        businessesByOwnerId.putIfAbsent(
+            ownerId, () => <Map<String, dynamic>>[]);
         businessesByOwnerId[ownerId]!.add(data);
       }
 
       for (final entry in businessesByOwnerId.entries) {
         entry.value.sort((a, b) {
           final left = parseTimestamp(
-            a['updatedAt'] ?? a['createdAt'] ?? DateTime.fromMicrosecondsSinceEpoch(0),
+            a['updatedAt'] ??
+                a['createdAt'] ??
+                DateTime.fromMicrosecondsSinceEpoch(0),
           );
           final right = parseTimestamp(
-            b['updatedAt'] ?? b['createdAt'] ?? DateTime.fromMicrosecondsSinceEpoch(0),
+            b['updatedAt'] ??
+                b['createdAt'] ??
+                DateTime.fromMicrosecondsSinceEpoch(0),
           );
           return right.compareTo(left);
         });
@@ -272,7 +277,8 @@ class MarketerProvider extends ChangeNotifier {
         final marketerEmail = _normalizeEmail(referral.marketerEmail);
         if (marketerEmail.isEmpty) continue;
 
-        referralsByMarketer.putIfAbsent(marketerEmail, () => <ReferralRecord>[]);
+        referralsByMarketer.putIfAbsent(
+            marketerEmail, () => <ReferralRecord>[]);
         referralsByMarketer[marketerEmail]!.add(referral);
 
         if (referral.userId.isNotEmpty) {
@@ -293,7 +299,8 @@ class MarketerProvider extends ChangeNotifier {
         final marketerEmail = _normalizeEmail(reward.marketerEmail);
         if (marketerEmail.isEmpty) continue;
 
-        rewardsByMarketer.putIfAbsent(marketerEmail, () => <MarketerRewardEntry>[]);
+        rewardsByMarketer.putIfAbsent(
+            marketerEmail, () => <MarketerRewardEntry>[]);
         rewardsByMarketer[marketerEmail]!.add(reward);
 
         if (reward.userId.isNotEmpty) {
@@ -324,8 +331,7 @@ class MarketerProvider extends ChangeNotifier {
           final rewardsForUser = [
             ...(rewardsByMarketerUser[rewardKey] ??
                 const <MarketerRewardEntry>[])
-          ]
-            ..sort((a, b) => b.awardedAt.compareTo(a.awardedAt));
+          ]..sort((a, b) => b.awardedAt.compareTo(a.awardedAt));
           final referralsForUser =
               referralsByMarketerUser[rewardKey] ?? const <ReferralRecord>[];
           final primaryReferral = _pickPrimaryReferral(referralsForUser);
@@ -353,8 +359,8 @@ class MarketerProvider extends ChangeNotifier {
           final subscriptionStatus = _readString(
             business?['subscriptionStatus'] ?? userData['subscriptionStatus'],
           );
-          final rawSubscriptionEndDate =
-              business?['subscriptionEndDate'] ?? userData['subscriptionEndDate'];
+          final rawSubscriptionEndDate = business?['subscriptionEndDate'] ??
+              userData['subscriptionEndDate'];
           final subscriptionEndDate = rawSubscriptionEndDate != null
               ? parseTimestamp(rawSubscriptionEndDate)
               : null;
@@ -376,29 +382,29 @@ class MarketerProvider extends ChangeNotifier {
                   _isWithinMonth(reward.awardedAt, monthStart) &&
                   _rewardCountsTowardsMonthlyPerformance(reward.rewardType))
               .toList();
-          final latestReward = rewardsForUser.isNotEmpty ? rewardsForUser.first : null;
+          final latestReward =
+              rewardsForUser.isNotEmpty ? rewardsForUser.first : null;
 
           final approvedReferralAmount = primaryReferral?.status == 'approved'
               ? primaryReferral!.commissionAmount
               : 0.0;
-          final monthlyReferralFallback =
-              primaryReferral != null &&
-                      primaryReferral.status == 'approved' &&
-                      primaryReferral.approvedAt != null &&
-                      _isWithinMonth(primaryReferral.approvedAt!, monthStart)
-                  ? primaryReferral.commissionAmount
-                  : 0.0;
+          final monthlyReferralFallback = primaryReferral != null &&
+                  primaryReferral.status == 'approved' &&
+                  primaryReferral.approvedAt != null &&
+                  _isWithinMonth(primaryReferral.approvedAt!, monthStart)
+              ? primaryReferral.commissionAmount
+              : 0.0;
 
           final fullName = _readString(userData['fullName']).isNotEmpty
               ? _readString(userData['fullName'])
               : _readString(userData['name']).isNotEmpty
                   ? _readString(userData['name'])
-                  : primaryReferral?.userEmail.isNotEmpty == true
-                      ? primaryReferral!.userEmail.split('@').first
+                  : (primaryReferral?.userEmail?.isNotEmpty == true)
+                      ? primaryReferral!.userEmail!.split('@').first
                       : 'Registered lead';
           final userEmail = _readString(userData['email']).isNotEmpty
               ? _readString(userData['email'])
-              : primaryReferral?.userEmail ?? '';
+              : _readString(primaryReferral?.userEmail);
 
           final clientStatus = _resolveClientStatus(
             hasBusiness: business != null,
@@ -459,8 +465,9 @@ class MarketerProvider extends ChangeNotifier {
                   : monthlyReferralFallback > 0
                       ? 1
                       : 0,
-              lastCommissionAmount:
-                  latestReward?.amount ?? primaryReferral?.commissionAmount ?? 0,
+              lastCommissionAmount: latestReward?.amount ??
+                  primaryReferral?.commissionAmount ??
+                  0,
               referralStatus: primaryReferral?.status ?? 'pending',
               notes: primaryReferral?.notes,
               status: clientStatus,
@@ -469,14 +476,15 @@ class MarketerProvider extends ChangeNotifier {
         }
 
         clients.sort((a, b) {
-          final statusCompare =
-              _clientStatusSortValue(a.status).compareTo(_clientStatusSortValue(b.status));
+          final statusCompare = _clientStatusSortValue(a.status)
+              .compareTo(_clientStatusSortValue(b.status));
           if (statusCompare != 0) return statusCompare;
           return b.registeredAt.compareTo(a.registeredAt);
         });
         clientsByEmail[marketerEmail] = clients;
 
-        final activeClients = clients.where((client) => client.isCurrentlyActive).length;
+        final activeClients =
+            clients.where((client) => client.isCurrentlyActive).length;
         final expiringSoonClients =
             clients.where((client) => client.isExpiringSoon).length;
         final inactiveClients = clients.length - activeClients;
@@ -497,11 +505,11 @@ class MarketerProvider extends ChangeNotifier {
                 (sum, client) => sum + client.monthlyRewardCount,
               );
         final monthlyActiveClients = monthlyRewardEntries
-                .where((reward) => reward.isFirstActivation)
-                .map((reward) => reward.userId)
-                .toSet()
-                .length >
-            0
+                    .where((reward) => reward.isFirstActivation)
+                    .map((reward) => reward.userId)
+                    .toSet()
+                    .length >
+                0
             ? monthlyRewardEntries
                 .where((reward) => reward.isFirstActivation)
                 .map((reward) => reward.userId)
@@ -543,7 +551,8 @@ class MarketerProvider extends ChangeNotifier {
 
         final targetProgress = _rewardConfig.monthlyTargetSubscriptions <= 0
             ? 0.0
-            : (monthlyPerformanceCount / _rewardConfig.monthlyTargetSubscriptions)
+            : (monthlyPerformanceCount /
+                    _rewardConfig.monthlyTargetSubscriptions)
                 .clamp(0.0, 1.0);
 
         performanceByEmail[marketerEmail] = MarketerPerformanceSnapshot(
@@ -562,8 +571,8 @@ class MarketerProvider extends ChangeNotifier {
           lifetimeRewardEarned: lifetimeRewardEarned,
           monthlyTarget: _rewardConfig.monthlyTargetSubscriptions,
           targetProgress: targetProgress,
-          targetReached:
-              monthlyPerformanceCount >= _rewardConfig.monthlyTargetSubscriptions,
+          targetReached: monthlyPerformanceCount >=
+              _rewardConfig.monthlyTargetSubscriptions,
           rank: 0,
           projectedBonus: 0,
           monthStart: monthStart,
@@ -573,7 +582,8 @@ class MarketerProvider extends ChangeNotifier {
       final rankedSnapshots = performanceByEmail.values.toList()
         ..sort((a, b) {
           if (b.monthlyPerformanceCount != a.monthlyPerformanceCount) {
-            return b.monthlyPerformanceCount.compareTo(a.monthlyPerformanceCount);
+            return b.monthlyPerformanceCount
+                .compareTo(a.monthlyPerformanceCount);
           }
           if (b.monthlyRewardEarned != a.monthlyRewardEarned) {
             return b.monthlyRewardEarned.compareTo(a.monthlyRewardEarned);
@@ -588,11 +598,8 @@ class MarketerProvider extends ChangeNotifier {
       for (var index = 0; index < rankedSnapshots.length; index++) {
         final snapshot = rankedSnapshots[index];
         final rank = index + 1;
-        final projectedBonus =
-            _rewardConfig.podiumBonusForRank(rank) +
-                (snapshot.targetReached
-                    ? _rewardConfig.targetBonusAmount
-                    : 0);
+        final projectedBonus = _rewardConfig.podiumBonusForRank(rank) +
+            (snapshot.targetReached ? _rewardConfig.targetBonusAmount : 0);
         final updatedSnapshot = snapshot.copyWith(
           rank: rank,
           projectedBonus: projectedBonus,
@@ -995,16 +1002,34 @@ class MarketerProvider extends ChangeNotifier {
       notifyListeners();
 
       final normalizedEmail = _normalizeEmail(marketerEmail);
+      final trimmedEmail = marketerEmail.trim();
+      final emails = {
+        if (trimmedEmail.isNotEmpty) trimmedEmail,
+        if (normalizedEmail.isNotEmpty) normalizedEmail,
+      }.toList();
 
-      final snapshot = await _firestore
-          .collection('referrals')
-          .where('marketerEmail', isEqualTo: normalizedEmail)
-          .orderBy('createdAt', descending: true)
-          .get();
+      if (emails.isEmpty) {
+        _referrals = [];
+        notifyListeners();
+        return;
+      }
+
+      final query = emails.length == 1
+          ? _firestore.collection('referrals').where(
+                'marketerEmail',
+                isEqualTo: emails.first,
+              )
+          : _firestore.collection('referrals').where(
+                'marketerEmail',
+                whereIn: emails,
+              );
+
+      final snapshot = await query.get();
 
       _referrals = snapshot.docs
           .map((doc) => ReferralRecord.fromFirestore(doc))
-          .toList();
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
       notifyListeners();
     } catch (e) {
@@ -1142,8 +1167,7 @@ class MarketerProvider extends ChangeNotifier {
 
       await _firestore.collection('app_marketers').doc(marketerId).update({
         'balance': updatedBalance,
-        if (addToLifetimeCommission)
-          'totalCommissionEarned': updatedLifetime,
+        if (addToLifetimeCommission) 'totalCommissionEarned': updatedLifetime,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
@@ -1293,30 +1317,37 @@ class MarketerProvider extends ChangeNotifier {
       final nextPendingCount = marketer.totalReferralsPending > 0
           ? marketer.totalReferralsPending - 1
           : 0;
-      batch.set(marketerDoc.reference, {
-        'balance': marketer.balance + commissionAmount,
-        'totalCommissionEarned':
-            marketer.totalCommissionEarned + commissionAmount,
-        'referredUserIds': FieldValue.arrayUnion([normalizedUserId]),
-        if (isFirstActivation)
-          'totalReferralsApproved': marketer.totalReferralsApproved + 1,
-        if (isFirstActivation) 'totalReferralsPending': nextPendingCount,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      batch.set(
+          marketerDoc.reference,
+          {
+            'balance': marketer.balance + commissionAmount,
+            'totalCommissionEarned':
+                marketer.totalCommissionEarned + commissionAmount,
+            'referredUserIds': FieldValue.arrayUnion([normalizedUserId]),
+            if (isFirstActivation)
+              'totalReferralsApproved': marketer.totalReferralsApproved + 1,
+            if (isFirstActivation) 'totalReferralsPending': nextPendingCount,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true));
 
       if (matchingReferralDocs.isNotEmpty) {
         for (final referralDoc in matchingReferralDocs) {
-          batch.set(referralDoc.reference, {
-            'marketerEmail': normalizedMarketerEmail,
-            'userId': normalizedUserId,
-            'userEmail': resolvedUserEmail,
-            if (resolvedBusinessId.isNotEmpty) 'businessId': resolvedBusinessId,
-            'commissionAmount': commissionAmount,
-            'status': 'approved',
-            'approvedAt': Timestamp.fromDate(approvalTime),
-            'approvingAdminId': approvedBy,
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+          batch.set(
+              referralDoc.reference,
+              {
+                'marketerEmail': normalizedMarketerEmail,
+                'userId': normalizedUserId,
+                'userEmail': resolvedUserEmail,
+                if (resolvedBusinessId.isNotEmpty)
+                  'businessId': resolvedBusinessId,
+                'commissionAmount': commissionAmount,
+                'status': 'approved',
+                'approvedAt': Timestamp.fromDate(approvalTime),
+                'approvingAdminId': approvedBy,
+                'updatedAt': FieldValue.serverTimestamp(),
+              },
+              SetOptions(merge: true));
         }
       } else {
         final newReferralRef = _firestore.collection('referrals').doc();
@@ -1342,7 +1373,8 @@ class MarketerProvider extends ChangeNotifier {
       final updatedMarketer = marketer.copyWith(
         balance: marketer.balance + commissionAmount,
         referredUserIds: updatedReferredUsers,
-        totalCommissionEarned: marketer.totalCommissionEarned + commissionAmount,
+        totalCommissionEarned:
+            marketer.totalCommissionEarned + commissionAmount,
         totalReferralsApproved: isFirstActivation
             ? marketer.totalReferralsApproved + 1
             : marketer.totalReferralsApproved,
@@ -1440,7 +1472,10 @@ class MarketerProvider extends ChangeNotifier {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      await _firestore.collection('app_marketers').doc(_currentMarketer!.id).update({
+      await _firestore
+          .collection('app_marketers')
+          .doc(_currentMarketer!.id)
+          .update({
         'referredUserIds': FieldValue.arrayUnion([userId]),
         'totalReferralsPending': FieldValue.increment(1),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -1452,8 +1487,8 @@ class MarketerProvider extends ChangeNotifier {
         totalReferralsPending: _currentMarketer!.totalReferralsPending + 1,
       );
 
-      final marketerIndex =
-          _marketers.indexWhere((marketer) => marketer.id == _currentMarketer!.id);
+      final marketerIndex = _marketers
+          .indexWhere((marketer) => marketer.id == _currentMarketer!.id);
       if (marketerIndex != -1) {
         _marketers[marketerIndex] = _marketers[marketerIndex].copyWith(
           referredUserIds: updatedUserIds,

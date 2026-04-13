@@ -3,6 +3,7 @@ import 'services/local_business_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -59,6 +60,11 @@ import 'services/services_initializer.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Disable runtime font fetching on web to avoid remote font load failures during local dev.
+  if (kIsWeb) {
+    GoogleFonts.config.allowRuntimeFetching = false;
+  }
 
   // Initialize sqflite database factory for FFI support (for web and desktop)
   if (!kIsWeb) {
@@ -153,7 +159,8 @@ class MyApp extends StatelessWidget {
             if (!auth.isAuthenticated || auth.currentUser == null) {
               try {
                 previous.clearCachedBusinessData();
-                print('[Main] Cleared BusinessProvider due to unauthenticated auth state');
+                print(
+                    '[Main] Cleared BusinessProvider due to unauthenticated auth state');
               } catch (e) {
                 print('[Main] Error clearing BusinessProvider on logout: $e');
               }
@@ -164,12 +171,15 @@ class MyApp extends StatelessWidget {
             // that previously loaded businesses, clear the previous cached data
             // to avoid showing stale businesses from another account.
             final userId = auth.currentUser!.id;
-            if (previous.loadedForUserId != null && previous.loadedForUserId != userId) {
+            if (previous.loadedForUserId != null &&
+                previous.loadedForUserId != userId) {
               try {
                 previous.clearCachedBusinessData();
-                print('[Main] Cleared BusinessProvider cache because authenticated user changed (old: ${previous.loadedForUserId}, new: $userId)');
+                print(
+                    '[Main] Cleared BusinessProvider cache because authenticated user changed (old: ${previous.loadedForUserId}, new: $userId)');
               } catch (e) {
-                print('[Main] Error clearing BusinessProvider during user switch: $e');
+                print(
+                    '[Main] Error clearing BusinessProvider during user switch: $e');
               }
             }
 
@@ -186,8 +196,7 @@ class MyApp extends StatelessWidget {
               if (isWorker && preferredId.isNotEmpty) {
                 // Workers (staff) will have a businessId pointing to the owner's business.
                 // Load that business by id so the app is scoped correctly for worker users.
-                print(
-                    '[Main]   Loading as WORKER with business: $preferredId');
+                print('[Main]   Loading as WORKER with business: $preferredId');
                 previous.loadBusinessById(preferredId);
               } else {
                 // Owners: Load all businesses for the authenticated user (owner flow).
@@ -195,7 +204,8 @@ class MyApp extends StatelessWidget {
                 print('[Main]   Loading as OWNER');
                 previous.loadUserBusinesses(
                   userId,
-                  preferredBusinessId: auth.currentUser?.currentBusinessId ?? (preferredId.isNotEmpty ? preferredId : null),
+                  preferredBusinessId: auth.currentUser?.currentBusinessId ??
+                      (preferredId.isNotEmpty ? preferredId : null),
                   userBusinessIds: auth.currentUser?.businessIds,
                 );
               }
@@ -537,7 +547,7 @@ class MyApp extends StatelessWidget {
           },
         ),
         // Apartment management provider - convert to proxy to wire with business context
-        ChangeNotifierProxyProvider<BusinessProvider,ApartmentProvider>(
+        ChangeNotifierProxyProvider<BusinessProvider, ApartmentProvider>(
           create: (_) => ApartmentProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
@@ -560,4 +570,3 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-

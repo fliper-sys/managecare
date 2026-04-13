@@ -3266,21 +3266,63 @@ class ReportsProvider extends ChangeNotifier {
 
   /// Get detailed transaction list from sales reports
   List<Map<String, dynamic>>? getDetailedTransactions() {
-    if (_salesReports.isEmpty) {
+    if (_salesReports.isNotEmpty) {
+      return _salesReports
+          .map((report) => {
+                'date': report.date.toIso8601String(),
+                'description': report.productNames.isNotEmpty
+                    ? report.productNames.take(3).join(', ')
+                    : '${report.paymentMethod} - ${report.category}',
+                'type': 'Sale',
+                'amount': report.totalAmount,
+                'cashier': report.cashier,
+                'items': report.itemsCount,
+                'paymentMethod': report.paymentMethod,
+              })
+          .toList();
+    }
+
+    if (_latestSalesDocs.isEmpty) {
       return [];
     }
 
-    // Convert sales reports to transaction maps
-    return _salesReports
-        .map((report) => {
-              'date': report.date.toString(),
-              'description': '${report.paymentMethod} - ${report.category}',
-              'type': 'Sale',
-              'amount': report.totalAmount,
-              'cashier': report.cashier,
-              'items': report.itemsCount,
-            })
-        .toList();
+    return _latestSalesDocs.map((doc) {
+      final data = doc.data();
+      final items = (data['items'] as List?) ?? [];
+      final itemNames = items
+          .map((item) {
+            if (item is Map<String, dynamic>) {
+              return (item['name'] ?? item['productName'] ?? item['title'] ?? '')
+                  .toString();
+            }
+            return item.toString();
+          })
+          .where((name) => name.trim().isNotEmpty)
+          .take(3)
+          .join(', ');
+
+      return {
+        'date': _parseDate(
+          data['saleDate'] ?? data['createdAt'] ?? data['timestamp'],
+        ).toIso8601String(),
+        'description': itemNames.isNotEmpty
+            ? itemNames
+            : (data['category'] ?? data['type'] ?? 'Sale').toString(),
+        'type': 'Sale',
+        'amount': ((data['totalAmount'] ?? data['total'] ?? 0) as num)
+            .toDouble(),
+        'cashier': (data['cashier'] ??
+                data['workerName'] ??
+                data['soldBy'] ??
+                'N/A')
+            .toString(),
+        'items': items.length,
+        'paymentMethod':
+            (data['paymentMethod'] ?? data['payment'] ?? data['tenderType'] ?? 'N/A')
+                .toString(),
+      };
+    }).toList()
+      ..sort((a, b) => (b['date'] as String).compareTo(a['date'] as String));
   }
 
   // Helper methods
