@@ -310,8 +310,10 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Confirm Deletion'),
-        content: const Text('Are you sure you want to delete this business? This action cannot be undone.'),
+        title: const Text('Delete Business'),
+        content: const Text(
+          'This business will be removed from normal access immediately and kept in recovery for 30 days. If you deleted it yourself, signing in again within that period can restore it.',
+        ),
         actions: [
           TextButton(
             child: const Text('Cancel'),
@@ -326,14 +328,28 @@ class _BusinessSettingsScreenState extends State<BusinessSettingsScreen> {
               final authProvider = context.read<AuthProvider>();
               final businessId = businessProvider.currentBusiness?.id;
               if (businessId != null) {
+                final shouldLogoutAfterDelete =
+                    businessProvider.userBusinesses.length <= 1;
                 final success = await businessProvider.deleteBusiness(businessId);
                 if (success && mounted) {
-                  try {
-                    await authProvider.refresh();
-                  } catch (_) {}
+                  final messenger = ScaffoldMessenger.of(context);
+                  if (shouldLogoutAfterDelete) {
+                    await authProvider.logout();
+                  } else {
+                    try {
+                      await authProvider.refresh();
+                    } catch (_) {}
+                  }
                   Navigator.of(context).popUntil((route) => route.isFirst);
-                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Business deleted successfully'), backgroundColor: AppColors.success),
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        shouldLogoutAfterDelete
+                            ? 'Business moved to recovery for 30 days. Sign in again within that period to restore it.'
+                            : 'Business deleted. You can still recover it within 30 days.',
+                      ),
+                      backgroundColor: AppColors.success,
+                    ),
                   );
                 } else if(mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(

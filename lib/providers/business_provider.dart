@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../data/models/business_model.dart';
 import '../data/models/apartment_model.dart';
 import '../data/models/unit_model.dart';
@@ -8,10 +9,13 @@ import '../data/repositories/apartment_repository_impl.dart';
 import '../data/repositories/worker_repository_impl.dart';
 import '../services/local_business_storage.dart';
 import '../services/local_user_storage.dart';
+import '../services/deletion_recovery_service.dart';
 import '../services/subscription_service.dart';
 
 class BusinessProvider with ChangeNotifier {
   final BusinessRepository _repository;
+  final DeletionRecoveryService _deletionRecoveryService =
+      DeletionRecoveryService(firestore: FirebaseFirestore.instance);
   LocalBusinessStorage? _localStorage;
   LocalUserStorage? _localUserStorage;
 
@@ -476,7 +480,7 @@ class BusinessProvider with ChangeNotifier {
     }
   }
 
-  /// Mark a business as deleted (soft-delete by setting isActive=false)
+  /// Soft-delete a business with a 30-day self-recovery window.
   Future<bool> deleteBusiness(String businessId) async {
     try {
       _isLoading = true;
@@ -496,12 +500,43 @@ class BusinessProvider with ChangeNotifier {
               ),
       );
 
-      await _repository.deleteBusiness(businessId);
-
-      // Remove from cached list
-      _userBusinesses.removeWhere((b) => b.id == businessId);
+      final remainingBusinesses =
+          _userBusinesses.where((b) => b.id != businessId).toList();
       final fallbackBusiness =
-          _userBusinesses.isNotEmpty ? _userBusinesses.first : null;
+          remainingBusinesses.isNotEmpty ? remainingBusinesses.first : null;
+
+      String? cachedUserId;
+      String? cachedUserRole;
+      dynamic cachedUser;
+      try {
+        _localUserStorage ??= await LocalUserStorage.create();
+        cachedUser = _localUserStorage?.getCachedUser();
+        cachedUserId = cachedUser?.id;
+        cachedUserRole = cachedUser?.role;
+      } catch (e) {
+        print('[BusinessProvider] Warning: failed to update local cached user after delete: $e');
+      }
+
+      final ownerId = deletingBusiness.ownerId.isNotEmpty
+          ? deletingBusiness.ownerId
+          : (cachedUserId ?? '');
+      final actorId =
+          ownerId.isNotEmpty
+              ? ownerId
+              : (FirebaseAuth.instance.currentUser?.uid ?? '');
+      if (actorId.isEmpty) {
+        throw Exception('Unable to identify the account deleting this business.');
+      }
+
+      await _deletionRecoveryService.softDeleteBusiness(
+        businessId: businessId,
+        actorId: actorId,
+        actorType: 'user',
+        actorRole: cachedUserRole ?? 'owner',
+        reason: 'Deleted by the business owner.',
+      );
+
+      _userBusinesses = remainingBusinesses;
 
       // If it was the current business, select another
       if (_currentBusiness?.id == businessId) {
@@ -520,12 +555,8 @@ class BusinessProvider with ChangeNotifier {
         }
       }
 
-      String? cachedUserId;
       try {
-        _localUserStorage ??= await LocalUserStorage.create();
-        final cachedUser = _localUserStorage?.getCachedUser();
-        cachedUserId = cachedUser?.id;
-        if (cachedUser != null) {
+        if (cachedUser != null && _localUserStorage != null) {
           final remainingBusinessIds = cachedUser.businessIds
               .where((id) => id != businessId)
               .toList();
@@ -541,12 +572,9 @@ class BusinessProvider with ChangeNotifier {
           await _localUserStorage!.saveUser(updatedUser);
         }
       } catch (e) {
-        print('[BusinessProvider] Warning: failed to update local cached user after delete: $e');
+        print('[BusinessProvider] Warning: failed to persist local cached user after delete: $e');
       }
 
-      final ownerId = deletingBusiness.ownerId.isNotEmpty
-          ? deletingBusiness.ownerId
-          : (cachedUserId ?? '');
       if (ownerId.isNotEmpty) {
         final fallbackId = fallbackBusiness?.id;
         await FirebaseFirestore.instance.collection('users').doc(ownerId).set({

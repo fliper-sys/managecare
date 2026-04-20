@@ -2,17 +2,22 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart' as fb_core;
 import '../data/models/user_model.dart';
+import 'deletion_recovery_service.dart';
 
 /// Comprehensive authentication service handling owner and worker login
 class AuthenticationService {
   final FirebaseAuth _firebaseAuth;
   final FirebaseFirestore _firestore;
+  late final DeletionRecoveryService _deletionRecoveryService;
 
   AuthenticationService({
     FirebaseAuth? firebaseAuth,
     FirebaseFirestore? firestore,
   })  : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance;
+        _firestore = firestore ?? FirebaseFirestore.instance {
+    _deletionRecoveryService =
+        DeletionRecoveryService(firestore: _firestore);
+  }
 
   /// Authenticate user with email and password
   /// Returns UserModel on success, throws exception on failure
@@ -31,8 +36,12 @@ class AuthenticationService {
         throw Exception('Authentication failed: No user returned');
       }
 
-      // Retrieve complete user data from Firestore
-      final userModel = await _getUserFromFirestore(userCredential.user!.uid);
+      // Retrieve complete user data from Firestore and resolve
+      // deletion/recovery access during explicit sign-in.
+      final userModel = await _getAccessibleUserFromFirestore(
+        userCredential.user!.uid,
+        allowSelfRecovery: true,
+      );
 
       if (userModel == null) {
         throw Exception('User profile not found in database');
@@ -42,8 +51,40 @@ class AuthenticationService {
     } on FirebaseAuthException catch (e) {
       throw _handleFirebaseAuthException(e);
     } catch (e) {
+      if (e is Exception) rethrow;
       throw Exception('Authentication error: ${e.toString()}');
     }
+  }
+
+  Future<ResolvedUserAccess> resolveUserAccess(
+    String firebaseUid, {
+    bool allowSelfRecovery = false,
+  }) {
+    return _deletionRecoveryService.resolveUserAccess(
+      firebaseUid,
+      allowSelfRecovery: allowSelfRecovery,
+    );
+  }
+
+  Future<UserModel?> _getAccessibleUserFromFirestore(
+    String firebaseUid, {
+    bool allowSelfRecovery = false,
+  }) async {
+    final access = await resolveUserAccess(
+      firebaseUid,
+      allowSelfRecovery: allowSelfRecovery,
+    );
+
+    if (!access.isAllowed || access.user == null) {
+      try {
+        await signOut();
+      } catch (_) {}
+      throw Exception(
+        access.message ?? 'This account is not available right now.',
+      );
+    }
+
+    return access.user;
   }
 
   /// Get user data from Firestore by Firebase UID
@@ -95,6 +136,7 @@ class AuthenticationService {
       return userModel;
     } catch (e) {
       print('[Auth._getUserFromFirestore] ERROR: $e');
+      if (e is Exception) rethrow;
       throw Exception('Failed to load user profile: ${e.toString()}');
     }
   }
@@ -448,14 +490,23 @@ class AuthenticationService {
         }
       }
 
+      final resolvedUser = await _getAccessibleUserFromFirestore(
+        userCredential.user!.uid,
+        allowSelfRecovery: true,
+      );
+      if (resolvedUser == null) {
+        throw Exception('Worker profile not found in database');
+      }
+
       print(
-          '[Auth] Worker authentication successful: ${userModel.id}, role: ${userModel.role}, businessId: ${userModel.businessId}');
-      return userModel;
+          '[Auth] Worker authentication successful: ${resolvedUser.id}, role: ${resolvedUser.role}, businessId: ${resolvedUser.businessId}');
+      return resolvedUser;
     } on FirebaseAuthException catch (e) {
       print('[Auth] Firebase Auth Exception: ${e.code} - ${e.message}');
       throw _handleFirebaseAuthException(e);
     } catch (e) {
       print('[Auth] Worker authentication error: $e');
+      if (e is Exception) rethrow;
       throw Exception('Worker authentication failed: ${e.toString()}');
     }
   }

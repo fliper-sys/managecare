@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../core/utils/datetime_utils.dart';
 import '../providers/admin_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/theme_provider.dart';
@@ -2864,6 +2865,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
     final isWorker = user['isWorker'] == true ||
         user['role'] == 'worker' ||
         user['type'] == 'worker';
+    final isDeleted = user['isDeleted'] == true;
     final businessName = (user['businessName'] ?? user['businessId'] ?? 'No business')
         .toString();
     final businessRestricted = user['businessRestricted'] == true;
@@ -2985,6 +2987,12 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                             value: tableSource,
                             color: const Color(0xFF8B5CF6),
                           ),
+                          if (isDeleted)
+                            _buildHeaderChip(
+                              label: 'Recovery',
+                              value: 'Deleted',
+                              color: const Color(0xFFF97316),
+                            ),
                         ],
                       ),
                     ],
@@ -3131,6 +3139,31 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                       ),
                     ),
                   ),
+                SizedBox(
+                  width: 150,
+                  child: OutlinedButton.icon(
+                    onPressed: () => isDeleted
+                        ? _showRestoreUserDialog(context, user)
+                        : _showDeleteUserDialog(context, user),
+                    icon: Icon(
+                      isDeleted
+                          ? Icons.restore_rounded
+                          : Icons.delete_outline_rounded,
+                      size: 16,
+                    ),
+                    label: Text(isDeleted ? 'Restore' : 'Delete'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: isDeleted
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFFEF4444),
+                      side: BorderSide(
+                        color: isDeleted
+                            ? const Color(0xFF10B981)
+                            : const Color(0xFFEF4444),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ],
@@ -3210,6 +3243,18 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                   'Commission',
                   '${user['commissionPercentage']}%',
                 ),
+              if (user['isDeleted'] == true)
+                _buildDetailRow('Deletion Status', 'Deleted'),
+              if ((user['deletedByType'] ?? '').toString().isNotEmpty)
+                _buildDetailRow(
+                  'Deleted By',
+                  (user['deletedByType'] ?? '').toString(),
+                ),
+              if (user['recoveryDeadlineAt'] != null)
+                _buildDetailRow(
+                  'Recovery Deadline',
+                  _formatTimestamp(user['recoveryDeadlineAt']),
+                ),
             ],
           ),
         ),
@@ -3217,6 +3262,128 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _hasActiveRecoveryWindow(Map<String, dynamic> user) {
+    if (user['isDeleted'] != true || user['recoveryDeadlineAt'] == null) {
+      return false;
+    }
+
+    try {
+      return parseTimestamp(user['recoveryDeadlineAt']).isAfter(DateTime.now());
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _showDeleteUserDialog(BuildContext context, Map<String, dynamic> user) {
+    final userId = (user['id'] ?? '').toString();
+    final displayName = (user['name'] ?? user['email'] ?? 'this user').toString();
+    if (userId.isEmpty) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete User'),
+        content: Text(
+          'This will remove $displayName from normal access immediately and keep the account recoverable by admin for 30 days.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => const Center(child: CircularProgressIndicator()),
+              );
+
+              final ok = await context.read<AdminProvider>().deleteUserWithRecovery(
+                    userId,
+                  );
+
+              if (!context.mounted) return;
+              Navigator.of(context).pop();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    ok
+                        ? '$displayName deleted. Admin can restore the account within 30 days.'
+                        : 'Failed to delete user.',
+                  ),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRestoreUserDialog(BuildContext context, Map<String, dynamic> user) {
+    final userId = (user['id'] ?? '').toString();
+    final displayName = (user['name'] ?? user['email'] ?? 'this user').toString();
+    if (userId.isEmpty) return;
+
+    final withinRecoveryWindow = _hasActiveRecoveryWindow(user);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Restore User'),
+        content: Text(
+          withinRecoveryWindow
+              ? 'Restore $displayName and re-enable account access?'
+              : 'This account appears to be outside the 30-day recovery window.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: !withinRecoveryWindow
+                ? null
+                : () async {
+                    Navigator.of(ctx).pop();
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) =>
+                          const Center(child: CircularProgressIndicator()),
+                    );
+
+                    final ok = await context
+                        .read<AdminProvider>()
+                        .restoreDeletedUserAccount(userId);
+
+                    if (!context.mounted) return;
+                    Navigator.of(context).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          ok
+                              ? '$displayName restored successfully.'
+                              : 'Failed to restore user.',
+                        ),
+                      ),
+                    );
+                  },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+            ),
+            child: const Text('Restore'),
           ),
         ],
       ),

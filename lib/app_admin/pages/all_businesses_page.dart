@@ -238,6 +238,7 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
     final type = business['businessType'] ?? 'General';
     final businessClass = business['businessClass']?.toString().toLowerCase() ?? 'tier1';
     final isActive = business['isActive'] ?? true;
+    final isDeleted = business['isDeleted'] == true;
     final workers = business['totalWorkers'] ?? 0;
 
     Color classColor;
@@ -338,8 +339,27 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
                         fontWeight: FontWeight.w600,
                         color: Colors.red,
                       ),
+                      ),
+                    ),
+                if (isDeleted) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      'DELETED',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.orange,
+                      ),
                     ),
                   ),
+                ],
                 const Spacer(),
                 Text(
                   '$workers workers',
@@ -508,6 +528,7 @@ class BusinessDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final businessClass = business['businessClass']?.toString().toLowerCase() ?? 'tier1';
+    final isDeleted = business['isDeleted'] == true;
     Color tierColor;
     if (businessClass == 'tier3') {
       tierColor = const Color(0xFFF59E0B);
@@ -630,7 +651,9 @@ class BusinessDetailPage extends StatelessWidget {
                 _buildInfoRow(
                   context,
                   'Status',
-                  business['isActive'] == true ? 'Active' : 'Inactive',
+                  isDeleted
+                      ? 'Deleted (admin recovery only)'
+                      : (business['isActive'] == true ? 'Active' : 'Inactive'),
                 ),
                 _buildInfoRow(
                     context,
@@ -669,7 +692,7 @@ class BusinessDetailPage extends StatelessWidget {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () => _editBusiness(context, business),
+                    onPressed: isDeleted ? null : () => _editBusiness(context, business),
                     icon: const Icon(Icons.edit),
                     label: const Text('Edit'),
                     style: ElevatedButton.styleFrom(
@@ -682,7 +705,7 @@ class BusinessDetailPage extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () => _toggleStatus(context, business),
+                    onPressed: isDeleted ? null : () => _toggleStatus(context, business),
                     icon: const Icon(Icons.power_settings_new),
                     label: Text(
                       business['isActive'] == true ? 'Deactivate' : 'Activate',
@@ -697,7 +720,7 @@ class BusinessDetailPage extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () => _showDailySales(context),
+                    onPressed: isDeleted ? null : () => _showDailySales(context),
                     icon: const Icon(Icons.message),
                     label: const Text('Daily Sales'),
                     style: OutlinedButton.styleFrom(
@@ -713,12 +736,20 @@ class BusinessDetailPage extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: () => _deleteBusinessCompletely(context, business),
-                icon: const Icon(Icons.delete_forever),
-                label: const Text('Delete Business Completely'),
+                onPressed: isDeleted
+                    ? () => _restoreDeletedBusiness(context, business)
+                    : () => _deleteBusinessCompletely(context, business),
+                icon: Icon(
+                  isDeleted ? Icons.restore_rounded : Icons.delete_forever,
+                ),
+                label: Text(
+                  isDeleted ? 'Restore Business' : 'Delete Business',
+                ),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  side: const BorderSide(color: Colors.red),
+                  foregroundColor: isDeleted ? Colors.green : Colors.red,
+                  side: BorderSide(
+                    color: isDeleted ? Colors.green : Colors.red,
+                  ),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
               ),
@@ -727,7 +758,7 @@ class BusinessDetailPage extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () async {
+                onPressed: isDeleted ? null : () async {
                   final admin = Provider.of<AdminProvider>(context, listen: false);
                   final businessId = business['id'] ?? business['businessId'];
                   final confirmed = await showDialog<bool>(
@@ -1931,11 +1962,11 @@ Future<void> _deleteBusinessCompletely(
   final businessName = (business['name'] ?? 'this business').toString();
 
   final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Delete Business Completely'),
+      context: context,
+      builder: (ctx) => AlertDialog(
+          title: const Text('Delete Business'),
           content: Text(
-            'This will permanently delete $businessName, clean up known business data, and detach linked users. This action cannot be undone.',
+            'This will remove $businessName from normal access immediately and keep it recoverable by admin for 30 days before final cleanup.',
           ),
           actions: [
             TextButton(
@@ -1969,7 +2000,60 @@ Future<void> _deleteBusinessCompletely(
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          ok ? '$businessName deleted permanently' : 'Failed to delete business',
+          ok
+              ? '$businessName deleted. Admin can restore it within 30 days.'
+              : 'Failed to delete business',
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _restoreDeletedBusiness(
+    BuildContext context, Map<String, dynamic> business) async {
+  final businessId = (business['id'] ?? business['businessId']).toString();
+  final businessName = (business['name'] ?? 'this business').toString();
+
+  final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Restore Business'),
+          content: Text(
+            'Restore $businessName and re-enable access for linked users?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+              child: const Text('Restore'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
+  if (!confirmed) return;
+
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const Center(child: CircularProgressIndicator()),
+  );
+
+  final admin = Provider.of<AdminProvider>(context, listen: false);
+  final ok = await admin.restoreDeletedBusiness(businessId);
+
+  if (context.mounted) {
+    Navigator.pop(context);
+    if (ok) Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok ? '$businessName restored successfully' : 'Failed to restore business',
         ),
       ),
     );

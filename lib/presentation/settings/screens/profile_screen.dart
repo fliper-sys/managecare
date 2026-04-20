@@ -564,6 +564,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton(
+                  onPressed: () => _showDeleteAccountDialog(context, authProvider),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                      color: AppColors.error.withOpacity(0.65),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: Text(
+                    'Delete Account',
+                    style: AppTextStyles.heading5.copyWith(
+                      color: AppColors.error,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
               const SizedBox(height: 32),
             ],
           ],
@@ -1263,6 +1286,66 @@ class _ProfileScreenState extends State<ProfileScreen> {
               backgroundColor: AppColors.error,
             ),
             child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteAccountDialog(
+    BuildContext context,
+    AuthProvider authProvider,
+  ) {
+    final isOwner = authProvider.currentUser?.isOwner ?? false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete Account'),
+        content: Text(
+          isOwner
+              ? 'Your account and owned businesses will be removed from normal access immediately and kept in recovery for 30 days. Because you are deleting them yourself, signing in again within that period can restore them.'
+              : 'Your account will be removed from normal access immediately and kept in recovery for 30 days. Because you are deleting it yourself, signing in again within that period can restore it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              final success = await authProvider.deleteCurrentAccount(
+                reason: 'Deleted by the account owner.',
+              );
+              if (!mounted) return;
+
+              if (success) {
+                Navigator.pushReplacementNamed(context, Routes.login);
+                _safeShowSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Account moved to recovery for 30 days. Sign in again within that period to restore it.',
+                    ),
+                    backgroundColor: AppColors.success,
+                  ),
+                );
+              } else {
+                _safeShowSnackBar(
+                  SnackBar(
+                    content: Text(
+                      authProvider.errorMessage ??
+                          'Failed to delete account.',
+                    ),
+                    backgroundColor: AppColors.error,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.error,
+            ),
+            child: const Text('Delete Account'),
           ),
         ],
       ),

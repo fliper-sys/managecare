@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../core/utils/datetime_utils.dart';
+import '../services/deletion_recovery_service.dart';
 
 /// Model for admin statistics
 class AdminStats {
@@ -65,6 +66,8 @@ class AdminStats {
 class AdminProvider extends ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final DeletionRecoveryService _deletionRecoveryService =
+      DeletionRecoveryService(firestore: FirebaseFirestore.instance);
 
   AdminStats _stats = AdminStats();
   bool _isLoading = false;
@@ -1469,7 +1472,7 @@ class AdminProvider extends ChangeNotifier {
     }
   }
 
-  /// Permanently delete a business, remove known child data, and detach linked users.
+  /// Soft-delete a business for 30 days. Only admin can restore it.
   Future<bool> deleteBusinessCompletely(String businessId) async {
     try {
       _isLoading = true;
@@ -1477,97 +1480,208 @@ class AdminProvider extends ChangeNotifier {
 
       final businessRef = _firestore.collection('businesses').doc(businessId);
       final businessSnap = await businessRef.get();
+      if (!businessSnap.exists) {
+        throw Exception('Business not found.');
+      }
       final businessName =
           (businessSnap.data() ?? const {})['name']?.toString() ?? businessId;
+      final adminId = _auth.currentUser?.uid ?? 'system';
+      final recoveryDeadlineAt =
+          DeletionRecoveryService.computeRecoveryDeadline();
 
-      const subcollections = [
-        'sales',
-        'inventory',
-        'orders',
-        'bookings',
-        'invoices',
-        'payments',
-        'payment_transactions',
-        'serviceOrders',
-        'restaurant_orders',
-        'services',
-        'products',
-        'workers',
-        'staff',
-        'tables',
-      ];
-
-      for (final subcollection in subcollections) {
-        try {
-          final snap = await businessRef.collection(subcollection).get();
-          for (final doc in snap.docs) {
-            await doc.reference.delete();
-          }
-        } catch (_) {}
-      }
-
-      const rootCollections = [
-        'subscriptions',
-        'payments',
-        'transactions',
-        'activities',
-        'serviceOrders',
-      ];
-
-      for (final collection in rootCollections) {
-        try {
-          final snap = await _firestore
-              .collection(collection)
-              .where('businessId', isEqualTo: businessId)
-              .get();
-          for (final doc in snap.docs) {
-            await doc.reference.delete();
-          }
-        } catch (_) {}
-      }
-
-      try {
-        final usersSnap = await _firestore
-            .collection('users')
-            .where('businessId', isEqualTo: businessId)
-            .get();
-        for (final doc in usersSnap.docs) {
-          await doc.reference.set({
-            'businessId': null,
-            'isSubscriptionActive': false,
-            'businessDeletedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
-        }
-      } catch (_) {}
-
-      await businessRef.delete();
-
-      _allBusinesses.removeWhere((b) => b['id'] == businessId);
-      for (var i = 0; i < _allUsers.length; i++) {
-        if (_allUsers[i]['businessId'] == businessId) {
-          _allUsers[i] = {
-            ..._allUsers[i],
-            'businessId': null,
-            'isSubscriptionActive': false,
-          };
-        }
-      }
+      await _deletionRecoveryService.softDeleteBusiness(
+        businessId: businessId,
+        actorId: adminId,
+        actorType: 'admin',
+        actorRole: 'admin',
+        reason: 'Deleted by admin. Recoverable only by admin for 30 days.',
+      );
 
       await _firestore.collection('admin_notifications').add({
         'type': 'business',
         'title': 'Business Deleted',
-        'message': '$businessName was permanently deleted by admin.',
+        'message':
+            '$businessName was deleted by admin and moved to a 30-day recovery window.',
         'data': {
           'businessId': businessId,
           'businessName': businessName,
           'eventType': 'deleted',
+          'recoveryAccess': 'admin',
+          'recoveryDeadlineAt': Timestamp.fromDate(recoveryDeadlineAt),
         },
         'isRead': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      _refreshDerivedStatsFromCache();
+      await fetchAdminStats(force: true);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
 
+  Future<bool> restoreDeletedBusiness(String businessId) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      final businessRef = _firestore.collection('businesses').doc(businessId);
+      final businessSnap = await businessRef.get();
+      if (!businessSnap.exists) {
+        throw Exception('Business not found.');
+      }
+      final businessState = DeletionRecoveryService.stateFromData(
+        businessSnap.data(),
+      );
+      if (!businessState.isDeleted) {
+        throw Exception('This business is not awaiting recovery.');
+      }
+      if (businessState.isExpired) {
+        throw Exception(
+          'This business has passed the 30-day recovery window and can no longer be restored.',
+        );
+      }
+
+      final businessName =
+          (businessSnap.data() ?? const {})['name']?.toString() ?? businessId;
+      await _deletionRecoveryService.restoreBusiness(businessId: businessId);
+
+      await _firestore.collection('admin_notifications').add({
+        'type': 'business',
+        'title': 'Business Restored',
+        'message': '$businessName was restored by admin.',
+        'data': {
+          'businessId': businessId,
+          'businessName': businessName,
+          'eventType': 'restored',
+        },
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      await fetchAdminStats(force: true);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> deleteUserWithRecovery(String userId) async {
+    try {
+      if ((_auth.currentUser?.uid ?? '') == userId) {
+        throw Exception('You cannot delete the currently signed-in admin account.');
+      }
+
+      _isLoading = true;
+      notifyListeners();
+
+      final userRef = _firestore.collection('users').doc(userId);
+      final userSnap = await userRef.get();
+      if (!userSnap.exists) {
+        throw Exception('User account not found.');
+      }
+
+      final userData = userSnap.data() ?? const <String, dynamic>{};
+      final displayName = _readString(
+        userData['fullName'] ?? userData['name'] ?? userData['email'],
+      );
+      final adminId = _auth.currentUser?.uid ?? 'system';
+      final recoveryDeadlineAt =
+          DeletionRecoveryService.computeRecoveryDeadline();
+
+      await _deletionRecoveryService.softDeleteUserAccount(
+        userId: userId,
+        actorId: adminId,
+        actorType: 'admin',
+        actorRole: 'admin',
+        reason: 'Deleted by admin. Recoverable only by admin for 30 days.',
+        cascadeOwnedBusinesses: true,
+      );
+
+      await _firestore.collection('admin_notifications').add({
+        'type': 'user',
+        'title': 'User Deleted',
+        'message':
+            '${displayName.isNotEmpty ? displayName : userId} was deleted by admin and moved to a 30-day recovery window.',
+        'data': {
+          'userId': userId,
+          'displayName': displayName,
+          'eventType': 'deleted',
+          'recoveryAccess': 'admin',
+          'recoveryDeadlineAt': Timestamp.fromDate(recoveryDeadlineAt),
+        },
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      await fetchAdminStats(force: true);
+      _isLoading = false;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> restoreDeletedUserAccount(String userId) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      final userRef = _firestore.collection('users').doc(userId);
+      final userSnap = await userRef.get();
+      if (!userSnap.exists) {
+        throw Exception('User account not found.');
+      }
+      final userState = DeletionRecoveryService.stateFromData(userSnap.data());
+      if (!userState.isDeleted) {
+        throw Exception('This account is not awaiting recovery.');
+      }
+      if (userState.isExpired) {
+        throw Exception(
+          'This account has passed the 30-day recovery window and can no longer be restored.',
+        );
+      }
+
+      final userData = userSnap.data() ?? const <String, dynamic>{};
+      final displayName = _readString(
+        userData['fullName'] ?? userData['name'] ?? userData['email'],
+      );
+
+      await _deletionRecoveryService.restoreUserAccount(
+        userId: userId,
+        restoreOwnedBusinesses: true,
+        adminOverride: true,
+      );
+
+      await _firestore.collection('admin_notifications').add({
+        'type': 'user',
+        'title': 'User Restored',
+        'message':
+            '${displayName.isNotEmpty ? displayName : userId} was restored by admin.',
+        'data': {
+          'userId': userId,
+          'displayName': displayName,
+          'eventType': 'restored',
+        },
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      await fetchAdminStats(force: true);
       _isLoading = false;
       notifyListeners();
       return true;

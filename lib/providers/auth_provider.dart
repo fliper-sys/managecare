@@ -10,6 +10,7 @@ import '../services/email_service.dart';
 import '../services/subscription_service.dart';
 import '../services/local_user_storage.dart';
 import '../services/local_business_storage.dart';
+import '../services/deletion_recovery_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../services/push_service.dart';
 import '../services/push_notification_service.dart';
@@ -30,6 +31,8 @@ class AuthProvider with ChangeNotifier {
   final AuthenticationService _authenticationService = AuthenticationService();
   final SubscriptionService _subscriptionService =
       SubscriptionService(firestore: FirebaseFirestore.instance);
+  final DeletionRecoveryService _deletionRecoveryService =
+      DeletionRecoveryService(firestore: FirebaseFirestore.instance);
   LocalUserStorage? _localStorage;
   LocalBusinessStorage? _localBusinessStorage;
 
@@ -121,8 +124,18 @@ class AuthProvider with ChangeNotifier {
 
           // Try to fetch the latest user document synchronously to ensure we have businessId
           try {
-            final refreshedUser =
-                await _authRepository.getCurrentUser(cachedUser.id);
+            final access = await _authenticationService.resolveUserAccess(
+              cachedUser.id,
+              allowSelfRecovery: false,
+            );
+            if (!access.isAllowed || access.user == null) {
+              await _forceLogoutBecauseAccessChanged(
+                access.message ?? 'This account is no longer available.',
+              );
+              return;
+            }
+
+            final refreshedUser = access.user;
             if (refreshedUser != null) {
               _currentUser = refreshedUser;
               await _localStorage!.saveUser(refreshedUser);
@@ -222,7 +235,17 @@ class AuthProvider with ChangeNotifier {
   Future<void> _syncCachedUserWithFirebase(String userId) async {
     try {
       print('[AuthProvider] Syncing cached user with Firebase...');
-      final updatedUser = await _authRepository.getCurrentUser(userId);
+      final access = await _authenticationService.resolveUserAccess(
+        userId,
+        allowSelfRecovery: false,
+      );
+      if (!access.isAllowed || access.user == null) {
+        await _forceLogoutBecauseAccessChanged(
+          access.message ?? 'This account is no longer available.',
+        );
+        return;
+      }
+      final updatedUser = access.user;
 
       if (updatedUser != null && _localStorage != null) {
         _currentUser = updatedUser;
@@ -277,13 +300,22 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> _refreshCurrentUserSnapshot(String userId) async {
     try {
-      final refreshedUser = await _authRepository.getCurrentUser(userId);
-      if (refreshedUser == null) return;
+      final access = await _authenticationService.resolveUserAccess(
+        userId,
+        allowSelfRecovery: false,
+      );
+      if (!access.isAllowed || access.user == null) {
+        await _forceLogoutBecauseAccessChanged(
+          access.message ?? 'This account is no longer available.',
+        );
+        return;
+      }
+      final refreshedUser = access.user;
 
       _currentUser = refreshedUser;
 
       if (_localStorage != null) {
-        await _localStorage!.saveUser(refreshedUser);
+        await _localStorage!.saveUser(refreshedUser!);
       }
 
       await _cacheBusinessForUser(_resolveCurrentBusinessId(refreshedUser));
@@ -330,7 +362,18 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> _loadCurrentUser(String uid) async {
     try {
-      _currentUser = await _authRepository.getCurrentUser(uid);
+      final access = await _authenticationService.resolveUserAccess(
+        uid,
+        allowSelfRecovery: false,
+      );
+      if (!access.isAllowed || access.user == null) {
+        await _forceLogoutBecauseAccessChanged(
+          access.message ?? 'This account is no longer available.',
+        );
+        return;
+      }
+
+      _currentUser = access.user;
       _status = AuthStatus.authenticated;
       _errorMessage = null;
 
@@ -461,7 +504,18 @@ class AuthProvider with ChangeNotifier {
 
       if (kDebugMode) print('[AuthProvider] Refreshing user: $id');
 
-      final refreshed = await _authRepository.getCurrentUser(id);
+      final access = await _authenticationService.resolveUserAccess(
+        id,
+        allowSelfRecovery: false,
+      );
+      if (!access.isAllowed || access.user == null) {
+        await _forceLogoutBecauseAccessChanged(
+          access.message ?? 'This account is no longer available.',
+        );
+        return;
+      }
+
+      final refreshed = access.user;
       if (refreshed != null) {
         _currentUser = refreshed;
 
@@ -616,7 +670,7 @@ class AuthProvider with ChangeNotifier {
       return false;
     } catch (e) {
       _status = AuthStatus.unauthenticated;
-      _errorMessage = _getFirebaseAuthErrorMessage(e.toString());
+      _errorMessage = _extractAuthErrorMessage(e);
       notifyListeners();
       return false;
     }
@@ -790,7 +844,7 @@ class AuthProvider with ChangeNotifier {
     } catch (e) {
       print('[AuthProvider] Worker login failed: $e');
       _status = AuthStatus.unauthenticated;
-      _errorMessage = e.toString();
+      _errorMessage = _extractAuthErrorMessage(e);
       notifyListeners();
       return false;
     }
@@ -1112,6 +1166,41 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  Future<bool> deleteCurrentAccount({String? reason}) async {
+    final user = _currentUser;
+    if (user == null) {
+      _errorMessage = 'No user is currently signed in.';
+      notifyListeners();
+      return false;
+    }
+
+    try {
+      _status = AuthStatus.loading;
+      _errorMessage = null;
+      notifyListeners();
+
+      await _deletionRecoveryService.softDeleteUserAccount(
+        userId: user.id,
+        actorId: user.id,
+        actorType: 'user',
+        actorRole: user.role,
+        reason: reason,
+        cascadeOwnedBusinesses: user.isOwner,
+      );
+
+      await logout();
+      return true;
+    } catch (e) {
+      _status = AuthStatus.authenticated;
+      _errorMessage = _extractAuthErrorMessage(
+        e,
+        fallback: 'Failed to delete account. Please try again.',
+      );
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Update a full user model and persist it across services/local storage
   Future<void> updateUserModel(UserModel updatedUser) async {
     try {
@@ -1259,6 +1348,41 @@ class AuthProvider with ChangeNotifier {
       default:
         return 'Authentication failed. Please try again.';
     }
+  }
+
+  String _extractAuthErrorMessage(
+    Object error, {
+    String fallback = 'Authentication failed. Please try again.',
+  }) {
+    final raw = error.toString().trim();
+    if (raw.isEmpty) return fallback;
+
+    const prefixes = [
+      'Exception: ',
+      'FirebaseException: ',
+      'Authentication error: ',
+      'Worker authentication failed: ',
+    ];
+
+    var message = raw;
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final prefix in prefixes) {
+        if (message.startsWith(prefix)) {
+          message = message.substring(prefix.length).trim();
+          changed = true;
+        }
+      }
+    }
+
+    return message.isEmpty ? fallback : message;
+  }
+
+  Future<void> _forceLogoutBecauseAccessChanged(String message) async {
+    await logout();
+    _errorMessage = message;
+    notifyListeners();
   }
 
   /// Get persistent login status getter

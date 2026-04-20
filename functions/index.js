@@ -3,6 +3,170 @@ const admin = require('firebase-admin');
 
 admin.initializeApp();
 const db = admin.firestore();
+const FieldValue = admin.firestore.FieldValue;
+const GRACE_WINDOW_DAYS = 30;
+
+function parseFirestoreDate(value) {
+  if (!value) return null;
+  if (value instanceof admin.firestore.Timestamp) {
+    return value.toDate();
+  }
+  if (value instanceof Date) {
+    return value;
+  }
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+  if (typeof value.toDate === 'function') {
+    try {
+      return value.toDate();
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
+}
+
+async function recursiveDeleteSafe(ref) {
+  if (!ref) return;
+
+  if (typeof db.recursiveDelete === 'function') {
+    await db.recursiveDelete(ref);
+    return;
+  }
+
+  if (typeof ref.listCollections === 'function') {
+    const subcollections = await ref.listCollections();
+    for (const subcollection of subcollections) {
+      const snap = await subcollection.get();
+      for (const doc of snap.docs) {
+        await recursiveDeleteSafe(doc.ref);
+      }
+    }
+  }
+
+  await ref.delete().catch(() => null);
+}
+
+async function cleanupDeletedBusinessReferences(businessId) {
+  const queries = await Promise.all([
+    db.collection('users').where('deletedBusinessIds', 'array-contains', businessId).get(),
+    db.collection('users').where('lastDeletedBusinessId', '==', businessId).get(),
+  ]);
+
+  const refs = new Map();
+  for (const snapshot of queries) {
+    for (const doc of snapshot.docs) {
+      refs.set(doc.id, doc.ref);
+    }
+  }
+
+  for (const ref of refs.values()) {
+    const snap = await ref.get();
+    if (!snap.exists) continue;
+
+    const data = snap.data() || {};
+    const updates = {
+      deletedBusinessIds: FieldValue.arrayRemove(businessId),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    if ((data.lastDeletedBusinessId || '').toString() === businessId) {
+      updates.lastDeletedBusinessId = FieldValue.delete();
+      updates.lastBusinessDeletedAt = FieldValue.delete();
+      updates.lastBusinessRecoveryDeadlineAt = FieldValue.delete();
+      updates.lastBusinessRecoveryAccess = FieldValue.delete();
+      updates.lastBusinessDeletedByType = FieldValue.delete();
+    }
+
+    await ref.set(updates, { merge: true });
+  }
+}
+
+async function purgeBusinessCompletely(businessId) {
+  const businessRef = db.collection('businesses').doc(businessId);
+  const businessSnap = await businessRef.get();
+  if (!businessSnap.exists) return;
+
+  const subcollections = [
+    'sales',
+    'inventory',
+    'orders',
+    'bookings',
+    'invoices',
+    'payments',
+    'payment_transactions',
+    'serviceOrders',
+    'restaurant_orders',
+    'services',
+    'products',
+    'workers',
+    'staff',
+    'tables',
+    'customers',
+    'notifications',
+  ];
+
+  for (const subcollection of subcollections) {
+    try {
+      const snap = await businessRef.collection(subcollection).get();
+      for (const doc of snap.docs) {
+        await recursiveDeleteSafe(doc.ref);
+      }
+    } catch (error) {
+      console.error('[purgeBusinessCompletely] subcollection cleanup failed', businessId, subcollection, error);
+    }
+  }
+
+  const rootCollections = [
+    'subscriptions',
+    'payments',
+    'transactions',
+    'activities',
+    'serviceOrders',
+    'payment_transactions',
+    'notifications',
+    'subscription_requests',
+    'subscription_approvals',
+  ];
+
+  for (const collection of rootCollections) {
+    try {
+      const snap = await db.collection(collection).where('businessId', '==', businessId).get();
+      for (const doc of snap.docs) {
+        await recursiveDeleteSafe(doc.ref);
+      }
+    } catch (error) {
+      console.error('[purgeBusinessCompletely] root collection cleanup failed', businessId, collection, error);
+    }
+  }
+
+  await cleanupDeletedBusinessReferences(businessId);
+  await recursiveDeleteSafe(businessRef);
+}
+
+async function purgeUserCompletely(userId) {
+  const userRef = db.collection('users').doc(userId);
+  const workerRef = db.collection('workers').doc(userId);
+
+  await recursiveDeleteSafe(userRef).catch((error) => {
+    console.error('[purgeUserCompletely] failed to delete user doc', userId, error);
+  });
+  await recursiveDeleteSafe(workerRef).catch((error) => {
+    console.error('[purgeUserCompletely] failed to delete worker doc', userId, error);
+  });
+
+  try {
+    await admin.auth().deleteUser(userId);
+  } catch (error) {
+    if (error.code !== 'auth/user-not-found') {
+      console.error('[purgeUserCompletely] failed to delete auth user', userId, error);
+    }
+  }
+}
 
 exports.onPaymentTransactionCreate = functions.firestore
   .document('payment_transactions/{txId}')
@@ -153,4 +317,89 @@ exports.onNotificationCreate = functions.firestore
       console.error('onNotificationCreate error:', err);
       return null;
     }
+  });
+
+exports.syncDeletedUserAuthState = functions.firestore
+  .document('users/{userId}')
+  .onWrite(async (change, context) => {
+    if (!change.after.exists) return null;
+
+    const before = change.before.data() || {};
+    const after = change.after.data() || {};
+    const shouldDisable =
+      after.isDeleted === true &&
+      (after.deletedByType || '').toString() === 'admin';
+    const wasDisabled =
+      before.isDeleted === true &&
+      (before.deletedByType || '').toString() === 'admin';
+
+    if (shouldDisable === wasDisabled) {
+      return null;
+    }
+
+    try {
+      await admin.auth().updateUser(context.params.userId, {
+        disabled: shouldDisable,
+      });
+    } catch (error) {
+      if (error.code !== 'auth/user-not-found') {
+        console.error('[syncDeletedUserAuthState] failed for', context.params.userId, error);
+      }
+    }
+
+    return null;
+  });
+
+exports.purgeExpiredDeletedRecords = functions.pubsub
+  .schedule('every 24 hours')
+  .timeZone('Africa/Lagos')
+  .onRun(async () => {
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - GRACE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+    const expiredBusinesses = await db
+      .collection('businesses')
+      .where('isDeleted', '==', true)
+      .get();
+
+    for (const doc of expiredBusinesses.docs) {
+      const data = doc.data() || {};
+      const recoveryDeadline = parseFirestoreDate(data.recoveryDeadlineAt);
+      const deletedAt = parseFirestoreDate(data.deletedAt);
+      const effectiveDeadline =
+        recoveryDeadline ||
+        (deletedAt ? new Date(deletedAt.getTime() + GRACE_WINDOW_DAYS * 24 * 60 * 60 * 1000) : null);
+
+      if (!effectiveDeadline || effectiveDeadline > now) {
+        continue;
+      }
+
+      await purgeBusinessCompletely(doc.id);
+    }
+
+    const expiredUsers = await db
+      .collection('users')
+      .where('isDeleted', '==', true)
+      .get();
+
+    for (const doc of expiredUsers.docs) {
+      const data = doc.data() || {};
+      const recoveryDeadline = parseFirestoreDate(data.recoveryDeadlineAt);
+      const deletedAt = parseFirestoreDate(data.deletedAt);
+      const effectiveDeadline =
+        recoveryDeadline ||
+        (deletedAt ? new Date(deletedAt.getTime() + GRACE_WINDOW_DAYS * 24 * 60 * 60 * 1000) : null);
+
+      if (!effectiveDeadline || effectiveDeadline > now) {
+        continue;
+      }
+
+      if (!deletedAt && effectiveDeadline > cutoff) {
+        continue;
+      }
+
+      await purgeUserCompletely(doc.id);
+    }
+
+    return null;
   });
