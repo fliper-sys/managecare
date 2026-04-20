@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../../domain/repositories/customer_repository.dart';
+import '../models/customer_model.dart';
 
 /// Firebase implementation of customer repository
 class CustomerRepositoryImpl implements CustomerRepository {
@@ -11,29 +13,34 @@ class CustomerRepositoryImpl implements CustomerRepository {
   @override
   Future<dynamic> addCustomer(Map<String, dynamic> customerData) async {
     try {
-      customerData['createdAt'] = DateTime.now();
-      customerData['updatedAt'] = DateTime.now();
-      final bid = customerData['businessId'] as String?;
-      if (bid != null && bid.isNotEmpty) {
-        final docRef = _firestore
-            .collection('businesses')
-            .doc(bid)
-            .collection('customers')
-            .doc();
-        await docRef.set(customerData);
-        // Also write a top-level customers document with the same id to simplify lookups
-        try {
-          await _firestore
+      final rawData = Map<String, dynamic>.from(customerData);
+      final businessId = _normalizeString(rawData['businessId']);
+      final rootDocRef = _firestore.collection('customers').doc();
+      final customerId = rootDocRef.id;
+      final normalizedData = _normalizeCustomerData(
+        rawData,
+        customerId: customerId,
+        businessId: businessId,
+      );
+
+      if (businessId != null) {
+        final batch = _firestore.batch();
+        batch.set(
+          _firestore
+              .collection('businesses')
+              .doc(businessId)
               .collection('customers')
-              .doc(docRef.id)
-              .set({...customerData, 'businessId': bid});
-        } catch (_) {
-          // ignore mirror failure - main record is the business-scoped doc
-        }
-        return {'id': docRef.id, ...customerData};
+              .doc(customerId),
+          normalizedData,
+          SetOptions(merge: true),
+        );
+        batch.set(rootDocRef, normalizedData, SetOptions(merge: true));
+        await batch.commit();
+      } else {
+        await rootDocRef.set(normalizedData, SetOptions(merge: true));
       }
-      final docRef = await _firestore.collection('customers').add(customerData);
-      return {'id': docRef.id, ...customerData};
+
+      return normalizedData;
     } catch (e) {
       rethrow;
     }
@@ -41,24 +48,53 @@ class CustomerRepositoryImpl implements CustomerRepository {
 
   @override
   Future<void> updateCustomer(
-      String customerId, Map<String, dynamic> customerData) async {
+    String customerId,
+    Map<String, dynamic> customerData,
+  ) async {
     try {
-      customerData['updatedAt'] = DateTime.now();
-      // Update top-level customers doc (create/merge if needed)
+      final rawData = Map<String, dynamic>.from(customerData);
+      var businessId = _normalizeString(rawData['businessId']);
+      Map<String, dynamic> existingData = const <String, dynamic>{};
+
+      final topDoc =
+          await _firestore.collection('customers').doc(customerId).get();
+      if (topDoc.exists) {
+        existingData = topDoc.data() ?? const <String, dynamic>{};
+      } else if (businessId != null) {
+        final scopedDoc = await _firestore
+            .collection('businesses')
+            .doc(businessId)
+            .collection('customers')
+            .doc(customerId)
+            .get();
+        if (scopedDoc.exists) {
+          existingData = scopedDoc.data() ?? const <String, dynamic>{};
+        }
+      }
+
+      final mergedData = <String, dynamic>{
+        ...existingData,
+        ...rawData,
+      };
+      businessId ??= _normalizeString(existingData['businessId']);
+      final normalizedData = _normalizeCustomerData(
+        mergedData,
+        customerId: customerId,
+        businessId: businessId,
+      );
+
       await _firestore
           .collection('customers')
           .doc(customerId)
-          .set(customerData, SetOptions(merge: true));
+          .set(normalizedData, SetOptions(merge: true));
 
-      // If businessId present, also update the business-scoped customer doc
-      final bid = customerData['businessId'] as String?;
-      if (bid != null && bid.isNotEmpty) {
+      if (businessId != null) {
         await _firestore
             .collection('businesses')
-            .doc(bid)
+            .doc(businessId)
             .collection('customers')
             .doc(customerId)
-            .set(customerData, SetOptions(merge: true));
+            .set(normalizedData, SetOptions(merge: true));
       }
     } catch (e) {
       rethrow;
@@ -68,28 +104,26 @@ class CustomerRepositoryImpl implements CustomerRepository {
   @override
   Future<void> deleteCustomer(String customerId) async {
     try {
-      // Try deleting top-level doc and, if it contains a businessId, delete the business-scoped doc as well
       final topDocRef = _firestore.collection('customers').doc(customerId);
       final topDoc = await topDocRef.get();
       if (topDoc.exists) {
-        final bid = (topDoc.data()?['businessId'] as String?) ?? '';
-        if (bid.isNotEmpty) {
+        final businessId = _normalizeString(topDoc.data()?['businessId']);
+        if (businessId != null) {
           try {
             await _firestore
                 .collection('businesses')
-                .doc(bid)
+                .doc(businessId)
                 .collection('customers')
                 .doc(customerId)
                 .delete();
           } catch (_) {
-            // ignore - best-effort
+            // Ignore best-effort scoped delete failures.
           }
         }
         await topDocRef.delete();
         return;
       }
 
-      // Fallback - attempt to delete top-level doc (idempotent)
       await topDocRef.delete();
     } catch (e) {
       rethrow;
@@ -97,20 +131,25 @@ class CustomerRepositoryImpl implements CustomerRepository {
   }
 
   @override
-  Future<List<dynamic>> getCustomers(String businessId,
-      {Map<String, dynamic>? filters}) async {
+  Future<List<dynamic>> getCustomers(
+    String businessId, {
+    Map<String, dynamic>? filters,
+  }) async {
     try {
       final snapshot = await _firestore
           .collection('businesses')
           .doc(businessId)
           .collection('customers')
           .get();
-      return snapshot.docs.map((doc) {
-        final Map<String, dynamic> row =
-            Map<String, dynamic>.from(doc.data() as Map);
-        row['id'] = doc.id;
-        return row;
-      }).toList();
+
+      return snapshot.docs
+          .map(
+            (doc) => CustomerModel.normalizeFirestoreData(
+              doc.data(),
+              documentId: doc.id,
+            ),
+          )
+          .toList();
     } catch (e) {
       rethrow;
     }
@@ -119,13 +158,28 @@ class CustomerRepositoryImpl implements CustomerRepository {
   @override
   Future<dynamic> getCustomerById(String customerId) async {
     try {
-      final doc =
+      final topDoc =
           await _firestore.collection('customers').doc(customerId).get();
-      if (!doc.exists) return null;
-      return {
-        ...doc.data() ?? {},
-        'id': doc.id,
-      };
+      if (topDoc.exists) {
+        return CustomerModel.normalizeFirestoreData(
+          topDoc.data() ?? const <String, dynamic>{},
+          documentId: topDoc.id,
+        );
+      }
+
+      final scopedSnapshot = await _firestore
+          .collectionGroup('customers')
+          .where(FieldPath.documentId, isEqualTo: customerId)
+          .limit(1)
+          .get();
+
+      if (scopedSnapshot.docs.isEmpty) return null;
+
+      final scopedDoc = scopedSnapshot.docs.first;
+      return CustomerModel.normalizeFirestoreData(
+        scopedDoc.data(),
+        documentId: scopedDoc.id,
+      );
     } catch (e) {
       rethrow;
     }
@@ -138,26 +192,30 @@ class CustomerRepositoryImpl implements CustomerRepository {
           .collection('businesses')
           .doc(businessId)
           .collection('customers')
-          .orderBy('totalPurchases', descending: true)
+          .orderBy('totalSpent', descending: true)
           .limit(10)
           .get();
-      return snapshot.docs.map((doc) {
-        final Map<String, dynamic> row =
-            Map<String, dynamic>.from(doc.data() as Map);
-        row['id'] = doc.id;
-        return row;
-      }).toList();
+
+      return snapshot.docs
+          .map(
+            (doc) => CustomerModel.normalizeFirestoreData(
+              doc.data(),
+              documentId: doc.id,
+            ),
+          )
+          .toList();
     } catch (e) {
       rethrow;
     }
   }
 
   @override
-  Future<List<Map<String, dynamic>>> fetchCustomers(
-      {String? businessId}) async {
+  Future<List<Map<String, dynamic>>> fetchCustomers({
+    String? businessId,
+  }) async {
     try {
-      QuerySnapshot snapshot;
-      if (businessId != null) {
+      QuerySnapshot<Map<String, dynamic>> snapshot;
+      if (businessId != null && businessId.isNotEmpty) {
         snapshot = await _firestore
             .collection('businesses')
             .doc(businessId)
@@ -166,15 +224,15 @@ class CustomerRepositoryImpl implements CustomerRepository {
       } else {
         snapshot = await _firestore.collection('customers').get();
       }
+
       return snapshot.docs
-          .map((doc) {
-            final Map<String, dynamic> row =
-                Map<String, dynamic>.from(doc.data() as Map);
-            row['id'] = doc.id;
-            return row;
-          })
-          .toList()
-          .cast<Map<String, dynamic>>();
+          .map(
+            (doc) => CustomerModel.normalizeFirestoreData(
+              doc.data(),
+              documentId: doc.id,
+            ),
+          )
+          .toList();
     } catch (e) {
       rethrow;
     }
@@ -182,39 +240,68 @@ class CustomerRepositoryImpl implements CustomerRepository {
 
   @override
   Future<void> syncCustomerToFirestore(
-      Map<String, dynamic> customerData) async {
+    Map<String, dynamic> customerData,
+  ) async {
     try {
-      final customerId = customerData['id'] as String?;
-      final bid = customerData['businessId'] as String?;
-      if (bid != null && bid.isNotEmpty) {
-        if (customerId != null) {
-          await _firestore
+      final rawData = Map<String, dynamic>.from(customerData);
+      final businessId = _normalizeString(rawData['businessId']);
+      final customerId = _normalizeString(rawData['id']) ??
+          _normalizeString(rawData['customerId']) ??
+          _firestore.collection('customers').doc().id;
+      final normalizedData = _normalizeCustomerData(
+        rawData,
+        customerId: customerId,
+        businessId: businessId,
+      );
+
+      if (businessId != null) {
+        final batch = _firestore.batch();
+        batch.set(
+          _firestore
               .collection('businesses')
-              .doc(bid)
+              .doc(businessId)
               .collection('customers')
-              .doc(customerId)
-              .set(customerData, SetOptions(merge: true));
-        } else {
-          final docRef = _firestore
-              .collection('businesses')
-              .doc(bid)
-              .collection('customers')
-              .doc();
-          await docRef.set(customerData);
-        }
+              .doc(customerId),
+          normalizedData,
+          SetOptions(merge: true),
+        );
+        batch.set(
+          _firestore.collection('customers').doc(customerId),
+          normalizedData,
+          SetOptions(merge: true),
+        );
+        await batch.commit();
       } else {
-        if (customerId != null) {
-          await _firestore
-              .collection('customers')
-              .doc(customerId)
-              .set(customerData, SetOptions(merge: true));
-        } else {
-          await _firestore.collection('customers').add(customerData);
-        }
+        await _firestore
+            .collection('customers')
+            .doc(customerId)
+            .set(normalizedData, SetOptions(merge: true));
       }
     } catch (e) {
       rethrow;
     }
   }
-}
 
+  Map<String, dynamic> _normalizeCustomerData(
+    Map<String, dynamic> customerData, {
+    required String customerId,
+    String? businessId,
+  }) {
+    final source = Map<String, dynamic>.from(customerData);
+    source['id'] = customerId;
+    source['customerId'] = customerId;
+    if (businessId != null && businessId.isNotEmpty) {
+      source['businessId'] = businessId;
+    }
+    return CustomerModel.normalizeFirestoreData(
+      source,
+      documentId: customerId,
+    );
+  }
+
+  String? _normalizeString(dynamic value) {
+    if (value == null) return null;
+    final result = value.toString().trim();
+    return result.isEmpty ? null : result;
+  }
+}

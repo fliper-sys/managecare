@@ -1561,12 +1561,15 @@ class MarketerProvider extends ChangeNotifier {
         'landmark': businessData['landmark'],
         'businessClass': businessData['businessClass'] ?? 'tier1',
         'businessTier': businessData['businessTier'] ?? 'tier1',
-        'subscriptionPlan': businessData['subscriptionPlan'],
+        'subscriptionPlan': null, // To be set by owner during subscription selection
         'subscriptionTier': businessData['subscriptionTier'] ?? 'tier1',
+        'productCount': businessData['productCount'] ?? 0,
+        'staffCount': businessData['staffCount'] ?? 0,
+        'monthlyRevenue': businessData['monthlyRevenue'] ?? 0.0,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'isActive': true,
-        'subscriptionStatus': 'inactive', // Will be activated later
+        'subscriptionStatus': 'pending', // Waiting for owner to select subscription
         'referredBy': _currentMarketer!.email,
         'referralEmail': _currentMarketer!.email,
       });

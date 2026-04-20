@@ -11,7 +11,7 @@ class EnhancedPdfBuilder {
     required String orderId,
     required DateTime date,
     required List<Map<String, dynamic>> items,
-    required double subtotal,
+    required double subtotal, 
     required double tax,
     required double discount,
     required double total,

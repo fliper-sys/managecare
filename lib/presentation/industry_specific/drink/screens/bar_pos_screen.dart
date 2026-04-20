@@ -39,6 +39,15 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
   final TextEditingController _tableLabelController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
 
+  String _resolveBusinessId() {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final business = Provider.of<BusinessProvider>(context, listen: false);
+    return business.currentBusiness?.id ??
+        auth.currentUser?.primaryBusinessId ??
+        auth.currentUser?.businessId ??
+        '';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -47,7 +56,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         final retail = Provider.of<RetailProvider>(context, listen: false);
         final auth = Provider.of<AuthProvider>(context, listen: false);
         final customers = Provider.of<CustomerProvider>(context, listen: false);
+        final businessId = _resolveBusinessId();
         if (retail.stores.isEmpty) retail.loadStores();
+        if (businessId.isNotEmpty) {
+          customers.setBusinessId(businessId);
+        }
         if (customers.customers.isEmpty && !customers.isLoading) {
           customers.loadCustomers();
         }
@@ -375,12 +388,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
     }
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
-    final businessId =
-        Provider.of<BusinessProvider>(context, listen: false)
-                .currentBusiness
-                ?.id ??
-            authProvider.currentUser?.businessId ??
-            '';
+    final businessId = _resolveBusinessId();
     if (businessId.isNotEmpty) {
       provider.setBusinessId(businessId);
     }
@@ -471,13 +479,10 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
     try {
       // Get business ID from BusinessProvider, fallback to auth
-      final businessProvider =
-          Provider.of<BusinessProvider>(context, listen: false);
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
-      final businessId = businessProvider.currentBusiness?.id ??
-          authProvider.currentUser?.businessId;
+      final businessId = _resolveBusinessId();
 
-      if (businessId == null || businessId.isEmpty) {
+      if (businessId.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Business ID not found')),
         );
@@ -1364,7 +1369,12 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                           TextButton.icon(
                             onPressed: customerProvider.isLoading
                                 ? null
-                                : () => customerProvider.loadCustomers(),
+                                : () {
+                                    final businessId = _resolveBusinessId();
+                                    if (businessId.isEmpty) return;
+                                    customerProvider.setBusinessId(businessId);
+                                    customerProvider.loadCustomers();
+                                  },
                             icon: const Icon(Icons.refresh),
                             label: const Text('Refresh customers'),
                           ),

@@ -40,60 +40,81 @@ class CustomerModel {
     this.notes,
   });
 
-  factory CustomerModel.fromJson(Map<String, dynamic> json) {
+  factory CustomerModel.fromJson(
+    Map<String, dynamic> json, {
+    String? documentId,
+  }) {
+    final now = DateTime.now();
+    final totalSpent = _readDouble(
+          json['totalSpent'] ?? json['totalPurchases'],
+        ) ??
+        0.0;
+    final totalTransactions = _readInt(
+          json['totalTransactions'] ?? json['totalOrders'],
+        ) ??
+        0;
+    final createdAt = _readDateTime(json['createdAt']) ?? now;
+    final updatedAt = _readDateTime(json['updatedAt']) ?? createdAt;
+    final firstPurchaseDate =
+        _readDateTime(json['firstPurchaseDate']) ?? createdAt;
+    final lastPurchaseDate =
+        _readDateTime(json['lastPurchaseDate']) ?? updatedAt;
+
     return CustomerModel(
-      id: json['id'] ?? '',
-      businessId: json['businessId'] ?? '',
-      name: json['name'] ?? '',
-      email: json['email'],
-      phone: json['phone'],
-      address: json['address'],
-      city: json['city'],
-      state: json['state'],
-      totalSpent: (json['totalSpent'] as num?)?.toDouble() ?? 0.0,
-      totalTransactions: json['totalTransactions'] ?? 0,
-      averageOrderValue: (json['averageOrderValue'] as num?)?.toDouble() ?? 0.0,
-      firstPurchaseDate: json['firstPurchaseDate'] is Timestamp
-          ? (json['firstPurchaseDate'] as Timestamp).toDate()
-          : json['firstPurchaseDate'] is DateTime
-              ? json['firstPurchaseDate']
-              : DateTime.parse(json['firstPurchaseDate'] ??
-                  DateTime.now().toIso8601String()),
-      lastPurchaseDate: json['lastPurchaseDate'] is Timestamp
-          ? (json['lastPurchaseDate'] as Timestamp).toDate()
-          : json['lastPurchaseDate'] is DateTime
-              ? json['lastPurchaseDate']
-              : DateTime.parse(
-                  json['lastPurchaseDate'] ?? DateTime.now().toIso8601String()),
-      createdAt: json['createdAt'] is Timestamp
-          ? (json['createdAt'] as Timestamp).toDate()
-          : json['createdAt'] is DateTime
-              ? json['createdAt']
-              : DateTime.parse(
-                  json['createdAt'] ?? DateTime.now().toIso8601String()),
-      updatedAt: json['updatedAt'] is Timestamp
-          ? (json['updatedAt'] as Timestamp).toDate()
-          : json['updatedAt'] is DateTime
-              ? json['updatedAt']
-              : DateTime.parse(
-                  json['updatedAt'] ?? DateTime.now().toIso8601String()),
-      isActive: json['isActive'] ?? true,
-      notes: json['notes'],
+      id: _readString(json['id']) ??
+          _readString(json['customerId']) ??
+          documentId ??
+          '',
+      businessId: _readString(json['businessId']) ?? '',
+      name: _readString(json['name']) ??
+          _readString(json['fullName']) ??
+          _readString(json['displayName']) ??
+          '',
+      email: _readNullableString(json['email']),
+      phone:
+          _readNullableString(json['phone']) ?? _readNullableString(json['phoneNumber']),
+      address: _readNullableString(json['address']),
+      city: _readNullableString(json['city']),
+      state: _readNullableString(json['state']),
+      totalSpent: totalSpent,
+      totalTransactions: totalTransactions,
+      averageOrderValue: _readDouble(json['averageOrderValue']) ??
+          (totalTransactions > 0 ? totalSpent / totalTransactions : 0.0),
+      firstPurchaseDate: firstPurchaseDate,
+      lastPurchaseDate: lastPurchaseDate,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      isActive: _readBool(json['isActive']) ?? true,
+      notes: _readNullableString(json['notes']),
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
+  factory CustomerModel.fromFirestore(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    return CustomerModel.fromJson(
+      doc.data() ?? const <String, dynamic>{},
+      documentId: doc.id,
+    );
+  }
+
+  Map<String, dynamic> toJson({Map<String, dynamic>? additionalFields}) {
+    final payload = <String, dynamic>{
       'id': id,
+      'customerId': id,
       'businessId': businessId,
       'name': name,
+      'fullName': name,
       'email': email,
       'phone': phone,
+      'phoneNumber': phone,
       'address': address,
       'city': city,
       'state': state,
       'totalSpent': totalSpent,
+      'totalPurchases': totalSpent,
       'totalTransactions': totalTransactions,
+      'totalOrders': totalTransactions,
       'averageOrderValue': averageOrderValue,
       'firstPurchaseDate': firstPurchaseDate,
       'lastPurchaseDate': lastPurchaseDate,
@@ -102,6 +123,89 @@ class CustomerModel {
       'isActive': isActive,
       'notes': notes,
     };
+
+    if (additionalFields != null && additionalFields.isNotEmpty) {
+      payload.addAll(additionalFields);
+      payload['id'] = id;
+      payload['customerId'] = id;
+      payload['businessId'] = businessId;
+      payload['name'] = name;
+      payload['fullName'] = name;
+      payload['email'] = email;
+      payload['phone'] = phone;
+      payload['phoneNumber'] = phone;
+      payload['address'] = address;
+      payload['city'] = city;
+      payload['state'] = state;
+      payload['totalSpent'] = totalSpent;
+      payload['totalPurchases'] = totalSpent;
+      payload['totalTransactions'] = totalTransactions;
+      payload['totalOrders'] = totalTransactions;
+      payload['averageOrderValue'] = averageOrderValue;
+      payload['firstPurchaseDate'] = firstPurchaseDate;
+      payload['lastPurchaseDate'] = lastPurchaseDate;
+      payload['createdAt'] = createdAt;
+      payload['updatedAt'] = updatedAt;
+      payload['isActive'] = isActive;
+      payload['notes'] = notes;
+    }
+
+    return payload;
+  }
+
+  static Map<String, dynamic> normalizeFirestoreData(
+    Map<String, dynamic> rawData, {
+    String? documentId,
+  }) {
+    final source = Map<String, dynamic>.from(rawData);
+    final model = CustomerModel.fromJson(source, documentId: documentId);
+    return model.toJson(additionalFields: source);
+  }
+
+  static String? _readString(dynamic value) {
+    if (value == null) return null;
+    final result = value.toString().trim();
+    return result.isEmpty ? null : result;
+  }
+
+  static String? _readNullableString(dynamic value) => _readString(value);
+
+  static double? _readDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString());
+  }
+
+  static int? _readInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString());
+  }
+
+  static bool? _readBool(dynamic value) {
+    if (value == null) return null;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final normalized = value.toString().trim().toLowerCase();
+    if (normalized.isEmpty) return null;
+    if (normalized == 'true' || normalized == '1' || normalized == 'yes') {
+      return true;
+    }
+    if (normalized == 'false' || normalized == '0' || normalized == 'no') {
+      return false;
+    }
+    return null;
+  }
+
+  static DateTime? _readDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is int) {
+      return DateTime.fromMillisecondsSinceEpoch(value);
+    }
+    return DateTime.tryParse(value.toString());
   }
 
   /// Copy with

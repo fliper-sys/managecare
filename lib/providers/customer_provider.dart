@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../data/models/customer_model.dart';
 
 class CustomerProvider extends ChangeNotifier {
@@ -11,11 +12,23 @@ class CustomerProvider extends ChangeNotifier {
   bool _isLoading = false;
   String _errorMessage = '';
 
-  // Getters
   List<CustomerModel> get customers => _customers;
   CustomerModel? get selectedCustomer => _selectedCustomer;
   bool get isLoading => _isLoading;
   String get errorMessage => _errorMessage;
+
+  CollectionReference<Map<String, dynamic>>? get _businessCustomersRef {
+    final businessId = _businessId?.trim();
+    if (businessId == null || businessId.isEmpty) return null;
+
+    return _firestore
+        .collection('businesses')
+        .doc(businessId)
+        .collection('customers');
+  }
+
+  CollectionReference<Map<String, dynamic>> get _rootCustomersRef =>
+      _firestore.collection('customers');
 
   void setBusinessId(String businessId) {
     if (_businessId != businessId) {
@@ -27,26 +40,24 @@ class CustomerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Load all customers for the business
+  /// Load all customers for the business and normalize older Firestore shapes.
   Future<void> loadCustomers() async {
-    if (_businessId == null) return;
+    final customerRef = _businessCustomersRef;
+    if (customerRef == null) return;
 
     _isLoading = true;
     notifyListeners();
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
-          .where('isActive', isEqualTo: true)
-          .orderBy('lastPurchaseDate', descending: true)
-          .get();
+      final snapshot = await customerRef.get();
 
       _customers = snapshot.docs
-          .map((doc) => CustomerModel.fromJson(doc.data()))
+          .map(CustomerModel.fromFirestore)
+          .where((customer) => customer.isActive)
           .toList();
 
+      _sortCustomers();
+      _syncSelectedCustomerFromList();
       _errorMessage = '';
     } catch (e) {
       _errorMessage = 'Failed to load customers: $e';
@@ -83,37 +94,29 @@ class CustomerProvider extends ChangeNotifier {
 
   /// Get or create customer by phone number (for quick checkout)
   Future<CustomerModel?> getOrCreateCustomerByPhone(
-      String phone, String name) async {
-    if (_businessId == null || phone.isEmpty) return null;
+    String phone,
+    String name,
+  ) async {
+    final customerRef = _businessCustomersRef;
+    final trimmedPhone = _cleanNullable(phone);
+    if (customerRef == null || trimmedPhone == null) return null;
 
     try {
-      final existing = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
-          .where('phone', isEqualTo: phone)
-          .limit(1)
-          .get();
+      await _ensureCustomersLoaded();
 
-      if (existing.docs.isNotEmpty) {
-        final customer = CustomerModel.fromJson(existing.docs.first.data());
-        _selectedCustomer = customer;
+      final existingCustomer = _findExistingCustomer(phone: trimmedPhone);
+      if (existingCustomer != null) {
+        _selectedCustomer = existingCustomer;
         notifyListeners();
-        return customer;
+        return existingCustomer;
       }
 
-      // Create new customer
       final now = DateTime.now();
       final newCustomer = CustomerModel(
-        id: _firestore
-            .collection('businesses')
-            .doc(_businessId)
-            .collection('customers')
-            .doc()
-            .id,
+        id: customerRef.doc().id,
         businessId: _businessId!,
-        name: name,
-        phone: phone,
+        name: _cleanNullable(name) ?? trimmedPhone,
+        phone: trimmedPhone,
         totalSpent: 0.0,
         totalTransactions: 0,
         averageOrderValue: 0.0,
@@ -124,15 +127,8 @@ class CustomerProvider extends ChangeNotifier {
         isActive: true,
       );
 
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
-          .doc(newCustomer.id)
-          .set(newCustomer.toJson());
-
-      _selectedCustomer = newCustomer;
-      _customers.add(newCustomer);
+      await _persistCustomer(newCustomer);
+      _upsertLocalCustomer(newCustomer, selectCustomer: true);
       notifyListeners();
 
       return newCustomer;
@@ -148,57 +144,33 @@ class CustomerProvider extends ChangeNotifier {
     String? phone,
     String? email,
   }) async {
-    if (_businessId == null || name.trim().isEmpty) return null;
+    final customerRef = _businessCustomersRef;
+    final trimmedName = name.trim();
+    final trimmedPhone = _cleanNullable(phone);
+    final trimmedEmail = _cleanNullable(email);
+
+    if (customerRef == null || trimmedName.isEmpty) return null;
 
     try {
-      if (phone != null && phone.trim().isNotEmpty) {
-        final existingByPhone = await _firestore
-            .collection('businesses')
-            .doc(_businessId)
-            .collection('customers')
-            .where('phone', isEqualTo: phone.trim())
-            .limit(1)
-            .get();
+      await _ensureCustomersLoaded();
 
-        if (existingByPhone.docs.isNotEmpty) {
-          final customer = CustomerModel.fromJson(existingByPhone.docs.first.data());
-          _selectedCustomer = customer;
-          notifyListeners();
-          return customer;
-        }
-      }
-
-      if (email != null && email.trim().isNotEmpty) {
-        final existingByEmail = await _firestore
-            .collection('businesses')
-            .doc(_businessId)
-            .collection('customers')
-            .where('email', isEqualTo: email.trim())
-            .limit(1)
-            .get();
-
-        if (existingByEmail.docs.isNotEmpty) {
-          final customer = CustomerModel.fromJson(existingByEmail.docs.first.data());
-          _selectedCustomer = customer;
-          notifyListeners();
-          return customer;
-        }
+      final existingCustomer = _findExistingCustomer(
+        phone: trimmedPhone,
+        email: trimmedEmail,
+      );
+      if (existingCustomer != null) {
+        _selectedCustomer = existingCustomer;
+        notifyListeners();
+        return existingCustomer;
       }
 
       final now = DateTime.now();
-      final customerId = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
-          .doc()
-          .id;
-
       final newCustomer = CustomerModel(
-        id: customerId,
+        id: customerRef.doc().id,
         businessId: _businessId!,
-        name: name.trim(),
-        phone: phone?.trim().isEmpty == true ? null : phone?.trim(),
-        email: email?.trim().isEmpty == true ? null : email?.trim(),
+        name: trimmedName,
+        phone: trimmedPhone,
+        email: trimmedEmail,
         totalSpent: 0.0,
         totalTransactions: 0,
         averageOrderValue: 0.0,
@@ -209,15 +181,8 @@ class CustomerProvider extends ChangeNotifier {
         isActive: true,
       );
 
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
-          .doc(customerId)
-          .set(newCustomer.toJson());
-
-      _customers = [..._customers, newCustomer];
-      _selectedCustomer = newCustomer;
+      await _persistCustomer(newCustomer);
+      _upsertLocalCustomer(newCustomer, selectCustomer: true);
       notifyListeners();
       return newCustomer;
     } catch (e) {
@@ -232,49 +197,73 @@ class CustomerProvider extends ChangeNotifier {
     String customerId,
     double purchaseAmount,
   ) async {
-    if (_businessId == null) return;
+    final businessCustomersRef = _businessCustomersRef;
+    if (businessCustomersRef == null) return;
 
     try {
-      final customerRef = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
-          .doc(customerId);
-
+      final customerRef = businessCustomersRef.doc(customerId);
       final currentDoc = await customerRef.get();
-      if (!currentDoc.exists) return;
 
-      final data = currentDoc.data()!;
-      final previousTransactions =
-          (data['totalTransactions'] as num?)?.toInt() ?? 0;
-      final previousSpent = (data['totalSpent'] as num?)?.toDouble() ?? 0.0;
-
-      final newTransactionCount = previousTransactions + 1;
-      final newTotalSpent = previousSpent + purchaseAmount;
-      final newAverageOrderValue = newTotalSpent / newTransactionCount;
-
-      await customerRef.update({
-        'totalTransactions': newTransactionCount,
-        'totalSpent': newTotalSpent,
-        'averageOrderValue': newAverageOrderValue,
-        'lastPurchaseDate': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      // Update local customer if it's the selected one
-      if (_selectedCustomer?.id == customerId) {
-        _selectedCustomer = _selectedCustomer!.copyWith(
-          totalTransactions: newTransactionCount,
-          totalSpent: newTotalSpent,
-          averageOrderValue: newAverageOrderValue,
-          lastPurchaseDate: DateTime.now(),
-          updatedAt: DateTime.now(),
-        );
-        notifyListeners();
+      Map<String, dynamic>? existingData;
+      if (currentDoc.exists) {
+        existingData = currentDoc.data();
+      } else {
+        final rootDoc = await _rootCustomersRef.doc(customerId).get();
+        if (rootDoc.exists) {
+          existingData = rootDoc.data();
+        }
       }
 
+      if (existingData == null) return;
+
+      final currentCustomer =
+          CustomerModel.fromJson(existingData, documentId: customerId);
+      final newTransactionCount = currentCustomer.totalTransactions + 1;
+      final newTotalSpent = currentCustomer.totalSpent + purchaseAmount;
+      final newAverageOrderValue = newTotalSpent / newTransactionCount;
+      final now = DateTime.now();
+
+      final updates = {
+        'totalTransactions': newTransactionCount,
+        'totalOrders': newTransactionCount,
+        'totalSpent': newTotalSpent,
+        'totalPurchases': newTotalSpent,
+        'averageOrderValue': newAverageOrderValue,
+        'lastPurchaseDate': now,
+        'updatedAt': now,
+      };
+
+      final batch = _firestore.batch();
+      batch.set(customerRef, updates, SetOptions(merge: true));
+      batch.set(
+        _rootCustomersRef.doc(customerId),
+        {
+          ...updates,
+          'businessId': currentCustomer.businessId.isNotEmpty
+              ? currentCustomer.businessId
+              : _businessId,
+        },
+        SetOptions(merge: true),
+      );
+      await batch.commit();
+
+      final updatedCustomer = currentCustomer.copyWith(
+        totalTransactions: newTransactionCount,
+        totalSpent: newTotalSpent,
+        averageOrderValue: newAverageOrderValue,
+        lastPurchaseDate: now,
+        updatedAt: now,
+      );
+
+      _upsertLocalCustomer(
+        updatedCustomer,
+        selectCustomer: _selectedCustomer?.id == customerId,
+      );
+      notifyListeners();
+
       print(
-          '[CustomerProvider] Customer $customerId updated after purchase: +₦$purchaseAmount');
+        '[CustomerProvider] Customer $customerId updated after purchase: +NGN $purchaseAmount',
+      );
     } catch (e) {
       debugPrint('[CustomerProvider] Error updating customer: $e');
       rethrow;
@@ -283,20 +272,16 @@ class CustomerProvider extends ChangeNotifier {
 
   /// Get top customers by spending
   Future<List<CustomerModel>> getTopCustomers({int limit = 10}) async {
-    if (_businessId == null) return [];
+    final customerRef = _businessCustomersRef;
+    if (customerRef == null) return [];
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
+      final snapshot = await customerRef
           .orderBy('totalSpent', descending: true)
           .limit(limit)
           .get();
 
-      return snapshot.docs
-          .map((doc) => CustomerModel.fromJson(doc.data()))
-          .toList();
+      return snapshot.docs.map(CustomerModel.fromFirestore).toList();
     } catch (e) {
       debugPrint('[CustomerProvider] Error getting top customers: $e');
       return [];
@@ -308,37 +293,33 @@ class CustomerProvider extends ChangeNotifier {
     DateTime startDate,
     DateTime endDate,
   ) async {
-    if (_businessId == null) return [];
+    final customerRef = _businessCustomersRef;
+    if (customerRef == null) return [];
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
+      final snapshot = await customerRef
           .where('firstPurchaseDate', isGreaterThanOrEqualTo: startDate)
           .where('firstPurchaseDate', isLessThanOrEqualTo: endDate)
           .get();
 
-      return snapshot.docs
-          .map((doc) => CustomerModel.fromJson(doc.data()))
-          .toList();
+      return snapshot.docs.map(CustomerModel.fromFirestore).toList();
     } catch (e) {
       debugPrint(
-          '[CustomerProvider] Error getting customers by date range: $e');
+        '[CustomerProvider] Error getting customers by date range: $e',
+      );
       return [];
     }
   }
 
   /// Get customer purchase history
   Future<List<Map<String, dynamic>>> getCustomerPurchaseHistory(
-      String customerId) async {
-    if (_businessId == null) return [];
+    String customerId,
+  ) async {
+    final customerRef = _businessCustomersRef;
+    if (customerRef == null) return [];
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
+      final snapshot = await customerRef
           .doc(customerId)
           .collection('purchases')
           .orderBy('createdAt', descending: true)
@@ -370,5 +351,98 @@ class CustomerProvider extends ChangeNotifier {
     _errorMessage = '';
     notifyListeners();
   }
-}
 
+  Future<void> _ensureCustomersLoaded() async {
+    if (_customers.isEmpty && !_isLoading) {
+      await loadCustomers();
+    }
+  }
+
+  Future<void> _persistCustomer(CustomerModel customer) async {
+    final customerRef = _businessCustomersRef;
+    if (customerRef == null) return;
+
+    final payload = customer.toJson();
+    final batch = _firestore.batch();
+    batch.set(customerRef.doc(customer.id), payload, SetOptions(merge: true));
+    batch.set(
+      _rootCustomersRef.doc(customer.id),
+      payload,
+      SetOptions(merge: true),
+    );
+    await batch.commit();
+  }
+
+  void _upsertLocalCustomer(
+    CustomerModel customer, {
+    bool selectCustomer = false,
+  }) {
+    final index = _customers.indexWhere((entry) => entry.id == customer.id);
+    if (index == -1) {
+      _customers.add(customer);
+    } else {
+      _customers[index] = customer;
+    }
+
+    _sortCustomers();
+
+    if (selectCustomer) {
+      _selectedCustomer = customer;
+    }
+  }
+
+  void _sortCustomers() {
+    _customers.sort((a, b) {
+      final lastPurchaseCompare =
+          b.lastPurchaseDate.compareTo(a.lastPurchaseDate);
+      if (lastPurchaseCompare != 0) return lastPurchaseCompare;
+      return b.createdAt.compareTo(a.createdAt);
+    });
+  }
+
+  void _syncSelectedCustomerFromList() {
+    final currentSelection = _selectedCustomer;
+    if (currentSelection == null) return;
+
+    final index =
+        _customers.indexWhere((customer) => customer.id == currentSelection.id);
+    if (index == -1) {
+      _selectedCustomer = null;
+      return;
+    }
+
+    _selectedCustomer = _customers[index];
+  }
+
+  CustomerModel? _findExistingCustomer({
+    String? phone,
+    String? email,
+  }) {
+    final normalizedPhone = _normalizeValue(phone);
+    final normalizedEmail = _normalizeValue(email);
+
+    for (final customer in _customers) {
+      final phoneMatches = normalizedPhone != null &&
+          _normalizeValue(customer.phone) == normalizedPhone;
+      final emailMatches = normalizedEmail != null &&
+          _normalizeValue(customer.email) == normalizedEmail;
+
+      if (phoneMatches || emailMatches) {
+        return customer;
+      }
+    }
+
+    return null;
+  }
+
+  String? _cleanNullable(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    return trimmed;
+  }
+
+  String? _normalizeValue(String? value) {
+    final trimmed = _cleanNullable(value);
+    return trimmed?.toLowerCase();
+  }
+}

@@ -140,7 +140,7 @@ class ThermalReceiptPdfGenerator {
         ),
       ),
     );
-    children.add(pw.SizedBox(height: 3));
+    children.add(pw.SizedBox(height: 2));
 
     // Custom header
     if (customHeader != null && customHeader.isNotEmpty) {
@@ -151,7 +151,7 @@ class ThermalReceiptPdfGenerator {
           style: pw.TextStyle(font: font, fontSize: 8),
         ),
       );
-      children.add(pw.SizedBox(height: 3));
+      children.add(pw.SizedBox(height: 2));
     }
 
     // Receipt title
@@ -186,9 +186,9 @@ class ThermalReceiptPdfGenerator {
     );
 
     // Separator
-    children.add(pw.SizedBox(height: 2));
+    children.add(pw.SizedBox(height: 1));
     children.add(_buildSeparator('=', charsPerLine, font));
-    children.add(pw.SizedBox(height: 2));
+    children.add(pw.SizedBox(height: 1));
 
     // Customer name
     children.add(

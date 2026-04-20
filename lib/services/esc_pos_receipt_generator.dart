@@ -76,7 +76,6 @@ class EscPosReceiptGenerator {
     // Title
     buffer.setAlignment(EscPosAlignment.center);
     buffer.printText('TAX INVOICE', bold: true);
-    buffer.printLine();
 
     // Receipt info
     buffer.setAlignment(EscPosAlignment.left);
@@ -123,14 +122,11 @@ class EscPosReceiptGenerator {
     buffer.printDashedLine();
     buffer.printText(_formatTotalLine('TOTAL:', total, charsPerLine, currencySymbol), bold: true, fontSize: EscPosFontSize.large);
 
-    buffer.printLine();
-
     // Payment method and footer notes
     buffer.setAlignment(EscPosAlignment.center);
     buffer.printText('Payment: $paymentMethod');
 
     if (notes != null && notes.isNotEmpty) {
-      buffer.printLine();
       buffer.setAlignment(EscPosAlignment.left);
       buffer.printText('Notes:', bold: true);
       for (var line in notes.split('\n')) {
@@ -138,26 +134,21 @@ class EscPosReceiptGenerator {
       }
     }
 
-    buffer.printLine();
     buffer.setAlignment(EscPosAlignment.left);
     buffer.printText('Authorized Signature:');
-    // add a blank area for signature
-    buffer.printText('');
     buffer.printText('______________________________');
 
-    buffer.printLine();
     buffer.setAlignment(EscPosAlignment.center);
     buffer.printText('Thank you for your business!', bold: true);
 
     // Optional QR code (if invoiceUrl provided)
     if (showQrCode && invoiceUrl != null && invoiceUrl.isNotEmpty) {
-      buffer.printQrCode(invoiceUrl, size: 5, errorCorrection: 48);
+      buffer.printQrCode(invoiceUrl, size: 4, errorCorrection: 48);
     }
 
-    buffer.printLine();
+    
     buffer.setAlignment(EscPosAlignment.center);
     buffer.printText('Powered by Manage Care', fontSize: EscPosFontSize.small);
-    buffer.printLine();
     buffer.printLine();
     buffer.cutPaper();
 

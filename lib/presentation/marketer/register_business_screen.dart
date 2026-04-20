@@ -32,9 +32,13 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
   final _landmarkController = TextEditingController();
 
   String? _selectedBusinessType;
-  String _selectedTier = 'tier1';
-  String _selectedPlanId = '';
   bool _isLoading = false;
+
+  // Business metrics for automatic tier detection
+  final _productCountController = TextEditingController(text: '0');
+  final _staffCountController = TextEditingController(text: '0');
+  final _monthlyRevenueController = TextEditingController(text: '0');
+  String _detectedTier = 'tier1';
 
   final List<String> _businessTypes = const [
     'pharmacy',
@@ -65,44 +69,28 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
     _addressController.dispose();
     _contactPhoneController.dispose();
     _landmarkController.dispose();
+    _productCountController.dispose();
+    _staffCountController.dispose();
+    _monthlyRevenueController.dispose();
     super.dispose();
   }
 
-  List<String> _tierOptions() {
-    return SubscriptionService.getTierOptionsForBusinessType(
-      _selectedBusinessType,
+  void _updateDetectedTier() {
+    final products = int.tryParse(_productCountController.text) ?? 0;
+    final staff = int.tryParse(_staffCountController.text) ?? 0;
+    final revenue = double.tryParse(_monthlyRevenueController.text) ?? 0.0;
+
+    _detectedTier = SubscriptionService.detectTier(
+      products: products,
+      staff: staff,
+      monthlyIncome: revenue,
+      businessType: _selectedBusinessType,
     );
+
+    setState(() {});
   }
 
-  List<SubscriptionPlan> _planOptions() {
-    return SubscriptionService.getPlansForBusinessType(
-      _selectedBusinessType,
-      tierId: _selectedTier,
-    );
-  }
 
-  void _syncSelections() {
-    final tiers = _tierOptions();
-    if (tiers.isEmpty) {
-      _selectedTier = 'tier1';
-      _selectedPlanId = '';
-      return;
-    }
-
-    if (!tiers.contains(_selectedTier)) {
-      _selectedTier = tiers.first;
-    }
-
-    final plans = _planOptions();
-    if (plans.isEmpty) {
-      _selectedPlanId = '';
-      return;
-    }
-
-    if (!plans.any((plan) => plan.id == _selectedPlanId)) {
-      _selectedPlanId = plans.first.id;
-    }
-  }
 
   Future<void> _registerBusiness() async {
     if (!_formKey.currentState!.validate()) return;
@@ -110,17 +98,6 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please select business type'),
-          backgroundColor: AppColors.error,
-        ),
-      );
-      return;
-    }
-
-    _syncSelections();
-    if (_selectedPlanId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please choose a subscription plan'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -138,10 +115,12 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
         'address': _addressController.text.trim(),
         'phone': _contactPhoneController.text.trim(),
         'landmark': _landmarkController.text.trim(),
-        'businessClass': _selectedTier,
-        'businessTier': _selectedTier,
-        'subscriptionPlan': _selectedPlanId,
-        'subscriptionTier': _selectedTier,
+        'businessClass': _detectedTier,
+        'businessTier': _detectedTier,
+        'subscriptionTier': _detectedTier,
+        'productCount': int.tryParse(_productCountController.text) ?? 0,
+        'staffCount': int.tryParse(_staffCountController.text) ?? 0,
+        'monthlyRevenue': double.tryParse(_monthlyRevenueController.text) ?? 0.0,
       },
     );
 
@@ -181,8 +160,6 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
 
   @override
   Widget build(BuildContext context) {
-    _syncSelections();
-    final plans = _planOptions();
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -219,14 +196,14 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                     Text(
-                      'Create a business with its own plan and limits',
+                      'Register a new business with automatic tier detection',
                       style: theme.textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Each business keeps its own subscription, so choose the business type, tier, and plan that match this specific account.',
+                      'Enter business details and metrics. The subscription tier will be automatically detected based on your business size and revenue.',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurface.withOpacity(0.72),
                         height: 1.5,
@@ -263,59 +240,12 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
                       onChanged: (value) {
                         setState(() {
                           _selectedBusinessType = value;
-                          _selectedTier = 'tier1';
-                          _selectedPlanId = '';
                         });
+                        _updateDetectedTier();
                       },
                       validator: (value) {
                         if (value == null) return 'Please select business type';
                         return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _selectedTier,
-                      decoration: const InputDecoration(
-                        labelText: 'Business tier',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _tierOptions()
-                          .map(
-                            (tier) => DropdownMenuItem(
-                              value: tier,
-                              child: Text(tier.toUpperCase()),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setState(() {
-                          _selectedTier = value;
-                          _selectedPlanId = '';
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _selectedPlanId.isNotEmpty ? _selectedPlanId : null,
-                      decoration: const InputDecoration(
-                        labelText: 'Subscription plan',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: plans
-                          .map(
-                            (plan) => DropdownMenuItem(
-                              value: plan.id,
-                              child: Text(
-                                '${plan.name} (N${plan.price.toStringAsFixed(0)})',
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() => _selectedPlanId = value);
-                        }
                       },
                     ),
                     const SizedBox(height: 16),
@@ -346,6 +276,83 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
                       label: 'Landmark or note',
                       hint: 'Optional',
                       prefixIcon: Icons.place_outlined,
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Business Metrics (for automatic tier detection)',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CustomTextField(
+                            controller: _productCountController,
+                            label: 'Number of products',
+                            hint: '0',
+                            prefixIcon: Icons.inventory_2_outlined,
+                            keyboardType: TextInputType.number,
+                            onChanged: (_) => _updateDetectedTier(),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: CustomTextField(
+                            controller: _staffCountController,
+                            label: 'Number of staff',
+                            hint: '0',
+                            prefixIcon: Icons.people_outline,
+                            keyboardType: TextInputType.number,
+                            onChanged: (_) => _updateDetectedTier(),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    CustomTextField(
+                      controller: _monthlyRevenueController,
+                      label: 'Monthly revenue (₦)',
+                      hint: '0',
+                      prefixIcon: Icons.attach_money_outlined,
+                      keyboardType: TextInputType.number,
+                      onChanged: (_) => _updateDetectedTier(),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.auto_awesome, color: AppColors.primary),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Detected Tier: ${_detectedTier.toUpperCase()}',
+                                  style: theme.textTheme.bodyLarge?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                Text(
+                                  'This tier will be automatically assigned based on your business metrics',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurface.withOpacity(0.7),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 24),
                     _isLoading

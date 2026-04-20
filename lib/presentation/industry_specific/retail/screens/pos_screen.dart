@@ -34,6 +34,9 @@ class _PosScreenState extends State<PosScreen> {
 
   // View toggle
   bool _isGridView = true;
+  
+  // Pricing mode toggle for display purposes
+  String _defaultPricingMode = 'retail';
 
   @override
   void initState() {
@@ -190,41 +193,91 @@ class _PosScreenState extends State<PosScreen> {
                 ),
               ),
 
-              // Store selector (filters products by store)
+              // Store selector and pricing mode (filters products by store)
               if (retailProvider.stores.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Store:'),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _selectedStoreId,
-                            isExpanded: true,
-                            items: [
-                              const DropdownMenuItem(
-                                value: _allStoresValue,
-                                child: Text('All Stores'),
+                      Row(
+                        children: [
+                          const Text('Store:'),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _selectedStoreId,
+                                isExpanded: true,
+                                items: [
+                                  const DropdownMenuItem(
+                                    value: _allStoresValue,
+                                    child: Text('All Stores'),
+                                  ),
+                                  ...retailProvider.stores.map(
+                                    (s) => DropdownMenuItem(
+                                      value: s.id,
+                                      child: Text(s.name),
+                                    ),
+                                  ),
+                                ],
+                                onChanged: (val) {
+                                  if (val == null) return;
+                                  setState(() => _selectedStoreId = val);
+                                  if (val == _allStoresValue) {
+                                    retailProvider.loadProducts();
+                                  } else {
+                                    retailProvider.loadProducts(storeId: val);
+                                  }
+                                },
                               ),
-                              ...retailProvider.stores.map(
-                                (s) => DropdownMenuItem(
-                                  value: s.id,
-                                  child: Text(s.name),
-                                ),
-                              ),
-                            ],
-                            onChanged: (val) {
-                              if (val == null) return;
-                              setState(() => _selectedStoreId = val);
-                              if (val == _allStoresValue) {
-                                retailProvider.loadProducts();
-                              } else {
-                                retailProvider.loadProducts(storeId: val);
-                              }
-                            },
+                            ),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text('Pricing Mode:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            ChoiceChip(
+                              label: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.shopping_bag, size: 16),
+                                  SizedBox(width: 4),
+                                  Text('Retail'),
+                                ],
+                              ),
+                              selected: _defaultPricingMode == 'retail',
+                              onSelected: (_) => setState(() => _defaultPricingMode = 'retail'),
+                              selectedColor: AppColors.primary,
+                              labelStyle: TextStyle(
+                                color: _defaultPricingMode == 'retail' ? Colors.white : Colors.black87,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ChoiceChip(
+                              label: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.local_shipping, size: 16),
+                                  SizedBox(width: 4),
+                                  Text('Wholesale'),
+                                ],
+                              ),
+                              selected: _defaultPricingMode == 'wholesale',
+                              onSelected: (_) => setState(() => _defaultPricingMode = 'wholesale'),
+                              selectedColor: AppColors.primary,
+                              labelStyle: TextStyle(
+                                color: _defaultPricingMode == 'wholesale' ? Colors.white : Colors.black87,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],

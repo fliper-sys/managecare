@@ -405,6 +405,9 @@ class PdfInvoiceGenerator {
     required double total,
   }) {
     final fontSize = paperWidth == '58' ? 7.8 : 8.8;
+    // Debug logging
+    print('PDF Generator - Subtotal: $subtotal, Tax: $tax, Discount: $discount, Total: $total');
+
     return pw.Container(
       width: double.infinity,
       padding: const pw.EdgeInsets.all(8),

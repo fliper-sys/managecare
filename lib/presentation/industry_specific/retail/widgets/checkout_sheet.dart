@@ -87,7 +87,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   double _calculateSubtotal(RetailProvider provider) {
     double subtotal = 0.0;
     for (final entry in provider.cartItems.entries) {
-      subtotal += entry.key.price * entry.value;
+      final effectivePrice = provider.getEffectivePriceForCartItem(entry.key.id);
+      subtotal += effectivePrice * entry.value;
     }
     return subtotal;
   }
@@ -246,6 +247,9 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       final taxAmt = subtotal * (_taxPercent / 100.0);
       final discountAmt = _discountAmount.clamp(0.0, subtotal);
       final total = subtotal + taxAmt - discountAmt;
+
+      // Debug logging
+      print('Checkout Sheet - Subtotal: $subtotal, Tax: $taxAmt, Discount: $discountAmt, Total: $total');
 
       final invoiceNumber = 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
 
@@ -904,20 +908,57 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
               ...items.entries.map((e) {
                 final product = e.key;
                 final qty = e.value;
-                final price = product.price;
+                final retail = Provider.of<RetailProvider>(context, listen: false);
+                final effectivePrice = retail.getEffectivePriceForCartItem(product.id);
+                final pricingMode = retail.getPricingModeForCartItem(product.id);
+                final isWholesale = pricingMode == 'wholesale';
+                final canToggleWholesale = product.hasWholesalePricing;
+                
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(child: Text(product.name, style: AppTextStyles.body2)),
-                      Text('x$qty', style: AppTextStyles.body2),
-                      const SizedBox(width: 8),
-                      Row(children: [
-                        Text('${formatCurrency(price)}', style: AppTextStyles.body2),
-                        const SizedBox(width: 12),
-                        Text('₦${(price * qty).toStringAsFixed(2)}', style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w700)),
-                      ]),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(child: Text(product.name, style: AppTextStyles.body2)),
+                          Text('x$qty', style: AppTextStyles.body2),
+                          const SizedBox(width: 8),
+                          Row(children: [
+                            Text('${formatCurrency(effectivePrice)}', style: AppTextStyles.body2),
+                            const SizedBox(width: 12),
+                            Text('₦${(effectivePrice * qty).toStringAsFixed(2)}', style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w700)),
+                          ]),
+                        ],
+                      ),
+                      if (canToggleWholesale)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: SizedBox(
+                            height: 28,
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                retail.togglePricingModeForCartItem(product.id);
+                                setState(() {});
+                              },
+                              icon: Icon(
+                                isWholesale ? Icons.local_shipping : Icons.shopping_bag,
+                                size: 14,
+                              ),
+                              label: Text(
+                                isWholesale ? 'Wholesale' : 'Retail',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                side: BorderSide(
+                                  color: isWholesale ? AppColors.primary : Colors.grey.shade400,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 );

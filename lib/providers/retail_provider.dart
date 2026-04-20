@@ -232,6 +232,8 @@ class RetailProvider extends ChangeNotifier {
   final Map<String, int> _cart = {};
   final Map<String, Map<String, int>> _cartSessions = {};
   final Map<String, String> _cartLabels = {};
+  // Pricing modes: productId -> 'wholesale' or 'retail' (defaults to 'retail')
+  final Map<String, String> _cartPricingModes = {};
   String _activeCartId = 'cart_1';
   int _cartSessionCounter = 1;
 
@@ -1064,9 +1066,55 @@ class RetailProvider extends ChangeNotifier {
 
   void clearCart() {
     _cart.clear();
+    _cartPricingModes.clear();
     _syncActiveCartSnapshot();
     notifyListeners();
   }
+
+  /// Get the pricing mode for a product in cart ('retail' or 'wholesale')
+  String getPricingModeForCartItem(String productId) {
+    return _cartPricingModes[productId] ?? 'retail';
+  }
+
+  /// Toggle pricing mode between retail and wholesale for a cart item
+  void togglePricingModeForCartItem(String productId) {
+    final currentMode = getPricingModeForCartItem(productId);
+    final newMode = currentMode == 'wholesale' ? 'retail' : 'wholesale';
+    setPricingModeForCartItem(productId, newMode);
+  }
+
+  /// Set pricing mode for a cart item
+  void setPricingModeForCartItem(String productId, String mode) {
+    if (mode == 'wholesale' || mode == 'retail') {
+      _cartPricingModes[productId] = mode;
+      notifyListeners();
+    }
+  }
+
+  /// Get the effective price for a product considering its pricing mode
+  double getEffectivePriceForCartItem(String productId) {
+    final product = _products.firstWhere(
+      (p) => p.id == productId,
+      orElse: () => Product(
+        id: productId,
+        name: 'Unknown',
+        price: 0,
+        stock: 0,
+        category: 'Unknown',
+      ),
+    );
+
+    final mode = getPricingModeForCartItem(productId);
+    
+    // If wholesale mode is selected and product has wholesale pricing, use it
+    if (mode == 'wholesale' && product.hasWholesalePricing && product.wholesalePrice != null) {
+      return product.wholesalePrice!;
+    }
+    
+    // Otherwise use retail price
+    return product.price;
+  }
+  
 
   // Checkout with Firestore updates
   // Returns true if the sale was stored offline (queued), false when successfully uploaded
@@ -1087,7 +1135,7 @@ class RetailProvider extends ChangeNotifier {
     if (activeCartEntries.isEmpty) return false;
 
     try {
-      // Compute subtotal applying any price overrides
+      // Compute subtotal applying any price overrides and pricing modes
       double subtotal = 0.0;
       for (final entry in activeCartEntries.entries) {
         final product = _products.firstWhere(
@@ -1100,9 +1148,10 @@ class RetailProvider extends ChangeNotifier {
             category: 'Unknown',
           ),
         );
+        // Use price overrides first, otherwise use effective price based on pricing mode
         final unitPrice = priceOverrides != null && priceOverrides.containsKey(entry.key)
             ? priceOverrides[entry.key]!
-            : product.price;
+            : getEffectivePriceForCartItem(entry.key);
         subtotal += unitPrice * entry.value;
       }
 
@@ -1126,12 +1175,8 @@ class RetailProvider extends ChangeNotifier {
           );
           final unitPrice = priceOverrides != null && priceOverrides.containsKey(e.key)
               ? priceOverrides[e.key]!
-              : product.price;
-          final pricingMode = product.hasWholesalePricing &&
-                  product.wholesalePrice != null &&
-                  (unitPrice - product.wholesalePrice!).abs() < 0.0001
-              ? 'wholesale'
-              : 'retail';
+              : getEffectivePriceForCartItem(e.key);
+          final pricingMode = getPricingModeForCartItem(e.key);
           return {
             'productId': e.key,
             'productName': product.name,

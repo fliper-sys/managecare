@@ -392,7 +392,7 @@ class _HomeTab extends StatefulWidget {
 
 class _HomeTabState extends State<_HomeTab> {
   late TextEditingController _searchController;
-  final List<_QuickActionItem> _allItems = _getQuickActionItems();
+  late List<_QuickActionItem> _allItems;
   late List<_QuickActionItem> _filteredItems;
 
   // Saved provider references (for safe use in async callbacks)
@@ -423,7 +423,13 @@ class _HomeTabState extends State<_HomeTab> {
   void initState() {
     super.initState();
     _searchController = TextEditingController();
+    
+    // Initialize quick action items based on current business type
+    final businessProvider = context.read<BusinessProvider>();
+    final businessType = businessProvider.currentBusiness?.businessType ?? 'retail';
+    _allItems = _getQuickActionItems(businessType);
     _filteredItems = _allItems;
+    
     _searchController.addListener(_filterItems);
 
     // Save references to providers for safe use in async callbacks
@@ -441,8 +447,7 @@ class _HomeTabState extends State<_HomeTab> {
       _loadSalesMetrics();
     });
     // Capture current business id to detect changes later
-    final bp = context.read<BusinessProvider>();
-    _lastBusinessId = bp.currentBusiness?.id;
+    _lastBusinessId = businessProvider.currentBusiness?.id;
   }
 
   @override
@@ -471,6 +476,9 @@ class _HomeTabState extends State<_HomeTab> {
         selectedBusiness: business,
       );
       await _handleRefresh();
+      
+      // Update quick action items for the new business type
+      _updateQuickActionItems();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -484,16 +492,26 @@ class _HomeTabState extends State<_HomeTab> {
     }
   }
 
+  void _updateQuickActionItems() {
+    final businessProvider = context.read<BusinessProvider>();
+    final businessType = businessProvider.currentBusiness?.businessType ?? 'retail';
+    setState(() {
+      _allItems = _getQuickActionItems(businessType);
+      _filteredItems = _allItems;
+    });
+  }
+
   void _filterItems() {
     final query = _searchController.text.toLowerCase();
     setState(() {
-      _filteredItems = query.isEmpty
-          ? _allItems
-          : _allItems
-              .where((item) =>
-                  item.title.toLowerCase().contains(query) ||
-                  item.subtitle.toLowerCase().contains(query))
-              .toList();
+      if (query.isEmpty) {
+        _filteredItems = _allItems;
+      } else {
+        _filteredItems = _allItems.where((item) {
+          return item.title.toLowerCase().contains(query) ||
+                 item.subtitle.toLowerCase().contains(query);
+        }).toList();
+      }
     });
   }
 
@@ -2411,56 +2429,19 @@ class _HomeTabState extends State<_HomeTab> {
     }
   }
 
-  static List<_QuickActionItem> _getQuickActionItems() {
-    return [
+  static List<_QuickActionItem> _getQuickActionItems([String? businessType]) {
+    final type = (businessType?.toLowerCase() ?? 'retail')
+        .replaceAll('_', '') // Remove underscores
+        .replaceAll(' ', ''); // Remove spaces
+    
+    // Common items for all business types
+    final commonItems = [
       _QuickActionItem(
-        title: 'New Sale',
-        subtitle: 'Create transaction',
-        icon: Icons.point_of_sale_rounded,
-        color: Colors.green,
-        route: Routes.sales,
-      ),
-      _QuickActionItem(
-        title: 'Inventory',
-        subtitle: 'Manage products',
-        icon: Icons.inventory_2_rounded,
-        color: Colors.blue,
-        route: Routes.inventory,
-      ),
-      _QuickActionItem(
-        title: 'Low Stock',
-        subtitle: 'View alerts',
-        icon: Icons.warning_rounded,
-        color: Colors.orange,
-        route: Routes.lowStockProducts,
-      ),
-       _QuickActionItem(
-        title: 'Procurement',
-        subtitle: 'Manage inventory',
-        icon: Icons.shopping_cart_rounded,
-        color: Colors.teal,
-        route: Routes.procurement,
-      ),
-       _QuickActionItem(
-        title: 'Procurement History',
-        subtitle: 'View procurement logs',
-        icon: Icons.history_rounded,
-        color: const Color.fromARGB(255, 0, 60, 150),
-        route: Routes.procurementHistory,
-      ),
-       _QuickActionItem(
         title: 'Reports',
         subtitle: 'View analytics',
         icon: Icons.analytics_rounded,
         color: Colors.cyan,
         route: Routes.reports,
-      ),
-        _QuickActionItem(
-        title: 'Expenses',
-        subtitle: 'Document expenses',
-        icon: Icons.shop_rounded,
-        color: Colors.brown,
-        route: Routes.expenseReport,
       ),
       _QuickActionItem(
         title: 'Advanced Analytics',
@@ -2511,28 +2492,587 @@ class _HomeTabState extends State<_HomeTab> {
         color: Colors.red,
         route: Routes.notifications,
       ),
-      _QuickActionItem(
-        title: 'Installation',
-        subtitle: 'Request product installation',
-        icon: Icons.build_rounded,
-        color: Colors.deepPurple,
-        route: Routes.productInstallation,
-      ),
-      _QuickActionItem(
-        title: 'Upload Receipt',
-        subtitle: 'Attach installation payment',
-        icon: Icons.upload_file_rounded,
-        color: Colors.teal,
-        route: Routes.installationReceiptUpload,
-      ),
-      _QuickActionItem(
-        title: 'My Installations',
-        subtitle: 'View your requests',
-        icon: Icons.history_rounded,
-        color: Colors.indigo,
-        route: Routes.installationRequestsMy,
-      ),
     ];
+
+    // Business-specific items
+    switch (type) {
+      case 'realestate':
+        return [
+          _QuickActionItem(
+            title: 'Properties',
+            subtitle: 'Manage properties',
+            icon: Icons.apartment_rounded,
+            color: Colors.blue,
+            route: Routes.realEstateProperties,
+          ),
+          _QuickActionItem(
+            title: 'Tenants',
+            subtitle: 'Manage tenants',
+            icon: Icons.people_rounded,
+            color: Colors.green,
+            route: Routes.realEstateTenants,
+          ),
+          _QuickActionItem(
+            title: 'Leases',
+            subtitle: 'Lease management',
+            icon: Icons.description_rounded,
+            color: Colors.orange,
+            route: Routes.realEstateLeases,
+          ),
+          _QuickActionItem(
+            title: 'Rent Collection',
+            subtitle: 'Collect payments',
+            icon: Icons.attach_money_rounded,
+            color: Colors.teal,
+            route: Routes.realEstateRentCollection,
+          ),
+          _QuickActionItem(
+            title: 'Maintenance',
+            subtitle: 'Manage tickets',
+            icon: Icons.build_rounded,
+            color: Colors.red,
+            route: Routes.realEstateMaintenance,
+          ),
+          _QuickActionItem(
+            title: 'Documents',
+            subtitle: 'Property documents',
+            icon: Icons.folder_rounded,
+            color: Colors.purple,
+            route: Routes.realEstateDocuments,
+          ),
+          ...commonItems,
+        ];
+
+      case 'apartment':
+        return [
+          _QuickActionItem(
+            title: 'Units',
+            subtitle: 'Manage units',
+            icon: Icons.home_rounded,
+            color: Colors.blue,
+            route: Routes.apartmentUnits,
+          ),
+          _QuickActionItem(
+            title: 'Bookings',
+            subtitle: 'Unit bookings',
+            icon: Icons.calendar_today_rounded,
+            color: Colors.green,
+            route: Routes.apartmentBookings,
+          ),
+          _QuickActionItem(
+            title: 'Create Booking',
+            subtitle: 'New reservation',
+            icon: Icons.add_rounded,
+            color: Colors.orange,
+            route: Routes.apartmentCreateBooking,
+          ),
+          ...commonItems,
+        ];
+
+      case 'pharmacy':
+        return [
+          _QuickActionItem(
+            title: 'Prescriptions',
+            subtitle: 'Manage prescriptions',
+            icon: Icons.medical_services_rounded,
+            color: Colors.blue,
+            route: Routes.pharmacyPrescriptions,
+          ),
+          _QuickActionItem(
+            title: 'Drug Inventory',
+            subtitle: 'Manage drugs',
+            icon: Icons.inventory_2_rounded,
+            color: Colors.green,
+            route: Routes.pharmacyDrugInventory,
+          ),
+          _QuickActionItem(
+            title: 'Patients',
+            subtitle: 'Patient records',
+            icon: Icons.people_rounded,
+            color: Colors.purple,
+            route: Routes.pharmacyPatients,
+          ),
+          _QuickActionItem(
+            title: 'POS',
+            subtitle: 'Point of sale',
+            icon: Icons.point_of_sale_rounded,
+            color: Colors.teal,
+            route: Routes.pharmacyPos,
+          ),
+          _QuickActionItem(
+            title: 'Expiry Tracker',
+            subtitle: 'Track expiries',
+            icon: Icons.schedule_rounded,
+            color: Colors.red,
+            route: Routes.pharmacyExpiryTracker,
+          ),
+          ...commonItems,
+        ];
+
+      case 'agri':
+      case 'agriculture':
+        return [
+          _QuickActionItem(
+            title: 'Farms',
+            subtitle: 'Manage farms',
+            icon: Icons.agriculture_rounded,
+            color: Colors.green,
+            route: Routes.agriFarms,
+          ),
+          _QuickActionItem(
+            title: 'Livestock',
+            subtitle: 'Animal management',
+            icon: Icons.pets_rounded,
+            color: Colors.brown,
+            route: Routes.agriLivestock,
+          ),
+          _QuickActionItem(
+            title: 'Crops',
+            subtitle: 'Crop tracking',
+            icon: Icons.grass_rounded,
+            color: Colors.orange,
+            route: Routes.agriCrops,
+          ),
+          _QuickActionItem(
+            title: 'Harvest',
+            subtitle: 'Harvest records',
+            icon: Icons.celebration_rounded,
+            color: Colors.amber,
+            route: Routes.agriHarvest,
+          ),
+          _QuickActionItem(
+            title: 'Inputs',
+            subtitle: 'Farm supplies',
+            icon: Icons.shopping_cart_rounded,
+            color: Colors.teal,
+            route: Routes.agriInputs,
+          ),
+          _QuickActionItem(
+            title: 'Weather',
+            subtitle: 'Weather data',
+            icon: Icons.wb_sunny_rounded,
+            color: Colors.blue,
+            route: Routes.agriWeather,
+          ),
+          ...commonItems,
+        ];
+
+      case 'auto':
+      case 'autorepair':
+        return [
+          _QuickActionItem(
+            title: 'Service Orders',
+            subtitle: 'Manage orders',
+            icon: Icons.build_rounded,
+            color: Colors.blue,
+            route: Routes.autoServiceOrders,
+          ),
+          _QuickActionItem(
+            title: 'Job Cards',
+            subtitle: 'Service jobs',
+            icon: Icons.assignment_rounded,
+            color: Colors.orange,
+            route: Routes.autoJobCards,
+          ),
+          _QuickActionItem(
+            title: 'Vehicle History',
+            subtitle: 'Vehicle records',
+            icon: Icons.directions_car_rounded,
+            color: Colors.green,
+            route: Routes.autoVehicleHistory,
+          ),
+          _QuickActionItem(
+            title: 'Parts Inventory',
+            subtitle: 'Manage parts',
+            icon: Icons.inventory_2_rounded,
+            color: Colors.teal,
+            route: Routes.autoPartsInventory,
+          ),
+          _QuickActionItem(
+            title: 'Mechanic Schedule',
+            subtitle: 'Staff schedules',
+            icon: Icons.schedule_rounded,
+            color: Colors.purple,
+            route: Routes.autoMechanicSchedule,
+          ),
+          ...commonItems,
+        ];
+
+      case 'salon':
+        return [
+          _QuickActionItem(
+            title: 'Appointments',
+            subtitle: 'Manage bookings',
+            icon: Icons.calendar_today_rounded,
+            color: Colors.pink,
+            route: Routes.salonAppointments,
+          ),
+          _QuickActionItem(
+            title: 'Book Appointment',
+            subtitle: 'New booking',
+            icon: Icons.add_rounded,
+            color: Colors.green,
+            route: Routes.salonBookAppointment,
+          ),
+          _QuickActionItem(
+            title: 'Services',
+            subtitle: 'Service catalog',
+            icon: Icons.content_cut_rounded,
+            color: Colors.blue,
+            route: Routes.salonServices,
+          ),
+          _QuickActionItem(
+            title: 'Stylists',
+            subtitle: 'Manage staff',
+            icon: Icons.people_rounded,
+            color: Colors.purple,
+            route: Routes.salonStylists,
+          ),
+          _QuickActionItem(
+            title: 'Calendar',
+            subtitle: 'View schedule',
+            icon: Icons.calendar_view_month_rounded,
+            color: Colors.orange,
+            route: Routes.salonCalendar,
+          ),
+          _QuickActionItem(
+            title: 'Commission',
+            subtitle: 'Track earnings',
+            icon: Icons.attach_money_rounded,
+            color: Colors.teal,
+            route: Routes.salonCommission,
+          ),
+          ...commonItems,
+        ];
+
+      case 'barbershop':
+        return [
+          _QuickActionItem(
+            title: 'Appointments',
+            subtitle: 'Manage bookings',
+            icon: Icons.calendar_today_rounded,
+            color: Colors.blue,
+            route: Routes.barberShopAppointments,
+          ),
+          _QuickActionItem(
+            title: 'Services',
+            subtitle: 'Service catalog',
+            icon: Icons.content_cut_rounded,
+            color: Colors.green,
+            route: Routes.barberShopServices,
+          ),
+          _QuickActionItem(
+            title: 'Barbers',
+            subtitle: 'Manage staff',
+            icon: Icons.people_rounded,
+            color: Colors.purple,
+            route: Routes.barberShopBarbers,
+          ),
+          _QuickActionItem(
+            title: 'Commission',
+            subtitle: 'Track earnings',
+            icon: Icons.attach_money_rounded,
+            color: Colors.teal,
+            route: Routes.barberCommission,
+          ),
+          _QuickActionItem(
+            title: 'Payments',
+            subtitle: 'Payment history',
+            icon: Icons.payment_rounded,
+            color: Colors.orange,
+            route: Routes.barberShopPayments,
+          ),
+          ...commonItems,
+        ];
+
+      case 'hotel':
+        return [
+          _QuickActionItem(
+            title: 'Front Desk',
+            subtitle: 'Check-in/out',
+            icon: Icons.hotel_rounded,
+            color: Colors.blue,
+            route: Routes.hotelFrontDesk,
+          ),
+          _QuickActionItem(
+            title: 'Rooms',
+            subtitle: 'Room management',
+            icon: Icons.meeting_room_rounded,
+            color: Colors.green,
+            route: Routes.hotelRooms,
+          ),
+          _QuickActionItem(
+            title: 'Bookings',
+            subtitle: 'Manage reservations',
+            icon: Icons.calendar_today_rounded,
+            color: Colors.orange,
+            route: Routes.hotelBookings,
+          ),
+          _QuickActionItem(
+            title: 'Check-in',
+            subtitle: 'Guest arrival',
+            icon: Icons.login_rounded,
+            color: Colors.teal,
+            route: Routes.hotelCheckIn,
+          ),
+          _QuickActionItem(
+            title: 'Guests',
+            subtitle: 'Guest management',
+            icon: Icons.people_rounded,
+            color: Colors.purple,
+            route: Routes.hotelGuests,
+          ),
+          _QuickActionItem(
+            title: 'Housekeeping',
+            subtitle: 'Room cleaning',
+            icon: Icons.cleaning_services_rounded,
+            color: Colors.red,
+            route: Routes.hotelHousekeeping,
+          ),
+          ...commonItems,
+        ];
+
+      case 'restaurant':
+        return [
+          _QuickActionItem(
+            title: 'Tables',
+            subtitle: 'Table management',
+            icon: Icons.table_restaurant_rounded,
+            color: Colors.blue,
+            route: Routes.restaurantTables,
+          ),
+          _QuickActionItem(
+            title: 'Orders',
+            subtitle: 'Order management',
+            icon: Icons.restaurant_menu_rounded,
+            color: Colors.green,
+            route: Routes.restaurantOrders,
+          ),
+          _QuickActionItem(
+            title: 'Kitchen',
+            subtitle: 'Kitchen display',
+            icon: Icons.kitchen_rounded,
+            color: Colors.orange,
+            route: Routes.restaurantKitchen,
+          ),
+          _QuickActionItem(
+            title: 'Menu',
+            subtitle: 'Menu management',
+            icon: Icons.menu_book_rounded,
+            color: Colors.teal,
+            route: Routes.restaurantMenu,
+          ),
+          _QuickActionItem(
+            title: 'Reservations',
+            subtitle: 'Table bookings',
+            icon: Icons.calendar_today_rounded,
+            color: Colors.purple,
+            route: Routes.restaurantReservations,
+          ),
+          _QuickActionItem(
+            title: 'Waiters',
+            subtitle: 'Staff management',
+            icon: Icons.people_rounded,
+            color: Colors.red,
+            route: Routes.restaurantWaiters,
+          ),
+          ...commonItems,
+        ];
+
+      case 'drink':
+      case 'bar':
+        return [
+          _QuickActionItem(
+            title: 'POS',
+            subtitle: 'Point of sale',
+            icon: Icons.local_bar_rounded,
+            color: Colors.blue,
+            route: Routes.drinkPos,
+          ),
+          _QuickActionItem(
+            title: 'Inventory',
+            subtitle: 'Beverage stock',
+            icon: Icons.inventory_2_rounded,
+            color: Colors.green,
+            route: Routes.drinkInventory,
+          ),
+          _QuickActionItem(
+            title: 'Bottle Tracking',
+            subtitle: 'Track bottles',
+            icon: Icons.liquor_rounded,
+            color: Colors.orange,
+            route: Routes.drinkBottleTracking,
+          ),
+          _QuickActionItem(
+            title: 'Tabs',
+            subtitle: 'Customer tabs',
+            icon: Icons.account_balance_wallet_rounded,
+            color: Colors.teal,
+            route: Routes.drinkTabs,
+          ),
+          _QuickActionItem(
+            title: 'Menu',
+            subtitle: 'Cocktail menu',
+            icon: Icons.menu_book_rounded,
+            color: Colors.purple,
+            route: Routes.drinkMenu,
+          ),
+          ...commonItems,
+        ];
+
+      case 'gym':
+        return [
+          _QuickActionItem(
+            title: 'Members',
+            subtitle: 'Member management',
+            icon: Icons.fitness_center_rounded,
+            color: Colors.blue,
+            route: Routes.gymMembers,
+          ),
+          _QuickActionItem(
+            title: 'Trainers',
+            subtitle: 'Staff management',
+            icon: Icons.sports_rounded,
+            color: Colors.green,
+            route: Routes.gymTrainers,
+          ),
+          _QuickActionItem(
+            title: 'Memberships',
+            subtitle: 'Membership plans',
+            icon: Icons.card_membership_rounded,
+            color: Colors.orange,
+            route: Routes.gymMemberships,
+          ),
+          _QuickActionItem(
+            title: 'Classes',
+            subtitle: 'Class schedules',
+            icon: Icons.schedule_rounded,
+            color: Colors.teal,
+            route: Routes.gymClasses,
+          ),
+          _QuickActionItem(
+            title: 'Calendar',
+            subtitle: 'View schedule',
+            icon: Icons.calendar_view_month_rounded,
+            color: Colors.purple,
+            route: Routes.gymCalendar,
+          ),
+          _QuickActionItem(
+            title: 'Attendance',
+            subtitle: 'Track attendance',
+            icon: Icons.check_circle_rounded,
+            color: Colors.red,
+            route: Routes.gymAttendance,
+          ),
+          ...commonItems,
+        ];
+
+      case 'gas':
+        return [
+          _QuickActionItem(
+            title: 'Pump',
+            subtitle: 'Fuel dispensing',
+            icon: Icons.local_gas_station_rounded,
+            color: Colors.blue,
+            route: Routes.gasPump,
+          ),
+          _QuickActionItem(
+            title: 'Stock',
+            subtitle: 'Fuel inventory',
+            icon: Icons.inventory_2_rounded,
+            color: Colors.green,
+            route: Routes.gasStock,
+          ),
+          _QuickActionItem(
+            title: 'Sales History',
+            subtitle: 'Fuel sales',
+            icon: Icons.history_rounded,
+            color: Colors.orange,
+            route: Routes.gasSalesHistory,
+          ),
+          ...commonItems,
+        ];
+
+      case 'wholesale':
+        return [
+          _QuickActionItem(
+            title: 'Purchase Orders',
+            subtitle: 'Manage orders',
+            icon: Icons.shopping_cart_rounded,
+            color: Colors.blue,
+            route: Routes.wholesalePurchaseOrders,
+          ),
+          _QuickActionItem(
+            title: 'Transfers',
+            subtitle: 'Stock transfers',
+            icon: Icons.swap_horiz_rounded,
+            color: Colors.green,
+            route: Routes.wholesaleTransfers,
+          ),
+          _QuickActionItem(
+            title: 'Warehouses',
+            subtitle: 'Warehouse management',
+            icon: Icons.warehouse_rounded,
+            color: Colors.orange,
+            route: Routes.wholesaleWarehouses,
+          ),
+          _QuickActionItem(
+            title: 'POS',
+            subtitle: 'Point of sale',
+            icon: Icons.point_of_sale_rounded,
+            color: Colors.teal,
+            route: Routes.wholesalePos,
+          ),
+          ...commonItems,
+        ];
+
+      default: // retail and other businesses
+        return [
+          _QuickActionItem(
+            title: 'New Sale',
+            subtitle: 'Create transaction',
+            icon: Icons.point_of_sale_rounded,
+            color: Colors.green,
+            route: Routes.sales,
+          ),
+          _QuickActionItem(
+            title: 'Inventory',
+            subtitle: 'Manage products',
+            icon: Icons.inventory_2_rounded,
+            color: Colors.blue,
+            route: Routes.inventory,
+          ),
+          _QuickActionItem(
+            title: 'Low Stock',
+            subtitle: 'View alerts',
+            icon: Icons.warning_rounded,
+            color: Colors.orange,
+            route: Routes.lowStockProducts,
+          ),
+          _QuickActionItem(
+            title: 'Procurement',
+            subtitle: 'Manage inventory',
+            icon: Icons.shopping_cart_rounded,
+            color: Colors.teal,
+            route: Routes.procurement,
+          ),
+          _QuickActionItem(
+            title: 'Procurement History',
+            subtitle: 'View procurement logs',
+            icon: Icons.history_rounded,
+            color: const Color.fromARGB(255, 0, 60, 150),
+            route: Routes.procurementHistory,
+          ),
+          _QuickActionItem(
+            title: 'Expenses',
+            subtitle: 'Document expenses',
+            icon: Icons.shop_rounded,
+            color: Colors.brown,
+            route: Routes.expenseReport,
+          ),
+          ...commonItems,
+        ];
+    }
   }
 }
 
