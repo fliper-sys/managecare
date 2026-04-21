@@ -1,7 +1,7 @@
 name: business_manager
 description: A comprehensive business management app for multiple industries
 publish_to: 'none'
-version: 1.0.26+26
+version: 1.0.27+27
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -105,6 +105,7 @@ dependencies:
   flutter_cache_manager: any
   http_parser: any
   mockito: ^5.4.4
+  cloud_functions: ^6.2.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

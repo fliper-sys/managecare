@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../data/repositories/worker_repository_impl.dart';
 
 class WorkersProvider with ChangeNotifier {
@@ -117,26 +118,13 @@ class WorkersProvider with ChangeNotifier {
     }
   }
 
-  /// Delete worker and cleanup related business documents
+  /// Delete worker completely including auth account
   Future<void> deleteWorker(String workerId, {String? businessId}) async {
     try {
-      await _repository.deleteWorker(workerId);
-
-      // Attempt to remove business-scoped copies
-      if (businessId != null && businessId.isNotEmpty) {
-        try {
-          await FirebaseFirestore.instance.collection('businesses').doc(businessId).collection('barbers').doc(workerId).delete();
-        } catch (_) {}
-        try {
-          await FirebaseFirestore.instance.collection('businesses').doc(businessId).collection('stylists').doc(workerId).delete();
-        } catch (_) {}
-      }
-
-      // Also try to remove a matching users document if it exists
-      try {
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(workerId).get();
-        if (userDoc.exists) await FirebaseFirestore.instance.collection('users').doc(workerId).delete();
-      } catch (_) {}
+      // Call Firebase Function to delete worker completely
+      final functions = FirebaseFunctions.instance;
+      final callable = functions.httpsCallable('deleteWorkerCompletely');
+      await callable.call({'workerId': workerId});
 
       // Refresh list for current business
       if (_businessId != null && _businessId!.isNotEmpty) {

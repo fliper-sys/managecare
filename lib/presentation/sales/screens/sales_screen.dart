@@ -70,6 +70,7 @@ class _SalesScreenState extends State<SalesScreen>
   bool _filterInStockOnly = false;
   String _productSort = 'none'; // 'none' | 'priceAsc' | 'priceDesc' | 'name'
   bool _isGridView = true; // Toggle between grid and list view
+  String _globalPricingMode = 'retail'; // 'retail' | 'wholesale' - global mode for all items
 
   // Save reference to RetailProvider for safe cleanup in dispose()
   late RetailProvider _retailProvider;
@@ -595,6 +596,25 @@ class _SalesScreenState extends State<SalesScreen>
     retail.renameCart(session.id, controller.text);
   }
 
+  void _toggleGlobalPricingMode(RetailProvider retail) {
+    setState(() {
+      _globalPricingMode = _globalPricingMode == 'retail' ? 'wholesale' : 'retail';
+    });
+    
+    // Update all cart items to the new global pricing mode
+    for (final product in retail.cartItems.keys) {
+      retail.setPricingModeForCartItem(product.id, _globalPricingMode);
+    }
+    
+    // Show feedback
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Switched to ${_globalPricingMode == 'wholesale' ? 'Wholesale' : 'Retail'} pricing'),
+        duration: const Duration(seconds: 1),
+      ),
+    );
+  }
+
   Widget _buildCartSessionStrip(BuildContext context, RetailProvider retail) {
     final sessions = retail.cartSessions;
     if (sessions.isEmpty) {
@@ -837,6 +857,21 @@ class _SalesScreenState extends State<SalesScreen>
             }
             return const SizedBox.shrink();
           }),
+          // Global pricing mode toggle
+          Consumer<RetailProvider>(
+            builder: (context, retail, _) => IconButton(
+              icon: Icon(
+                _globalPricingMode == 'wholesale' 
+                  ? Icons.business_center 
+                  : Icons.shopping_cart,
+                color: _globalPricingMode == 'wholesale' 
+                  ? Colors.orange 
+                  : null,
+              ),
+              tooltip: 'Toggle ${_globalPricingMode == 'retail' ? 'Wholesale' : 'Retail'} Mode',
+              onPressed: () => _toggleGlobalPricingMode(retail),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.history_rounded),
             onPressed: () {
@@ -1066,7 +1101,8 @@ class _SalesScreenState extends State<SalesScreen>
                     inStockOnly: _filterInStockOnly,
                     sortBy: _productSort,
                     isGridView: _isGridView,
-                    onAddToCart: (product) => retail.addToCart(product.id)),
+                    onAddToCart: (product) => retail.addToCart(product.id),
+                    globalPricingMode: _globalPricingMode),
 
                 // Cart Tab
                 _buildCartTab(retail),
@@ -1561,13 +1597,15 @@ class _ProductsGrid extends StatelessWidget {
   final String sortBy;
   final bool isGridView;
   final Function(Product) onAddToCart;
+  final String globalPricingMode;
 
   const _ProductsGrid(
       {required this.searchQuery,
       this.inStockOnly = false,
       this.sortBy = 'none',
       this.isGridView = true,
-      required this.onAddToCart});
+      required this.onAddToCart,
+      required this.globalPricingMode});
 
   @override
   Widget build(BuildContext context) {
@@ -1676,6 +1714,7 @@ class _ProductsGrid extends StatelessWidget {
               return _ProductCard(
                 product: product,
                 onAdd: () => onAddToCart(product),
+                globalPricingMode: globalPricingMode,
               );
             },
           );
@@ -1704,8 +1743,16 @@ class _ProductsGrid extends StatelessWidget {
 class _ProductCard extends StatelessWidget {
   final Product product;
   final VoidCallback onAdd;
+  final String globalPricingMode;
 
-  const _ProductCard({required this.product, required this.onAdd});
+  const _ProductCard({required this.product, required this.onAdd, required this.globalPricingMode});
+
+  double getEffectivePrice() {
+    if (globalPricingMode == 'wholesale' && product.hasWholesalePricing && product.wholesalePrice != null) {
+      return product.wholesalePrice!;
+    }
+    return product.price;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1782,7 +1829,7 @@ class _ProductCard extends StatelessWidget {
                   ),
                 const SizedBox(height: 4),
                 Text(
-                  '₦${product.price.toStringAsFixed(2)}',
+                  '₦${globalPricingMode == 'wholesale' && product.hasWholesalePricing && product.wholesalePrice != null ? product.wholesalePrice!.toStringAsFixed(2) : product.price.toStringAsFixed(2)}',
                   style: AppTextStyles.heading5.copyWith(
                     color: AppColors.success,
                   ),

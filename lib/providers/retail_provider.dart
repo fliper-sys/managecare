@@ -294,18 +294,10 @@ class RetailProvider extends ChangeNotifier {
 
   int get cartCount => _cart.values.fold(0, (a, b) => a + b);
 
+  Map<String, int> get cart => Map.unmodifiable(_cart);
+
   double get cartTotal => _cart.entries.fold(0.0, (sum, e) {
-        final p = _products.firstWhere(
-          (prod) => prod.id == e.key,
-          orElse: () => Product(
-            id: e.key,
-            name: 'Unknown',
-            price: 0,
-            stock: 0,
-            category: 'Unknown',
-          ),
-        );
-        return sum + p.price * e.value;
+        return sum + getEffectivePriceForCartItem(e.key) * e.value;
       });
 
   // final dynamic _printerService; // accepts any object implementing PrinterService for testability - UNUSED

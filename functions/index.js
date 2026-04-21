@@ -168,6 +168,82 @@ async function purgeUserCompletely(userId) {
   }
 }
 
+async function deleteWorkerCompletely(workerId, actorId) {
+  console.log('[deleteWorkerCompletely] Starting deletion of worker', workerId, 'by', actorId);
+
+  const workerRef = db.collection('workers').doc(workerId);
+  const userRef = db.collection('users').doc(workerId);
+
+  // Check if worker exists
+  const workerSnap = await workerRef.get();
+  if (!workerSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Worker not found');
+  }
+
+  const workerData = workerSnap.data() || {};
+  const businessId = workerData.businessId;
+
+  // Verify the actor has permission (is owner of the business)
+  if (businessId) {
+    const businessRef = db.collection('businesses').doc(businessId);
+    const businessSnap = await businessRef.get();
+    if (businessSnap.exists) {
+      const businessData = businessSnap.data() || {};
+      const ownerId = businessData.ownerId;
+      const ownerIds = businessData.ownerIds || [];
+
+      if (ownerId !== actorId && !ownerIds.includes(actorId)) {
+        throw new functions.https.HttpsError('permission-denied', 'Only business owners can delete workers');
+      }
+    }
+  }
+
+  // Delete Firestore documents
+  await recursiveDeleteSafe(userRef).catch((error) => {
+    console.error('[deleteWorkerCompletely] failed to delete user doc', workerId, error);
+  });
+  await recursiveDeleteSafe(workerRef).catch((error) => {
+    console.error('[deleteWorkerCompletely] failed to delete worker doc', workerId, error);
+  });
+
+  // Delete Firebase Auth user
+  try {
+    await admin.auth().deleteUser(workerId);
+    console.log('[deleteWorkerCompletely] Successfully deleted auth user', workerId);
+  } catch (error) {
+    if (error.code !== 'auth/user-not-found') {
+      console.error('[deleteWorkerCompletely] failed to delete auth user', workerId, error);
+      throw new functions.https.HttpsError('internal', 'Failed to delete user authentication');
+    }
+  }
+
+  return { success: true };
+}
+
+exports.deleteWorkerCompletely = functions.https.onCall(async (data, context) => {
+  // Check if user is authenticated
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const workerId = data.workerId;
+  if (!workerId || typeof workerId !== 'string') {
+    throw new functions.https.HttpsError('invalid-argument', 'workerId is required');
+  }
+
+  const actorId = context.auth.uid;
+
+  try {
+    return await deleteWorkerCompletely(workerId, actorId);
+  } catch (error) {
+    console.error('[deleteWorkerCompletely] Error:', error);
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    throw new functions.https.HttpsError('internal', 'Failed to delete worker');
+  }
+});
+
 exports.onPaymentTransactionCreate = functions.firestore
   .document('payment_transactions/{txId}')
   .onCreate(async (snap, context) => {
