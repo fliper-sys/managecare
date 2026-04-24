@@ -405,6 +405,14 @@ class _HomeTabState extends State<_HomeTab> {
   double _todayRevenue = 0.0;
   bool _loadingSalesMetrics = true;
 
+  // Real estate metrics state
+  int _totalProperties = 0;
+  int _occupiedUnits = 0;
+  int _vacantUnits = 0;
+  int _overdueRents = 0;
+  double _monthlyRentCollection = 0.0;
+  bool _loadingRealEstateMetrics = true;
+
   // Counts (customers & workers)
   int _customersCount = 0;
   int _workersCount = 0;
@@ -414,7 +422,7 @@ class _HomeTabState extends State<_HomeTab> {
   late DateTimeRange _selectedDateRange;
   String? _lastBusinessId;
   bool _isLoadingMetrics = false; // Prevent simultaneous loads
-  
+
   // Debounce timer for sales metrics loading
   Timer? _metricsDebounceTimer;
   static const Duration _metricsDebounceInterval = Duration(milliseconds: 800);
@@ -423,13 +431,14 @@ class _HomeTabState extends State<_HomeTab> {
   void initState() {
     super.initState();
     _searchController = TextEditingController();
-    
+
     // Initialize quick action items based on current business type
     final businessProvider = context.read<BusinessProvider>();
-    final businessType = businessProvider.currentBusiness?.businessType ?? 'retail';
+    final businessType =
+        businessProvider.currentBusiness?.businessType ?? 'retail';
     _allItems = _getQuickActionItems(businessType);
     _filteredItems = _allItems;
-    
+
     _searchController.addListener(_filterItems);
 
     // Save references to providers for safe use in async callbacks
@@ -476,7 +485,7 @@ class _HomeTabState extends State<_HomeTab> {
         selectedBusiness: business,
       );
       await _handleRefresh();
-      
+
       // Update quick action items for the new business type
       _updateQuickActionItems();
 
@@ -494,7 +503,8 @@ class _HomeTabState extends State<_HomeTab> {
 
   void _updateQuickActionItems() {
     final businessProvider = context.read<BusinessProvider>();
-    final businessType = businessProvider.currentBusiness?.businessType ?? 'retail';
+    final businessType =
+        businessProvider.currentBusiness?.businessType ?? 'retail';
     setState(() {
       _allItems = _getQuickActionItems(businessType);
       _filteredItems = _allItems;
@@ -509,7 +519,7 @@ class _HomeTabState extends State<_HomeTab> {
       } else {
         _filteredItems = _allItems.where((item) {
           return item.title.toLowerCase().contains(query) ||
-                 item.subtitle.toLowerCase().contains(query);
+              item.subtitle.toLowerCase().contains(query);
         }).toList();
       }
     });
@@ -535,35 +545,23 @@ class _HomeTabState extends State<_HomeTab> {
     try {
       _isLoadingMetrics = true;
       final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+      final businessType = context
+              .read<BusinessProvider>()
+              .currentBusiness
+              ?.businessType
+              ?.toLowerCase() ??
+          'retail';
 
       if (businessId == null) {
         print('[Dashboard] No business ID found');
         return;
       }
 
-      final repo = AnalyticsRepositoryImpl(
-        firestore: FirebaseFirestore.instance,
-      );
-
-      // Use selected date range
-      final analytics = await repo.getSalesAnalytics(
-        businessId,
-        startDate: _selectedDateRange.start,
-        endDate: _selectedDateRange.end,
-      );
-
-      if (mounted) {
-        setState(() {
-          _todaySales = (analytics?['totalSales'] as num?)?.toDouble() ?? 0.0;
-          _todayTransactions =
-              (analytics?['totalTransactions'] as num?)?.toInt() ?? 0;
-          _todayRevenue = _todaySales;
-          _loadingSalesMetrics = false;
-          // Keep counts loading until we fetch them below
-          _loadingCounts = true;
-          print(
-              '[Dashboard] Sales loaded for range ${_selectedDateRange.start} - ${_selectedDateRange.end}: ₦$_todaySales, Transactions: $_todayTransactions');
-        });
+      // Check if this is a real estate business
+      if (businessType == 'realestate' || businessType == 'real estate') {
+        await _loadRealEstateMetrics(businessId);
+      } else {
+        await _loadRetailMetrics(businessId);
       }
 
       // Fetch customers and workers counts (use providers that already cache/refresh per business)
@@ -589,14 +587,104 @@ class _HomeTabState extends State<_HomeTab> {
         }
       }
     } catch (e) {
-      print('[Dashboard] Error loading sales metrics: $e');
+      print('[Dashboard] Error loading metrics: $e');
       if (mounted) {
         setState(() {
           _loadingSalesMetrics = false;
+          _loadingRealEstateMetrics = false;
         });
       }
     } finally {
       _isLoadingMetrics = false;
+    }
+  }
+
+  Future<void> _loadRetailMetrics(String businessId) async {
+    final repo = AnalyticsRepositoryImpl(
+      firestore: FirebaseFirestore.instance,
+    );
+
+    // Use selected date range
+    final analytics = await repo.getSalesAnalytics(
+      businessId,
+      startDate: _selectedDateRange.start,
+      endDate: _selectedDateRange.end,
+    );
+
+    if (mounted) {
+      setState(() {
+        _todaySales = (analytics?['totalSales'] as num?)?.toDouble() ?? 0.0;
+        _todayTransactions =
+            (analytics?['totalTransactions'] as num?)?.toInt() ?? 0;
+        _todayRevenue = _todaySales;
+        _loadingSalesMetrics = false;
+        print(
+            '[Dashboard] Retail metrics loaded for range ${_selectedDateRange.start} - ${_selectedDateRange.end}: ₦$_todaySales, Transactions: $_todayTransactions');
+      });
+    }
+  }
+
+  Future<void> _loadRealEstateMetrics(String businessId) async {
+    try {
+      final realEstateProvider = context.read<RealEstateProvider>();
+
+      // Load real estate data
+      await realEstateProvider.loadAll();
+
+      final properties = realEstateProvider.properties;
+      final rentPayments = realEstateProvider.rentPayments;
+      final leases = realEstateProvider.leases;
+
+      // Calculate metrics
+      final totalProperties = properties.length;
+      final occupiedUnits = properties
+          .where((p) => p.status == 'rented' || p.status == 'sold')
+          .length;
+      final vacantUnits =
+          properties.where((p) => p.status == 'available').length;
+
+      // Calculate overdue rents (payments that are past due)
+      final now = DateTime.now();
+      final overdueRents = leases.where((lease) {
+        // Check if lease is active and payment is overdue
+        // Since paymentFrequency is not in the model, we check if current date is past endDate
+        // or if there are pending payments in rentPayments for this lease that are past due
+        final hasPendingOverdue = rentPayments.any((p) =>
+            p.leaseId == lease.id &&
+            p.status != 'paid' &&
+            p.dueDate.isBefore(now));
+        return lease.status == 'active' &&
+            (lease.endDate.isBefore(now) || hasPendingOverdue);
+      }).length;
+
+      // Calculate monthly rent collection (sum of payments in current month)
+      final currentMonth = DateTime(now.year, now.month);
+      final nextMonth = DateTime(now.year, now.month + 1);
+      final monthlyRentCollection = rentPayments
+          .where((payment) =>
+              (payment.paidDate ?? payment.createdAt).isAfter(currentMonth) &&
+              (payment.paidDate ?? payment.createdAt).isBefore(nextMonth))
+          .fold<double>(0.0, (sum, payment) => sum + payment.amount);
+
+      if (mounted) {
+        setState(() {
+          _totalProperties = totalProperties;
+          _occupiedUnits = occupiedUnits;
+          _vacantUnits = vacantUnits;
+          _overdueRents = overdueRents;
+          _monthlyRentCollection = monthlyRentCollection;
+          _loadingRealEstateMetrics = false;
+          print(
+              '[Dashboard] Real estate metrics loaded: Properties: $totalProperties, Occupied: $occupiedUnits, Vacant: $vacantUnits, Overdue: $overdueRents, Monthly Collection: ₦$monthlyRentCollection');
+        });
+      }
+    } catch (e) {
+      print('[Dashboard] Error loading real estate metrics: $e');
+      if (mounted) {
+        setState(() {
+          _loadingRealEstateMetrics = false;
+        });
+      }
     }
   }
 
@@ -630,24 +718,35 @@ class _HomeTabState extends State<_HomeTab> {
       if (businessId.isNotEmpty) {
         // 🔥 OPTIMIZATION: Only update providers if business actually changed
         final businessIdChanged = _lastBusinessId != businessId;
-        
+
         if (businessIdChanged) {
-          print('[Dashboard] Business changed from $_lastBusinessId to $businessId, updating providers');
+          print(
+              '[Dashboard] Business changed from $_lastBusinessId to $businessId, updating providers');
           _lastBusinessId = businessId;
 
           // Update domain-specific providers ONLY on business change
           final setters = [
-            () => Future.sync(() => context.read<DrinkProvider>().setBusinessId(businessId)),
-            () => Future.sync(() => context.read<AgriProvider>().setBusinessId(businessId)),
-            () => Future.sync(() => context.read<AutoProvider>().setBusinessId(businessId)),
-            () => Future.sync(() => context.read<GymProvider>().setBusinessId(businessId)),
-            () => Future.sync(() => context.read<HotelProvider>().setBusinessId(businessId)),
-            () => Future.sync(() => context.read<PharmacyProvider>().setBusinessId(businessId)),
-            () => Future.sync(() => context.read<RetailProvider>().setBusinessId(businessId)),
-            () => Future.sync(() => context.read<SalonProvider>().setBusinessId(businessId)),
+            () => Future.sync(
+                () => context.read<DrinkProvider>().setBusinessId(businessId)),
+            () => Future.sync(
+                () => context.read<AgriProvider>().setBusinessId(businessId)),
+            () => Future.sync(
+                () => context.read<AutoProvider>().setBusinessId(businessId)),
+            () => Future.sync(
+                () => context.read<GymProvider>().setBusinessId(businessId)),
+            () => Future.sync(
+                () => context.read<HotelProvider>().setBusinessId(businessId)),
+            () => Future.sync(() =>
+                context.read<PharmacyProvider>().setBusinessId(businessId)),
+            () => Future.sync(
+                () => context.read<RetailProvider>().setBusinessId(businessId)),
+            () => Future.sync(
+                () => context.read<SalonProvider>().setBusinessId(businessId)),
             () => context.read<RealEstateProvider>().setBusinessId(businessId),
-            () => Future.sync(() => context.read<CustomerProvider>().setBusinessId(businessId)),
-            () => Future.sync(() => context.read<AnalyticsProvider>().setBusinessId(businessId)),
+            () => Future.sync(() =>
+                context.read<CustomerProvider>().setBusinessId(businessId)),
+            () => Future.sync(() =>
+                context.read<AnalyticsProvider>().setBusinessId(businessId)),
           ];
 
           for (final s in setters) {
@@ -656,7 +755,8 @@ class _HomeTabState extends State<_HomeTab> {
             } catch (_) {}
           }
         } else {
-          print('[Dashboard] Business unchanged ($businessId), skipping provider updates');
+          print(
+              '[Dashboard] Business unchanged ($businessId), skipping provider updates');
         }
 
         // Some providers have refresh methods (these don't need business ID passed)
@@ -708,7 +808,8 @@ class _HomeTabState extends State<_HomeTab> {
     final currentBusinessId = business?.id;
     if (_lastBusinessId != currentBusinessId && currentBusinessId != null) {
       _lastBusinessId = currentBusinessId;
-      print('[Dashboard] Business changed to $currentBusinessId, scheduling metrics reload');
+      print(
+          '[Dashboard] Business changed to $currentBusinessId, scheduling metrics reload');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _debouncedLoadSalesMetrics();
       });
@@ -752,13 +853,15 @@ class _HomeTabState extends State<_HomeTab> {
                     // 🔥 OPTIMIZATION: Debounce sales metrics reload on date change
                     _debouncedLoadSalesMetrics();
                   },
-                  initialRange: _selectedDateRange, backgroundColor: const Color.fromARGB(255, 31, 54, 104),
+                  initialRange: _selectedDateRange,
+                  backgroundColor: const Color.fromARGB(255, 31, 54, 104),
                 ).animate().fadeIn(duration: 500.ms, delay: 250.ms),
                 const SizedBox(height: 20),
 
                 // Quick Metrics
                 _buildQuickMetrics(
                   isDark,
+                  businessType: business.businessType,
                   sales: _todaySales,
                   transactions: _todayTransactions,
                   revenue: _todayRevenue,
@@ -766,6 +869,14 @@ class _HomeTabState extends State<_HomeTab> {
                   customersCount: isSwitchingBusiness ? 0 : _customersCount,
                   workersCount: isSwitchingBusiness ? 0 : _workersCount,
                   isLoadingCounts: _loadingCounts || isSwitchingBusiness,
+                  // Real estate metrics
+                  totalProperties: _totalProperties,
+                  occupiedUnits: _occupiedUnits,
+                  vacantUnits: _vacantUnits,
+                  overdueRents: _overdueRents,
+                  monthlyRentCollection: _monthlyRentCollection,
+                  isLoadingRealEstate:
+                      _loadingRealEstateMetrics || isSwitchingBusiness,
                 )
                     .animate()
                     .fadeIn(duration: 500.ms, delay: 300.ms)
@@ -794,7 +905,7 @@ class _HomeTabState extends State<_HomeTab> {
                   ),
                 ).animate().fadeIn(duration: 500.ms, delay: 400.ms),
                 const SizedBox(height: 12),
-                
+
                 // Build quick actions, allow dynamic insertion for Gas businesses
                 Builder(builder: (ctx) {
                   final bp = ctx.watch<BusinessProvider>();
@@ -883,7 +994,8 @@ class _HomeTabState extends State<_HomeTab> {
                           route: Routes.wholesaleTransfers,
                         ),
                       );
-                    } else if (businessType.contains('agri') || businessType.contains('agriculture')) {
+                    } else if (businessType.contains('agri') ||
+                        businessType.contains('agriculture')) {
                       // Agriculture specific actions
                       actions.insert(
                         0,
@@ -1015,7 +1127,8 @@ class _HomeTabState extends State<_HomeTab> {
                           route: Routes.restaurantTables,
                         ),
                       );
-                    } else if (businessType.contains('drink') || businessType.contains('bar')) {
+                    } else if (businessType.contains('drink') ||
+                        businessType.contains('bar')) {
                       // Bar/Drink specific actions
                       actions.insert(
                         0,
@@ -1037,7 +1150,8 @@ class _HomeTabState extends State<_HomeTab> {
                           route: Routes.drinkBottleTracking,
                         ),
                       );
-                    } else if (businessType.contains('real') && businessType.contains('estate')) {
+                    } else if (businessType.contains('real') &&
+                        businessType.contains('estate')) {
                       // Real Estate specific actions
                       actions.insert(
                         0,
@@ -1068,7 +1182,8 @@ class _HomeTabState extends State<_HomeTab> {
                           subtitle: 'Reserve unit',
                           icon: Icons.home,
                           color: AppColors.realEstate,
-                          route: Routes.ownerDashboard, // Navigate to main dashboard which will show apartment dashboard
+                          route: Routes
+                              .ownerDashboard, // Navigate to main dashboard which will show apartment dashboard
                         ),
                       );
                       actions.insert(
@@ -1078,7 +1193,8 @@ class _HomeTabState extends State<_HomeTab> {
                           subtitle: 'Manage properties',
                           icon: Icons.business,
                           color: AppColors.realEstate,
-                          route: Routes.ownerDashboard, // Navigate to main dashboard which will show apartment dashboard
+                          route: Routes
+                              .ownerDashboard, // Navigate to main dashboard which will show apartment dashboard
                         ),
                       );
                     } else if (businessType.contains('gym')) {
@@ -1172,9 +1288,8 @@ class _HomeTabState extends State<_HomeTab> {
                           ? 'Updating your workspace and syncing the latest business context.'
                           : 'Switch into the workspace you want to manage right now.',
                       style: AppTextStyles.body2.copyWith(
-                        color: isDark
-                            ? Colors.grey[400]
-                            : AppColors.textSecondary,
+                        color:
+                            isDark ? Colors.grey[400] : AppColors.textSecondary,
                       ),
                     ),
                   ],
@@ -1550,7 +1665,8 @@ class _HomeTabState extends State<_HomeTab> {
               );
             }
           },
-          icon: const Icon(Icons.add_business_rounded, color: AppColors.primary),
+          icon:
+              const Icon(Icons.add_business_rounded, color: AppColors.primary),
         ),
 
         // Notifications (moved to top-right)
@@ -1626,7 +1742,8 @@ class _HomeTabState extends State<_HomeTab> {
                   onTap: () => _searchController.clear(),
                   child: Icon(
                     Icons.close_rounded,
-                    color: AppColors.textSecondary.withAlpha((0.5 * 255).toInt()),
+                    color:
+                        AppColors.textSecondary.withAlpha((0.5 * 255).toInt()),
                     size: 20,
                   ),
                 )
@@ -1651,9 +1768,7 @@ class _HomeTabState extends State<_HomeTab> {
     final surfaceOverlay = isDark ? 0.10 : 0.08;
     final daysLeft = business.subscriptionEndDate == null
         ? null
-        : (business.subscriptionEndDate!
-                .difference(DateTime.now())
-                .inDays)
+        : (business.subscriptionEndDate!.difference(DateTime.now()).inDays)
             .clamp(0, 999);
 
     return GestureDetector(
@@ -1721,7 +1836,8 @@ class _HomeTabState extends State<_HomeTab> {
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.14),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white.withOpacity(0.16)),
+                        border:
+                            Border.all(color: Colors.white.withOpacity(0.16)),
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(18),
@@ -2073,10 +2189,10 @@ class _HomeTabState extends State<_HomeTab> {
 
   Future<void> _launchBusinessWebsite(String website) async {
     final trimmed = website.trim();
-    final normalized = trimmed.startsWith('http://') ||
-            trimmed.startsWith('https://')
-        ? trimmed
-        : 'https://$trimmed';
+    final normalized =
+        trimmed.startsWith('http://') || trimmed.startsWith('https://')
+            ? trimmed
+            : 'https://$trimmed';
     final uri = Uri.tryParse(normalized);
 
     if (uri != null && await canLaunchUrl(uri)) {
@@ -2092,6 +2208,7 @@ class _HomeTabState extends State<_HomeTab> {
 
   Widget _buildQuickMetrics(
     bool isDark, {
+    required String businessType,
     double sales = 0.0,
     int transactions = 0,
     double revenue = 0.0,
@@ -2099,9 +2216,100 @@ class _HomeTabState extends State<_HomeTab> {
     int customersCount = 0,
     int workersCount = 0,
     bool isLoadingCounts = false,
+    // Real estate metrics
+    int totalProperties = 0,
+    int occupiedUnits = 0,
+    int vacantUnits = 0,
+    int overdueRents = 0,
+    double monthlyRentCollection = 0.0,
+    bool isLoadingRealEstate = false,
   }) {
-    final averageTicket =
-        transactions > 0 ? revenue / transactions : 0.0;
+    final type = businessType.toLowerCase().replaceAll(' ', '');
+
+    if (type == 'realestate') {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: AppColors.border.withAlpha((0.5 * 255).toInt()),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha((0.05 * 255).toInt()),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isCompact = constraints.maxWidth < 560;
+            final cardWidth = isCompact
+                ? (constraints.maxWidth - 12) / 2
+                : (constraints.maxWidth - 24) / 3;
+
+            final cards = [
+              _buildMetricTile(
+                'Properties',
+                isLoadingRealEstate ? '...' : totalProperties.toString(),
+                Icons.apartment_rounded,
+                Colors.blue,
+                isDark,
+                route: Routes.realEstateProperties,
+              ),
+              _buildMetricTile(
+                'Occupied',
+                isLoadingRealEstate ? '...' : occupiedUnits.toString(),
+                Icons.home_rounded,
+                Colors.green,
+                isDark,
+                route: Routes.realEstateProperties,
+              ),
+              _buildMetricTile(
+                'Vacant',
+                isLoadingRealEstate ? '...' : vacantUnits.toString(),
+                Icons.home_work_rounded,
+                Colors.orange,
+                isDark,
+                route: Routes.realEstateProperties,
+              ),
+              _buildMetricTile(
+                'Overdue',
+                isLoadingRealEstate ? '...' : overdueRents.toString(),
+                Icons.warning_rounded,
+                Colors.red,
+                isDark,
+                route: Routes.realEstateRentCollection,
+              ),
+              _buildMetricTile(
+                'Monthly Rent',
+                isLoadingRealEstate
+                    ? '...'
+                    : formatCurrency(monthlyRentCollection),
+                Icons.attach_money_rounded,
+                Colors.teal,
+                isDark,
+                route: Routes.realEstateRentCollection,
+              ),
+            ];
+
+            return Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: cards
+                  .map((card) => SizedBox(width: cardWidth, child: card))
+                  .toList(),
+            );
+          },
+        ),
+      );
+    }
+
+    // Default retail metrics
+    final averageTicket = transactions > 0 ? revenue / transactions : 0.0;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -2252,8 +2460,8 @@ class _HomeTabState extends State<_HomeTab> {
             mainAxisSize: MainAxisSize.max,
             children: [
               Text(value,
-                  style: AppTextStyles.caption
-                      .copyWith(color: Colors.white, fontWeight: FontWeight.w800)),
+                  style: AppTextStyles.caption.copyWith(
+                      color: Colors.white, fontWeight: FontWeight.w800)),
               const SizedBox(width: 6),
               Flexible(
                 child: Text(label,
@@ -2268,7 +2476,8 @@ class _HomeTabState extends State<_HomeTab> {
     );
   }
 
-  Widget _buildQuickActionsGrid(bool isDark, [List<_QuickActionItem>? actions]) {
+  Widget _buildQuickActionsGrid(bool isDark,
+      [List<_QuickActionItem>? actions]) {
     final list = actions ?? _filteredItems;
     return GridView.builder(
       shrinkWrap: true,
@@ -2294,7 +2503,9 @@ class _HomeTabState extends State<_HomeTab> {
           color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey.withOpacity(0.15),
+            color: isDark
+                ? Colors.white.withOpacity(0.05)
+                : Colors.grey.withOpacity(0.15),
             width: 1,
           ),
           boxShadow: [
@@ -2310,7 +2521,7 @@ class _HomeTabState extends State<_HomeTab> {
           child: InkWell(
             onTap: () => Navigator.pushNamed(context, item.route),
             borderRadius: BorderRadius.circular(16),
-            splashColor: item.color.withOpacity(0.1),
+            splashColor: item.color.withOpacity(isDark ? 0.2 : 0.1),
             child: Padding(
               padding: const EdgeInsets.all(10),
               child: Column(
@@ -2319,7 +2530,7 @@ class _HomeTabState extends State<_HomeTab> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: item.color.withOpacity(0.1),
+                      color: item.color.withOpacity(isDark ? 0.15 : 0.1),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -2345,7 +2556,8 @@ class _HomeTabState extends State<_HomeTab> {
                     item.subtitle,
                     textAlign: TextAlign.center,
                     style: AppTextStyles.caption.copyWith(
-                      color: isDark ? Colors.grey[500] : AppColors.textSecondary,
+                      color:
+                          isDark ? Colors.grey[500] : AppColors.textSecondary,
                       fontSize: 10,
                       height: 1.2,
                     ),
@@ -2433,7 +2645,7 @@ class _HomeTabState extends State<_HomeTab> {
     final type = (businessType?.toLowerCase() ?? 'retail')
         .replaceAll('_', '') // Remove underscores
         .replaceAll(' ', ''); // Remove spaces
-    
+
     // Common items for all business types
     final commonItems = [
       _QuickActionItem(
@@ -3245,7 +3457,6 @@ class _MenuTabState extends State<_MenuTab> {
         print('[MenuTab] Loading GasDashboardScreen');
         screen = const GasDashboardScreen();
         break;
-
     }
 
     if (screen == null) {

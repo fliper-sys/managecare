@@ -110,6 +110,7 @@ class _LeaseFormState extends State<LeaseForm> {
         endDate: endDate,
         monthlyRent: _parseAmount(_monthlyRentCtrl.text),
         deposit: _parseAmount(_depositCtrl.text),
+        leaseType: widget.initial?.leaseType ?? 'monthly_rent',
         status: _selectedStatus,
         documentUrl: _documentCtrl.text.trim().isEmpty ? null : _documentCtrl.text.trim(),
         createdAt: widget.initial?.createdAt ?? DateTime.now(),

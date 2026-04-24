@@ -199,7 +199,7 @@ class WebEmailReceiptService {
       };
 
       return await _sendTemplateEmail(
-        template: 'order-email',
+        template: 'order',
         recipient: recipientEmail,
         subject: 'Order Confirmation #$orderId from $businessName',
         data: data,

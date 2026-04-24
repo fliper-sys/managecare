@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
@@ -7,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:business_manager/services/notification_service.dart';
 import 'package:business_manager/data/repositories/industry_specific/real_estate_repository.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:business_manager/services/email_service.dart';
 
 import '../../../../core/utils/datetime_utils.dart';
 import '../../../../services/device_logger_service.dart';
@@ -114,6 +116,7 @@ class Tenant {
   final String name;
   final String email;
   final String phone;
+  final String? whatsapp;
   final String? propertyId;
   final String? leaseId;
   final String status; // active, inactive
@@ -125,6 +128,7 @@ class Tenant {
     required this.name,
     required this.email,
     required this.phone,
+    this.whatsapp,
     this.propertyId,
     this.leaseId,
     required this.status,
@@ -137,6 +141,7 @@ class Tenant {
         name = json['name'] ?? '',
         email = json['email'] ?? '',
         phone = json['phone'] ?? '',
+        whatsapp = json['whatsapp'],
         propertyId = json['propertyId'],
         leaseId = json['leaseId'],
         status = json['status'] ?? 'active',
@@ -160,6 +165,7 @@ class Tenant {
         'name': name,
         'email': email,
         'phone': phone,
+        'whatsapp': whatsapp,
         'propertyId': propertyId,
         'leaseId': leaseId,
         'status': status,
@@ -176,6 +182,7 @@ class Lease {
   final DateTime endDate;
   final double monthlyRent;
   final double deposit;
+  final String leaseType; // short_let, monthly_rent, yearly_rent
   final String status; // active, expired, terminated
   final String? documentUrl;
   final DateTime createdAt;
@@ -188,6 +195,7 @@ class Lease {
     required this.endDate,
     required this.monthlyRent,
     required this.deposit,
+    required this.leaseType,
     required this.status,
     this.documentUrl,
     required this.createdAt,
@@ -201,6 +209,7 @@ class Lease {
         endDate = parseTimestamp(json['endDate']),
         monthlyRent = (json['monthlyRent'] ?? 0).toDouble(),
         deposit = (json['deposit'] ?? 0).toDouble(),
+        leaseType = json['leaseType'] ?? 'monthly_rent',
         status = json['status'] ?? 'active',
         documentUrl = json['documentUrl'],
         createdAt = json['createdAt'] is Timestamp
@@ -216,6 +225,7 @@ class Lease {
         endDate: DateTime.now(),
         monthlyRent: 0,
         deposit: 0,
+        leaseType: 'monthly_rent',
         status: 'active',
         createdAt: DateTime.now(),
       );
@@ -228,6 +238,7 @@ class Lease {
         'endDate': endDate,
         'monthlyRent': monthlyRent,
         'deposit': deposit,
+        'leaseType': leaseType,
         'status': status,
         'documentUrl': documentUrl,
         'createdAt': createdAt,
@@ -242,6 +253,7 @@ class RentPayment {
   final String paymentMethod;
   final DateTime dueDate;
   final DateTime? paidDate;
+  final int durationMonths; // Number of months this payment covers
   final String status; // pending, paid, overdue
   final String? receiptUrl;
   final DateTime createdAt;
@@ -254,6 +266,7 @@ class RentPayment {
     required this.paymentMethod,
     required this.dueDate,
     this.paidDate,
+    required this.durationMonths,
     required this.status,
     this.receiptUrl,
     required this.createdAt,
@@ -267,6 +280,7 @@ class RentPayment {
         paymentMethod = json['paymentMethod'] ?? 'transfer',
         dueDate = parseTimestamp(json['dueDate']),
         paidDate = json['paidDate'] != null ? parseTimestamp(json['paidDate']) : null,
+        durationMonths = json['durationMonths'] ?? 1,
         status = json['status'] ?? 'pending',
         receiptUrl = json['receiptUrl'],
         createdAt = parseTimestamp(json['createdAt']);
@@ -279,6 +293,7 @@ class RentPayment {
         'paymentMethod': paymentMethod,
         'dueDate': dueDate,
         'paidDate': paidDate,
+        'durationMonths': durationMonths,
         'status': status,
         'receiptUrl': receiptUrl,
         'createdAt': createdAt,
@@ -332,6 +347,7 @@ class DocumentItem {
   final String id;
   final String name;
   final String? propertyId;
+  final String? paymentId;
   final String? url;
   final DateTime createdAt;
 
@@ -339,6 +355,7 @@ class DocumentItem {
       {required this.id,
       required this.name,
       this.propertyId,
+      this.paymentId,
       this.url,
       required this.createdAt});
 
@@ -346,6 +363,7 @@ class DocumentItem {
       : id = json['id'] ?? '',
         name = json['name'] ?? '',
         propertyId = json['propertyId'],
+        paymentId = json['paymentId'],
         url = json['url'],
         createdAt = parseTimestamp(json['createdAt']);
 
@@ -353,6 +371,7 @@ class DocumentItem {
         'id': id,
         'name': name,
         'propertyId': propertyId,
+        'paymentId': paymentId,
         'url': url,
         'createdAt': createdAt
       };
@@ -395,6 +414,7 @@ class InventoryItem {
 
 class RealEstateProvider extends ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final EmailService _emailService = EmailService();
   late Dio _dio;
 
   String _businessId; // Setable for compatibility
@@ -1016,6 +1036,7 @@ class RealEstateProvider extends ChangeNotifier {
         name: tenant.name,
         email: tenant.email,
         phone: tenant.phone,
+        whatsapp: tenant.whatsapp,
         propertyId: tenant.propertyId,
         leaseId: tenant.leaseId,
         status: tenant.status,
@@ -1026,6 +1047,7 @@ class RealEstateProvider extends ChangeNotifier {
       _tenants.add(t);
       _errorMessage = '';
       notifyListeners();
+      unawaited(_sendTenantWelcomeEmail(t));
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
@@ -1091,6 +1113,7 @@ class RealEstateProvider extends ChangeNotifier {
 
       _errorMessage = '';
       notifyListeners();
+      unawaited(_sendLeaseCreatedEmail(lease));
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
@@ -1161,6 +1184,7 @@ class RealEstateProvider extends ChangeNotifier {
           endDate: lease.endDate,
           monthlyRent: lease.monthlyRent,
           deposit: lease.deposit,
+          leaseType: lease.leaseType,
           status: status,
           documentUrl: lease.documentUrl,
           createdAt: lease.createdAt,
@@ -1238,6 +1262,9 @@ class RealEstateProvider extends ChangeNotifier {
       _rentPayments.add(payment);
       _errorMessage = '';
       notifyListeners();
+      if (payment.status.toLowerCase() == 'paid') {
+        unawaited(_sendRentReceiptEmail(payment));
+      }
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
@@ -1270,6 +1297,7 @@ class RealEstateProvider extends ChangeNotifier {
           paymentMethod: paymentMethod ?? p.paymentMethod,
           dueDate: p.dueDate,
           paidDate: paidDate ?? p.paidDate,
+          durationMonths: p.durationMonths,
           status: status,
           receiptUrl: receiptUrl ?? p.receiptUrl,
           createdAt: p.createdAt,
@@ -1280,6 +1308,7 @@ class RealEstateProvider extends ChangeNotifier {
             final nid = _computeNotificationIdForPayment(updated.id);
             await NotificationService.instance.cancelNotification(nid);
           } catch (_) {}
+          unawaited(_sendRentReceiptEmail(updated));
         }
         _errorMessage = '';
         notifyListeners();
@@ -1288,6 +1317,141 @@ class RealEstateProvider extends ChangeNotifier {
       _errorMessage = e.toString();
       notifyListeners();
     }
+  }
+
+  Future<void> _sendTenantWelcomeEmail(Tenant tenant) async {
+    try {
+      final recipient = tenant.email.trim();
+      if (recipient.isEmpty) return;
+
+      final businessContext = await _loadBusinessEmailContext();
+      await _emailService.sendTenantWelcomeEmail(
+        recipient,
+        {
+          'businessName': businessContext['businessName'] ?? 'Manage Care',
+          'tenantName': tenant.name,
+          'propertyTitle': _propertyTitleForId(tenant.propertyId),
+          'contactEmail': businessContext['businessEmail'],
+          'contactPhone': businessContext['businessPhone'],
+          'whatsapp': tenant.whatsapp,
+        },
+      );
+    } catch (e) {
+      debugPrint('Error sending tenant welcome email: $e');
+    }
+  }
+
+  Future<void> _sendLeaseCreatedEmail(Lease lease) async {
+    try {
+      final tenant = _tenantForId(lease.tenantId);
+      final recipient = tenant.email.trim();
+      if (recipient.isEmpty) return;
+
+      final propertyTitle = _propertyTitleForId(lease.propertyId);
+      final businessContext = await _loadBusinessEmailContext();
+
+      await _emailService.sendLeaseCreatedEmail(
+        recipient,
+        {
+          'businessName': businessContext['businessName'] ?? 'Manage Care',
+          'tenantName': tenant.name,
+          'propertyTitle':
+              propertyTitle.isNotEmpty ? propertyTitle : 'Assigned Property',
+          'leaseType': lease.leaseType,
+          'startDate': lease.startDate.toIso8601String(),
+          'endDate': lease.endDate.toIso8601String(),
+          'monthlyRent': lease.monthlyRent,
+          'deposit': lease.deposit,
+          'contactEmail': businessContext['businessEmail'],
+          'contactPhone': businessContext['businessPhone'],
+        },
+      );
+    } catch (e) {
+      debugPrint('Error sending lease created email: $e');
+    }
+  }
+
+  Future<void> _sendRentReceiptEmail(RentPayment payment) async {
+    try {
+      final tenant = _tenantForId(payment.tenantId);
+      final lease = _leaseForId(payment.leaseId);
+      final propertyTitle = _propertyTitleForId(lease.propertyId);
+      final businessContext = await _loadBusinessEmailContext();
+
+      final emailData = {
+        'businessName': businessContext['businessName'] ?? 'Manage Care',
+        'tenantName': tenant.name.isNotEmpty ? tenant.name : 'Tenant',
+        'propertyTitle':
+            propertyTitle.isNotEmpty ? propertyTitle : 'Assigned Property',
+        'amount': payment.amount,
+        'paymentMethod': payment.paymentMethod,
+        'paidDate': (payment.paidDate ?? DateTime.now()).toIso8601String(),
+        'durationMonths': payment.durationMonths,
+        'nextDueDate': payment.dueDate
+            .add(Duration(days: 30 * (payment.durationMonths <= 0 ? 1 : payment.durationMonths)))
+            .toIso8601String(),
+        'receiptUrl': payment.receiptUrl,
+      };
+
+      final tenantEmail = tenant.email.trim();
+      if (tenantEmail.isNotEmpty) {
+        await _emailService.sendRentReceiptEmail(tenantEmail, emailData);
+      }
+
+      final businessEmail =
+          (businessContext['businessEmail']?.toString() ?? '').trim();
+      if (businessEmail.isNotEmpty &&
+          businessEmail.toLowerCase() != tenantEmail.toLowerCase()) {
+        await _emailService.sendRentReceiptEmail(businessEmail, emailData);
+      }
+    } catch (e) {
+      debugPrint('Error sending rent receipt email: $e');
+    }
+  }
+
+  Future<Map<String, String?>> _loadBusinessEmailContext() async {
+    try {
+      final doc = await _firestore.collection('businesses').doc(_businessId).get();
+      final data = doc.data() ?? <String, dynamic>{};
+      return {
+        'businessName':
+            data['name']?.toString().trim().isNotEmpty == true
+                ? data['name'].toString().trim()
+                : 'Manage Care',
+        'businessEmail': data['email']?.toString(),
+        'businessPhone': data['phone']?.toString(),
+      };
+    } catch (e) {
+      debugPrint('Error loading business email context: $e');
+      return {
+        'businessName': 'Manage Care',
+        'businessEmail': null,
+        'businessPhone': null,
+      };
+    }
+  }
+
+  Tenant _tenantForId(String tenantId) {
+    return _tenants.firstWhere(
+      (tenant) => tenant.id == tenantId,
+      orElse: Tenant.empty,
+    );
+  }
+
+  Lease _leaseForId(String leaseId) {
+    return _leases.firstWhere(
+      (lease) => lease.id == leaseId,
+      orElse: Lease.empty,
+    );
+  }
+
+  String _propertyTitleForId(String? propertyId) {
+    if (propertyId == null || propertyId.isEmpty) return '';
+    final property = _properties.firstWhere(
+      (item) => item.id == propertyId,
+      orElse: Property.empty,
+    );
+    return property.title;
   }
 
   // ==================== BOOKINGS ====================
@@ -1518,11 +1682,18 @@ class RealEstateProvider extends ChangeNotifier {
       final now = DateTime.now();
       for (final p in _rentPayments) {
         if (p.status == 'pending') {
+          // Find the lease to determine reminder timing based on lease type
+          final lease = _leases.firstWhere(
+            (l) => l.id == p.leaseId,
+            orElse: () => Lease.empty(),
+          );
+
+          final reminderDaysBefore = lease.leaseType == 'short_let' ? 1 : 30;
+          final notifyAt = p.dueDate.subtract(Duration(days: reminderDaysBefore));
           final days = p.dueDate.difference(now).inDays;
-          if (days >= 0 && days <= 7) {
-            final notifyAt = p.dueDate.subtract(const Duration(days: 1));
-            if (notifyAt.isAfter(now)) {
-              final id = _computeNotificationIdForPayment(p.id);
+
+          if (notifyAt.isAfter(now)) {
+            final id = _computeNotificationIdForPayment(p.id);
 
               // Schedule local notification for owner
               await NotificationService.instance.scheduleNotificationAt(
@@ -1533,20 +1704,20 @@ class RealEstateProvider extends ChangeNotifier {
                   at: notifyAt);
 
               // Also schedule push notification for owner
-              await _scheduleOwnerRentReminder(p, days);
+              await _scheduleOwnerRentReminder(p, days < 0 ? 0 : days);
 
               // Also schedule push notification if tenant has FCM token
-              await _schedulePushRentReminder(p, days);
+              await _schedulePushRentReminder(p, days < 0 ? 0 : days);
             }
           }
 
           // Send immediate notification for overdue payments
-          if (days < 0 && p.dueDate.isBefore(now.subtract(const Duration(days: 1)))) {
+          if (p.dueDate.isBefore(now.subtract(const Duration(days: 1)))) {
             await _sendOverdueRentNotification(p);
             await _sendOwnerOverdueNotification(p);
           }
         }
-      }
+
     } catch (e) {
       // ignore scheduling errors
     }
@@ -2018,4 +2189,3 @@ class RealEstateProvider extends ChangeNotifier {
     notifyListeners();
   }
 }
-

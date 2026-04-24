@@ -37,8 +37,10 @@ class _RealestateDashboardScreenState extends State<RealestateDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Real Estate Management'),
         elevation: 0,
@@ -265,9 +267,12 @@ class _RealestateDashboardScreenState extends State<RealestateDashboardScreen> {
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border, width: 1),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outline.withOpacity(0.28),
+              width: 1,
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.05),
@@ -470,9 +475,12 @@ class _RealestateDashboardScreenState extends State<RealestateDashboardScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.border, width: 1),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.28),
+                width: 1,
+              ),
             ),
             child: const Center(
               child: Text('No rent due in the next 7 days',
@@ -491,9 +499,11 @@ class _RealestateDashboardScreenState extends State<RealestateDashboardScreen> {
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outline.withOpacity(0.28),
+            ),
           ),
           child: Column(
             children: dueSoon.map((p) {
@@ -624,9 +634,12 @@ class _RealestateDashboardScreenState extends State<RealestateDashboardScreen> {
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border, width: 1),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outline.withOpacity(0.28),
+              width: 1,
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.05),
@@ -794,9 +807,12 @@ Widget _buildRecentActivitySection(RealEstateProvider provider) {
         const SizedBox(height: 12),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.border, width: 1),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outline.withOpacity(0.28),
+              width: 1,
+            ),
           ),
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -818,9 +834,12 @@ Widget _buildRecentActivitySection(RealEstateProvider provider) {
       const SizedBox(height: 12),
       Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border, width: 1),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outline.withOpacity(0.28),
+            width: 1,
+          ),
         ),
         child: Column(
           children: activities

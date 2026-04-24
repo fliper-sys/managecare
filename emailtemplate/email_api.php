@@ -41,6 +41,7 @@ if (empty($template) || empty($recipient)) {
 }
 
 $data = [];
+$providedEmailHtml = null;
 if (!empty($dataJson)) {
     $decoded = json_decode($dataJson, true);
     if (is_array($decoded)) {
@@ -68,86 +69,80 @@ if (!empty($data)) {
 
     // If caller provided a pre-rendered HTML block (emailHtml), prefer that and skip template lookup
     if (isset($data['emailHtml']) && is_string($data['emailHtml']) && trim($data['emailHtml']) !== '') {
-        $bodyHtml = $data['emailHtml'];
+        $providedEmailHtml = $data['emailHtml'];
     }
 }
 
-// Load templates from the master HTML file by extracting the named container
-$templateFile = __DIR__ . '/manage-care-email (1).html';
-if (!file_exists($templateFile)) {
-    http_response_code(500);
-    echo json_encode(["error" => "Templates file missing"]);
-    exit;
-}
-
-// Use DOMDocument to extract the element with id '{$template}-email'
-libxml_use_internal_errors(true);
-$dom = new DOMDocument();
-$htmlContent = file_get_contents($templateFile);
-// Ensure proper encoding
-$dom->loadHTML('<?xml encoding="utf-8" ?>' . $htmlContent);
-$xpath = new DOMXPath($dom);
-$id = $template . '-email';
-$nodeList = $xpath->query("//*[@id='$id']");
 $bodyHtml = '';
-if ($nodeList->length === 0) {
-    // Fallback: look for a PHP template file under templates/<template>.php
-    $phpTemplateFile = __DIR__ . '/templates/' . $template . '.php';
-    if (file_exists($phpTemplateFile)) {
-        // Make $data available to the template as variables
-        if (is_array($data)) extract($data, EXTR_SKIP);
-        ob_start();
-        include $phpTemplateFile;
-        $bodyHtml = ob_get_clean();
-    } else {
-        http_response_code(404);
-        echo json_encode(["error" => "Template not found: $template"]);
+if ($providedEmailHtml !== null) {
+    $bodyHtml = $providedEmailHtml;
+} else {
+    // Load templates from the master HTML file by extracting the named container
+    $templateFile = __DIR__ . '/manage-care-email (1).html';
+    if (!file_exists($templateFile)) {
+        http_response_code(500);
+        echo json_encode(["error" => "Templates file missing"]);
         exit;
     }
-} else {
-    $node = $nodeList->item(0);
 
-    // Helper to get inner HTML
-    function innerHTML($node) {
-        $doc = $node->ownerDocument;
-        $html = '';
-        foreach ($node->childNodes as $child) {
-            $html .= $doc->saveHTML($child);
+    // Use DOMDocument to extract the element with id '{$template}-email'
+    libxml_use_internal_errors(true);
+    $dom = new DOMDocument();
+    $htmlContent = file_get_contents($templateFile);
+    // Ensure proper encoding
+    $dom->loadHTML('<?xml encoding="utf-8" ?>' . $htmlContent);
+    $xpath = new DOMXPath($dom);
+    $id = substr($template, -6) === '-email' ? $template : $template . '-email';
+    $nodeList = $xpath->query("//*[@id='$id']");
+    if ($nodeList->length === 0) {
+        // Fallback: look for a PHP template file under templates/<template>.php
+        $phpTemplateFile = __DIR__ . '/templates/' . $template . '.php';
+        if (file_exists($phpTemplateFile)) {
+            // Make $data available to the template as variables
+            if (is_array($data)) extract($data, EXTR_SKIP);
+            ob_start();
+            include $phpTemplateFile;
+            $bodyHtml = ob_get_clean();
+        } else {
+            http_response_code(404);
+            echo json_encode(["error" => "Template not found: $template"]);
+            exit;
         }
-        return $html;
+    } else {
+        $node = $nodeList->item(0);
+
+        // Helper to get inner HTML
+        function innerHTML($node) {
+            $doc = $node->ownerDocument;
+            $html = '';
+            foreach ($node->childNodes as $child) {
+                $html .= $doc->saveHTML($child);
+            }
+            return $html;
+        }
+
+        $bodyHtml = innerHTML($node);
     }
 
-    $bodyHtml = innerHTML($node);
-}
+    // Use shared template renderer
+    require_once __DIR__ . '/template_renderer.php';
+    if (!empty($data) && is_array($data)) {
+        $bodyHtml = tpl_render($bodyHtml, $data);
+    }
 
-// Use shared template renderer
-require_once __DIR__ . '/template_renderer.php';
-if (!empty($data) && is_array($data)) {
-    $bodyHtml = tpl_render($bodyHtml, $data);
+    // Inline CSS from template head + any style blocks in the fragment
+    require_once __DIR__ . '/inline_styles.php';
+    $globalStyles = '';
+    $globalStyleTags = $dom->getElementsByTagName('style');
+    for ($i = 0; $i < $globalStyleTags->length; $i++) {
+        $globalStyles .= "\n" . $globalStyleTags->item($i)->nodeValue;
+    }
+    $bodyHtml = inline_css($bodyHtml, $globalStyles);
 }
-
-// Inline CSS from template head + any style blocks in the fragment
-require_once __DIR__ . '/inline_styles.php';
-$globalStyles = '';
-$globalStyleTags = $dom->getElementsByTagName('style');
-for ($i = 0; $i < $globalStyleTags->length; $i++) {
-    $globalStyles .= "\n" . $globalStyleTags->item($i)->nodeValue;
-}
-$bodyHtml = inline_css($bodyHtml, $globalStyles);
 
 // Default subject if none provided
 if (empty($subject)) {
     $subject = 'Message from Manage Care';
-}
-
-// Feature gating: Order success alerts are a Pro feature.
-if (in_array($template, ['order','order-success','order-email'])) {
-    $plan = isset($_POST['plan']) ? strtolower(trim($_POST['plan'])) : '';
-    if ($plan !== 'pro') {
-        http_response_code(403);
-        echo json_encode(["error" => "Order success alerts are a Pro feature. Set plan=pro to send this template."]);
-        exit;
-    }
 }
 
 // Handle attachments: store uploaded files into uploads/ and collect filesystem paths

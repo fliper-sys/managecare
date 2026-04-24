@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:business_manager/core/utils/datetime_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../data/models/user_model.dart';
+import 'email_service.dart';
 
 class SubscriptionPlan {
   final String id;
@@ -29,6 +32,7 @@ class SubscriptionPlan {
 
 class SubscriptionService {
   final FirebaseFirestore _firestore;
+  final EmailService _emailService;
 
   static const String familyStandard = 'standard';
   static const String familyKitchen = 'kitchen';
@@ -54,7 +58,8 @@ class SubscriptionService {
   }) {
     return SubscriptionPlan(
       id: '${family}_${tier}_$durationCode',
-      name: '${_familyLabel(family)} ${_tierLabel(tier)} (${_billingLabel(durationCode)})',
+      name:
+          '${_familyLabel(family)} ${_tierLabel(tier)} (${_billingLabel(durationCode)})',
       price: price,
       durationInDays: days,
       features: features,
@@ -105,39 +110,507 @@ class SubscriptionService {
   }
 
   static final List<SubscriptionPlan> plans = [
-    _plan(family: familyStandard, tier: 'tier1', durationCode: '3m', price: 23750.0, days: 90, features: ['1 store', '300 products', '2 workers'], limits: {'products': 300, 'workers': 2, 'locations': 1, 'branches': 0}),
-    _plan(family: familyStandard, tier: 'tier1', durationCode: '6m', price: 42750.0, days: 180, features: ['1 store', '300 products', '2 workers'], limits: {'products': 300, 'workers': 2, 'locations': 1, 'branches': 0}),
-    _plan(family: familyStandard, tier: 'tier1', durationCode: '12m', price: 76950.0, days: 365, features: ['1 store', '300 products', '2 workers'], limits: {'products': 300, 'workers': 2, 'locations': 1, 'branches': 0}),
-    _plan(family: familyStandard, tier: 'tier2', durationCode: '3m', price: 32050.0, days: 90, features: ['1 branch', '700 products', '3 workers'], limits: {'products': 700, 'workers': 3, 'locations': 2, 'branches': 1}),
-    _plan(family: familyStandard, tier: 'tier2', durationCode: '6m', price: 53780.0, days: 180, features: ['1 branch', '700 products', '3 workers'], limits: {'products': 700, 'workers': 3, 'locations': 2, 'branches': 1}),
-    _plan(family: familyStandard, tier: 'tier2', durationCode: '12m', price: 87450.0, days: 365, features: ['1 branch', '700 products', '3 workers'], limits: {'products': 700, 'workers': 3, 'locations': 2, 'branches': 1}),
-    _plan(family: familyStandard, tier: 'tier3', durationCode: '3m', price: 37900.0, days: 90, features: ['2 branches', '1000 products', '6 workers'], limits: {'products': 1000, 'workers': 6, 'locations': 3, 'branches': 2}),
-    _plan(family: familyStandard, tier: 'tier3', durationCode: '6m', price: 64650.0, days: 180, features: ['2 branches', '1000 products', '6 workers'], limits: {'products': 1000, 'workers': 6, 'locations': 3, 'branches': 2}),
-    _plan(family: familyStandard, tier: 'tier3', durationCode: '12m', price: 97900.0, days: 365, features: ['2 branches', '1000 products', '6 workers'], limits: {'products': 1000, 'workers': 6, 'locations': 3, 'branches': 2}),
-    _plan(family: familyStandard, tier: 'unlimited', durationCode: 'monthly', price: 25000.0, days: 30, features: ['Unlimited products', 'Unlimited workers', 'Unlimited branches'], limits: {'products': null, 'workers': null, 'locations': null, 'branches': null}),
-    _plan(family: familyStandard, tier: 'unlimited', durationCode: '3m', price: 67500.0, days: 90, features: ['Unlimited products', 'Unlimited workers', 'Unlimited branches'], limits: {'products': null, 'workers': null, 'locations': null, 'branches': null}),
-    _plan(family: familyKitchen, tier: 'tier1', durationCode: '3m', price: 23750.0, days: 90, features: ['10 tables', '15 meals', '15 inventory'], limits: {'tables': 10, 'workers': 5, 'menu_items': 15, 'inventory_products': 15, 'locations': 1, 'branches': 0}),
-    _plan(family: familyKitchen, tier: 'tier1', durationCode: '6m', price: 42750.0, days: 180, features: ['10 tables', '15 meals', '15 inventory'], limits: {'tables': 10, 'workers': 5, 'menu_items': 15, 'inventory_products': 15, 'locations': 1, 'branches': 0}),
-    _plan(family: familyKitchen, tier: 'tier1', durationCode: '12m', price: 76950.0, days: 365, features: ['10 tables', '15 meals', '15 inventory'], limits: {'tables': 10, 'workers': 5, 'menu_items': 15, 'inventory_products': 15, 'locations': 1, 'branches': 0}),
-    _plan(family: familyKitchen, tier: 'tier2', durationCode: '3m', price: 32050.0, days: 90, features: ['20 tables', '25 meals', '1 branch'], limits: {'tables': 20, 'workers': 10, 'menu_items': 25, 'inventory_products': 25, 'locations': 2, 'branches': 1}),
-    _plan(family: familyKitchen, tier: 'tier2', durationCode: '6m', price: 53780.0, days: 180, features: ['20 tables', '25 meals', '1 branch'], limits: {'tables': 20, 'workers': 10, 'menu_items': 25, 'inventory_products': 25, 'locations': 2, 'branches': 1}),
-    _plan(family: familyKitchen, tier: 'tier2', durationCode: '12m', price: 87450.0, days: 365, features: ['20 tables', '25 meals', '1 branch'], limits: {'tables': 20, 'workers': 10, 'menu_items': 25, 'inventory_products': 25, 'locations': 2, 'branches': 1}),
-    _plan(family: familyKitchen, tier: 'tier3', durationCode: '3m', price: 37900.0, days: 90, features: ['35 tables', 'VIP section', '2 branches'], limits: {'tables': 35, 'workers': 15, 'menu_items': 35, 'inventory_products': 40, 'locations': 3, 'branches': 2}),
-    _plan(family: familyKitchen, tier: 'tier3', durationCode: '6m', price: 64650.0, days: 180, features: ['35 tables', 'VIP section', '2 branches'], limits: {'tables': 35, 'workers': 15, 'menu_items': 35, 'inventory_products': 40, 'locations': 3, 'branches': 2}),
-    _plan(family: familyKitchen, tier: 'tier3', durationCode: '12m', price: 97900.0, days: 365, features: ['35 tables', 'VIP section', '2 branches'], limits: {'tables': 35, 'workers': 15, 'menu_items': 35, 'inventory_products': 40, 'locations': 3, 'branches': 2}),
-    _plan(family: familyKitchen, tier: 'unlimited', durationCode: 'monthly', price: 25000.0, days: 30, features: ['Unlimited access', 'Unlimited tables', 'Unlimited inventory'], limits: {'tables': null, 'workers': null, 'menu_items': null, 'inventory_products': null, 'locations': null, 'branches': null}),
-    _plan(family: familyKitchen, tier: 'unlimited', durationCode: '3m', price: 67500.0, days: 90, features: ['Unlimited access', 'Unlimited tables', 'Unlimited inventory'], limits: {'tables': null, 'workers': null, 'menu_items': null, 'inventory_products': null, 'locations': null, 'branches': null}),
-    _plan(family: familyLounge, tier: 'tier1', durationCode: 'monthly', price: 12850.0, days: 30, features: ['15 tables', '65 inventory', '7 workers'], limits: {'tables': 15, 'workers': 7, 'inventory_products': 65, 'locations': 1, 'branches': 0}),
-    _plan(family: familyLounge, tier: 'tier2', durationCode: 'monthly', price: 20560.0, days: 30, features: ['25 tables', '100 inventory', '1 branch'], limits: {'tables': 25, 'workers': 10, 'inventory_products': 100, 'locations': 2, 'branches': 1}),
-    _plan(family: familyLounge, tier: 'tier3', durationCode: 'monthly', price: 30840.0, days: 30, features: ['40 tables', '200 inventory', '2 branches'], limits: {'tables': 40, 'workers': 15, 'inventory_products': 200, 'locations': 3, 'branches': 2}),
-    _plan(family: familyLounge, tier: 'unlimited', durationCode: 'monthly', price: 37000.0, days: 30, features: ['Unlimited access', 'Unlimited tables', 'Unlimited inventory'], limits: {'tables': null, 'workers': null, 'inventory_products': null, 'locations': null, 'branches': null}),
-    _plan(family: familyHospitality, tier: 'tier1', durationCode: 'monthly', price: 14650.0, days: 30, features: ['15 rooms', '10 restaurant tables', '15 bar tables'], limits: {'rooms': 15, 'suites': 0, 'workers': 7, 'restaurant_tables': 10, 'bar_tables': 15, 'locations': 1, 'branches': 0}),
-    _plan(family: familyHospitality, tier: 'tier2', durationCode: 'monthly', price: 23350.0, days: 30, features: ['25 rooms + 5 suites', 'Hall access', '1 branch'], limits: {'rooms': 25, 'suites': 5, 'workers': 15, 'restaurant_tables': 20, 'bar_tables': 25, 'locations': 2, 'branches': 1}),
-    _plan(family: familyHospitality, tier: 'tier3', durationCode: 'monthly', price: 35750.0, days: 30, features: ['40 rooms + 10 suites', 'Pool access', '2 branches'], limits: {'rooms': 40, 'suites': 10, 'workers': 25, 'restaurant_tables': 30, 'bar_tables': 35, 'locations': 3, 'branches': 2}),
-    _plan(family: familyHospitality, tier: 'unlimited', durationCode: 'monthly', price: 45000.0, days: 30, features: ['Unlimited rooms', 'Unlimited workers', 'Unlimited features'], limits: {'rooms': null, 'suites': null, 'workers': null, 'restaurant_tables': null, 'bar_tables': null, 'locations': null, 'branches': null}),
+    _plan(
+        family: familyStandard,
+        tier: 'tier1',
+        durationCode: '3m',
+        price: 23750.0,
+        days: 90,
+        features: ['1 store', '300 products', '3 workers'],
+        limits: {'products': 300, 'workers': 3, 'locations': 1, 'branches': 0}),
+    _plan(
+        family: familyStandard,
+        tier: 'tier1',
+        durationCode: '6m',
+        price: 42750.0,
+        days: 180,
+        features: ['1 store', '300 products', '3 workers'],
+        limits: {'products': 300, 'workers': 3, 'locations': 1, 'branches': 0}),
+    _plan(
+        family: familyStandard,
+        tier: 'tier1',
+        durationCode: '12m',
+        price: 76950.0,
+        days: 365,
+        features: ['1 store', '300 products', '3 workers'],
+        limits: {'products': 300, 'workers': 3, 'locations': 1, 'branches': 0}),
+    _plan(
+        family: familyStandard,
+        tier: 'tier2',
+        durationCode: '3m',
+        price: 32050.0,
+        days: 90,
+        features: ['1 branch', '700 products', '5 workers'],
+        limits: {'products': 700, 'workers': 5, 'locations': 2, 'branches': 1}),
+    _plan(
+        family: familyStandard,
+        tier: 'tier2',
+        durationCode: '6m',
+        price: 53780.0,
+        days: 180,
+        features: ['1 branch', '700 products', '5 workers'],
+        limits: {'products': 700, 'workers': 5, 'locations': 2, 'branches': 1}),
+    _plan(
+        family: familyStandard,
+        tier: 'tier2',
+        durationCode: '12m',
+        price: 87450.0,
+        days: 365,
+        features: ['1 branch', '700 products', '5 workers'],
+        limits: {'products': 700, 'workers': 5, 'locations': 2, 'branches': 1}),
+    _plan(
+        family: familyStandard,
+        tier: 'tier3',
+        durationCode: '3m',
+        price: 37900.0,
+        days: 90,
+        features: [
+          '2 branches',
+          '1000 products',
+          '10 workers'
+        ],
+        limits: {
+          'products': 1000,
+          'workers': 10,
+          'locations': 3,
+          'branches': 2
+        }),
+    _plan(
+        family: familyStandard,
+        tier: 'tier3',
+        durationCode: '6m',
+        price: 64650.0,
+        days: 180,
+        features: [
+          '2 branches',
+          '1000 products',
+          '10 workers'
+        ],
+        limits: {
+          'products': 1000,
+          'workers': 10,
+          'locations': 3,
+          'branches': 2
+        }),
+    _plan(
+        family: familyStandard,
+        tier: 'tier3',
+        durationCode: '12m',
+        price: 97900.0,
+        days: 365,
+        features: [
+          '2 branches',
+          '1000 products',
+          '10 workers'
+        ],
+        limits: {
+          'products': 1000,
+          'workers': 10,
+          'locations': 3,
+          'branches': 2
+        }),
+    _plan(
+        family: familyStandard,
+        tier: 'unlimited',
+        durationCode: 'monthly',
+        price: 25000.0,
+        days: 30,
+        features: [
+          'Unlimited products',
+          'Unlimited workers',
+          'Unlimited branches'
+        ],
+        limits: {
+          'products': null,
+          'workers': null,
+          'locations': null,
+          'branches': null
+        }),
+    _plan(
+        family: familyStandard,
+        tier: 'unlimited',
+        durationCode: '3m',
+        price: 70000.0,
+        days: 90,
+        features: [
+          'Unlimited products',
+          'Unlimited workers',
+          'Unlimited branches'
+        ],
+        limits: {
+          'products': null,
+          'workers': null,
+          'locations': null,
+          'branches': null
+        }),
+    _plan(
+        family: familyKitchen,
+        tier: 'tier1',
+        durationCode: '3m',
+        price: 23750.0,
+        days: 90,
+        features: [
+          '10 tables',
+          '15 meals',
+          '15 inventory'
+        ],
+        limits: {
+          'tables': 10,
+          'workers': 5,
+          'menu_items': 15,
+          'inventory_products': 15,
+          'locations': 1,
+          'branches': 0
+        }),
+    _plan(
+        family: familyKitchen,
+        tier: 'tier1',
+        durationCode: '6m',
+        price: 42750.0,
+        days: 180,
+        features: [
+          '10 tables',
+          '15 meals',
+          '15 inventory'
+        ],
+        limits: {
+          'tables': 10,
+          'workers': 5,
+          'menu_items': 15,
+          'inventory_products': 15,
+          'locations': 1,
+          'branches': 0
+        }),
+    _plan(
+        family: familyKitchen,
+        tier: 'tier1',
+        durationCode: '12m',
+        price: 76950.0,
+        days: 365,
+        features: [
+          '10 tables',
+          '15 meals',
+          '15 inventory'
+        ],
+        limits: {
+          'tables': 10,
+          'workers': 5,
+          'menu_items': 15,
+          'inventory_products': 15,
+          'locations': 1,
+          'branches': 0
+        }),
+    _plan(
+        family: familyKitchen,
+        tier: 'tier2',
+        durationCode: '3m',
+        price: 32050.0,
+        days: 90,
+        features: [
+          '20 tables',
+          '25 meals',
+          '1 branch'
+        ],
+        limits: {
+          'tables': 20,
+          'workers': 10,
+          'menu_items': 25,
+          'inventory_products': 25,
+          'locations': 2,
+          'branches': 1
+        }),
+    _plan(
+        family: familyKitchen,
+        tier: 'tier2',
+        durationCode: '6m',
+        price: 53780.0,
+        days: 180,
+        features: [
+          '20 tables',
+          '25 meals',
+          '1 branch'
+        ],
+        limits: {
+          'tables': 20,
+          'workers': 10,
+          'menu_items': 25,
+          'inventory_products': 25,
+          'locations': 2,
+          'branches': 1
+        }),
+    _plan(
+        family: familyKitchen,
+        tier: 'tier2',
+        durationCode: '12m',
+        price: 87450.0,
+        days: 365,
+        features: [
+          '20 tables',
+          '25 meals',
+          '1 branch'
+        ],
+        limits: {
+          'tables': 20,
+          'workers': 10,
+          'menu_items': 25,
+          'inventory_products': 25,
+          'locations': 2,
+          'branches': 1
+        }),
+    _plan(
+        family: familyKitchen,
+        tier: 'tier3',
+        durationCode: '3m',
+        price: 37900.0,
+        days: 90,
+        features: [
+          '35 tables',
+          'VIP section',
+          '2 branches'
+        ],
+        limits: {
+          'tables': 35,
+          'workers': 15,
+          'menu_items': 35,
+          'inventory_products': 40,
+          'locations': 3,
+          'branches': 2
+        }),
+    _plan(
+        family: familyKitchen,
+        tier: 'tier3',
+        durationCode: '6m',
+        price: 64650.0,
+        days: 180,
+        features: [
+          '35 tables',
+          'VIP section',
+          '2 branches'
+        ],
+        limits: {
+          'tables': 35,
+          'workers': 15,
+          'menu_items': 35,
+          'inventory_products': 40,
+          'locations': 3,
+          'branches': 2
+        }),
+    _plan(
+        family: familyKitchen,
+        tier: 'tier3',
+        durationCode: '12m',
+        price: 97900.0,
+        days: 365,
+        features: [
+          '35 tables',
+          'VIP section',
+          '2 branches'
+        ],
+        limits: {
+          'tables': 35,
+          'workers': 15,
+          'menu_items': 35,
+          'inventory_products': 40,
+          'locations': 3,
+          'branches': 2
+        }),
+    _plan(
+        family: familyKitchen,
+        tier: 'unlimited',
+        durationCode: 'monthly',
+        price: 25000.0,
+        days: 30,
+        features: [
+          'Unlimited access',
+          'Unlimited tables',
+          'Unlimited inventory'
+        ],
+        limits: {
+          'tables': null,
+          'workers': null,
+          'menu_items': null,
+          'inventory_products': null,
+          'locations': null,
+          'branches': null
+        }),
+    _plan(
+        family: familyKitchen,
+        tier: 'unlimited',
+        durationCode: '3m',
+        price: 67500.0,
+        days: 90,
+        features: [
+          'Unlimited access',
+          'Unlimited tables',
+          'Unlimited inventory'
+        ],
+        limits: {
+          'tables': null,
+          'workers': null,
+          'menu_items': null,
+          'inventory_products': null,
+          'locations': null,
+          'branches': null
+        }),
+    _plan(
+        family: familyLounge,
+        tier: 'tier1',
+        durationCode: 'monthly',
+        price: 12850.0,
+        days: 30,
+        features: [
+          '15 tables',
+          '65 inventory',
+          '7 workers'
+        ],
+        limits: {
+          'tables': 15,
+          'workers': 7,
+          'inventory_products': 65,
+          'locations': 1,
+          'branches': 0
+        }),
+    _plan(
+        family: familyLounge,
+        tier: 'tier2',
+        durationCode: 'monthly',
+        price: 20560.0,
+        days: 30,
+        features: [
+          '25 tables',
+          '100 inventory',
+          '1 branch'
+        ],
+        limits: {
+          'tables': 25,
+          'workers': 10,
+          'inventory_products': 100,
+          'locations': 2,
+          'branches': 1
+        }),
+    _plan(
+        family: familyLounge,
+        tier: 'tier3',
+        durationCode: 'monthly',
+        price: 30840.0,
+        days: 30,
+        features: [
+          '40 tables',
+          '200 inventory',
+          '2 branches'
+        ],
+        limits: {
+          'tables': 40,
+          'workers': 15,
+          'inventory_products': 200,
+          'locations': 3,
+          'branches': 2
+        }),
+    _plan(
+        family: familyLounge,
+        tier: 'unlimited',
+        durationCode: 'monthly',
+        price: 37000.0,
+        days: 30,
+        features: [
+          'Unlimited access',
+          'Unlimited tables',
+          'Unlimited inventory'
+        ],
+        limits: {
+          'tables': null,
+          'workers': null,
+          'inventory_products': null,
+          'locations': null,
+          'branches': null
+        }),
+    _plan(
+        family: familyHospitality,
+        tier: 'tier1',
+        durationCode: 'monthly',
+        price: 14650.0,
+        days: 30,
+        features: [
+          '15 rooms',
+          '10 restaurant tables',
+          '15 bar tables'
+        ],
+        limits: {
+          'rooms': 15,
+          'suites': 0,
+          'workers': 7,
+          'restaurant_tables': 10,
+          'bar_tables': 15,
+          'locations': 1,
+          'branches': 0
+        }),
+    _plan(
+        family: familyHospitality,
+        tier: 'tier2',
+        durationCode: 'monthly',
+        price: 23350.0,
+        days: 30,
+        features: [
+          '25 rooms + 5 suites',
+          'Hall access',
+          '1 branch'
+        ],
+        limits: {
+          'rooms': 25,
+          'suites': 5,
+          'workers': 15,
+          'restaurant_tables': 20,
+          'bar_tables': 25,
+          'locations': 2,
+          'branches': 1
+        }),
+    _plan(
+        family: familyHospitality,
+        tier: 'tier3',
+        durationCode: 'monthly',
+        price: 35750.0,
+        days: 30,
+        features: [
+          '40 rooms + 10 suites',
+          'Pool access',
+          '2 branches'
+        ],
+        limits: {
+          'rooms': 40,
+          'suites': 10,
+          'workers': 25,
+          'restaurant_tables': 30,
+          'bar_tables': 35,
+          'locations': 3,
+          'branches': 2
+        }),
+    _plan(
+        family: familyHospitality,
+        tier: 'unlimited',
+        durationCode: 'monthly',
+        price: 45000.0,
+        days: 30,
+        features: [
+          'Unlimited rooms',
+          'Unlimited workers',
+          'Unlimited features'
+        ],
+        limits: {
+          'rooms': null,
+          'suites': null,
+          'workers': null,
+          'restaurant_tables': null,
+          'bar_tables': null,
+          'locations': null,
+          'branches': null
+        }),
   ];
 
-  SubscriptionService({required FirebaseFirestore firestore}) : _firestore = firestore;
+  SubscriptionService({
+    required FirebaseFirestore firestore,
+    EmailService? emailService,
+  })  : _firestore = firestore,
+        _emailService = emailService ?? EmailService();
 
   static String canonicalizeBusinessType(String? businessType) {
     final raw = (businessType ?? '').trim().toLowerCase();
@@ -190,7 +663,8 @@ class SubscriptionService {
     }
   }
 
-  static List<SubscriptionPlan> getPlansForBusinessType(String? businessType, {String? tierId}) {
+  static List<SubscriptionPlan> getPlansForBusinessType(String? businessType,
+      {String? tierId}) {
     final family = getPlanFamilyForBusinessType(businessType);
     final normalizedTier = _normalizeTierId(tierId);
     final available = plans.where((plan) {
@@ -206,7 +680,8 @@ class SubscriptionService {
     return available;
   }
 
-  static List<SubscriptionPlan> getPlansForBusinessTypeAndClass(String? businessType, String? businessClass) {
+  static List<SubscriptionPlan> getPlansForBusinessTypeAndClass(
+      String? businessType, String? businessClass) {
     return getPlansForBusinessType(
       businessType,
       tierId: normalizeStoredBusinessClass(businessClass: businessClass),
@@ -264,15 +739,17 @@ class SubscriptionService {
         if (staff <= 15 && monthlyIncome <= 3000000.0) return 'tier2';
         return 'tier3';
       default:
-        if (products < 300 && staff <= 2) return 'tier1';
-        if (products <= 700 && staff <= 3) return 'tier2';
+        if (products <= 300 && staff <= 3) return 'tier1';
+        if (products <= 700 && staff <= 5) return 'tier2';
+        if (products > 1000) return 'unlimited';
         return 'tier3';
     }
   }
 
   static String getBusinessClassFromPlanId(String planId) {
     final plan = getPlanById(planId);
-    return plan?.tierId ?? normalizeStoredBusinessClass(subscriptionPlan: planId);
+    return plan?.tierId ??
+        normalizeStoredBusinessClass(subscriptionPlan: planId);
   }
 
   static String getPlanLevelFromPlanId(String planId) {
@@ -320,7 +797,8 @@ class SubscriptionService {
     if (tier != null) return tier;
     final raw = (subscriptionTier ?? '').trim().toLowerCase();
     if (raw == 'basic' || raw == 'starter') return 'tier1';
-    if (raw == 'pro' || raw == 'professional' || raw == 'enterprise') return 'tier3';
+    if (raw == 'pro' || raw == 'professional' || raw == 'enterprise')
+      return 'tier3';
     return 'tier1';
   }
 
@@ -374,7 +852,8 @@ class SubscriptionService {
       case 'custom_reports':
         return rank >= getTierRank('tier3');
       case 'vip_section':
-        return (family == familyKitchen || family == familyLounge) && rank >= getTierRank('tier3');
+        return (family == familyKitchen || family == familyLounge) &&
+            rank >= getTierRank('tier3');
       case 'hall_booking':
       case 'hall_features':
       case 'hall_services':
@@ -394,7 +873,8 @@ class SubscriptionService {
     }
   }
 
-  static String? getRequiredTierForFeature(String feature, {String? businessType}) {
+  static String? getRequiredTierForFeature(String feature,
+      {String? businessType}) {
     final family = getPlanFamilyForBusinessType(businessType);
     switch (feature.trim().toLowerCase()) {
       case 'basic_sales':
@@ -413,7 +893,9 @@ class SubscriptionService {
       case 'custom_reports':
         return 'tier3';
       case 'vip_section':
-        return (family == familyKitchen || family == familyLounge) ? 'tier3' : 'unlimited';
+        return (family == familyKitchen || family == familyLounge)
+            ? 'tier3'
+            : 'unlimited';
       case 'hall_booking':
       case 'hall_features':
       case 'hall_services':
@@ -439,7 +921,9 @@ class SubscriptionService {
     DateTime? now,
   }) {
     final nowRef = now ?? DateTime.now();
-    final base = (existingEnd != null && existingEnd.isAfter(nowRef)) ? existingEnd : nowRef;
+    final base = (existingEnd != null && existingEnd.isAfter(nowRef))
+        ? existingEnd
+        : nowRef;
     return base.add(Duration(days: durationInDays));
   }
 
@@ -499,7 +983,8 @@ class SubscriptionService {
         'subscriptionTier': data['subscriptionTier'],
         'subscriptionStartDate': data['subscriptionStartDate'],
         'subscriptionEndDate': data['subscriptionEndDate'],
-        'subscriptionPaymentRequired': data['subscriptionPaymentRequired'] ?? true,
+        'subscriptionPaymentRequired':
+            data['subscriptionPaymentRequired'] ?? true,
         'subscriptionAmount': data['subscriptionAmount'],
         'subscriptionStatus': data['subscriptionStatus'],
         'currentBusinessId': data['currentBusinessId'],
@@ -510,9 +995,11 @@ class SubscriptionService {
     }
   }
 
-  Future<Map<String, dynamic>?> getBusinessSubscription(String businessId) async {
+  Future<Map<String, dynamic>?> getBusinessSubscription(
+      String businessId) async {
     try {
-      final doc = await _firestore.collection('businesses').doc(businessId).get();
+      final doc =
+          await _firestore.collection('businesses').doc(businessId).get();
       if (!doc.exists) return null;
       final data = doc.data() as Map<String, dynamic>;
       return {
@@ -554,7 +1041,8 @@ class SubscriptionService {
       if (plan == null) return false;
 
       final now = DateTime.now();
-      final requestId = existingRequestId ?? 'RCP_${userId}_${now.millisecondsSinceEpoch}';
+      final requestId =
+          existingRequestId ?? 'RCP_${userId}_${now.millisecondsSinceEpoch}';
       final businessData = businessId != null && businessId.isNotEmpty
           ? await getBusinessSubscription(businessId)
           : null;
@@ -654,6 +1142,21 @@ class SubscriptionService {
         'createdAt': now.toIso8601String(),
       });
 
+      unawaited(
+        _sendSubscriptionStatusEmailSafe(
+          userId: userId,
+          userEmail: userEmail,
+          userName: userName,
+          plan: plan,
+          amount: amount,
+          statusLabel: 'Pending Approval',
+          statusMessage:
+              'We received your payment proof and submitted your subscription request for approval.',
+          requestId: requestId,
+          businessId: businessId,
+        ),
+      );
+
       return true;
     } catch (e) {
       print('Error submitting subscription for approval: $e');
@@ -696,6 +1199,8 @@ class SubscriptionService {
   Future<bool> expireSubscription(String userId, {String? businessId}) async {
     try {
       final now = DateTime.now();
+      final plan = await _resolvePlanForNotification(userId, businessId) ??
+          _fallbackNotificationPlan();
       await _firestore.collection('users').doc(userId).set({
         'hasActiveSubscription': false,
         'subscriptionPaymentRequired': true,
@@ -718,6 +1223,18 @@ class SubscriptionService {
         'action': 'subscription_expired',
         'createdAt': now.toIso8601String(),
       });
+
+      unawaited(
+        _sendSubscriptionStatusEmailSafe(
+          userId: userId,
+          plan: plan,
+          amount: 0,
+          statusLabel: 'Expired',
+          statusMessage:
+              'Your business subscription has expired. Renew it to continue using paid features without interruption.',
+          businessId: businessId,
+        ),
+      );
       return true;
     } catch (e) {
       print('Error expiring subscription: $e');
@@ -728,6 +1245,8 @@ class SubscriptionService {
   Future<bool> cancelSubscription(String userId, {String? businessId}) async {
     try {
       final now = DateTime.now();
+      final plan = await _resolvePlanForNotification(userId, businessId) ??
+          _fallbackNotificationPlan();
       await _firestore.collection('users').doc(userId).set({
         'hasActiveSubscription': false,
         'subscriptionPaymentRequired': false,
@@ -750,6 +1269,18 @@ class SubscriptionService {
         'action': 'subscription_cancelled',
         'createdAt': now.toIso8601String(),
       });
+
+      unawaited(
+        _sendSubscriptionStatusEmailSafe(
+          userId: userId,
+          plan: plan,
+          amount: 0,
+          statusLabel: 'Cancelled',
+          statusMessage:
+              'Your subscription has been cancelled. You can reactivate a plan at any time from the subscription screen.',
+          businessId: businessId,
+        ),
+      );
       return true;
     } catch (e) {
       print('Error cancelling subscription: $e');
@@ -870,6 +1401,20 @@ class SubscriptionService {
         );
       }
 
+      unawaited(
+        _sendSubscriptionStatusEmailSafe(
+          userId: userId,
+          plan: plan,
+          amount: amount,
+          statusLabel: 'Active',
+          statusMessage:
+              'Your payment was confirmed and your subscription is now active.',
+          businessId: targetBusinessId,
+          startsOn: now,
+          endsOn: endDate,
+        ),
+      );
+
       return true;
     } catch (e) {
       print('[SubscriptionService] Error activating subscription: $e');
@@ -897,16 +1442,19 @@ class SubscriptionService {
       DateTime? existingEnd;
 
       if (targetBusinessId != null && targetBusinessId.isNotEmpty) {
-        final existingBusiness = await getBusinessSubscription(targetBusinessId);
+        final existingBusiness =
+            await getBusinessSubscription(targetBusinessId);
         if (existingBusiness != null) {
           try {
             if (existingBusiness['subscriptionStartDate'] != null) {
-              existingStart = parseTimestamp(existingBusiness['subscriptionStartDate']);
+              existingStart =
+                  parseTimestamp(existingBusiness['subscriptionStartDate']);
             }
           } catch (_) {}
           try {
             if (existingBusiness['subscriptionEndDate'] != null) {
-              existingEnd = parseTimestamp(existingBusiness['subscriptionEndDate']);
+              existingEnd =
+                  parseTimestamp(existingBusiness['subscriptionEndDate']);
             }
           } catch (_) {}
         }
@@ -915,7 +1463,8 @@ class SubscriptionService {
         if (existingUser != null) {
           try {
             if (existingUser['subscriptionStartDate'] != null) {
-              existingStart = parseTimestamp(existingUser['subscriptionStartDate']);
+              existingStart =
+                  parseTimestamp(existingUser['subscriptionStartDate']);
             }
           } catch (_) {}
           try {
@@ -973,6 +1522,22 @@ class SubscriptionService {
         'createdAt': now.toIso8601String(),
       });
 
+      unawaited(
+        _sendSubscriptionStatusEmailSafe(
+          userId: userId,
+          plan: plan,
+          amount: amount,
+          statusLabel:
+              action == 'subscription_renewed' ? 'Renewed' : 'Active',
+          statusMessage: action == 'subscription_renewed'
+              ? 'Your subscription renewal has been applied successfully.'
+              : 'Your subscription has been activated successfully.',
+          businessId: targetBusinessId,
+          startsOn: startDate,
+          endsOn: newEndDate,
+        ),
+      );
+
       return true;
     } catch (e) {
       print('[SubscriptionService] Error in activateOrRenewSubscription: $e');
@@ -997,18 +1562,18 @@ class SubscriptionService {
       final businessType = businessDoc.data()?['businessType'] as String?;
 
       await _firestore.collection('businesses').doc(businessId).set(
-        _buildBusinessSubscriptionPayload(
-          plan: plan,
-          businessType: businessType,
-          startDate: startDate,
-          endDate: endDate,
-          amount: amount,
-          receiptUrl: receiptUrl,
-          status: 'approved',
-          isActive: true,
-        ),
-        SetOptions(merge: true),
-      );
+            _buildBusinessSubscriptionPayload(
+              plan: plan,
+              businessType: businessType,
+              startDate: startDate,
+              endDate: endDate,
+              amount: amount,
+              receiptUrl: receiptUrl,
+              status: 'approved',
+              isActive: true,
+            ),
+            SetOptions(merge: true),
+          );
 
       return true;
     } catch (e) {
@@ -1040,7 +1605,8 @@ class SubscriptionService {
 
       return true;
     } catch (e) {
-      print('[SubscriptionService] Error syncing subscription to user businesses: $e');
+      print(
+          '[SubscriptionService] Error syncing subscription to user businesses: $e');
       return false;
     }
   }
@@ -1119,16 +1685,17 @@ class SubscriptionService {
             plan?.businessFamily ?? getPlanFamilyForBusinessType(businessType),
         'subscriptionStartDate': business['subscriptionStartDate'],
         'subscriptionEndDate': business['subscriptionEndDate'],
-        'hasActiveSubscription':
-            overrideIsActive ?? (business['isSubscriptionActive'] as bool? ?? false),
-        'subscriptionStatus':
-            overrideStatus ?? (business['subscriptionStatus']?.toString() ?? 'inactive'),
-        'subscriptionPaymentRequired':
-            !(overrideIsActive ?? (business['isSubscriptionActive'] as bool? ?? false)),
+        'hasActiveSubscription': overrideIsActive ??
+            (business['isSubscriptionActive'] as bool? ?? false),
+        'subscriptionStatus': overrideStatus ??
+            (business['subscriptionStatus']?.toString() ?? 'inactive'),
+        'subscriptionPaymentRequired': !(overrideIsActive ??
+            (business['isSubscriptionActive'] as bool? ?? false)),
         'updatedAt': DateTime.now().toIso8601String(),
       }, SetOptions(merge: true));
     } catch (e) {
-      print('[SubscriptionService] Error syncing user subscription summary: $e');
+      print(
+          '[SubscriptionService] Error syncing user subscription summary: $e');
     }
   }
 
@@ -1225,5 +1792,137 @@ class SubscriptionService {
       print('[SubscriptionService] Error resolving business id for user: $e');
     }
     return null;
+  }
+
+  Future<void> _sendSubscriptionStatusEmailSafe({
+    required String userId,
+    required SubscriptionPlan plan,
+    required double amount,
+    required String statusLabel,
+    required String statusMessage,
+    String? userEmail,
+    String? userName,
+    String? requestId,
+    String? businessId,
+    DateTime? startsOn,
+    DateTime? endsOn,
+  }) async {
+    try {
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      final userData = userDoc.data() ?? <String, dynamic>{};
+      final recipientEmail =
+          (userEmail ?? userData['email']?.toString() ?? '').trim();
+      if (recipientEmail.isEmpty) return;
+
+      final recipientName =
+          (userName ?? userData['fullName']?.toString() ?? 'Business Owner')
+              .trim();
+      final businessContext =
+          await _resolveSubscriptionEmailBusinessContext(userId, businessId);
+
+      final emailData = <String, dynamic>{
+        'businessName': businessContext['businessName'] ?? 'Manage Care',
+        'recipientName':
+            recipientName.isNotEmpty ? recipientName : 'Business Owner',
+        'planName': plan.name,
+        'amount': amount,
+        'statusLabel': statusLabel,
+        'statusMessage': statusMessage,
+        'requestId': requestId,
+        'businessType': businessContext['businessType'],
+        'startsOn': startsOn,
+        'endsOn': endsOn,
+      };
+
+      await _emailService.sendSubscriptionStatusEmail(
+        recipientEmail,
+        emailData,
+      );
+
+      final businessEmail =
+          (businessContext['businessEmail']?.toString() ?? '').trim();
+      if (businessEmail.isNotEmpty &&
+          businessEmail.toLowerCase() != recipientEmail.toLowerCase()) {
+        await _emailService.sendSubscriptionStatusEmail(
+          businessEmail,
+          emailData,
+        );
+      }
+    } catch (e) {
+      print('[SubscriptionService] Failed to send subscription email: $e');
+    }
+  }
+
+  Future<Map<String, String?>> _resolveSubscriptionEmailBusinessContext(
+    String userId,
+    String? businessId,
+  ) async {
+    final resolvedBusinessId = businessId?.trim().isNotEmpty == true
+        ? businessId!.trim()
+        : await _resolveBusinessIdForUser(userId);
+
+    if (resolvedBusinessId == null || resolvedBusinessId.isEmpty) {
+      return {
+        'businessName': 'Manage Care',
+        'businessType': null,
+        'businessEmail': null,
+      };
+    }
+
+    try {
+      final businessDoc =
+          await _firestore.collection('businesses').doc(resolvedBusinessId).get();
+      final data = businessDoc.data() ?? <String, dynamic>{};
+      return {
+        'businessName':
+            data['name']?.toString().trim().isNotEmpty == true
+                ? data['name'].toString().trim()
+                : 'Manage Care',
+        'businessType': data['businessType']?.toString(),
+        'businessEmail': data['email']?.toString(),
+      };
+    } catch (e) {
+      print(
+          '[SubscriptionService] Failed to resolve business email context: $e');
+      return {
+        'businessName': 'Manage Care',
+        'businessType': null,
+        'businessEmail': null,
+      };
+    }
+  }
+
+  Future<SubscriptionPlan?> _resolvePlanForNotification(
+    String userId,
+    String? businessId,
+  ) async {
+    try {
+      if (businessId?.trim().isNotEmpty == true) {
+        final business = await getBusinessSubscription(businessId!.trim());
+        final businessPlanId = business?['subscriptionPlan']?.toString() ?? '';
+        final businessPlan = getPlanById(businessPlanId);
+        if (businessPlan != null) return businessPlan;
+      }
+
+      final userSubscription = await getUserSubscription(userId);
+      final userPlanId = userSubscription?['subscriptionPlan']?.toString() ?? '';
+      return getPlanById(userPlanId);
+    } catch (e) {
+      print('[SubscriptionService] Failed to resolve plan for email: $e');
+      return null;
+    }
+  }
+
+  SubscriptionPlan _fallbackNotificationPlan() {
+    return const SubscriptionPlan(
+      id: 'standard_tier1_monthly',
+      name: 'Standard Tier 1',
+      price: 0,
+      durationInDays: 30,
+      features: [],
+      tierId: 'tier1',
+      businessFamily: familyStandard,
+      billingLabel: 'Monthly',
+    );
   }
 }

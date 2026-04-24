@@ -45,6 +45,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Widget _buildCurrentPlanCard(
       SubscriptionPlan plan, bool isActive, DateTime? endDate) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -52,12 +56,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            AppColors.primary.withOpacity(0.1),
-            AppColors.primary.withOpacity(0.05),
+            scheme.primary.withOpacity(isDark ? 0.20 : 0.10),
+            scheme.surfaceContainerHighest.withOpacity(isDark ? 0.72 : 0.55),
           ],
         ),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+        border: Border.all(
+          color: scheme.primary.withOpacity(isDark ? 0.48 : 0.30),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -68,13 +74,13 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               Text(
                 'Current Plan',
                 style: AppTextStyles.body2
-                    .copyWith(color: AppColors.textSecondary),
+                    .copyWith(color: scheme.onSurface.withOpacity(0.72)),
               ),
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isActive ? Colors.green : Colors.grey,
+                  color: isActive ? Colors.green : scheme.outline,
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
@@ -91,14 +97,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           const SizedBox(height: 12),
           Text(
             plan.name,
-            style: AppTextStyles.heading4.copyWith(fontWeight: FontWeight.w700),
+            style: AppTextStyles.heading4.copyWith(
+              fontWeight: FontWeight.w700,
+              color: scheme.onSurface,
+            ),
           ),
           const SizedBox(height: 8),
           if (endDate != null)
             Text(
               'Expires: ${endDate.toString().split(' ')[0]}',
               style: AppTextStyles.caption
-                  .copyWith(color: AppColors.textSecondary),
+                  .copyWith(color: scheme.onSurface.withOpacity(0.72)),
             ),
           const SizedBox(height: 12),
           if (isActive)
@@ -116,19 +125,25 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Widget _buildBillingInfoCard(
       dynamic business, SubscriptionPlan? currentPlan, DateTime? endDate) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[300]!),
+        border: Border.all(color: scheme.outline.withOpacity(0.28)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Billing Information',
-            style: AppTextStyles.heading5.copyWith(fontWeight: FontWeight.w600),
+            style: AppTextStyles.heading5.copyWith(
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+            ),
           ),
           const SizedBox(height: 16),
           _buildBillingRow('Account name:', 'Manage Care Limited'),
@@ -168,14 +183,19 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   }
 
   Widget _buildBillingRow(String label, String value) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label,
             style:
-                AppTextStyles.body2.copyWith(color: AppColors.textSecondary)),
+                AppTextStyles.body2.copyWith(color: scheme.onSurface.withOpacity(0.72))),
         Text(value,
-            style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600)),
+            style: AppTextStyles.body2.copyWith(
+              fontWeight: FontWeight.w600,
+              color: scheme.onSurface,
+            )),
       ],
     );
   }
@@ -330,6 +350,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         context: context,
         barrierDismissible: false,
         builder: (context) => AlertDialog(
+          backgroundColor: Theme.of(context).colorScheme.surface,
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -340,8 +361,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 const SizedBox(height: 8),
                 LinearProgressIndicator(
                   value: _uploadProgress,
-                  backgroundColor: Colors.grey[300],
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+                  backgroundColor:
+                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Theme.of(context).colorScheme.primary,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -495,6 +519,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Consumer2<AuthProvider, BusinessProvider>(
       builder: (context, authProvider, businessProvider, _) {
         final user = authProvider.currentUser;
@@ -510,8 +537,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         final currentPlan = SubscriptionService.getPlanById(currentPlanId) ??
             (fallbackPlans.isNotEmpty ? fallbackPlans.first : null);
         final subscriptionEndDate = business?.subscriptionEndDate;
-        final theme = Theme.of(context);
-
         _currentPlan = currentPlanId;
 
         return Scaffold(
@@ -556,8 +581,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       const SizedBox(height: 24),
 
                       // Available Plans
-                      const Text('Available Plans',
-                          style: AppTextStyles.heading5),
+                      Text(
+                        'Available Plans',
+                        style: AppTextStyles.heading5.copyWith(
+                          color: scheme.onSurface,
+                        ),
+                      ),
                       const SizedBox(height: 12),
                       ..._buildPlanCards(
                         businessType: business?.businessType ?? user?.businessType,
@@ -586,15 +615,21 @@ class _PlanCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isCurrentPlan
-            ? AppColors.primary.withOpacity(0.1)
-            : Colors.white,
+            ? scheme.primary.withOpacity(isDark ? 0.18 : 0.10)
+            : theme.cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isCurrentPlan ? AppColors.primary : Colors.grey[300]!,
+          color: isCurrentPlan
+              ? scheme.primary
+              : scheme.outline.withOpacity(0.28),
           width: isCurrentPlan ? 2 : 1,
         ),
       ),
@@ -607,21 +642,25 @@ class _PlanCard extends StatelessWidget {
               children: [
                 Text(
                   plan.name,
-                  style:
-                      AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600),
+                  style: AppTextStyles.body2.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurface,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '₦${plan.price.toStringAsFixed(0)} / ${plan.durationInDays} days',
                   style: AppTextStyles.caption
-                      .copyWith(color: AppColors.textSecondary),
+                      .copyWith(color: scheme.onSurface.withOpacity(0.72)),
                 ),
                 if (plan.features.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   ...plan.features.take(2).map(
                         (feature) => Text(
                           '• $feature',
-                          style: AppTextStyles.caption,
+                          style: AppTextStyles.caption.copyWith(
+                            color: scheme.onSurface.withOpacity(0.78),
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -634,7 +673,9 @@ class _PlanCard extends StatelessWidget {
           ElevatedButton(
             onPressed: isCurrentPlan ? null : onSelect,
             style: ElevatedButton.styleFrom(
-              backgroundColor: isCurrentPlan ? Colors.grey : AppColors.primary,
+              backgroundColor: isCurrentPlan
+                  ? scheme.outline.withOpacity(0.60)
+                  : AppColors.primary,
             ),
             child: Text(isCurrentPlan ? 'Current' : 'Select'),
           ),

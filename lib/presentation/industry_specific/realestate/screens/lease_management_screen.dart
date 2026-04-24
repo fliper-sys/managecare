@@ -40,8 +40,11 @@ class _LeaseManagementScreenEnhancedState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Lease Management'),
         elevation: 0,
@@ -134,7 +137,11 @@ class _LeaseManagementScreenEnhancedState
                             Icon(Icons.description_outlined,
                                 size: 64, color: AppColors.border),
                             SizedBox(height: 16),
-                            Text('No leases found', style: AppTextStyles.body1),
+                            Text(
+                              'No leases found',
+                              style: AppTextStyles.body1
+                                  .copyWith(color: scheme.onSurface),
+                            ),
                           ],
                         ),
                       )
@@ -180,6 +187,7 @@ class _LeaseManagementScreenEnhancedState
 
     String selectedPropertyId = '';
     String selectedTenantId = '';
+    String selectedLeaseType = 'monthly_rent';
     DateTime selectedStartDate = DateTime.now();
     DateTime selectedEndDate = DateTime.now().add(const Duration(days: 365));
     final monthlyRentController = TextEditingController();
@@ -228,6 +236,22 @@ class _LeaseManagementScreenEnhancedState
                   }).toList(),
                   onChanged: (value) =>
                       setState(() => selectedTenantId = value ?? ''),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedLeaseType,
+                  decoration: InputDecoration(
+                    labelText: 'Lease Type',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'short_let', child: Text('Short Let')),
+                    DropdownMenuItem(value: 'monthly_rent', child: Text('Monthly Rent')),
+                    DropdownMenuItem(value: 'yearly_rent', child: Text('Yearly Rent')),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => selectedLeaseType = value ?? 'monthly_rent'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -312,6 +336,7 @@ class _LeaseManagementScreenEnhancedState
                   endDate: selectedEndDate,
                   monthlyRent: double.parse(monthlyRentController.text),
                   deposit: double.parse(depositController.text),
+                  leaseType: selectedLeaseType,
                   status: 'active',
                   documentUrl: null,
                   createdAt: DateTime.now(),
@@ -333,6 +358,7 @@ class _LeaseManagementScreenEnhancedState
                             DateTime(currentDate.year, currentDate.month + 1, 0)
                                 .day)),
                     paidDate: null,
+                    durationMonths: 1,
                     status: 'pending',
                     createdAt: DateTime.now(),
                   );
@@ -404,6 +430,7 @@ class _LeaseManagementScreenEnhancedState
                   endDate: selectedEndDate,
                   monthlyRent: lease.monthlyRent,
                   deposit: lease.deposit,
+                  leaseType: lease.leaseType,
                   status: lease.status,
                   documentUrl: lease.documentUrl,
                   createdAt: lease.createdAt,
@@ -526,20 +553,23 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       width: 140,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: scheme.outline.withOpacity(0.28)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title,
               style:
-                  AppTextStyles.body2.copyWith(color: AppColors.textSecondary)),
+                  AppTextStyles.body2.copyWith(color: scheme.onSurface.withOpacity(0.72))),
           const SizedBox(height: 4),
           Text(
             isAmount ? '₦${count.toString()}' : '$count',
@@ -566,14 +596,19 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return FilterChip(
-      label: Text(label),
+      label: Text(label, style: TextStyle(color: scheme.onSurface)),
       selected: isSelected,
       onSelected: (_) => onTap(),
-      backgroundColor: Colors.white,
+      backgroundColor: theme.cardColor,
       selectedColor: (color ?? AppColors.primary).withOpacity(0.1),
       side: BorderSide(
-        color: isSelected ? (color ?? AppColors.primary) : AppColors.border,
+        color: isSelected
+            ? (color ?? AppColors.primary)
+            : scheme.outline.withOpacity(0.28),
       ),
     );
   }
@@ -601,17 +636,21 @@ class _LeaseCard extends StatelessWidget {
     final daysRemaining = lease.endDate.difference(DateTime.now()).inDays;
     final isExpiringSoon = daysRemaining < 30 && daysRemaining > 0;
     final isExpired = daysRemaining <= 0;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: isExpired
               ? Colors.red
-              : (isExpiringSoon ? Colors.orange : AppColors.border),
+              : (isExpiringSoon
+                  ? Colors.orange
+                  : scheme.outline.withOpacity(0.28)),
         ),
       ),
       child: Column(
@@ -626,10 +665,13 @@ class _LeaseCard extends StatelessWidget {
                   children: [
                     Text(property.title,
                         style: AppTextStyles.body1
-                            .copyWith(fontWeight: FontWeight.bold)),
+                            .copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: scheme.onSurface,
+                            )),
                     Text(tenant.name,
                         style: AppTextStyles.body2
-                            .copyWith(color: AppColors.textSecondary)),
+                            .copyWith(color: scheme.onSurface.withOpacity(0.72))),
                   ],
                 ),
               ),
@@ -659,10 +701,12 @@ class _LeaseCard extends StatelessWidget {
                 children: [
                   Text('Monthly Rent',
                       style: AppTextStyles.body2
-                          .copyWith(color: AppColors.textSecondary)),
+                          .copyWith(color: scheme.onSurface.withOpacity(0.72))),
                   Text('₦${lease.monthlyRent.toStringAsFixed(2)}',
-                      style: AppTextStyles.body1
-                          .copyWith(fontWeight: FontWeight.bold)),
+                      style: AppTextStyles.body1.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: scheme.onSurface,
+                      )),
                 ],
               ),
               Column(
@@ -670,7 +714,7 @@ class _LeaseCard extends StatelessWidget {
                 children: [
                   Text('Days Remaining',
                       style: AppTextStyles.body2
-                          .copyWith(color: AppColors.textSecondary)),
+                          .copyWith(color: scheme.onSurface.withOpacity(0.72))),
                   Text(
                     '$daysRemaining days',
                     style: AppTextStyles.body1.copyWith(
@@ -736,17 +780,21 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label,
             style:
-                AppTextStyles.body2.copyWith(color: AppColors.textSecondary)),
+                AppTextStyles.body2.copyWith(color: scheme.onSurface.withOpacity(0.72))),
         Text(value,
             style: AppTextStyles.body1
-                .copyWith(color: valueColor, fontWeight: FontWeight.bold)),
+                .copyWith(
+                  color: valueColor ?? scheme.onSurface,
+                  fontWeight: FontWeight.bold,
+                )),
       ],
     );
   }
 }
-

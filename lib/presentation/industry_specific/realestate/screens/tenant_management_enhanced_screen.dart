@@ -40,8 +40,11 @@ class _TenantManagementScreenEnhancedState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Tenant Management'),
         elevation: 0,
@@ -135,8 +138,11 @@ class _TenantManagementScreenEnhancedState
                             Icon(Icons.person_off,
                                 size: 64, color: AppColors.border),
                             SizedBox(height: 16),
-                            Text('No tenants found',
-                                style: AppTextStyles.body1),
+                            Text(
+                              'No tenants found',
+                              style: AppTextStyles.body1
+                                  .copyWith(color: scheme.onSurface),
+                            ),
                           ],
                         ),
                       )
@@ -172,6 +178,7 @@ class _TenantManagementScreenEnhancedState
     final nameController = TextEditingController();
     final emailController = TextEditingController();
     final phoneController = TextEditingController();
+    final whatsappController = TextEditingController();
     File? selectedDocument;
 
     showDialog(
@@ -205,6 +212,15 @@ class _TenantManagementScreenEnhancedState
                   controller: phoneController,
                   decoration: InputDecoration(
                     labelText: 'Phone',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: whatsappController,
+                  decoration: InputDecoration(
+                    labelText: 'WhatsApp (optional)',
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8)),
                   ),
@@ -297,6 +313,7 @@ class _TenantManagementScreenEnhancedState
                   name: nameController.text,
                   email: emailController.text,
                   phone: phoneController.text,
+                  whatsapp: whatsappController.text.isNotEmpty ? whatsappController.text : null,
                   propertyId: '', // Will be set when creating lease
                   leaseId: '',
                   status: 'active',
@@ -329,6 +346,7 @@ class _TenantManagementScreenEnhancedState
     final nameController = TextEditingController(text: tenant.name);
     final emailController = TextEditingController(text: tenant.email);
     final phoneController = TextEditingController(text: tenant.phone);
+    final whatsappController = TextEditingController(text: tenant.whatsapp ?? '');
     String selectedStatus = tenant.status;
 
     showDialog(
@@ -367,6 +385,15 @@ class _TenantManagementScreenEnhancedState
                   ),
                 ),
                 const SizedBox(height: 12),
+                TextField(
+                  controller: whatsappController,
+                  decoration: InputDecoration(
+                    labelText: 'WhatsApp (optional)',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: selectedStatus,
                   decoration: InputDecoration(
@@ -398,6 +425,7 @@ class _TenantManagementScreenEnhancedState
                   name: nameController.text,
                   email: emailController.text,
                   phone: phoneController.text,
+                  whatsapp: whatsappController.text.isNotEmpty ? whatsappController.text : null,
                   propertyId: tenant.propertyId,
                   leaseId: tenant.leaseId,
                   status: selectedStatus,
@@ -480,7 +508,10 @@ class _TenantManagementScreenEnhancedState
                   child: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: AppColors.background,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest
+                          .withOpacity(0.45),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Row(
@@ -502,7 +533,7 @@ class _TenantManagementScreenEnhancedState
               ] else
                 Text('No documents uploaded',
                     style: AppTextStyles.body2
-                        .copyWith(color: AppColors.textSecondary)),
+                        .copyWith(color: Theme.of(context).colorScheme.onSurface.withOpacity(0.72))),
             ],
           ),
         ),
@@ -546,14 +577,19 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return FilterChip(
-      label: Text(label),
+      label: Text(label, style: TextStyle(color: scheme.onSurface)),
       selected: isSelected,
       onSelected: (_) => onTap(),
-      backgroundColor: Colors.white,
+      backgroundColor: theme.cardColor,
       selectedColor: (color ?? AppColors.primary).withOpacity(0.1),
       side: BorderSide(
-        color: isSelected ? (color ?? AppColors.primary) : AppColors.border,
+        color: isSelected
+            ? (color ?? AppColors.primary)
+            : scheme.outline.withOpacity(0.28),
       ),
     );
   }
@@ -576,13 +612,16 @@ class _TenantCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: scheme.outline.withOpacity(0.28)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -605,10 +644,13 @@ class _TenantCard extends StatelessWidget {
                   children: [
                     Text(tenant.name,
                         style: AppTextStyles.body1
-                            .copyWith(fontWeight: FontWeight.bold)),
+                            .copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: scheme.onSurface,
+                            )),
                     Text(tenant.email,
                         style: AppTextStyles.body2
-                            .copyWith(color: AppColors.textSecondary)),
+                            .copyWith(color: scheme.onSurface.withOpacity(0.72))),
                   ],
                 ),
               ),
@@ -633,7 +675,10 @@ class _TenantCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(tenant.phone, style: AppTextStyles.body2),
+          Text(
+            tenant.phone,
+            style: AppTextStyles.body2.copyWith(color: scheme.onSurface),
+          ),
           if (tenant.documentUrl != null && tenant.documentUrl!.isNotEmpty) ...[
             const SizedBox(height: 8),
             Row(

@@ -773,5 +773,419 @@ class EmailTemplateService {
     </html>
     ''';
   }
+
+  static String generateWorkerInvitationEmailHtml({
+    required String businessName,
+    required String workerName,
+    required String role,
+    required String email,
+    required String temporaryPassword,
+  }) {
+    return _renderActionEmail(
+      title: 'Worker Invitation',
+      eyebrow: 'Team Access',
+      headline: 'You have been invited to join $businessName',
+      intro:
+          'Your workspace is ready. Use the credentials below to sign in and update your password after your first login.',
+      accentColor: '#7C3AED',
+      infoRows: {
+        'Business': businessName,
+        'Name': workerName,
+        'Role': role,
+        'Login Email': email,
+        'Temporary Password': temporaryPassword,
+      },
+      highlights: const [
+        'Sign in with the email and temporary password above.',
+        'Change your password after your first login.',
+        'Contact the business owner if you need help accessing your workspace.',
+      ],
+      footerNote: 'This invitation was sent automatically from Manage Care.',
+    );
+  }
+
+  static String generateSubscriptionStatusEmailHtml({
+    required String businessName,
+    required String recipientName,
+    required String planName,
+    required double amount,
+    required String statusLabel,
+    required String statusMessage,
+    String? requestId,
+    String? businessType,
+    DateTime? startsOn,
+    DateTime? endsOn,
+    String? actionLabel,
+    String? actionUrl,
+  }) {
+    final normalizedStatus = statusLabel.toLowerCase();
+    final accentColor = normalizedStatus.contains('pending')
+        ? '#D97706'
+        : normalizedStatus.contains('cancel')
+            ? '#DC2626'
+            : '#059669';
+
+    return _renderActionEmail(
+      title: 'Subscription Update',
+      eyebrow: 'Subscription',
+      headline: 'Hello $recipientName, your subscription has been updated',
+      intro: statusMessage,
+      accentColor: accentColor,
+      infoRows: {
+        'Business': businessName,
+        if ((businessType ?? '').trim().isNotEmpty) 'Business Type': businessType!,
+        'Plan': planName,
+        'Amount': _formatMoney(amount),
+        'Status': statusLabel,
+        if ((requestId ?? '').trim().isNotEmpty) 'Reference': requestId!,
+        if (startsOn != null) 'Start Date': _formatShortDate(startsOn),
+        if (endsOn != null) 'End Date': _formatShortDate(endsOn),
+      },
+      highlights: const [
+        'You can continue managing your business from the app.',
+        'Keep your payment proof and reference details for support follow-up.',
+      ],
+      actionLabel: actionLabel,
+      actionUrl: actionUrl,
+      footerNote: 'Manage Care will continue to notify you about important subscription changes.',
+    );
+  }
+
+  static String generateTenantWelcomeEmailHtml({
+    required String businessName,
+    required String tenantName,
+    String? propertyTitle,
+    String? contactEmail,
+    String? contactPhone,
+    String? whatsapp,
+  }) {
+    return _renderActionEmail(
+      title: 'Tenant Welcome',
+      eyebrow: 'Real Estate',
+      headline: 'Welcome to $businessName',
+      intro:
+          'Your tenant profile has been created successfully. We will use this contact information for lease updates, rent reminders, and payment receipts.',
+      accentColor: '#0369A1',
+      infoRows: {
+        'Tenant': tenantName,
+        'Business': businessName,
+        if ((propertyTitle ?? '').trim().isNotEmpty) 'Property': propertyTitle!,
+        if ((contactEmail ?? '').trim().isNotEmpty) 'Support Email': contactEmail!,
+        if ((contactPhone ?? '').trim().isNotEmpty) 'Support Phone': contactPhone!,
+        if ((whatsapp ?? '').trim().isNotEmpty) 'WhatsApp': whatsapp!,
+      },
+      highlights: const [
+        'Watch your email for lease updates and payment confirmations.',
+        'Keep your phone number active so you do not miss rent reminders.',
+      ],
+      footerNote: 'Thank you for choosing Manage Care for your property operations.',
+    );
+  }
+
+  static String generateLeaseCreatedEmailHtml({
+    required String businessName,
+    required String tenantName,
+    required String propertyTitle,
+    required String leaseType,
+    required DateTime startDate,
+    required DateTime endDate,
+    required double monthlyRent,
+    required double deposit,
+    String? contactEmail,
+    String? contactPhone,
+  }) {
+    return _renderActionEmail(
+      title: 'Lease Created',
+      eyebrow: 'Lease Details',
+      headline: 'Your lease for $propertyTitle has been created',
+      intro:
+          'Please review the details below and reach out if anything needs to be corrected before move-in or renewal planning.',
+      accentColor: '#0F766E',
+      infoRows: {
+        'Tenant': tenantName,
+        'Business': businessName,
+        'Property': propertyTitle,
+        'Lease Type': _labelizeKey(leaseType),
+        'Start Date': _formatShortDate(startDate),
+        'End Date': _formatShortDate(endDate),
+        'Rent': _formatMoney(monthlyRent),
+        'Deposit': _formatMoney(deposit),
+        if ((contactEmail ?? '').trim().isNotEmpty) 'Contact Email': contactEmail!,
+        if ((contactPhone ?? '').trim().isNotEmpty) 'Contact Phone': contactPhone!,
+      },
+      highlights: const [
+        'Store this email with your tenancy records.',
+        'Rent reminders and receipts will use the tenant contact details on file.',
+      ],
+      footerNote: 'Generated automatically by Manage Care real-estate tools.',
+    );
+  }
+
+  static String generateRentReceiptEmailHtml({
+    required String businessName,
+    required String tenantName,
+    required String propertyTitle,
+    required double amount,
+    required String paymentMethod,
+    required DateTime paidDate,
+    int durationMonths = 1,
+    DateTime? nextDueDate,
+    String? receiptUrl,
+  }) {
+    return _renderActionEmail(
+      title: 'Rent Payment Receipt',
+      eyebrow: 'Payment Confirmed',
+      headline: 'Your rent payment has been recorded successfully',
+      intro:
+          'This email confirms that your payment has been received and saved in the business records.',
+      accentColor: '#059669',
+      infoRows: {
+        'Tenant': tenantName,
+        'Business': businessName,
+        'Property': propertyTitle,
+        'Amount Paid': _formatMoney(amount),
+        'Payment Method': paymentMethod,
+        'Paid On': _formatDateTime(paidDate),
+        'Coverage': '$durationMonths month${durationMonths == 1 ? '' : 's'}',
+        if (nextDueDate != null) 'Next Due Date': _formatShortDate(nextDueDate),
+      },
+      highlights: const [
+        'Keep this payment confirmation for your records.',
+        'Contact the property manager if you need the uploaded receipt file re-shared.',
+      ],
+      actionLabel:
+          (receiptUrl ?? '').trim().isNotEmpty ? 'Open Uploaded Receipt' : null,
+      actionUrl: receiptUrl,
+      footerNote: 'Thank you for staying current with your rent payments.',
+    );
+  }
+
+  static String _renderActionEmail({
+    required String title,
+    required String eyebrow,
+    required String headline,
+    required String intro,
+    required String accentColor,
+    required Map<String, String> infoRows,
+    List<String> highlights = const [],
+    String? actionLabel,
+    String? actionUrl,
+    String? footerNote,
+  }) {
+    final infoHtml = infoRows.entries
+        .where((entry) => entry.value.trim().isNotEmpty)
+        .map(
+          (entry) => '''
+            <div class="info-row">
+              <span class="info-label">${entry.key}</span>
+              <span class="info-value">${entry.value}</span>
+            </div>
+          ''',
+        )
+        .join();
+
+    final highlightsHtml = highlights
+        .where((item) => item.trim().isNotEmpty)
+        .map((item) => '<li>$item</li>')
+        .join();
+
+    final actionHtml = (actionLabel ?? '').trim().isNotEmpty &&
+            (actionUrl ?? '').trim().isNotEmpty
+        ? '''
+          <div class="action-wrap">
+            <a class="action-button" href="$actionUrl">$actionLabel</a>
+          </div>
+        '''
+        : '';
+
+    final footerHtml = (footerNote ?? '').trim().isNotEmpty
+        ? '<div class="footer-note">$footerNote</div>'
+        : '';
+
+    return '''
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>$title</title>
+      <style>
+        body {
+          margin: 0;
+          padding: 24px 12px;
+          background: #f4f7fb;
+          color: #172033;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+        }
+        .shell {
+          max-width: 640px;
+          margin: 0 auto;
+          background: #ffffff;
+          border-radius: 18px;
+          overflow: hidden;
+          box-shadow: 0 20px 45px rgba(15, 23, 42, 0.10);
+        }
+        .hero {
+          padding: 28px 28px 20px;
+          background: linear-gradient(135deg, $accentColor, #0f172a);
+          color: #ffffff;
+        }
+        .eyebrow {
+          display: inline-block;
+          margin-bottom: 12px;
+          padding: 6px 10px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.16);
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.10em;
+          text-transform: uppercase;
+        }
+        .headline {
+          margin: 0;
+          font-size: 26px;
+          line-height: 1.2;
+          font-weight: 800;
+        }
+        .intro {
+          margin: 14px 0 0;
+          font-size: 15px;
+          line-height: 1.7;
+          color: rgba(255, 255, 255, 0.88);
+        }
+        .content {
+          padding: 28px;
+        }
+        .section-title {
+          margin: 0 0 14px;
+          font-size: 13px;
+          font-weight: 800;
+          color: #667085;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+        .info-card {
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          overflow: hidden;
+          background: #ffffff;
+        }
+        .info-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 14px 16px;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .info-row:last-child {
+          border-bottom: 0;
+        }
+        .info-label {
+          color: #64748b;
+          font-size: 13px;
+        }
+        .info-value {
+          color: #0f172a;
+          font-size: 13px;
+          font-weight: 700;
+          text-align: right;
+        }
+        .highlights {
+          margin: 22px 0 0;
+          padding: 18px 20px 18px 38px;
+          border-radius: 14px;
+          background: #f8fafc;
+        }
+        .highlights li {
+          margin-bottom: 10px;
+          color: #334155;
+          font-size: 14px;
+          line-height: 1.6;
+        }
+        .highlights li:last-child {
+          margin-bottom: 0;
+        }
+        .action-wrap {
+          margin-top: 24px;
+        }
+        .action-button {
+          display: inline-block;
+          padding: 13px 18px;
+          border-radius: 12px;
+          background: $accentColor;
+          color: #ffffff !important;
+          text-decoration: none;
+          font-size: 14px;
+          font-weight: 700;
+        }
+        .footer-note {
+          margin-top: 24px;
+          color: #64748b;
+          font-size: 13px;
+          line-height: 1.6;
+        }
+        @media only screen and (max-width: 520px) {
+          .hero, .content {
+            padding: 22px 18px;
+          }
+          .headline {
+            font-size: 22px;
+          }
+          .info-row {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+          .info-value {
+            text-align: left;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="shell">
+        <div class="hero">
+          <div class="eyebrow">$eyebrow</div>
+          <h1 class="headline">$headline</h1>
+          <p class="intro">$intro</p>
+        </div>
+        <div class="content">
+          <div class="section-title">$title</div>
+          <div class="info-card">
+            $infoHtml
+          </div>
+          ${highlightsHtml.isNotEmpty ? '<ul class="highlights">$highlightsHtml</ul>' : ''}
+          $actionHtml
+          $footerHtml
+        </div>
+      </div>
+    </body>
+    </html>
+    ''';
+  }
+
+  static String _formatMoney(double amount) {
+    return NumberFormat.currency(symbol: 'NGN ', decimalDigits: 2)
+        .format(amount);
+  }
+
+  static String _formatShortDate(DateTime date) {
+    return DateFormat('MMM dd, yyyy').format(date);
+  }
+
+  static String _formatDateTime(DateTime date) {
+    return DateFormat('MMM dd, yyyy - hh:mm a').format(date);
+  }
+
+  static String _labelizeKey(String value) {
+    return value
+        .replaceAll('_', ' ')
+        .split(' ')
+        .where((segment) => segment.trim().isNotEmpty)
+        .map(
+          (segment) => segment.substring(0, 1).toUpperCase() +
+              segment.substring(1).toLowerCase(),
+        )
+        .join(' ');
+  }
 }
 

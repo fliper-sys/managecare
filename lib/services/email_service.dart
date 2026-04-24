@@ -29,7 +29,7 @@ class EmailService {
     request.fields['template'] = template;
     request.fields['recipient'] = recipient;
     if (subject != null) request.fields['subject'] = subject;
-    request.fields['data'] = jsonEncode(data);
+    request.fields['data'] = jsonEncode(_jsonSafe(data));
 
     if (attachments != null) {
       for (final file in attachments) {
@@ -108,6 +108,124 @@ class EmailService {
       {List<File>? attachments}) async {
     return sendTemplateEmail('payment-reminder', recipient, data,
         subject: 'Upcoming Payment Reminder', attachments: attachments);
+  }
+
+  Future<bool> sendSubscriptionStatusEmail(
+    String recipient,
+    Map<String, dynamic> data, {
+    String? subject,
+    List<File>? attachments,
+  }) async {
+    final html = EmailTemplateService.generateSubscriptionStatusEmailHtml(
+      businessName: _readString(data, 'businessName', 'Manage Care'),
+      recipientName: _readString(data, 'recipientName', 'Business Owner'),
+      planName: _readString(data, 'planName', 'Subscription Plan'),
+      amount: _readDouble(data, 'amount'),
+      statusLabel: _readString(data, 'statusLabel', 'Updated'),
+      statusMessage: _readString(
+        data,
+        'statusMessage',
+        'Your subscription information has changed.',
+      ),
+      requestId: _readNullableString(data, 'requestId'),
+      businessType: _readNullableString(data, 'businessType'),
+      startsOn: _readDateTime(data, 'startsOn'),
+      endsOn: _readDateTime(data, 'endsOn'),
+      actionLabel: _readNullableString(data, 'actionLabel'),
+      actionUrl: _readNullableString(data, 'actionUrl'),
+    );
+
+    return sendTemplateEmail(
+      'subscription-update',
+      recipient,
+      {...data, 'emailHtml': html},
+      subject:
+          subject ?? '${_readString(data, 'statusLabel', 'Subscription')} Update',
+      attachments: attachments,
+    );
+  }
+
+  Future<bool> sendTenantWelcomeEmail(
+    String recipient,
+    Map<String, dynamic> data, {
+    String? subject,
+    List<File>? attachments,
+  }) async {
+    final html = EmailTemplateService.generateTenantWelcomeEmailHtml(
+      businessName: _readString(data, 'businessName', 'Manage Care'),
+      tenantName: _readString(data, 'tenantName', 'Tenant'),
+      propertyTitle: _readNullableString(data, 'propertyTitle'),
+      contactEmail: _readNullableString(data, 'contactEmail'),
+      contactPhone: _readNullableString(data, 'contactPhone'),
+      whatsapp: _readNullableString(data, 'whatsapp'),
+    );
+
+    return sendTemplateEmail(
+      'tenant-welcome',
+      recipient,
+      {...data, 'emailHtml': html},
+      subject: subject ??
+          'Welcome to ${_readString(data, 'businessName', 'Manage Care')}',
+      attachments: attachments,
+    );
+  }
+
+  Future<bool> sendLeaseCreatedEmail(
+    String recipient,
+    Map<String, dynamic> data, {
+    String? subject,
+    List<File>? attachments,
+  }) async {
+    final html = EmailTemplateService.generateLeaseCreatedEmailHtml(
+      businessName: _readString(data, 'businessName', 'Manage Care'),
+      tenantName: _readString(data, 'tenantName', 'Tenant'),
+      propertyTitle: _readString(data, 'propertyTitle', 'Property'),
+      leaseType: _readString(data, 'leaseType', 'monthly_rent'),
+      startDate: _readDateTime(data, 'startDate') ?? DateTime.now(),
+      endDate:
+          _readDateTime(data, 'endDate') ?? DateTime.now().add(const Duration(days: 30)),
+      monthlyRent: _readDouble(data, 'monthlyRent'),
+      deposit: _readDouble(data, 'deposit'),
+      contactEmail: _readNullableString(data, 'contactEmail'),
+      contactPhone: _readNullableString(data, 'contactPhone'),
+    );
+
+    return sendTemplateEmail(
+      'lease-created',
+      recipient,
+      {...data, 'emailHtml': html},
+      subject: subject ??
+          'Lease Created for ${_readString(data, 'propertyTitle', 'Property')}',
+      attachments: attachments,
+    );
+  }
+
+  Future<bool> sendRentReceiptEmail(
+    String recipient,
+    Map<String, dynamic> data, {
+    String? subject,
+    List<File>? attachments,
+  }) async {
+    final html = EmailTemplateService.generateRentReceiptEmailHtml(
+      businessName: _readString(data, 'businessName', 'Manage Care'),
+      tenantName: _readString(data, 'tenantName', 'Tenant'),
+      propertyTitle: _readString(data, 'propertyTitle', 'Property'),
+      amount: _readDouble(data, 'amount'),
+      paymentMethod: _readString(data, 'paymentMethod', 'payment'),
+      paidDate: _readDateTime(data, 'paidDate') ?? DateTime.now(),
+      durationMonths: _readInt(data, 'durationMonths', 1),
+      nextDueDate: _readDateTime(data, 'nextDueDate'),
+      receiptUrl: _readNullableString(data, 'receiptUrl'),
+    );
+
+    return sendTemplateEmail(
+      'rent-receipt',
+      recipient,
+      {...data, 'emailHtml': html},
+      subject: subject ??
+          'Rent Receipt from ${_readString(data, 'businessName', 'Manage Care')}',
+      attachments: attachments,
+    );
   }
 
   /// Send order success alert (Pro feature). Must include plan='pro' in the request.
@@ -280,8 +398,67 @@ class EmailService {
   /// Send worker invitation email with credentials and role info
   Future<bool> sendWorkerInvitationEmail(
       String recipient, Map<String, String> data) async {
-    return sendTemplateEmail('worker-invitation', recipient, data,
-        subject: 'You have been invited to join ${data['businessName']}');
+    final html = EmailTemplateService.generateWorkerInvitationEmailHtml(
+      businessName: data['businessName'] ?? 'Manage Care',
+      workerName: data['name'] ?? 'Team Member',
+      role: data['role'] ?? 'Worker',
+      email: data['email'] ?? recipient,
+      temporaryPassword: data['temporaryPassword'] ?? '',
+    );
+    return sendTemplateEmail(
+      'worker-invitation',
+      recipient,
+      {...data, 'emailHtml': html},
+      subject: 'You have been invited to join ${data['businessName']}',
+    );
+  }
+
+  String _readString(
+    Map<String, dynamic> data,
+    String key,
+    String fallback,
+  ) {
+    final value = data[key];
+    final text = value?.toString().trim() ?? '';
+    return text.isNotEmpty ? text : fallback;
+  }
+
+  String? _readNullableString(Map<String, dynamic> data, String key) {
+    final value = data[key];
+    final text = value?.toString().trim() ?? '';
+    return text.isNotEmpty ? text : null;
+  }
+
+  double _readDouble(Map<String, dynamic> data, String key) {
+    final value = data[key];
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+
+  int _readInt(Map<String, dynamic> data, String key, int fallback) {
+    final value = data[key];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? fallback;
+  }
+
+  DateTime? _readDateTime(Map<String, dynamic> data, String key) {
+    final value = data[key];
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value.toString());
+  }
+
+  dynamic _jsonSafe(dynamic value) {
+    if (value is DateTime) return value.toIso8601String();
+    if (value is Map) {
+      return value.map((key, entry) =>
+          MapEntry(key.toString(), _jsonSafe(entry)));
+    }
+    if (value is List) {
+      return value.map(_jsonSafe).toList();
+    }
+    return value;
   }
 }
 
