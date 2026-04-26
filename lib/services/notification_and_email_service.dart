@@ -245,10 +245,20 @@ class NotificationAndEmailService {
     required String paymentMethod,
     required String receiptNumber,
     String? businessId, // optional - used to enrich item names from inventory
+    String? customerPhone,
+    String? cashierName,
+    String? cashierEmail,
+    String? storeName,
+    String? cartLabel,
+    double? subtotal,
+    double? tax,
+    double? discount,
+    List<Map<String, dynamic>>? paymentBreakdown,
+    DateTime? saleTime,
   }) async {
     try {
       // Enrich items names using business inventory if businessId provided and name missing
-      final enrichedItems = <Map<String, String>>[];
+      final enrichedItems = <Map<String, dynamic>>[];
       for (final i in items) {
         var name = (i['name'] as String?) ?? (i['productName'] as String?) ?? '';
         final productId = (i['productId'] as String?) ?? (i['id'] as String?);
@@ -266,30 +276,86 @@ class NotificationAndEmailService {
 
         enrichedItems.add({
           'name': name,
-          'quantity': (i['quantity']?.toString() ?? (i['qty']?.toString() ?? '1')),
-          'price': (i['price'] ?? i['unitPrice'] ?? 0).toString(),
+          'quantity': i['quantity'] ?? i['qty'] ?? 1,
+          'price': i['price'] ?? i['unitPrice'] ?? 0,
+          'total': i['total'],
+          'unit': i['unit'],
+          'saleUnit': i['saleUnit'],
+          'pricingMode': i['pricingMode'],
+          'productId': productId,
         });
       }
 
       final data = <String, dynamic>{
         'businessName': businessName,
-        'order_id': receiptNumber,
-        'total': totalAmount.toStringAsFixed(2),
+        'saleReference': receiptNumber,
+        'saleTime': (saleTime ?? DateTime.now()).toIso8601String(),
+        'total': totalAmount,
+        'subtotal': subtotal ?? totalAmount,
+        'tax': tax ?? 0.0,
+        'discount': discount ?? 0.0,
         'itemsCount': enrichedItems.length,
         'items': enrichedItems,
         'customerName': customerName,
         'customerEmail': customerEmail,
+        'customerPhone': customerPhone,
+        'cashierName': cashierName,
+        'cashierEmail': cashierEmail,
+        'storeName': storeName,
+        'cartLabel': cartLabel,
         'paymentMethod': paymentMethod,
-        'timestamp': DateTime.now().toIso8601String(),
+        'paymentBreakdown': paymentBreakdown ?? <Map<String, dynamic>>[],
       };
 
-      // Use order template (pro) so owners receive detailed formatted order
-      return await _emailService.sendOrderSuccessAlert(
+      return await _emailService.sendOwnerSalesAlertEmail(
         ownerEmail,
         data,
       );
     } catch (e) {
       print('sendSalesNotification failed: $e');
+      return false;
+    }
+  }
+
+  Future<bool> sendProcurementNotification({
+    required String ownerEmail,
+    required String businessName,
+    required String procurementId,
+    required List<Map<String, dynamic>> items,
+    required double totalCost,
+    required double totalQuantity,
+    required int itemsCount,
+    required String createdByName,
+    String? createdByEmail,
+    String? supplierName,
+    String? invoiceRef,
+    String? storeName,
+    String? referenceImageUrl,
+    DateTime? createdAt,
+  }) async {
+    try {
+      final data = <String, dynamic>{
+        'businessName': businessName,
+        'procurementId': procurementId,
+        'items': items,
+        'itemsCount': itemsCount,
+        'totalCost': totalCost,
+        'totalQuantity': totalQuantity,
+        'createdByName': createdByName,
+        'createdByEmail': createdByEmail,
+        'supplierName': supplierName,
+        'invoiceRef': invoiceRef,
+        'storeName': storeName,
+        'referenceImageUrl': referenceImageUrl,
+        'createdAt': (createdAt ?? DateTime.now()).toIso8601String(),
+      };
+
+      return await _emailService.sendProcurementAlertEmail(
+        ownerEmail,
+        data,
+      );
+    } catch (e) {
+      print('sendProcurementNotification failed: $e');
       return false;
     }
   }

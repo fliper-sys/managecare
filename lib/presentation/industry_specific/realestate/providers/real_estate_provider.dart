@@ -640,7 +640,7 @@ class RealEstateProvider extends ChangeNotifier {
             fileExtension = item.extension ?? 'pdf';
             mimeType = _getDocumentMimeType(fileExtension);
             multipart = MultipartFile.fromBytes(bytes,
-                filename: '${item.name}',
+                filename: item.name,
                 contentType: MediaType.parse(mimeType));
           } else if (item is List<int>) {
             // raw bytes
@@ -1113,7 +1113,6 @@ class RealEstateProvider extends ChangeNotifier {
 
       _errorMessage = '';
       notifyListeners();
-      unawaited(_sendLeaseCreatedEmail(lease));
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
@@ -1158,6 +1157,7 @@ class RealEstateProvider extends ChangeNotifier {
 
       _errorMessage = '';
       notifyListeners();
+      unawaited(_sendLeaseCreatedEmail(lease));
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();

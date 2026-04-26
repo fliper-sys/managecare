@@ -10,6 +10,7 @@ import '../../../data/models/inventory_model.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../data/repositories/inventory_repository_impl.dart';
+import '../../../core/utils/inventory_utils.dart';
 
 /// Input formatter to allow only decimal numbers (digits and single decimal point)
 class _DecimalInputFormatter extends TextInputFormatter {
@@ -63,10 +64,14 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
   // Additional product info
   late TextEditingController _costController;
   late TextEditingController _minStockController;
+  late TextEditingController _wholesalePriceController;
+  late TextEditingController _saleUnitMultiplierController;
   late TextEditingController _barcodeController;
   late TextEditingController _imageUrlController;
   late TextEditingController _emojiController;
+  late TextEditingController _batchLabelController;
   bool _trackExpiry = false;
+  String? _selectedSaleUnit;
 
   DateTime? _expiryDate;
   bool _isLoading = true;
@@ -91,12 +96,15 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
     _reorderLevelController = TextEditingController();
     _unitPriceController = TextEditingController();
     _unitController = TextEditingController();
-
-    _costController = TextEditingController();
     _minStockController = TextEditingController();
+    _costController = TextEditingController();
+    _wholesalePriceController = TextEditingController();
+    _saleUnitMultiplierController = TextEditingController();
     _barcodeController = TextEditingController();
     _imageUrlController = TextEditingController();
     _emojiController = TextEditingController();
+    _batchLabelController = TextEditingController();
+    _selectedSaleUnit = null;
 
     _loadInventory();
   }
@@ -152,16 +160,26 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
           final minStockVal = raw['minStock'] ?? raw['reorderLevel'] ?? 0;
           _reorderLevelController.text = (raw['reorderLevel'] ?? minStockVal).toString();
           _minStockController.text = (minStockVal).toString();
-          _unitPriceController.text = model.unitPrice.toStringAsFixed(2);
+
+          final priceValue = raw['price'] ?? raw['sellingPrice'] ?? model.unitPrice;
+          _unitPriceController.text = (priceValue is num ? priceValue.toDouble() : double.tryParse(priceValue.toString()) ?? 0).toStringAsFixed(2);
+
           _unitController.text = model.unit;
+          _selectedSaleUnit = (raw['saleUnit'] as String?)?.isNotEmpty == true
+              ? canonicalizeInventoryUnit(raw['saleUnit'] as String)
+              : null;
+          _saleUnitMultiplierController.text = (raw['saleUnitMultiplier'] ?? 1.0).toString();
           _expiryDate = model.expiryDate;
 
           // Additional optional fields
           final costValue = raw['cost'] ?? raw['costPrice'] ?? 0;
           _costController.text = (costValue is num ? costValue.toDouble() : double.tryParse(costValue.toString()) ?? 0).toStringAsFixed(2);
+          final wholesaleValue = raw['wholesalePrice'] ?? 0;
+          _wholesalePriceController.text = (wholesaleValue is num ? wholesaleValue.toDouble() : double.tryParse(wholesaleValue.toString()) ?? 0).toStringAsFixed(2);
           _barcodeController.text = (raw['barcode'] ?? '') as String;
           _imageUrlController.text = (raw['imageUrl'] ?? '') as String;
           _emojiController.text = (raw['emoji'] ?? '') as String;
+          _batchLabelController.text = (raw['batchLabel'] ?? '') as String;
           _trackExpiry = (raw['trackExpiry'] == true);
 
           _isLoading = false;
@@ -206,14 +224,19 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
         'reorderLevel': double.tryParse(_reorderLevelController.text.trim()) ?? 0,
         // keep backward-compatible key 'minStock' for other parts of app
         'minStock': double.tryParse(_minStockController.text.trim()) ?? double.tryParse(_reorderLevelController.text.trim()) ?? 0,
+        'price': _parsePrice(_unitPriceController.text),
         'unitPrice': _parsePrice(_unitPriceController.text),
-        'sellingPrice': _parsePrice(_unitPriceController.text), // Update selling price as well
+        'sellingPrice': _parsePrice(_unitPriceController.text), // Keep legacy inventory view fields in sync
+        'wholesalePrice': _parsePrice(_wholesalePriceController.text),
+        'saleUnit': _selectedSaleUnit ?? _unitController.text.trim(),
+        'saleUnitMultiplier': double.tryParse(_saleUnitMultiplierController.text.trim()) ?? 1.0,
         'cost': _parsePrice(_costController.text),
         'costPrice': _parsePrice(_costController.text), // Keep backward compatibility
         'unit': _unitController.text.trim(),
         'barcode': _barcodeController.text.trim(),
         'imageUrl': _imageUrlController.text.trim(),
         'emoji': _emojiController.text.trim(),
+        'batchLabel': _batchLabelController.text.trim(),
         'trackExpiry': _trackExpiry,
         'expiryDate': _expiryDate, // store as DateTime
         'updatedAt': DateTime.now().toIso8601String(),
@@ -359,10 +382,13 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
     _unitController.dispose();
 
     _costController.dispose();
+    _wholesalePriceController.dispose();
+    _saleUnitMultiplierController.dispose();
     _minStockController.dispose();
     _barcodeController.dispose();
     _imageUrlController.dispose();
     _emojiController.dispose();
+    _batchLabelController.dispose();
 
     super.dispose();
   }
@@ -471,15 +497,30 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
               const SizedBox(height: 16),
 
               // Unit
-              TextFormField(
-                controller: _unitController,
+              DropdownButtonFormField<String>(
+                value: _unitController.text.isEmpty ? null : _unitController.text,
                 decoration: InputDecoration(
                   labelText: 'Unit',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  hintText: 'e.g., piece, kg, liter',
+                  hintText: 'Select unit',
                 ),
+                items: getInventoryUnitOptions(selectedUnit: _unitController.text)
+                    .map(
+                      (unit) => DropdownMenuItem<String>(
+                        value: unit,
+                        child: Text(inventoryUnitLabel(unit)),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() {
+                      _unitController.text = value;
+                    });
+                  }
+                },
               ),
               const SizedBox(height: 24),
 
@@ -531,15 +572,15 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
               ),
               const SizedBox(height: 16),
 
-              // Unit Price
+              // Unit Price / Selling Price
               TextFormField(
                 controller: _unitPriceController,
                 decoration: InputDecoration(
-                  labelText: 'Unit Price *',
+                  labelText: 'Selling Price (₦) *',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  hintText: 'Enter price amount',
+                  hintText: 'Enter selling price',
                 ),
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
@@ -551,7 +592,7 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
                 ],
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Unit price is required';
+                    return 'Selling price is required';
                   }
                   final parsed = double.tryParse(value.trim());
                   if (parsed == null || parsed < 0) {
@@ -559,6 +600,90 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
                   }
                   return null;
                 },
+              ),
+              const SizedBox(height: 16),
+
+              // Wholesale Price
+              TextFormField(
+                controller: _wholesalePriceController,
+                decoration: InputDecoration(
+                  labelText: 'Wholesale Price (optional)',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  hintText: 'Enter wholesale price if applicable',
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                  signed: false,
+                ),
+                inputFormatters: [
+                  _DecimalInputFormatter(),
+                ],
+                validator: (value) {
+                  if (value == null || value.isEmpty) return null;
+                  final parsed = double.tryParse(value.trim());
+                  if (parsed == null || parsed < 0) {
+                    return 'Please enter a valid positive number or leave empty';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Sale Unit and Multiplier
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedSaleUnit,
+                      decoration: InputDecoration(
+                        labelText: 'Sale Unit',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      items: getInventoryUnitOptions(selectedUnit: _selectedSaleUnit)
+                          .map(
+                            (unit) => DropdownMenuItem<String>(
+                              value: unit,
+                              child: Text(inventoryUnitLabel(unit)),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        setState(() => _selectedSaleUnit = value);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _saleUnitMultiplierController,
+                      decoration: InputDecoration(
+                        labelText: 'Sale Unit Multiplier',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        hintText: 'e.g. 12',
+                        helperText: 'How many inventory units make one sale unit',
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: false,
+                      ),
+                      inputFormatters: [_DecimalInputFormatter()],
+                      validator: (value) {
+                        if (value == null || value.isEmpty) return null;
+                        final parsed = double.tryParse(value.trim());
+                        if (parsed == null || parsed <= 0) {
+                          return 'Enter a valid multiplier';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 24),
 
@@ -642,6 +767,19 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Batch Label
+              TextFormField(
+                controller: _batchLabelController,
+                decoration: InputDecoration(
+                  labelText: 'Batch Label / Code (optional)',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  hintText: 'e.g., Batch-001, Lot-A',
                 ),
               ),
               const SizedBox(height: 16),

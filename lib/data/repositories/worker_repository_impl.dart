@@ -41,7 +41,10 @@ class WorkerRepositoryImpl implements WorkerRepository {
       String workerId, Map<String, dynamic> workerData) async {
     try {
       workerData['updatedAt'] = DateTime.now();
-      await _firestore.collection('workers').doc(workerId).update(workerData);
+      await _firestore
+          .collection('workers')
+          .doc(workerId)
+          .set(workerData, SetOptions(merge: true));
     } catch (e) {
       rethrow;
     }
@@ -92,8 +95,19 @@ class WorkerRepositoryImpl implements WorkerRepository {
         workerMap[worker['id']] = worker;
       }
 
-      final result = workerMap.values.toList();
-      print('[WorkerRepo] Total unique workers: ${result.length}');
+      final result = workerMap.values
+          .where((worker) {
+            final workerBusinessId =
+                (worker['businessId'] ?? '').toString().trim();
+            if (workerBusinessId != businessId) return false;
+
+            final isActive = worker['isActive'];
+            if (isActive is bool) return isActive;
+
+            return true;
+          })
+          .toList();
+      print('[WorkerRepo] Total active unique workers: ${result.length}');
       return result;
     } catch (e) {
       print('[WorkerRepo] Error fetching workers: $e');

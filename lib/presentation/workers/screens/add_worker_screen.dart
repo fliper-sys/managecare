@@ -118,10 +118,11 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
     final businessProvider = context.read<BusinessProvider>();
     final workersProvider = context.read<WorkersProvider>();
-    final currentWorkerCount = [
-      workersProvider.workers.length,
-      businessProvider.currentBusiness?.totalWorkers ?? 0,
-    ].reduce((value, element) => value > element ? value : element);
+    final businessId = businessProvider.currentBusiness?.id ?? '';
+    if (businessId.isNotEmpty) {
+      await workersProvider.refreshForBusiness(businessId);
+    }
+    final currentWorkerCount = workersProvider.workers.length;
 
     if (!businessProvider.isWithinLimit('workers', currentWorkerCount)) {
       await showDialog<void>(
@@ -319,6 +320,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           final bid = businessProvider.currentBusiness?.id ?? '';
           if (bid.isNotEmpty) {
             await context.read<WorkersProvider>().refreshForBusiness(bid);
+            await businessProvider.refreshBusinessStats(bid);
           }
 
           // If worker has barber role and business is barbershop, also create a barber entry

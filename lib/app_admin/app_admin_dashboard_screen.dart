@@ -2244,7 +2244,9 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _isSending = false);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(ok ? 'Email queued' : 'Failed to queue email')));
+          content: Text(ok
+              ? (admin.errorMessage ?? 'Emails sent successfully')
+              : (admin.errorMessage ?? 'Failed to send email'))));
       if (ok) {
         _emailSubjectController.clear();
         _emailBodyController.clear();

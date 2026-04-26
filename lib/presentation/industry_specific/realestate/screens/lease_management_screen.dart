@@ -130,17 +130,16 @@ class _LeaseManagementScreenEnhancedState
               // Lease List
               Expanded(
                 child: leases.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.description_outlined,
+                            const Icon(Icons.description_outlined,
                                 size: 64, color: AppColors.border),
-                            SizedBox(height: 16),
+                            const SizedBox(height: 16),
                             Text(
                               'No leases found',
-                              style: AppTextStyles.body1
-                                  .copyWith(color: scheme.onSurface),
+                              style: AppTextStyles.body1.copyWith(color: scheme.onSurface),
                             ),
                           ],
                         ),

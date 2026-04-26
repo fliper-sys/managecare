@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../data/repositories/worker_repository_impl.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/utils/worker_permissions.dart';
+import '../../../providers/workers_provider.dart';
 import '../../../widgets/profile_avatar.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -445,38 +447,11 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
           Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
       if (business == null) return <Map<String, dynamic>>[];
 
-      // Get from workers collection
-      final snap = await FirebaseFirestore.instance
-          .collection('workers')
-          .where('businessId', isEqualTo: business.id)
-          .where('isActive', isEqualTo: true)
-          .get();
-      final List<Map<String, dynamic>> result = snap.docs
-          .map((d) => {...d.data(), 'id': d.id})
-          .toList()
-          .cast<Map<String, dynamic>>();
-
-      // Also get from users collection
-      final usersSnap = await FirebaseFirestore.instance
-          .collection('users')
-          .where('businessId', isEqualTo: business.id)
-          .where('isOwner', isEqualTo: false)
-          .get();
-      final usersWorkers = usersSnap.docs
-          .map((d) => {'id': d.id, ...d.data()})
-          .toList()
-          .cast<Map<String, dynamic>>();
-
-      // Merge and deduplicate
-      final workerMap = <String, dynamic>{};
-      for (var worker in result) {
-        workerMap[worker['id']] = worker;
-      }
-      for (var worker in usersWorkers) {
-        workerMap[worker['id']] = worker;
-      }
-
-      final merged = workerMap.values.toList().cast<Map<String, dynamic>>();
+      final repo = WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
+      final merged = (await repo.getWorkers(business.id))
+          .cast<Map<String, dynamic>>()
+          .map((worker) => Map<String, dynamic>.from(worker))
+          .toList();
 
       // Sort by name client-side
       merged.sort((a, b) {
@@ -607,6 +582,12 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
           .collection('users')
           .doc(workerId)
           .update({'businessId': FieldValue.delete(), 'role': FieldValue.delete(), 'updatedAt': FieldValue.serverTimestamp()});
+
+      final targetBusinessId = businessId?.trim() ?? '';
+      if (targetBusinessId.isNotEmpty) {
+        await context.read<WorkersProvider>().refreshForBusiness(targetBusinessId);
+        await context.read<BusinessProvider>().refreshBusinessStats(targetBusinessId);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

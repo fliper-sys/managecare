@@ -112,7 +112,7 @@ class _RealestateDashboardScreenState extends State<RealestateDashboardScreen> {
                 const SizedBox(height: 24),
 
                 // Recent Activity
-                _buildRecentActivitySection(provider),
+                _buildRecentActivitySection(context, provider),
                 const SizedBox(height: 32),
               ],
             ),
@@ -518,8 +518,9 @@ class _RealestateDashboardScreenState extends State<RealestateDashboardScreen> {
                 final lease = provider.leases[leaseIdx];
                 final propIdx = provider.properties
                     .indexWhere((pt) => pt.id == lease.propertyId);
-                if (propIdx != -1)
+                if (propIdx != -1) {
                   propertyTitle = provider.properties[propIdx].title;
+                }
               }
               final days = p.dueDate.difference(now).inDays;
               return ListTile(
@@ -749,8 +750,8 @@ Widget _buildActionCard(
       .scale(duration: 500.ms, delay: Duration(milliseconds: index * 100));
 }
 
-Widget _buildRecentActivitySection(RealEstateProvider provider) {
-  String _timeAgo(DateTime dt) {
+Widget _buildRecentActivitySection(BuildContext context, RealEstateProvider provider) {
+  String timeAgo(DateTime dt) {
     final diff = DateTime.now().difference(dt);
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
     if (diff.inHours < 24) return '${diff.inHours}h ago';
@@ -770,7 +771,7 @@ Widget _buildRecentActivitySection(RealEstateProvider provider) {
     activities.add(_buildActivityItem(
       title,
       desc,
-      _timeAgo(p.paidDate ?? p.createdAt),
+      timeAgo(p.paidDate ?? p.createdAt),
       Icons.account_balance_wallet,
       Colors.purple,
     ));
@@ -789,7 +790,7 @@ Widget _buildRecentActivitySection(RealEstateProvider provider) {
       activities.add(_buildActivityItem(
         title,
         desc,
-        _timeAgo(l.createdAt),
+        timeAgo(l.createdAt),
         Icons.check_circle,
         Colors.green,
       ));

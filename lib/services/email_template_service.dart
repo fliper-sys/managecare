@@ -774,6 +774,863 @@ class EmailTemplateService {
     ''';
   }
 
+  static String generateOwnerSalesAlertEmailHtml({
+    required String businessName,
+    required String saleReference,
+    required DateTime saleTime,
+    required String customerName,
+    String? customerEmail,
+    String? customerPhone,
+    String? cashierName,
+    String? cashierEmail,
+    String? storeName,
+    String? cartLabel,
+    required String paymentMethod,
+    List<Map<String, dynamic>>? paymentBreakdown,
+    required double subtotal,
+    required double tax,
+    required double discount,
+    required double total,
+    required List<Map<String, dynamic>> items,
+  }) {
+    final timestamp = _formatDateTime(saleTime);
+    final currency = NumberFormat.currency(symbol: 'NGN ', decimalDigits: 2);
+    final totalQuantity = items.fold<double>(0.0, (sum, item) {
+      final qty = item['quantity'];
+      if (qty is num) return sum + qty.toDouble();
+      return sum + (double.tryParse(qty?.toString() ?? '') ?? 0.0);
+    });
+
+    final itemRows = items.asMap().entries.map((entry) {
+      final index = entry.key + 1;
+      final item = entry.value;
+      final quantity = _readNum(item['quantity']);
+      final unitPrice = _readNum(
+        item['price'] ?? item['unitPrice'] ?? item['purchaseUnitCost'],
+      );
+      final lineTotal = _readNum(item['total']);
+      final resolvedLineTotal =
+          lineTotal > 0 ? lineTotal : (quantity * unitPrice);
+      final unitLabel = (item['saleUnit'] ?? item['unit'] ?? '').toString();
+      final pricingMode = (item['pricingMode'] ?? '').toString();
+      final meta = <String>[
+        if (unitLabel.trim().isNotEmpty) 'Unit: $unitLabel',
+        if (pricingMode.trim().isNotEmpty)
+          'Mode: ${_labelizeKey(pricingMode)}',
+      ].join(' | ');
+      return '''
+      <tr>
+        <td style="padding:14px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#0f172a;">
+          <div style="font-weight:700;">${index.toString().padLeft(2, '0')}. ${item['name'] ?? item['productName'] ?? 'Item'}</div>
+          ${meta.isNotEmpty ? '<div style="margin-top:4px;color:#64748b;font-size:11px;">$meta</div>' : ''}
+        </td>
+        <td style="padding:14px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#334155;text-align:center;">${_formatCompactNumber(quantity)}</td>
+        <td style="padding:14px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#334155;text-align:right;">${currency.format(unitPrice)}</td>
+        <td style="padding:14px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#0f172a;text-align:right;font-weight:700;">${currency.format(resolvedLineTotal)}</td>
+      </tr>
+      ''';
+    }).join();
+
+    final paymentRows = (paymentBreakdown ?? const <Map<String, dynamic>>[])
+        .map((payment) {
+      final amount = _readNum(payment['amount']);
+      final method = (payment['method'] ?? paymentMethod).toString();
+      final transactionId = (payment['transactionId'] ?? '').toString().trim();
+      return '''
+      <div style="display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid #e2e8f0;">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#0f172a;">${_labelizeKey(method)}</div>
+          ${transactionId.isNotEmpty ? '<div style="font-size:11px;color:#64748b;">Txn: $transactionId</div>' : ''}
+        </div>
+        <div style="font-size:13px;font-weight:700;color:#0f172a;">${currency.format(amount)}</div>
+      </div>
+      ''';
+    }).join();
+
+    final summaryCards = <Map<String, String>>[
+      {
+        'label': 'Sale Total',
+        'value': currency.format(total),
+      },
+      {
+        'label': 'Items',
+        'value': items.length.toString(),
+      },
+      {
+        'label': 'Units',
+        'value': _formatCompactNumber(totalQuantity),
+      },
+      {
+        'label': 'Payment',
+        'value': _labelizeKey(paymentMethod),
+      },
+    ];
+
+    final summaryCardsHtml = summaryCards
+        .map(
+          (card) => '''
+          <div class="metric-card">
+            <div class="metric-label">${card['label']}</div>
+            <div class="metric-value">${card['value']}</div>
+          </div>
+          ''',
+        )
+        .join();
+
+    final timelineRows = <Map<String, String>>[
+      {'label': 'Sale Reference', 'value': saleReference},
+      {'label': 'Recorded At', 'value': timestamp},
+      {'label': 'Customer', 'value': customerName},
+      if ((customerEmail ?? '').trim().isNotEmpty)
+        {'label': 'Customer Email', 'value': customerEmail!.trim()},
+      if ((customerPhone ?? '').trim().isNotEmpty)
+        {'label': 'Customer Phone', 'value': customerPhone!.trim()},
+      if ((cashierName ?? '').trim().isNotEmpty)
+        {'label': 'Cashier', 'value': cashierName!.trim()},
+      if ((cashierEmail ?? '').trim().isNotEmpty)
+        {'label': 'Cashier Email', 'value': cashierEmail!.trim()},
+      if ((storeName ?? '').trim().isNotEmpty)
+        {'label': 'Store', 'value': storeName!.trim()},
+      if ((cartLabel ?? '').trim().isNotEmpty)
+        {'label': 'Cart Session', 'value': cartLabel!.trim()},
+    ];
+
+    final timelineHtml = timelineRows
+        .map(
+          (row) => '''
+          <div class="detail-row">
+            <span class="detail-label">${row['label']}</span>
+            <span class="detail-value">${row['value']}</span>
+          </div>
+          ''',
+        )
+        .join();
+
+    return '''
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Sale Alert - $businessName</title>
+      <style>
+        body {
+          margin: 0;
+          padding: 24px 12px;
+          background: #eef4ff;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+          color: #14213d;
+        }
+        .shell {
+          max-width: 720px;
+          margin: 0 auto;
+          background: #ffffff;
+          border-radius: 24px;
+          overflow: hidden;
+          box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
+        }
+        .hero {
+          padding: 28px;
+          background: linear-gradient(135deg, #0f4c81, #0f172a 78%);
+          color: #ffffff;
+        }
+        .eyebrow {
+          display: inline-block;
+          padding: 7px 12px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.14);
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+        }
+        .hero-title {
+          margin: 18px 0 8px;
+          font-size: 30px;
+          line-height: 1.15;
+          font-weight: 800;
+        }
+        .hero-copy {
+          margin: 0;
+          font-size: 15px;
+          line-height: 1.75;
+          color: rgba(255, 255, 255, 0.88);
+        }
+        .content {
+          padding: 28px;
+        }
+        .metrics {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+          margin-top: -46px;
+          margin-bottom: 24px;
+        }
+        .metric-card {
+          padding: 18px;
+          border-radius: 18px;
+          background: #ffffff;
+          border: 1px solid #dbe7ff;
+          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+        }
+        .metric-label {
+          font-size: 11px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #64748b;
+          margin-bottom: 10px;
+        }
+        .metric-value {
+          font-size: 22px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+        .section-title {
+          margin: 0 0 14px;
+          font-size: 13px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #64748b;
+        }
+        .panel {
+          border: 1px solid #e2e8f0;
+          border-radius: 18px;
+          padding: 18px;
+          background: #ffffff;
+        }
+        .detail-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 12px 0;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .detail-row:last-child {
+          border-bottom: 0;
+        }
+        .detail-label {
+          font-size: 12px;
+          color: #64748b;
+        }
+        .detail-value {
+          font-size: 13px;
+          font-weight: 700;
+          color: #0f172a;
+          text-align: right;
+        }
+        .items-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .items-table th {
+          padding: 12px;
+          background: #f8fbff;
+          border-bottom: 1px solid #dbe7ff;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #64748b;
+        }
+        .summary-box {
+          margin-top: 18px;
+          border-radius: 18px;
+          background: linear-gradient(180deg, #f8fbff, #eef6ff);
+          padding: 18px;
+          border: 1px solid #dbe7ff;
+        }
+        .summary-line {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 8px 0;
+          font-size: 14px;
+          color: #334155;
+        }
+        .summary-line.total {
+          margin-top: 8px;
+          padding-top: 14px;
+          border-top: 1px solid #c9defc;
+          font-size: 18px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+        .footer {
+          margin-top: 26px;
+          padding-top: 18px;
+          border-top: 1px solid #e2e8f0;
+          text-align: center;
+          font-size: 12px;
+          color: #64748b;
+          line-height: 1.8;
+        }
+        .credit {
+          margin-top: 8px;
+          font-weight: 700;
+          color: #0f4c81;
+        }
+        @media only screen and (max-width: 540px) {
+          .hero, .content {
+            padding: 20px;
+          }
+          .metrics {
+            grid-template-columns: 1fr;
+            margin-top: 0;
+          }
+          .detail-row {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+          .detail-value {
+            text-align: left;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="shell">
+        <div class="hero">
+          <div class="eyebrow">Owner Sale Alert</div>
+          <h1 class="hero-title">A new sale has been recorded for $businessName</h1>
+          <p class="hero-copy">This summary gives you the most important transaction context immediately: who purchased, who recorded it, how it was paid, what was sold, and the exact value of the transaction.</p>
+        </div>
+        <div class="content">
+          <div class="metrics">
+            $summaryCardsHtml
+          </div>
+
+          <div style="margin-bottom:24px;">
+            <div class="section-title">Transaction Details</div>
+            <div class="panel">
+              $timelineHtml
+            </div>
+          </div>
+
+          <div style="margin-bottom:24px;">
+            <div class="section-title">Items Sold</div>
+            <div class="panel" style="padding:0;overflow:hidden;">
+              <table class="items-table">
+                <thead>
+                  <tr>
+                    <th style="text-align:left;">Item</th>
+                    <th style="text-align:center;">Qty</th>
+                    <th style="text-align:right;">Unit Price</th>
+                    <th style="text-align:right;">Line Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  $itemRows
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1.2fr 0.8fr;gap:18px;">
+            <div>
+              <div class="section-title">Payment Breakdown</div>
+              <div class="panel">
+                ${paymentRows.isNotEmpty ? paymentRows : '<div style="font-size:14px;color:#334155;font-weight:700;">${_labelizeKey(paymentMethod)}</div>'}
+              </div>
+            </div>
+            <div>
+              <div class="section-title">Financial Summary</div>
+              <div class="summary-box">
+                <div class="summary-line">
+                  <span>Subtotal</span>
+                  <strong>${currency.format(subtotal)}</strong>
+                </div>
+                <div class="summary-line">
+                  <span>Tax</span>
+                  <strong>${currency.format(tax)}</strong>
+                </div>
+                <div class="summary-line">
+                  <span>Discount</span>
+                  <strong>${currency.format(discount)}</strong>
+                </div>
+                <div class="summary-line total">
+                  <span>Total</span>
+                  <strong>${currency.format(total)}</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="footer">
+            <div>This owner alert was generated automatically from the sales workflow.</div>
+            <div>Keep this email for reconciliation, staff review, and customer follow-up when needed.</div>
+            <div class="credit">Created by lbtech.site</div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+    ''';
+  }
+
+  static String generateProcurementAlertEmailHtml({
+    required String businessName,
+    required String procurementId,
+    required DateTime createdAt,
+    required String createdByName,
+    String? createdByEmail,
+    String? supplierName,
+    String? invoiceRef,
+    String? storeName,
+    String? referenceImageUrl,
+    required int itemsCount,
+    required double totalCost,
+    required double totalQuantity,
+    required List<Map<String, dynamic>> items,
+  }) {
+    final currency = NumberFormat.currency(symbol: 'NGN ', decimalDigits: 2);
+    final createdAtText = _formatDateTime(createdAt);
+    final itemRows = items.asMap().entries.map((entry) {
+      final item = entry.value;
+      final quantity = _readNum(item['purchaseQuantity'] ?? item['quantity']);
+      final unitCost =
+          _readNum(item['purchaseUnitCost'] ?? item['cost'] ?? item['price']);
+      final total =
+          _readNum(item['purchaseTotal'] ?? item['total']) > 0
+              ? _readNum(item['purchaseTotal'] ?? item['total'])
+              : quantity * unitCost;
+      final purchaseUnit =
+          (item['purchaseUnit'] ?? item['unit'] ?? '').toString().trim();
+      final batchLabel = (item['batchLabel'] ?? '').toString().trim();
+      final expiry = _coerceDateTime(item['expiryDate']);
+      final metaBits = <String>[
+        if (purchaseUnit.isNotEmpty) 'Unit: $purchaseUnit',
+        if (batchLabel.isNotEmpty) 'Batch: $batchLabel',
+        if (expiry != null) 'Expiry: ${_formatShortDate(expiry)}',
+      ];
+      return '''
+      <tr>
+        <td style="padding:14px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#0f172a;">
+          <div style="font-weight:700;">${item['name'] ?? 'Item'}</div>
+          ${metaBits.isNotEmpty ? '<div style="margin-top:4px;font-size:11px;color:#64748b;">${metaBits.join(' | ')}</div>' : ''}
+        </td>
+        <td style="padding:14px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#334155;text-align:center;">${_formatCompactNumber(quantity)}</td>
+        <td style="padding:14px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#334155;text-align:right;">${currency.format(unitCost)}</td>
+        <td style="padding:14px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#0f172a;text-align:right;font-weight:700;">${currency.format(total)}</td>
+      </tr>
+      ''';
+    }).join();
+
+    return '''
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Procurement Alert - $businessName</title>
+      <style>
+        body {
+          margin: 0;
+          padding: 24px 12px;
+          background: #f6f7fb;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+          color: #111827;
+        }
+        .shell {
+          max-width: 720px;
+          margin: 0 auto;
+          background: #ffffff;
+          border-radius: 24px;
+          overflow: hidden;
+          box-shadow: 0 24px 60px rgba(15, 23, 42, 0.10);
+        }
+        .hero {
+          padding: 28px;
+          background: linear-gradient(135deg, #0b6e4f, #123524 78%);
+          color: #ffffff;
+        }
+        .eyebrow {
+          display: inline-block;
+          padding: 7px 12px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.14);
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+        }
+        .hero-title {
+          margin: 18px 0 8px;
+          font-size: 30px;
+          line-height: 1.15;
+          font-weight: 800;
+        }
+        .hero-copy {
+          margin: 0;
+          font-size: 15px;
+          line-height: 1.75;
+          color: rgba(255, 255, 255, 0.88);
+        }
+        .content {
+          padding: 28px;
+        }
+        .metrics {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 14px;
+          margin-top: -44px;
+          margin-bottom: 24px;
+        }
+        .metric-card {
+          padding: 18px;
+          border-radius: 18px;
+          background: #ffffff;
+          border: 1px solid #d9efe6;
+          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+        }
+        .metric-label {
+          font-size: 11px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #64748b;
+          margin-bottom: 10px;
+        }
+        .metric-value {
+          font-size: 21px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+        .section-title {
+          margin: 0 0 14px;
+          font-size: 13px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #64748b;
+        }
+        .panel {
+          border: 1px solid #e2e8f0;
+          border-radius: 18px;
+          padding: 18px;
+          background: #ffffff;
+        }
+        .detail-row {
+          display: flex;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 12px 0;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        .detail-row:last-child {
+          border-bottom: 0;
+        }
+        .detail-label {
+          font-size: 12px;
+          color: #64748b;
+        }
+        .detail-value {
+          font-size: 13px;
+          font-weight: 700;
+          color: #0f172a;
+          text-align: right;
+        }
+        .items-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+        .items-table th {
+          padding: 12px;
+          background: #f7fcfa;
+          border-bottom: 1px solid #d9efe6;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: #64748b;
+        }
+        .cta {
+          display: inline-block;
+          margin-top: 18px;
+          padding: 13px 18px;
+          border-radius: 12px;
+          background: #0b6e4f;
+          color: #ffffff !important;
+          text-decoration: none;
+          font-size: 14px;
+          font-weight: 700;
+        }
+        .footer {
+          margin-top: 26px;
+          padding-top: 18px;
+          border-top: 1px solid #e2e8f0;
+          text-align: center;
+          font-size: 12px;
+          color: #64748b;
+          line-height: 1.8;
+        }
+        .credit {
+          margin-top: 8px;
+          font-weight: 700;
+          color: #0b6e4f;
+        }
+        @media only screen and (max-width: 600px) {
+          .hero, .content {
+            padding: 20px;
+          }
+          .metrics {
+            grid-template-columns: 1fr;
+            margin-top: 0;
+          }
+          .detail-row {
+            flex-direction: column;
+            align-items: flex-start;
+          }
+          .detail-value {
+            text-align: left;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="shell">
+        <div class="hero">
+          <div class="eyebrow">Procurement Entry Recorded</div>
+          <h1 class="hero-title">$businessName has logged a new procurement</h1>
+          <p class="hero-copy">This summary helps you review the stock replenishment immediately: supplier, invoice, quantities, total spend, and the exact items that were added into inventory.</p>
+        </div>
+        <div class="content">
+          <div class="metrics">
+            <div class="metric-card">
+              <div class="metric-label">Procurement Total</div>
+              <div class="metric-value">${currency.format(totalCost)}</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Items Count</div>
+              <div class="metric-value">$itemsCount</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">Units Added</div>
+              <div class="metric-value">${_formatCompactNumber(totalQuantity)}</div>
+            </div>
+          </div>
+
+          <div style="margin-bottom:24px;">
+            <div class="section-title">Procurement Details</div>
+            <div class="panel">
+              <div class="detail-row">
+                <span class="detail-label">Procurement ID</span>
+                <span class="detail-value">$procurementId</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Recorded At</span>
+                <span class="detail-value">$createdAtText</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Created By</span>
+                <span class="detail-value">$createdByName</span>
+              </div>
+              ${((createdByEmail ?? '').trim().isNotEmpty) ? '<div class="detail-row"><span class="detail-label">Creator Email</span><span class="detail-value">${createdByEmail!.trim()}</span></div>' : ''}
+              ${((supplierName ?? '').trim().isNotEmpty) ? '<div class="detail-row"><span class="detail-label">Supplier</span><span class="detail-value">${supplierName!.trim()}</span></div>' : ''}
+              ${((invoiceRef ?? '').trim().isNotEmpty) ? '<div class="detail-row"><span class="detail-label">Invoice / Reference</span><span class="detail-value">${invoiceRef!.trim()}</span></div>' : ''}
+              ${((storeName ?? '').trim().isNotEmpty) ? '<div class="detail-row"><span class="detail-label">Store</span><span class="detail-value">${storeName!.trim()}</span></div>' : ''}
+            </div>
+            ${((referenceImageUrl ?? '').trim().isNotEmpty) ? '<a class="cta" href="${referenceImageUrl!.trim()}">Open Reference Attachment</a>' : ''}
+          </div>
+
+          <div>
+            <div class="section-title">Procured Items</div>
+            <div class="panel" style="padding:0;overflow:hidden;">
+              <table class="items-table">
+                <thead>
+                  <tr>
+                    <th style="text-align:left;">Item</th>
+                    <th style="text-align:center;">Qty</th>
+                    <th style="text-align:right;">Unit Cost</th>
+                    <th style="text-align:right;">Line Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  $itemRows
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="footer">
+            <div>This procurement alert was generated automatically after inventory replenishment was saved.</div>
+            <div>Use this message for audit, supplier follow-up, and stock control review.</div>
+            <div class="credit">Created by lbtech.site</div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+    ''';
+  }
+
+  static String generateAdminBroadcastEmailHtml({
+    required String subject,
+    required String body,
+    required DateTime sentAt,
+    String? senderLabel,
+  }) {
+    final paragraphs = body
+        .split(RegExp(r'\r?\n'))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .map((line) => '<p style="margin:0 0 14px;font-size:15px;line-height:1.8;color:#334155;">$line</p>')
+        .join();
+
+    return '''
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>$subject</title>
+      <style>
+        body {
+          margin: 0;
+          padding: 24px 12px;
+          background: #f3f6fb;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+          color: #0f172a;
+        }
+        .shell {
+          max-width: 680px;
+          margin: 0 auto;
+          background: #ffffff;
+          border-radius: 24px;
+          overflow: hidden;
+          box-shadow: 0 24px 60px rgba(15, 23, 42, 0.10);
+        }
+        .hero {
+          padding: 28px;
+          background: linear-gradient(135deg, #6d28d9, #1f2937 80%);
+          color: #ffffff;
+        }
+        .eyebrow {
+          display: inline-block;
+          padding: 7px 12px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.14);
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
+        }
+        .hero-title {
+          margin: 18px 0 8px;
+          font-size: 30px;
+          line-height: 1.15;
+          font-weight: 800;
+        }
+        .hero-copy {
+          margin: 0;
+          font-size: 15px;
+          line-height: 1.75;
+          color: rgba(255, 255, 255, 0.88);
+        }
+        .content {
+          padding: 28px;
+        }
+        .meta-card {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+          margin-top: -42px;
+          margin-bottom: 24px;
+        }
+        .meta-box {
+          padding: 18px;
+          border-radius: 18px;
+          background: #ffffff;
+          border: 1px solid #e6dcff;
+          box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+        }
+        .meta-label {
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #64748b;
+          margin-bottom: 10px;
+        }
+        .meta-value {
+          font-size: 18px;
+          font-weight: 800;
+          color: #0f172a;
+        }
+        .message-card {
+          border: 1px solid #e2e8f0;
+          border-radius: 18px;
+          padding: 22px;
+          background: #ffffff;
+        }
+        .section-title {
+          margin: 0 0 14px;
+          font-size: 13px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: #64748b;
+        }
+        .footer {
+          margin-top: 26px;
+          padding-top: 18px;
+          border-top: 1px solid #e2e8f0;
+          text-align: center;
+          font-size: 12px;
+          color: #64748b;
+          line-height: 1.8;
+        }
+        .credit {
+          margin-top: 8px;
+          font-weight: 700;
+          color: #6d28d9;
+        }
+        @media only screen and (max-width: 540px) {
+          .hero, .content {
+            padding: 20px;
+          }
+          .meta-card {
+            grid-template-columns: 1fr;
+            margin-top: 0;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="shell">
+        <div class="hero">
+          <div class="eyebrow">Admin Communication</div>
+          <h1 class="hero-title">$subject</h1>
+          <p class="hero-copy">This message was sent from the platform administration center so you can stay informed about important business or account updates.</p>
+        </div>
+        <div class="content">
+          <div class="meta-card">
+            <div class="meta-box">
+              <div class="meta-label">Sent At</div>
+              <div class="meta-value">${_formatDateTime(sentAt)}</div>
+            </div>
+            <div class="meta-box">
+              <div class="meta-label">Sent By</div>
+              <div class="meta-value">${(senderLabel ?? 'Platform Admin').trim().isEmpty ? 'Platform Admin' : senderLabel!.trim()}</div>
+            </div>
+          </div>
+
+          <div class="section-title">Message</div>
+          <div class="message-card">
+            $paragraphs
+          </div>
+
+          <div class="footer">
+            <div>Please do not ignore this message if it relates to your account, billing, or operations.</div>
+            <div>Keep this email for reference whenever you need support follow-up.</div>
+            <div class="credit">Created by lbtech.site</div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+    ''';
+  }
+
   static String generateWorkerInvitationEmailHtml({
     required String businessName,
     required String workerName,
@@ -1174,6 +2031,39 @@ class EmailTemplateService {
 
   static String _formatDateTime(DateTime date) {
     return DateFormat('MMM dd, yyyy - hh:mm a').format(date);
+  }
+
+  static double _readNum(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+
+  static String _formatCompactNumber(double value) {
+    if (value == value.roundToDouble()) {
+      return value.toInt().toString();
+    }
+    return value.toStringAsFixed(2);
+  }
+
+  static DateTime? _coerceDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    final timestampDate = _timestampToDateTime(value);
+    if (timestampDate != null) return timestampDate;
+    return DateTime.tryParse(value.toString());
+  }
+
+  static DateTime? _timestampToDateTime(dynamic value) {
+    try {
+      final dynamic seconds = value.seconds;
+      if (seconds is int) {
+        final dynamic nanoseconds = value.nanoseconds;
+        return DateTime.fromMillisecondsSinceEpoch(
+          seconds * 1000 + ((nanoseconds is int ? nanoseconds : 0) ~/ 1000000),
+        );
+      }
+    } catch (_) {}
+    return null;
   }
 
   static String _labelizeKey(String value) {

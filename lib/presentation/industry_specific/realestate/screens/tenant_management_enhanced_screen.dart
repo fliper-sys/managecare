@@ -131,17 +131,16 @@ class _TenantManagementScreenEnhancedState
               // Tenant List
               Expanded(
                 child: tenants.isEmpty
-                    ? const Center(
+                    ? Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.person_off,
+                            const Icon(Icons.person_off,
                                 size: 64, color: AppColors.border),
-                            SizedBox(height: 16),
+                            const SizedBox(height: 16),
                             Text(
                               'No tenants found',
-                              style: AppTextStyles.body1
-                                  .copyWith(color: scheme.onSurface),
+                              style: AppTextStyles.body1.copyWith(color: scheme.onSurface),
                             ),
                           ],
                         ),

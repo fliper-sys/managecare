@@ -5,6 +5,7 @@ import '../../../data/repositories/worker_repository_impl.dart';
 import '../../../providers/retail_provider.dart';
 import '../../industry_specific/barber_shop/providers/barber_shop_provider.dart';
 import '../../industry_specific/salon/providers/salon_provider.dart';
+import '../../../providers/business_provider.dart';
 import '../../../providers/workers_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../core/theme/colors.dart';
@@ -301,7 +302,7 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                             validator: (v) {
                               if (v == null || v.trim().isEmpty) return null; // optional
                               final cleaned = v.trim();
-                              if (!RegExp(r'^\d{4,6}\$').hasMatch(cleaned)) return 'Enter a 4-6 digit numeric PIN';
+                              if (!RegExp(r'^\d{4,6}$').hasMatch(cleaned)) return 'Enter a 4-6 digit numeric PIN';
                               return null;
                             },
                           ),
@@ -396,6 +397,9 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
     try {
       final businessId = widget.businessId ?? _worker?['businessId'] as String?;
       await context.read<WorkersProvider>().deleteWorker(widget.workerId, businessId: businessId);
+      if (businessId != null && businessId.trim().isNotEmpty) {
+        await context.read<BusinessProvider>().refreshBusinessStats(businessId);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Worker deleted')));

@@ -10,10 +10,12 @@ import '../../../../core/theme/text_styles.dart';
 import '../../../../core/utils/inventory_utils.dart';
 import '../../../../core/utils/search_utils.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../industry_specific/retail/screens/add_product_screen.dart';
 import '../../../../providers/retail_provider.dart';
 import 'package:intl/intl.dart';
+import '../../../../services/notification_and_email_service.dart';
 import 'procurement_history_screen.dart';
 import 'product_procurements_screen.dart';
 import '../../../../data/repositories/procurement_repository.dart';
@@ -891,7 +893,9 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                               width: double.infinity,
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(6),
-                                color: Colors.grey[200],
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .surfaceContainerHighest,
                               ),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(6),
@@ -1083,6 +1087,28 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     setState(() => _isSubmitting = true);
 
     try {
+      final business = context.read<BusinessProvider>().currentBusiness;
+      final auth = context.read<AuthProvider>();
+      final currentUser = auth.currentUser;
+      final procurementCreatedAt = DateTime.now();
+      String? storeName;
+      if ((currentUser?.storeId ?? '').isNotEmpty) {
+        try {
+          final storeDoc = await FirebaseFirestore.instance
+              .collection('businesses')
+              .doc(businessId)
+              .collection('stores')
+              .doc(currentUser!.storeId)
+              .get();
+          storeName =
+              ((storeDoc.data() ?? const <String, dynamic>{})['name']
+                      as String?)
+                  ?.trim();
+        } catch (e) {
+          debugPrint(
+              '[ProcurementScreen] Failed to resolve store name: $e');
+        }
+      }
       final items = _selectedItems.entries.map((e) {
         final prod = e.value['product'] as Map<String, dynamic>;
         final selectedUnit = canonicalizeInventoryUnit(
@@ -1124,7 +1150,87 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         supplierName: dialogResult['supplierName'],
         invoiceRef: dialogResult['invoiceRef'],
         referenceImageUrl: dialogResult['referenceImageUrl'],
+        createdById: currentUser?.id,
+        createdByName: currentUser?.fullName,
+        createdByEmail: currentUser?.email,
+        storeId: currentUser?.storeId,
+        storeName: storeName,
       );
+
+      final totalCost = items.fold<double>(0.0, (sum, item) {
+        final value = item['purchaseTotal'] ?? item['total'] ?? 0;
+        return sum + ((value is num)
+            ? value.toDouble()
+            : (double.tryParse(value.toString()) ?? 0.0));
+      });
+      final totalQuantity = items.fold<double>(0.0, (sum, item) {
+        final value = item['purchaseQuantity'] ?? item['quantity'] ?? 0;
+        return sum + ((value is num)
+            ? value.toDouble()
+            : (double.tryParse(value.toString()) ?? 0.0));
+      });
+
+      String ownerEmail = '';
+      if ((business?.ownerId ?? '').isNotEmpty) {
+        try {
+          final ownerDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(business!.ownerId)
+              .get();
+          ownerEmail =
+              ((ownerDoc.data() ?? const <String, dynamic>{})['email']
+                          as String? ??
+                      '')
+                  .trim();
+        } catch (e) {
+          debugPrint(
+              '[ProcurementScreen] Failed to resolve owner email: $e');
+        }
+      }
+      if (ownerEmail.isEmpty) {
+        ownerEmail = (business?.email ?? '').trim();
+      }
+      if (ownerEmail.isEmpty &&
+          currentUser?.id == business?.ownerId) {
+        ownerEmail = (currentUser?.email ?? '').trim();
+      }
+
+      if (ownerEmail.isNotEmpty && business != null) {
+        final notifier = NotificationAndEmailService();
+        final emailSent = await notifier.sendProcurementNotification(
+          ownerEmail: ownerEmail,
+          businessName: business.name,
+          procurementId: id,
+          items: items,
+          totalCost: totalCost,
+          totalQuantity: totalQuantity,
+          itemsCount: items.length,
+          createdByName:
+              currentUser?.fullName?.trim().isNotEmpty == true
+                  ? currentUser!.fullName
+                  : 'Business Team',
+          createdByEmail: currentUser?.email,
+          supplierName: dialogResult['supplierName']?.toString(),
+          invoiceRef: dialogResult['invoiceRef']?.toString(),
+          storeName: storeName,
+          referenceImageUrl:
+              dialogResult['referenceImageUrl']?.toString(),
+          createdAt: procurementCreatedAt,
+        );
+        try {
+          await notifier.logNotificationEvent(
+            businessId: businessId,
+            type: 'procurement',
+            channel: 'email',
+            recipient: ownerEmail,
+            success: emailSent,
+            orderId: id,
+          );
+        } catch (e) {
+          debugPrint(
+              '[ProcurementScreen] Procurement notification log failed: $e');
+        }
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(

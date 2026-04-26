@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/utils/datetime_utils.dart';
 import '../services/business_notification_manager.dart';
 import '../services/notification_and_email_service.dart';
@@ -232,10 +234,12 @@ class RetailProvider extends ChangeNotifier {
   final Map<String, int> _cart = {};
   final Map<String, Map<String, int>> _cartSessions = {};
   final Map<String, String> _cartLabels = {};
-  // Pricing modes: productId -> 'wholesale' or 'retail' (defaults to 'retail')
-  final Map<String, String> _cartPricingModes = {};
+  // Pricing modes are tracked per cart session to avoid cross-cart bleed.
+  final Map<String, Map<String, String>> _cartSessionPricingModes = {};
+  final Map<String, String> _cartDefaultPricingModes = {};
   String _activeCartId = 'cart_1';
   int _cartSessionCounter = 1;
+  static const String _cartCacheKeyPrefix = 'retail_cart_state_v1_';
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -255,6 +259,8 @@ class RetailProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   String get activeCartId => _activeCartId;
   String get activeCartLabel => _cartLabels[_activeCartId] ?? 'Cart 1';
+  String get activeCartPricingMode =>
+      _cartDefaultPricingModes[_activeCartId] ?? 'retail';
 
   List<CartSessionSummary> get cartSessions {
     return _cartSessions.entries.map((entry) {
@@ -316,15 +322,206 @@ class RetailProvider extends ChangeNotifier {
   Map<String, int> _ensureActiveCart() {
     _cartSessions.putIfAbsent(_activeCartId, () => _cart);
     _cartLabels.putIfAbsent(_activeCartId, () => 'Cart 1');
+    _cartSessionPricingModes.putIfAbsent(
+      _activeCartId,
+      () => <String, String>{},
+    );
+    _cartDefaultPricingModes.putIfAbsent(_activeCartId, () => 'retail');
     return _cartSessions[_activeCartId]!;
   }
 
+  Map<String, String> _activePricingModes() {
+    _ensureActiveCart();
+    return _cartSessionPricingModes[_activeCartId]!;
+  }
+
   void _syncActiveCartSnapshot() {
+    final pricingModes = _activePricingModes();
+    pricingModes.removeWhere((productId, _) => !_cart.containsKey(productId));
     _cartSessions[_activeCartId] = Map<String, int>.from(_cart);
     _cartLabels.putIfAbsent(_activeCartId, () => 'Cart 1');
+    _cartDefaultPricingModes.putIfAbsent(_activeCartId, () => 'retail');
+    if (_cart.isNotEmpty) {
+      final uniqueModes = _cart.keys
+          .map((productId) => pricingModes[productId] ?? 'retail')
+          .toSet();
+      if (uniqueModes.length == 1) {
+        _cartDefaultPricingModes[_activeCartId] = uniqueModes.first;
+      }
+    }
+  }
+
+  String _cartCacheKey(String businessId) =>
+      '$_cartCacheKeyPrefix${businessId.trim()}';
+
+  int _deriveCartSessionCounter([Iterable<String>? cartIds]) {
+    var maxCounter = 1;
+    for (final cartId in cartIds ?? _cartSessions.keys) {
+      final match = RegExp(r'^cart_(\d+)$').firstMatch(cartId.trim());
+      final parsed = int.tryParse(match?.group(1) ?? '');
+      if (parsed != null && parsed > maxCounter) {
+        maxCounter = parsed;
+      }
+    }
+    return maxCounter;
+  }
+
+  void _queueCartCacheSave() {
+    unawaited(_saveCartStateToCache());
+  }
+
+  Future<void> _saveCartStateToCache() async {
+    final businessId = _businessId?.trim() ?? '';
+    if (businessId.isEmpty) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = <String, dynamic>{
+        'activeCartId': _activeCartId,
+        'cartSessionCounter': _cartSessionCounter,
+        'cartLabels': Map<String, String>.from(_cartLabels),
+        'cartSessions': _cartSessions.map(
+          (cartId, items) => MapEntry(cartId, Map<String, int>.from(items)),
+        ),
+        'cartPricingModes': _cartSessionPricingModes.map(
+          (cartId, modes) => MapEntry(cartId, Map<String, String>.from(modes)),
+        ),
+        'cartDefaultPricingModes': Map<String, String>.from(
+          _cartDefaultPricingModes,
+        ),
+        'savedAt': DateTime.now().toIso8601String(),
+      };
+      await prefs.setString(_cartCacheKey(businessId), jsonEncode(payload));
+    } catch (e) {
+      debugPrint('[RetailProvider] Failed to cache cart state: $e');
+    }
+  }
+
+  Future<void> _restoreCartStateFromCache() async {
+    final businessId = _businessId?.trim() ?? '';
+    if (businessId.isEmpty) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_cartCacheKey(businessId));
+      if (raw == null || raw.trim().isEmpty) {
+        _ensureActiveCart();
+        return;
+      }
+
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        _ensureActiveCart();
+        return;
+      }
+
+      final restoredSessions = <String, Map<String, int>>{};
+      final rawSessions = decoded['cartSessions'];
+      if (rawSessions is Map) {
+        for (final entry in rawSessions.entries) {
+          final cartId = entry.key.toString();
+          final value = entry.value;
+          if (value is! Map) continue;
+          restoredSessions[cartId] = value.map<String, int>((key, qty) {
+            final parsedQty = qty is num
+                ? qty.toInt()
+                : int.tryParse(qty?.toString() ?? '') ?? 0;
+            return MapEntry(key.toString(), parsedQty);
+          })
+            ..removeWhere((_, qty) => qty <= 0);
+        }
+      }
+
+      final restoredLabels = <String, String>{};
+      final rawLabels = decoded['cartLabels'];
+      if (rawLabels is Map) {
+        for (final entry in rawLabels.entries) {
+          restoredLabels[entry.key.toString()] = entry.value.toString();
+        }
+      }
+
+      final restoredPricingModes = <String, Map<String, String>>{};
+      final rawPricingModes = decoded['cartPricingModes'];
+      if (rawPricingModes is Map) {
+        for (final entry in rawPricingModes.entries) {
+          final cartId = entry.key.toString();
+          final value = entry.value;
+          if (value is! Map) continue;
+          restoredPricingModes[cartId] = value.map<String, String>((key, mode) {
+            final normalized = mode.toString() == 'wholesale'
+                ? 'wholesale'
+                : 'retail';
+            return MapEntry(key.toString(), normalized);
+          });
+        }
+      }
+
+      final restoredDefaultModes = <String, String>{};
+      final rawDefaultModes = decoded['cartDefaultPricingModes'];
+      if (rawDefaultModes is Map) {
+        for (final entry in rawDefaultModes.entries) {
+          restoredDefaultModes[entry.key.toString()] =
+              entry.value.toString() == 'wholesale' ? 'wholesale' : 'retail';
+        }
+      }
+
+      _cartSessions
+        ..clear()
+        ..addAll(restoredSessions);
+      _cartLabels
+        ..clear()
+        ..addAll(restoredLabels);
+      _cartSessionPricingModes
+        ..clear()
+        ..addAll(restoredPricingModes);
+      _cartDefaultPricingModes
+        ..clear()
+        ..addAll(restoredDefaultModes);
+
+      final restoredCounter = decoded['cartSessionCounter'] is num
+          ? (decoded['cartSessionCounter'] as num).toInt()
+          : 0;
+      final derivedCounter = _deriveCartSessionCounter(restoredSessions.keys);
+      _cartSessionCounter = restoredCounter > 0
+          ? (restoredCounter > derivedCounter
+              ? restoredCounter
+              : derivedCounter)
+          : derivedCounter;
+
+      final restoredActiveCartId =
+          decoded['activeCartId']?.toString().trim() ?? '';
+      if (restoredActiveCartId.isNotEmpty &&
+          _cartSessions.containsKey(restoredActiveCartId)) {
+        _activeCartId = restoredActiveCartId;
+      } else if (_cartSessions.isNotEmpty) {
+        _activeCartId = _cartSessions.keys.first;
+      } else {
+        _activeCartId = 'cart_1';
+      }
+
+      _ensureActiveCart();
+      _cart
+        ..clear()
+        ..addAll(_cartSessions[_activeCartId] ?? const <String, int>{});
+      _syncActiveCartSnapshot();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[RetailProvider] Failed to restore cart cache: $e');
+      _ensureActiveCart();
+    }
+  }
+
+  void _resetActiveCartState({bool resetDefaultPricingMode = true}) {
+    _cart.clear();
+    _activePricingModes().clear();
+    if (resetDefaultPricingMode) {
+      _cartDefaultPricingModes[_activeCartId] = 'retail';
+    }
+    _syncActiveCartSnapshot();
   }
 
   Future<void> createCartSession({String? label, bool switchToNew = true}) async {
+    final seedPricingMode = activeCartPricingMode;
     _syncActiveCartSnapshot();
     _cartSessionCounter += 1;
     final cartId = 'cart_$_cartSessionCounter';
@@ -332,12 +529,15 @@ class RetailProvider extends ChangeNotifier {
         ? 'Cart $_cartSessionCounter'
         : label.trim();
     _cartSessions[cartId] = <String, int>{};
+    _cartSessionPricingModes[cartId] = <String, String>{};
+    _cartDefaultPricingModes[cartId] = seedPricingMode;
     if (switchToNew) {
       _activeCartId = cartId;
       _cart
         ..clear()
         ..addAll(_cartSessions[cartId]!);
     }
+    _queueCartCacheSave();
     notifyListeners();
   }
 
@@ -348,6 +548,8 @@ class RetailProvider extends ChangeNotifier {
     _cart
       ..clear()
       ..addAll(_cartSessions[cartId] ?? const <String, int>{});
+    _ensureActiveCart();
+    _queueCartCacheSave();
     notifyListeners();
   }
 
@@ -355,6 +557,7 @@ class RetailProvider extends ChangeNotifier {
     final trimmed = label.trim();
     if (trimmed.isEmpty || !_cartSessions.containsKey(cartId)) return;
     _cartLabels[cartId] = trimmed;
+    _queueCartCacheSave();
     notifyListeners();
   }
 
@@ -365,6 +568,8 @@ class RetailProvider extends ChangeNotifier {
     final wasActive = cartId == _activeCartId;
     _cartSessions.remove(cartId);
     _cartLabels.remove(cartId);
+    _cartSessionPricingModes.remove(cartId);
+    _cartDefaultPricingModes.remove(cartId);
     if (wasActive) {
       final nextId = _cartSessions.keys.first;
       _activeCartId = nextId;
@@ -372,6 +577,8 @@ class RetailProvider extends ChangeNotifier {
         ..clear()
         ..addAll(_cartSessions[nextId] ?? const <String, int>{});
     }
+    _ensureActiveCart();
+    _queueCartCacheSave();
     notifyListeners();
   }
 
@@ -388,6 +595,12 @@ class RetailProvider extends ChangeNotifier {
       _cartLabels
         ..clear()
         ..['cart_1'] = 'Cart 1';
+      _cartSessionPricingModes
+        ..clear()
+        ..['cart_1'] = <String, String>{};
+      _cartDefaultPricingModes
+        ..clear()
+        ..['cart_1'] = 'retail';
       _activeCartId = 'cart_1';
       _cartSessionCounter = 1;
     }
@@ -412,6 +625,8 @@ class RetailProvider extends ChangeNotifier {
       loadStores(),
       loadPromotions(),
     ]);
+
+    await _restoreCartStateFromCache();
   }
 
   /// Set business id and (re)initialize provider for that business
@@ -1005,17 +1220,27 @@ class RetailProvider extends ChangeNotifier {
   }
 
   // Cart management methods
-  void addToCart(String productId, {int qty = 1}) {
+  void addToCart(String productId, {int qty = 1, String? pricingMode}) {
+    if (qty <= 0) return;
     _ensureActiveCart();
+    final existingMode = _activePricingModes()[productId];
+    final resolvedMode =
+        pricingMode == 'wholesale' || pricingMode == 'retail'
+            ? pricingMode!
+            : (existingMode ?? activeCartPricingMode);
     _cart.update(productId, (v) => v + qty, ifAbsent: () => qty);
+    _activePricingModes()[productId] = resolvedMode;
     _syncActiveCartSnapshot();
+    _queueCartCacheSave();
     notifyListeners();
   }
 
   /// Remove product from cart
   void removeFromCart(String productId) {
     _cart.remove(productId);
+    _activePricingModes().remove(productId);
     _syncActiveCartSnapshot();
+    _queueCartCacheSave();
     notifyListeners();
   }
 
@@ -1049,23 +1274,24 @@ class RetailProvider extends ChangeNotifier {
   void updateQty(String productId, int qty) {
     if (qty <= 0) {
       _cart.remove(productId);
+      _activePricingModes().remove(productId);
     } else {
       _cart[productId] = qty;
     }
     _syncActiveCartSnapshot();
+    _queueCartCacheSave();
     notifyListeners();
   }
 
   void clearCart() {
-    _cart.clear();
-    _cartPricingModes.clear();
-    _syncActiveCartSnapshot();
+    _resetActiveCartState();
+    _queueCartCacheSave();
     notifyListeners();
   }
 
   /// Get the pricing mode for a product in cart ('retail' or 'wholesale')
   String getPricingModeForCartItem(String productId) {
-    return _cartPricingModes[productId] ?? 'retail';
+    return _activePricingModes()[productId] ?? activeCartPricingMode;
   }
 
   /// Toggle pricing mode between retail and wholesale for a cart item
@@ -1077,10 +1303,32 @@ class RetailProvider extends ChangeNotifier {
 
   /// Set pricing mode for a cart item
   void setPricingModeForCartItem(String productId, String mode) {
-    if (mode == 'wholesale' || mode == 'retail') {
-      _cartPricingModes[productId] = mode;
-      notifyListeners();
+    if ((mode != 'wholesale' && mode != 'retail') ||
+        !_cart.containsKey(productId)) {
+      return;
     }
+    _activePricingModes()[productId] = mode;
+    _syncActiveCartSnapshot();
+    _queueCartCacheSave();
+    notifyListeners();
+  }
+
+  void setActiveCartPricingMode(
+    String mode, {
+    bool applyToExistingItems = false,
+  }) {
+    if (mode != 'wholesale' && mode != 'retail') return;
+    _ensureActiveCart();
+    _cartDefaultPricingModes[_activeCartId] = mode;
+    if (applyToExistingItems) {
+      final pricingModes = _activePricingModes();
+      for (final productId in _cart.keys) {
+        pricingModes[productId] = mode;
+      }
+    }
+    _syncActiveCartSnapshot();
+    _queueCartCacheSave();
+    notifyListeners();
   }
 
   /// Get the effective price for a product considering its pricing mode
@@ -1279,8 +1527,8 @@ class RetailProvider extends ChangeNotifier {
           }
         }
 
-        _cart.clear();
-        _syncActiveCartSnapshot();
+        _resetActiveCartState();
+        _queueCartCacheSave();
         await loadProducts(); // Refresh products
         notifyListeners();
 
@@ -1302,8 +1550,8 @@ class RetailProvider extends ChangeNotifier {
         }
 
         // Clear cart and refresh
-        _cart.clear();
-        _syncActiveCartSnapshot();
+        _resetActiveCartState();
+        _queueCartCacheSave();
         await loadProducts();
         notifyListeners();
 
@@ -1345,9 +1593,14 @@ class RetailProvider extends ChangeNotifier {
             'productId': e.key,
             'productName': product.name,
             'quantity': e.value,
-            'unitPrice': priceOverrides != null && priceOverrides.containsKey(e.key) ? priceOverrides[e.key]! : product.price,
+            'unitPrice': priceOverrides != null && priceOverrides.containsKey(e.key)
+                ? priceOverrides[e.key]!
+                : getEffectivePriceForCartItem(e.key),
             'discount': 0.0,
-            'total': (priceOverrides != null && priceOverrides.containsKey(e.key) ? priceOverrides[e.key]! : product.price) * e.value,
+            'total': (priceOverrides != null && priceOverrides.containsKey(e.key)
+                    ? priceOverrides[e.key]!
+                    : getEffectivePriceForCartItem(e.key)) *
+                e.value,
           };
           await dbHelper.insert('sale_items', item);
 
@@ -1383,8 +1636,8 @@ class RetailProvider extends ChangeNotifier {
         } catch (_) {}
 
         // Clear cart and refresh
-        _cart.clear();
-        _syncActiveCartSnapshot();
+        _resetActiveCartState();
+        _queueCartCacheSave();
         await loadProducts();
         notifyListeners();
 

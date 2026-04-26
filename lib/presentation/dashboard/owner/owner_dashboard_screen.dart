@@ -415,12 +415,12 @@ class _HomeTabState extends State<_HomeTab> {
 
   // Counts (customers & workers)
   int _customersCount = 0;
-  int _workersCount = 0;
   bool _loadingCounts = true;
 
   // Date range state
   late DateTimeRange _selectedDateRange;
   String? _lastBusinessId;
+  String? _lastBusinessType;
   bool _isLoadingMetrics = false; // Prevent simultaneous loads
 
   // Debounce timer for sales metrics loading
@@ -455,8 +455,10 @@ class _HomeTabState extends State<_HomeTab> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadSalesMetrics();
     });
-    // Capture current business id to detect changes later
+    // Capture current business id and type to detect changes later
     _lastBusinessId = businessProvider.currentBusiness?.id;
+    _lastBusinessType =
+        businessProvider.currentBusiness?.businessType.toLowerCase();
   }
 
   @override
@@ -545,12 +547,8 @@ class _HomeTabState extends State<_HomeTab> {
     try {
       _isLoadingMetrics = true;
       final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-      final businessType = context
-              .read<BusinessProvider>()
-              .currentBusiness
-              ?.businessType
-              ?.toLowerCase() ??
-          'retail';
+      final currentBusiness = context.read<BusinessProvider>().currentBusiness;
+      final businessType = currentBusiness?.businessType?.toLowerCase() ?? 'retail';
 
       if (businessId == null) {
         print('[Dashboard] No business ID found');
@@ -573,7 +571,6 @@ class _HomeTabState extends State<_HomeTab> {
 
         if (mounted) {
           setState(() {
-            _workersCount = _workersProvider.workers.length;
             _customersCount = _customerProvider.customers.length;
             _loadingCounts = false;
           });
@@ -664,7 +661,7 @@ class _HomeTabState extends State<_HomeTab> {
           .where((payment) =>
               (payment.paidDate ?? payment.createdAt).isAfter(currentMonth) &&
               (payment.paidDate ?? payment.createdAt).isBefore(nextMonth))
-          .fold<double>(0.0, (sum, payment) => sum + payment.amount);
+          .fold<double>(0.0, (total, payment) => total + payment.amount);
 
       if (mounted) {
         setState(() {
@@ -798,6 +795,7 @@ class _HomeTabState extends State<_HomeTab> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final authProvider = context.watch<AuthProvider>();
     final businessProvider = context.watch<BusinessProvider>();
+    final liveWorkersCount = context.watch<WorkersProvider>().workers.length;
     final user = authProvider.currentUser;
     final business = businessProvider.currentBusiness;
     final userBusinesses = businessProvider.userBusinesses;
@@ -806,12 +804,26 @@ class _HomeTabState extends State<_HomeTab> {
     // 🔥 OPTIMIZATION: If business selection changed, debounce metrics reload
     // This prevents excessive queries when switching businesses quickly
     final currentBusinessId = business?.id;
+    final currentBusinessType = business?.businessType.toLowerCase();
     if (_lastBusinessId != currentBusinessId && currentBusinessId != null) {
       _lastBusinessId = currentBusinessId;
+      _lastBusinessType = currentBusinessType;
       print(
-          '[Dashboard] Business changed to $currentBusinessId, scheduling metrics reload');
+          '[Dashboard] Business changed to $currentBusinessId, scheduling metrics reload and quick action refresh');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _debouncedLoadSalesMetrics();
+        if (mounted) {
+          _updateQuickActionItems();
+        }
+      });
+    } else if (business != null && _lastBusinessType != currentBusinessType) {
+      _lastBusinessType = currentBusinessType;
+      print(
+          '[Dashboard] Business type changed to $currentBusinessType, refreshing quick actions');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _updateQuickActionItems();
+        }
       });
     }
 
@@ -867,7 +879,7 @@ class _HomeTabState extends State<_HomeTab> {
                   revenue: _todayRevenue,
                   isLoading: _loadingSalesMetrics || isSwitchingBusiness,
                   customersCount: isSwitchingBusiness ? 0 : _customersCount,
-                  workersCount: isSwitchingBusiness ? 0 : _workersCount,
+                  workersCount: isSwitchingBusiness ? 0 : liveWorkersCount,
                   isLoadingCounts: _loadingCounts || isSwitchingBusiness,
                   // Real estate metrics
                   totalProperties: _totalProperties,
@@ -2035,9 +2047,7 @@ class _HomeTabState extends State<_HomeTab> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: _smallStatChip(
-                        _loadingCounts
-                            ? '...'
-                            : '${_workersCount > 0 ? _workersCount : (business.totalWorkers ?? 0)}',
+                        _loadingCounts ? '...' : context.watch<WorkersProvider>().workers.length.toString(),
                         'Staff',
                         onTap: () =>
                             Navigator.pushNamed(context, Routes.workers),
@@ -2228,12 +2238,12 @@ class _HomeTabState extends State<_HomeTab> {
 
     if (type == 'realestate') {
       return Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: AppColors.border.withAlpha((0.5 * 255).toInt()),
+            color: AppColors.border.withAlpha((0.4 * 255).toInt()),
             width: 1,
           ),
           boxShadow: [
@@ -2248,7 +2258,7 @@ class _HomeTabState extends State<_HomeTab> {
           builder: (context, constraints) {
             final isCompact = constraints.maxWidth < 560;
             final cardWidth = isCompact
-                ? (constraints.maxWidth - 12) / 2
+                ? (constraints.maxWidth - 8) / 2
                 : (constraints.maxWidth - 24) / 3;
 
             final cards = [
@@ -2312,12 +2322,12 @@ class _HomeTabState extends State<_HomeTab> {
     final averageTicket = transactions > 0 ? revenue / transactions : 0.0;
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: AppColors.border.withAlpha((0.5 * 255).toInt()),
+          color: AppColors.border.withAlpha((0.4 * 255).toInt()),
           width: 1,
         ),
         boxShadow: [
@@ -2332,8 +2342,8 @@ class _HomeTabState extends State<_HomeTab> {
         builder: (context, constraints) {
           final isCompact = constraints.maxWidth < 560;
           final cardWidth = isCompact
-              ? (constraints.maxWidth - 12) / 2
-              : (constraints.maxWidth - 24) / 3;
+              ? (constraints.maxWidth - 10) / 2
+              : (constraints.maxWidth - 30) / 4;
 
           final cards = [
             _buildMetricTile(
@@ -2379,8 +2389,8 @@ class _HomeTabState extends State<_HomeTab> {
           ];
 
           return Wrap(
-            spacing: 12,
-            runSpacing: 12,
+            spacing: 10,
+            runSpacing: 10,
             children: cards
                 .map((card) => SizedBox(width: cardWidth, child: card))
                 .toList(),
@@ -2395,31 +2405,33 @@ class _HomeTabState extends State<_HomeTab> {
       {String? route}) {
     return InkWell(
       onTap: route != null ? () => Navigator.pushNamed(context, route) : null,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
         decoration: BoxDecoration(
           color: color.withAlpha((0.08 * 255).toInt()),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: color.withAlpha((0.18 * 255).toInt()),
+            color: color.withAlpha((0.16 * 255).toInt()),
             width: 1,
           ),
         ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
                 color: color.withAlpha((0.14 * 255).toInt()),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, color: color, size: 20),
+              child: Icon(icon, color: color, size: 16),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Text(
               value,
               style: AppTextStyles.subtitle2.copyWith(
+                fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: isDark ? Colors.white : AppColors.textPrimary,
               ),
@@ -2430,6 +2442,7 @@ class _HomeTabState extends State<_HomeTab> {
             Text(
               label,
               style: AppTextStyles.caption.copyWith(
+                fontSize: 11,
                 color: isDark ? Colors.grey[400] : AppColors.textSecondary,
               ),
               textAlign: TextAlign.center,
@@ -2866,6 +2879,34 @@ class _HomeTabState extends State<_HomeTab> {
             color: Colors.blue,
             route: Routes.agriWeather,
           ),
+          _QuickActionItem(
+            title: 'New Sale',
+            subtitle: 'Create transaction',
+            icon: Icons.point_of_sale_rounded,
+            color: Colors.green,
+            route: Routes.sales,
+          ),
+          _QuickActionItem(
+            title: 'Low Stock',
+            subtitle: 'View alerts',
+            icon: Icons.warning_rounded,
+            color: Colors.orange,
+            route: Routes.lowStockProducts,
+          ),
+          _QuickActionItem(
+            title: 'Procurement',
+            subtitle: 'Manage inventory',
+            icon: Icons.shopping_cart_rounded,
+            color: Colors.teal,
+            route: Routes.procurement,
+          ),
+          _QuickActionItem(
+            title: 'Procurement History',
+            subtitle: 'View procurement logs',
+            icon: Icons.history_rounded,
+            color: const Color.fromARGB(255, 0, 60, 150),
+            route: Routes.procurementHistory,
+          ),
           ...commonItems,
         ];
 
@@ -3041,6 +3082,34 @@ class _HomeTabState extends State<_HomeTab> {
             color: Colors.red,
             route: Routes.hotelHousekeeping,
           ),
+          _QuickActionItem(
+            title: 'New Sale',
+            subtitle: 'Create transaction',
+            icon: Icons.point_of_sale_rounded,
+            color: Colors.green,
+            route: Routes.sales,
+          ),
+          _QuickActionItem(
+            title: 'Low Stock',
+            subtitle: 'View alerts',
+            icon: Icons.warning_rounded,
+            color: Colors.orange,
+            route: Routes.lowStockProducts,
+          ),
+          _QuickActionItem(
+            title: 'Procurement',
+            subtitle: 'Manage inventory',
+            icon: Icons.shopping_cart_rounded,
+            color: Colors.teal,
+            route: Routes.procurement,
+          ),
+          _QuickActionItem(
+            title: 'Procurement History',
+            subtitle: 'View procurement logs',
+            icon: Icons.history_rounded,
+            color: const Color.fromARGB(255, 0, 60, 150),
+            route: Routes.procurementHistory,
+          ),
           ...commonItems,
         ];
 
@@ -3088,6 +3157,20 @@ class _HomeTabState extends State<_HomeTab> {
             color: Colors.red,
             route: Routes.restaurantWaiters,
           ),
+          _QuickActionItem(
+            title: 'New Sale',
+            subtitle: 'Create transaction',
+            icon: Icons.point_of_sale_rounded,
+            color: Colors.green,
+            route: Routes.sales,
+          ),
+          _QuickActionItem(
+            title: 'Inventory',
+            subtitle: 'Beverage stock',
+            icon: Icons.inventory_2_rounded,
+            color: Colors.green,
+            route: Routes.inventory,
+          ),
           ...commonItems,
         ];
 
@@ -3102,18 +3185,18 @@ class _HomeTabState extends State<_HomeTab> {
             route: Routes.drinkPos,
           ),
           _QuickActionItem(
+            title: 'New Sale',
+            subtitle: 'Create transaction',
+            icon: Icons.point_of_sale_rounded,
+            color: Colors.green,
+            route: Routes.sales,
+          ),
+          _QuickActionItem(
             title: 'Inventory',
             subtitle: 'Beverage stock',
             icon: Icons.inventory_2_rounded,
             color: Colors.green,
-            route: Routes.drinkInventory,
-          ),
-          _QuickActionItem(
-            title: 'Bottle Tracking',
-            subtitle: 'Track bottles',
-            icon: Icons.liquor_rounded,
-            color: Colors.orange,
-            route: Routes.drinkBottleTracking,
+            route: Routes.inventory,
           ),
           _QuickActionItem(
             title: 'Tabs',
@@ -3123,11 +3206,39 @@ class _HomeTabState extends State<_HomeTab> {
             route: Routes.drinkTabs,
           ),
           _QuickActionItem(
+            title: 'Low Stock',
+            subtitle: 'View alerts',
+            icon: Icons.warning_rounded,
+            color: Colors.orange,
+            route: Routes.lowStockProducts,
+          ),
+          _QuickActionItem(
+            title: 'Procurement',
+            subtitle: 'Manage inventory',
+            icon: Icons.shopping_cart_rounded,
+            color: Colors.teal,
+            route: Routes.procurement,
+          ),
+          _QuickActionItem(
+            title: 'Procurement History',
+            subtitle: 'View procurement logs',
+            icon: Icons.history_rounded,
+            color: const Color.fromARGB(255, 0, 60, 150),
+            route: Routes.procurementHistory,
+          ),
+          _QuickActionItem(
             title: 'Menu',
             subtitle: 'Cocktail menu',
             icon: Icons.menu_book_rounded,
             color: Colors.purple,
             route: Routes.drinkMenu,
+          ),
+          _QuickActionItem(
+            title: 'Bottle Tracking',
+            subtitle: 'Track bottles',
+            icon: Icons.liquor_rounded,
+            color: Colors.orange,
+            route: Routes.drinkBottleTracking,
           ),
           ...commonItems,
         ];

@@ -24,7 +24,35 @@ class WorkersProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
+  Future<void> _syncBusinessWorkerCount(String businessId) async {
+    try {
+      final activeWorkers = await _repository.getWorkers(businessId);
+      await FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(businessId)
+          .set(
+        {
+          'totalWorkers': activeWorkers.length,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (e) {
+      print('[WorkersProvider] Failed to sync worker count: $e');
+    }
+  }
+
+  Future<void> _refreshBusinessScopeAfterMutation(String? businessId) async {
+    final targetBusinessId = (businessId ?? _businessId ?? '').trim();
+    if (targetBusinessId.isEmpty) return;
+
+    _businessId = targetBusinessId;
+    await refreshForBusiness(targetBusinessId);
+    await _syncBusinessWorkerCount(targetBusinessId);
+  }
+
   Future<void> loadWorkers(String businessId) async {
+    _businessId = businessId;
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -108,10 +136,7 @@ class WorkersProvider with ChangeNotifier {
         }
       }
 
-      // Refresh the in-memory list if we're scoped to a business
-      if (_businessId != null && _businessId!.isNotEmpty) {
-        await refreshForBusiness(_businessId!);
-      }
+      await _refreshBusinessScopeAfterMutation(businessId);
     } catch (e) {
       print('[WorkersProvider] updateWorker failed: $e');
       rethrow;
@@ -126,10 +151,7 @@ class WorkersProvider with ChangeNotifier {
       final callable = functions.httpsCallable('deleteWorkerCompletely');
       await callable.call({'workerId': workerId});
 
-      // Refresh list for current business
-      if (_businessId != null && _businessId!.isNotEmpty) {
-        await refreshForBusiness(_businessId!);
-      }
+      await _refreshBusinessScopeAfterMutation(businessId);
     } catch (e) {
       print('[WorkersProvider] deleteWorker failed: $e');
       rethrow;

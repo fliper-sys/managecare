@@ -39,6 +39,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   late TextEditingController _barcodeController;
   late TextEditingController _emojiController;
   late TextEditingController _saleUnitMultiplierController;
+  late TextEditingController _batchLabelController;
   bool _isLoading = false;
   String? _imageUrl;
   Uint8List? _pendingImageBytes;
@@ -46,6 +47,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   String? _selectedStoreId;
   late String _selectedUnit;
   late String _selectedSaleUnit;
+  DateTime? _selectedExpiryDate;
 
   @override
   void initState() {

@@ -39,7 +39,14 @@ import 'receipt_detail_screen.dart';
 import 'sales_history_screen.dart';
 
 class SalesScreen extends StatefulWidget {
-  const SalesScreen({super.key});
+  final String title;
+  final bool enableStoreSwitcher;
+
+  const SalesScreen({
+    super.key,
+    this.title = 'New Sale',
+    this.enableStoreSwitcher = false,
+  });
 
   @override
   State<SalesScreen> createState() => _SalesScreenState();
@@ -47,10 +54,13 @@ class SalesScreen extends StatefulWidget {
 
 class _SalesScreenState extends State<SalesScreen>
     with SingleTickerProviderStateMixin {
+  static const String _allStoresValue = '__all_stores__';
+
   late TabController _tabController;
   final _mainSearchController = TextEditingController();
   final _historySearchController = TextEditingController();
   String _historyQuery = '';
+  String _selectedStoreFilterId = _allStoresValue;
 
   // Handheld scanner mode (keyboard wedge) and controller
   bool _handheldMode = false;
@@ -89,7 +99,12 @@ class _SalesScreenState extends State<SalesScreen>
 
       if (business != null) {
         final businessId = business.id;
-        _retailProvider.initialize(businessId);
+        _retailProvider.initialize(businessId).then((_) {
+          if (!mounted) return;
+          setState(() {
+            _globalPricingMode = _retailProvider.activeCartPricingMode;
+          });
+        });
         // Subscribe to realtime sales history updates
         _retailProvider.subscribeToSalesHistory((sales) {
           if (!mounted) return;
@@ -119,6 +134,10 @@ class _SalesScreenState extends State<SalesScreen>
     final cartItemCountBeforeCheckout = retail.cartCount;
     final cartTotalBeforeCheckout = retail.cartTotal;
     final cartLabelBeforeCheckout = retail.activeCartLabel;
+    final checkoutStoreId = widget.enableStoreSwitcher &&
+            _selectedStoreFilterId != _allStoresValue
+        ? _selectedStoreFilterId
+        : null;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -132,8 +151,18 @@ class _SalesScreenState extends State<SalesScreen>
           items: retail.cartItems,
           total: retail.cartTotal,
           scrollController: scrollController,
-          onComplete: (customerId, customerEmail, customerName, paymentMethod,
-              storeId, taxRate, discount, priceOverrides) async {
+          initialStoreId: checkoutStoreId,
+          onComplete: (
+            customerId,
+            customerEmail,
+            customerName,
+            customerPhone,
+            paymentMethod,
+            storeId,
+            taxRate,
+            discount,
+            priceOverrides,
+          ) async {
             // Capture sale data before clearing cart
             final business =
                 Provider.of<BusinessProvider>(context, listen: false)
@@ -145,7 +174,8 @@ class _SalesScreenState extends State<SalesScreen>
             // Build items using provided price overrides
             double subtotal = 0.0;
             final items = retail.cartItems.entries.map((e) {
-              final unitPrice = priceOverrides[e.key.id] ?? e.key.price;
+              final unitPrice = priceOverrides[e.key.id] ??
+                  retail.getEffectivePriceForCartItem(e.key.id);
               final total = unitPrice * e.value;
               final pricingMode = e.key.hasWholesalePricing &&
                       e.key.wholesalePrice != null &&
@@ -275,9 +305,14 @@ class _SalesScreenState extends State<SalesScreen>
 
               if (business != null && isConnected) {
                 final emailService = WebEmailReceiptService();
+                final saleItems = (saleMap['items'] as List)
+                    .map((item) => Map<String, dynamic>.from(item as Map))
+                    .toList();
+                bool receiptSent = false;
+
                 // Only send receipt email if customer email is provided
                 if (customerEmail != null && customerEmail.isNotEmpty) {
-                  await emailService.sendReceiptEmail(
+                  receiptSent = await emailService.sendReceiptEmail(
                     recipientEmail: customerEmail,
                     receiptNumber: saleMap['id'].toString(),
                     businessName: business.name,
@@ -285,7 +320,7 @@ class _SalesScreenState extends State<SalesScreen>
                     totalAmount: saleMap['total'] as double,
                     subtotal: saleMap['subtotal'] as double,
                     tax: saleMap['tax'] as double,
-                    items: (saleMap['items'] as List)
+                    items: saleItems
                         .map((item) => {
                               'name': item['name'],
                               'quantity': item['quantity'],
@@ -293,52 +328,107 @@ class _SalesScreenState extends State<SalesScreen>
                             })
                         .toList(),
                     paymentMethod: pm,
+                    paymentBreakdown:
+                        (saleMap['paymentBreakdown'] as List<dynamic>?)
+                            ?.map((entry) =>
+                                Map<String, dynamic>.from(entry as Map))
+                            .toList(),
                     businessLogo: business.logoUrl,
                     businessContact: business.phone,
                   );
+                }
 
-                  // Send sales notification to owner if owner email available
-                  final ownerEmail =
-                      authProvider.currentUser?.email ?? business.email ?? '';
-                  if (ownerEmail.isNotEmpty) {
-                    final ownerSuccess =
-                        await emailService.sendSalesNotification(
-                      ownerEmail: ownerEmail,
-                      businessName: business.name,
-                      customerName: customerName ?? 'Walk-in Customer',
-                      customerEmail: customerEmail,
-                      totalAmount: saleMap['total'] as double,
-                      items: (saleMap['items'] as List)
-                          .map((item) => {
-                                'name': item['name'],
-                                'quantity': item['quantity'],
-                                'price': item['price'],
-                              })
-                          .toList(),
-                      paymentMethod: pm,
-                      receiptNumber: saleMap['id'].toString(),
-                    );
-
-                    // Log notification attempt
-                    try {
-                      final notif = NotificationAndEmailService();
-                      final businessId = business.id;
-                      await notif.logNotificationEvent(
-                        businessId: businessId,
-                        type: 'sale',
-                        channel: 'email',
-                        recipient: ownerEmail,
-                        success: ownerSuccess,
-                        orderId: saleMap['id'].toString(),
-                      );
-                    } catch (e) {
-                      debugPrint('[SalesScreen] Notification log failed: $e');
-                    }
+                String ownerEmail = '';
+                if (business.ownerId.isNotEmpty) {
+                  try {
+                    final ownerDoc = await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(business.ownerId)
+                        .get();
+                    ownerEmail =
+                        ((ownerDoc.data() ?? const <String, dynamic>{})['email']
+                                    as String? ??
+                                '')
+                            .trim();
+                  } catch (e) {
+                    debugPrint(
+                        '[SalesScreen] Failed to resolve owner email: $e');
                   }
+                }
+                if (ownerEmail.isEmpty) {
+                  ownerEmail = (business.email ?? '').trim();
+                }
+                if (ownerEmail.isEmpty &&
+                    authProvider.currentUser?.id == business.ownerId) {
+                  ownerEmail = (authProvider.currentUser?.email ?? '').trim();
+                }
 
+                bool ownerNotificationSent = false;
+                if (ownerEmail.isNotEmpty) {
+                  final notif = NotificationAndEmailService();
+                  ownerNotificationSent = await notif.sendSalesNotification(
+                    ownerEmail: ownerEmail,
+                    businessName: business.name,
+                    customerName: customerName ?? 'Walk-in Customer',
+                    customerEmail: customerEmail ?? '',
+                    customerPhone: customerPhone,
+                    totalAmount: saleMap['total'] as double,
+                    items: saleItems,
+                    paymentMethod: pm,
+                    receiptNumber:
+                        (saleMap['referenceId'] ?? saleMap['id']).toString(),
+                    businessId: business.id,
+                    cashierName: authProvider.currentUser?.fullName,
+                    cashierEmail: authProvider.currentUser?.email,
+                    storeName: saleMap['storeName']?.toString(),
+                    cartLabel: saleMap['cartLabel']?.toString(),
+                    subtotal: saleMap['subtotal'] as double,
+                    tax: saleMap['tax'] as double,
+                    discount: saleMap['discount'] as double,
+                    paymentBreakdown:
+                        (saleMap['paymentBreakdown'] as List<dynamic>?)
+                            ?.map((entry) =>
+                                Map<String, dynamic>.from(entry as Map))
+                            .toList(),
+                    saleTime: saleMap['createdAt'] as DateTime?,
+                  );
+
+                  // Log notification attempt
+                  try {
+                    final businessId = business.id;
+                    await notif.logNotificationEvent(
+                      businessId: businessId,
+                      type: 'sale',
+                      channel: 'email',
+                      recipient: ownerEmail,
+                      success: ownerNotificationSent,
+                      orderId: saleMap['id'].toString(),
+                    );
+                  } catch (e) {
+                    debugPrint('[SalesScreen] Notification log failed: $e');
+                  }
+                }
+
+                if (receiptSent && ownerNotificationSent) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Receipt and notification emails sent!'),
+                      content: Text('Receipt and owner notification emails sent!'),
+                      backgroundColor: Colors.green,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                } else if (ownerNotificationSent) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Owner sale alert email sent successfully!'),
+                      backgroundColor: Colors.green,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                } else if (receiptSent) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Customer receipt email sent successfully!'),
                       backgroundColor: Colors.green,
                       duration: Duration(seconds: 2),
                     ),
@@ -561,6 +651,10 @@ class _SalesScreenState extends State<SalesScreen>
         false;
     if (!confirmed) return;
     await retail.createCartSession(label: controller.text.trim());
+    if (!mounted) return;
+    setState(() {
+      _globalPricingMode = retail.activeCartPricingMode;
+    });
   }
 
   Future<void> _promptRenameCart(
@@ -597,19 +691,22 @@ class _SalesScreenState extends State<SalesScreen>
   }
 
   void _toggleGlobalPricingMode(RetailProvider retail) {
+    final newMode =
+        _globalPricingMode == 'retail' ? 'wholesale' : 'retail';
     setState(() {
-      _globalPricingMode = _globalPricingMode == 'retail' ? 'wholesale' : 'retail';
+      _globalPricingMode = newMode;
     });
-    
-    // Update all cart items to the new global pricing mode
-    for (final product in retail.cartItems.keys) {
-      retail.setPricingModeForCartItem(product.id, _globalPricingMode);
-    }
-    
+
+    retail.setActiveCartPricingMode(
+      newMode,
+      applyToExistingItems: true,
+    );
+
     // Show feedback
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Switched to ${_globalPricingMode == 'wholesale' ? 'Wholesale' : 'Retail'} pricing'),
+        content: Text(
+            'Switched to ${_globalPricingMode == 'wholesale' ? 'Wholesale' : 'Retail'} pricing'),
         duration: const Duration(seconds: 1),
       ),
     );
@@ -656,9 +753,22 @@ class _SalesScreenState extends State<SalesScreen>
                         : Icons.shopping_bag_outlined,
                     size: 18,
                   ),
-                  onPressed: () => retail.switchCart(session.id),
+                  onPressed: () {
+                    retail.switchCart(session.id);
+                    if (!mounted) return;
+                    setState(() {
+                      _globalPricingMode = retail.activeCartPricingMode;
+                    });
+                  },
                   onDeleted: sessions.length > 1
-                      ? () => retail.closeCart(session.id)
+                      ? () {
+                          retail.closeCart(session.id);
+                          if (!mounted) return;
+                          setState(() {
+                            _globalPricingMode =
+                                retail.activeCartPricingMode;
+                          });
+                        }
                       : null,
                   deleteIcon: const Icon(Icons.close, size: 18),
                 );
@@ -735,7 +845,7 @@ class _SalesScreenState extends State<SalesScreen>
     }
 
     if (product != null) {
-      retail.addToCart(product.id);
+      retail.addToCart(product.id, pricingMode: _globalPricingMode);
 
       // Log analytics
       final analyticsService = AnalyticsService();
@@ -771,6 +881,17 @@ class _SalesScreenState extends State<SalesScreen>
   @override
   Widget build(BuildContext context) {
     final retail = context.watch<RetailProvider>();
+    if (_globalPricingMode != retail.activeCartPricingMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final latestMode = context.read<RetailProvider>().activeCartPricingMode;
+        if (_globalPricingMode != latestMode) {
+          setState(() {
+            _globalPricingMode = latestMode;
+          });
+        }
+      });
+    }
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
@@ -778,7 +899,7 @@ class _SalesScreenState extends State<SalesScreen>
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('New Sale'),
+        title: Text(widget.title),
         elevation: 0,
         actions: [
           IconButton(
@@ -790,7 +911,12 @@ class _SalesScreenState extends State<SalesScreen>
                     Provider.of<BusinessProvider>(context, listen: false)
                         .currentBusiness;
                 if (business != null) {
-                  await retail.loadProducts();
+                  await retail.loadProducts(
+                    storeId: widget.enableStoreSwitcher &&
+                            _selectedStoreFilterId != _allStoresValue
+                        ? _selectedStoreFilterId
+                        : null,
+                  );
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Products refreshed'),
@@ -898,6 +1024,8 @@ class _SalesScreenState extends State<SalesScreen>
         children: [
           const AppHeader(showBusinessSwitcher: false),
           _buildCartSessionStrip(context, retail),
+          if (widget.enableStoreSwitcher)
+            _buildStoreSwitcher(retail),
           // Handheld scanner input (keyboard wedge)
           if (_handheldMode)
             Container(
@@ -1101,7 +1229,10 @@ class _SalesScreenState extends State<SalesScreen>
                     inStockOnly: _filterInStockOnly,
                     sortBy: _productSort,
                     isGridView: _isGridView,
-                    onAddToCart: (product) => retail.addToCart(product.id),
+                    onAddToCart: (product) => retail.addToCart(
+                          product.id,
+                          pricingMode: _globalPricingMode,
+                        ),
                     globalPricingMode: _globalPricingMode),
 
                 // Cart Tab
@@ -1165,6 +1296,75 @@ class _SalesScreenState extends State<SalesScreen>
     );
   }
 
+  Widget _buildStoreSwitcher(RetailProvider retail) {
+    final theme = Theme.of(context);
+    final stores = retail.stores;
+
+    if (stores.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final selectedValue = stores.any((store) => store.id == _selectedStoreFilterId)
+            ? _selectedStoreFilterId
+            : _allStoresValue;
+
+    return Container(
+      width: double.infinity,
+      color: theme.cardColor,
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      child: Row(
+        children: [
+          Icon(
+            Icons.storefront_rounded,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(width: 12),
+          const Text(
+            'Store',
+            style: AppTextStyles.subtitle1,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              value: selectedValue,
+              isExpanded: true,
+              decoration: InputDecoration(
+                isDense: true,
+                filled: true,
+                fillColor: theme.scaffoldBackgroundColor,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: _allStoresValue,
+                  child: Text('All Stores'),
+                ),
+                ...stores.map(
+                  (store) => DropdownMenuItem<String>(
+                    value: store.id,
+                    child: Text(store.name),
+                  ),
+                ),
+              ],
+              onChanged: (value) async {
+                if (value == null || value == _selectedStoreFilterId) return;
+                setState(() => _selectedStoreFilterId = value);
+                await retail.loadProducts(
+                  storeId: value == _allStoresValue ? null : value,
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCartTab(RetailProvider retail) {
     if (retail.cartCount == 0) {
       return const Center(
@@ -1205,7 +1405,9 @@ class _SalesScreenState extends State<SalesScreen>
                                 style: AppTextStyles.body1
                                     .copyWith(fontWeight: FontWeight.w600)),
                             Text(
-                              formatCurrency(e.key.price),
+                              formatCurrency(
+                                  retail.getEffectivePriceForCartItem(
+                                      e.key.id)),
                               style: AppTextStyles.body2,
                             ),
                           ],
@@ -1730,6 +1932,7 @@ class _ProductsGrid extends StatelessWidget {
                 child: _ProductListTile(
                   product: product,
                   onAdd: () => onAddToCart(product),
+                  globalPricingMode: globalPricingMode,
                 ),
               );
             },
@@ -1868,8 +2071,13 @@ class _ProductCard extends StatelessWidget {
 class _ProductListTile extends StatelessWidget {
   final Product product;
   final VoidCallback onAdd;
+  final String globalPricingMode;
 
-  const _ProductListTile({required this.product, required this.onAdd});
+  const _ProductListTile({
+    required this.product,
+    required this.onAdd,
+    required this.globalPricingMode,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1933,7 +2141,7 @@ class _ProductListTile extends StatelessWidget {
                 ),
               ),
             Text(
-              '₦${product.price.toStringAsFixed(2)} • Stock: ${product.stock.toInt()}',
+              '₦${(globalPricingMode == 'wholesale' && product.hasWholesalePricing && product.wholesalePrice != null ? product.wholesalePrice! : product.price).toStringAsFixed(2)} • Stock: ${product.stock.toInt()}',
               style: AppTextStyles.body2Secondary,
             ),
           ],
@@ -1963,10 +2171,12 @@ class _CheckoutSheet extends StatefulWidget {
   final Map<Product, int> items;
   final double total;
   final ScrollController? scrollController;
+  final String? initialStoreId;
   final Function(
       String? customerId,
       String? customerEmail,
       String? customerName,
+      String? customerPhone,
       String paymentMethod,
       String? storeId,
       double taxRate,
@@ -1978,6 +2188,7 @@ class _CheckoutSheet extends StatefulWidget {
     required this.total,
     required this.onComplete,
     this.scrollController,
+    this.initialStoreId,
   });
 
   @override
@@ -2321,27 +2532,31 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
     // Initialize price overrides with current product prices
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      for (final entry in widget.items.entries) {
-        _priceOverrides[entry.key.id] = entry.key.price.toDouble();
-      }
       try {
         final retail = Provider.of<RetailProvider>(context, listen: false);
         final auth = Provider.of<AuthProvider>(context, listen: false);
+        for (final entry in retail.cartItems.entries) {
+          _priceOverrides[entry.key.id] =
+              retail.getEffectivePriceForCartItem(entry.key.id);
+        }
         if (retail.stores.isEmpty) retail.loadStores();
-        _selectedStoreId = auth.currentUser?.storeId;
+        _selectedStoreId = widget.initialStoreId ?? auth.currentUser?.storeId;
         _loadCustomers();
       } catch (_) {}
     });
   }
 
-  double _lineTotal(Product product, int qty) {
-    final unit = (_priceOverrides[product.id] ?? product.price);
+  double _lineTotal(RetailProvider retail, Product product, int qty) {
+    final unit = _priceOverrides[product.id] ??
+        retail.getEffectivePriceForCartItem(product.id);
     return unit * qty;
   }
 
-  double _computedSubtotal() {
-    return widget.items.entries
-        .fold(0.0, (s, e) => s + _lineTotal(e.key, e.value));
+  double _computedSubtotal(
+    RetailProvider retail,
+    Iterable<MapEntry<Product, int>> entries,
+  ) {
+    return entries.fold(0.0, (s, e) => s + _lineTotal(retail, e.key, e.value));
   }
 
   String _pricingModeFor(Product product) {
@@ -2377,7 +2592,18 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final entries = widget.items.entries.toList();
+    final retail = context.watch<RetailProvider>();
+    final entries = retail.cartItems.entries.toList();
+    final currentProductIds = entries.map((entry) => entry.key.id).toSet();
+    _priceOverrides.removeWhere(
+      (productId, _) => !currentProductIds.contains(productId),
+    );
+    for (final entry in entries) {
+      _priceOverrides.putIfAbsent(
+        entry.key.id,
+        () => retail.getEffectivePriceForCartItem(entry.key.id),
+      );
+    }
     final customerProvider = context.watch<CustomerProvider>();
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -2464,6 +2690,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                   SizedBox(
                                     width: 120,
                                     child: TextFormField(
+                                      key: ValueKey(
+                                        '${item.id}-${(_priceOverrides[item.id] ?? item.price).toStringAsFixed(2)}',
+                                      ),
                                       initialValue: (_priceOverrides[item.id] ??
                                               item.price)
                                           .toStringAsFixed(2),
@@ -2485,6 +2714,22 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                         final parsed = double.tryParse(
                                                 v.replaceAll(',', '')) ??
                                             0.0;
+                                        if ((parsed - item.price).abs() <
+                                            0.0001) {
+                                          retail.setPricingModeForCartItem(
+                                            item.id,
+                                            'retail',
+                                          );
+                                        } else if (item.hasWholesalePricing &&
+                                            item.wholesalePrice != null &&
+                                            (parsed - item.wholesalePrice!)
+                                                    .abs() <
+                                                0.0001) {
+                                          retail.setPricingModeForCartItem(
+                                            item.id,
+                                            'wholesale',
+                                          );
+                                        }
                                         setState(() {
                                           _priceOverrides[item.id] = parsed;
                                         });
@@ -2505,6 +2750,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                       selected:
                                           _pricingModeFor(item) == 'retail',
                                       onSelected: (_) {
+                                        retail.setPricingModeForCartItem(
+                                          item.id,
+                                          'retail',
+                                        );
                                         setState(() {
                                           _priceOverrides[item.id] = item.price;
                                         });
@@ -2517,6 +2766,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                       selected:
                                           _pricingModeFor(item) == 'wholesale',
                                       onSelected: (_) {
+                                        retail.setPricingModeForCartItem(
+                                          item.id,
+                                          'wholesale',
+                                        );
                                         setState(() {
                                           _priceOverrides[item.id] =
                                               item.wholesalePrice!;
@@ -2557,7 +2810,6 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             IconButton(
                               icon: const Icon(Icons.add_circle_outline),
                               onPressed: () {
-                                final retail = context.read<RetailProvider>();
                                 retail.addToCart(item.id);
                                 setState(() {});
                               },
@@ -2569,7 +2821,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                         SizedBox(
                           width: 100,
                           child: Text(
-                            '₦${(_lineTotal(item, qty)).toStringAsFixed(2)}',
+                            '₦${(_lineTotal(retail, item, qty)).toStringAsFixed(2)}',
                             style: AppTextStyles.heading5.copyWith(
                               color: scheme.onSurface,
                             ),
@@ -2834,7 +3086,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                              '₦${(_computedSubtotal() * ((double.tryParse(_taxRateController.text) ?? 0) / 100)).toStringAsFixed(2)}',
+                              '₦${(_computedSubtotal(retail, entries) * ((double.tryParse(_taxRateController.text) ?? 0) / 100)).toStringAsFixed(2)}',
                               style: AppTextStyles.caption),
                         ],
                       ),
@@ -2902,7 +3154,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                               ),
                             ),
                             Text(
-                              '₦${(_computedSubtotal() + (_computedSubtotal() * ((double.tryParse(_taxRateController.text) ?? 0) / 100)) - (double.tryParse(_discountController.text) ?? 0)).toStringAsFixed(2)}',
+                              '₦${(_computedSubtotal(retail, entries) + (_computedSubtotal(retail, entries) * ((double.tryParse(_taxRateController.text) ?? 0) / 100)) - (double.tryParse(_discountController.text) ?? 0)).toStringAsFixed(2)}',
                               style: AppTextStyles.price.copyWith(
                                 color: scheme.onSurface,
                               ),
@@ -2920,6 +3172,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             _customerNameController.text.trim().isEmpty
                                 ? null
                                 : _customerNameController.text.trim(),
+                            (_selectedCustomer?.phone ?? '').trim().isEmpty
+                                ? null
+                                : _selectedCustomer!.phone!.trim(),
                             _paymentMethod,
                             _selectedStoreId,
                             double.tryParse(_taxRateController.text) ?? 0.0,

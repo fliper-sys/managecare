@@ -413,6 +413,117 @@ class EmailService {
     );
   }
 
+  Future<bool> sendOwnerSalesAlertEmail(
+    String recipient,
+    Map<String, dynamic> data, {
+    String? subject,
+    List<File>? attachments,
+  }) async {
+    final html = EmailTemplateService.generateOwnerSalesAlertEmailHtml(
+      businessName: _readString(data, 'businessName', 'Manage Care'),
+      saleReference: _readString(data, 'saleReference', 'SALE'),
+      saleTime: _readDateTime(data, 'saleTime') ?? DateTime.now(),
+      customerName: _readString(data, 'customerName', 'Walk-in Customer'),
+      customerEmail: _readNullableString(data, 'customerEmail'),
+      customerPhone: _readNullableString(data, 'customerPhone'),
+      cashierName: _readNullableString(data, 'cashierName'),
+      cashierEmail: _readNullableString(data, 'cashierEmail'),
+      storeName: _readNullableString(data, 'storeName'),
+      cartLabel: _readNullableString(data, 'cartLabel'),
+      paymentMethod: _readString(data, 'paymentMethod', 'Cash'),
+      paymentBreakdown: (data['paymentBreakdown'] as List<dynamic>?)
+          ?.map((entry) => Map<String, dynamic>.from(entry as Map))
+          .toList(),
+      subtotal: _readDouble(data, 'subtotal'),
+      tax: _readDouble(data, 'tax'),
+      discount: _readDouble(data, 'discount'),
+      total: _readDouble(data, 'total'),
+      items: (data['items'] as List<dynamic>? ?? const [])
+          .map((entry) => Map<String, dynamic>.from(entry as Map))
+          .toList(),
+    );
+
+    return sendTemplateEmail(
+      'owner-sales-alert',
+      recipient,
+      {
+        ...data,
+        'emailHtml': html,
+      },
+      subject: subject ??
+          'Sale Alert: ${_readString(data, 'saleReference', 'SALE')} - ${_readString(data, 'businessName', 'Manage Care')}',
+      attachments: attachments,
+    );
+  }
+
+  Future<bool> sendProcurementAlertEmail(
+    String recipient,
+    Map<String, dynamic> data, {
+    String? subject,
+    List<File>? attachments,
+  }) async {
+    final html = EmailTemplateService.generateProcurementAlertEmailHtml(
+      businessName: _readString(data, 'businessName', 'Manage Care'),
+      procurementId: _readString(data, 'procurementId', 'PROCUREMENT'),
+      createdAt: _readDateTime(data, 'createdAt') ?? DateTime.now(),
+      createdByName: _readString(data, 'createdByName', 'Team Member'),
+      createdByEmail: _readNullableString(data, 'createdByEmail'),
+      supplierName: _readNullableString(data, 'supplierName'),
+      invoiceRef: _readNullableString(data, 'invoiceRef'),
+      storeName: _readNullableString(data, 'storeName'),
+      referenceImageUrl: _readNullableString(data, 'referenceImageUrl'),
+      itemsCount: _readInt(
+        data,
+        'itemsCount',
+        (data['items'] as List<dynamic>?)?.length ?? 0,
+      ),
+      totalCost: _readDouble(data, 'totalCost'),
+      totalQuantity: _readDouble(data, 'totalQuantity'),
+      items: (data['items'] as List<dynamic>? ?? const [])
+          .map((entry) => Map<String, dynamic>.from(entry as Map))
+          .toList(),
+    );
+
+    return sendTemplateEmail(
+      'procurement-alert',
+      recipient,
+      {
+        ...data,
+        'emailHtml': html,
+      },
+      subject: subject ??
+          'Procurement Alert: ${_readString(data, 'procurementId', 'PROCUREMENT')} - ${_readString(data, 'businessName', 'Manage Care')}',
+      attachments: attachments,
+    );
+  }
+
+  Future<bool> sendAdminBroadcastEmail(
+    String recipient,
+    Map<String, dynamic> data, {
+    String? subject,
+    List<File>? attachments,
+  }) async {
+    final resolvedSubject =
+        subject ?? _readString(data, 'subject', 'Platform Update');
+    final html = EmailTemplateService.generateAdminBroadcastEmailHtml(
+      subject: resolvedSubject,
+      body: _readString(data, 'body', ''),
+      sentAt: _readDateTime(data, 'sentAt') ?? DateTime.now(),
+      senderLabel: _readNullableString(data, 'senderLabel'),
+    );
+
+    return sendTemplateEmail(
+      'admin-broadcast',
+      recipient,
+      {
+        ...data,
+        'emailHtml': html,
+      },
+      subject: resolvedSubject,
+      attachments: attachments,
+    );
+  }
+
   String _readString(
     Map<String, dynamic> data,
     String key,

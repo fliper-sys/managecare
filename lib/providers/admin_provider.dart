@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../core/utils/datetime_utils.dart';
 import '../services/deletion_recovery_service.dart';
+import '../services/email_service.dart';
 
 /// Model for admin statistics
 class AdminStats {
@@ -68,6 +69,7 @@ class AdminProvider extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final DeletionRecoveryService _deletionRecoveryService =
       DeletionRecoveryService(firestore: FirebaseFirestore.instance);
+  final EmailService _emailService = EmailService();
 
   AdminStats _stats = AdminStats();
   bool _isLoading = false;
@@ -811,24 +813,88 @@ class AdminProvider extends ChangeNotifier {
       _isLoading = true;
       notifyListeners();
 
+      final normalizedRecipients = userEmails
+          .map((email) => email.trim())
+          .where((email) =>
+              email.isNotEmpty &&
+              RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email))
+          .toSet()
+          .toList();
+      if (normalizedRecipients.isEmpty) {
+        _errorMessage = 'No valid recipient emails found.';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
       // Store email record in Firestore
       final emailId = _firestore.collection('emails').doc().id;
 
       await _firestore.collection('emails').doc(emailId).set({
         'subject': subject,
         'body': body,
-        'recipients': userEmails,
+        'recipients': normalizedRecipients,
         'createdAt': FieldValue.serverTimestamp(),
         'sentBy': _auth.currentUser?.email,
-        'status': 'sent',
+        'status': 'processing',
       });
 
-      // You would typically call a Cloud Function here to send actual emails
-      // For now, just storing the record
+      final failedRecipients = <String>[];
+      int sentCount = 0;
+      final payload = <String, dynamic>{
+        'subject': subject,
+        'body': body,
+        'sentAt': DateTime.now().toIso8601String(),
+        'senderLabel': _auth.currentUser?.email ?? 'Platform Admin',
+      };
+
+      const batchSize = 10;
+      for (var i = 0; i < normalizedRecipients.length; i += batchSize) {
+        final batch = normalizedRecipients.skip(i).take(batchSize).toList();
+        final results = await Future.wait(
+          batch.map((recipient) async {
+            try {
+              final ok = await _emailService.sendAdminBroadcastEmail(
+                recipient,
+                payload,
+                subject: subject,
+              );
+              return MapEntry(recipient, ok);
+            } catch (_) {
+              return MapEntry(recipient, false);
+            }
+          }),
+        );
+
+        for (final result in results) {
+          if (result.value) {
+            sentCount += 1;
+          } else {
+            failedRecipients.add(result.key);
+          }
+        }
+      }
+
+      final status = sentCount == normalizedRecipients.length
+          ? 'sent'
+          : sentCount == 0
+              ? 'failed'
+              : 'partial';
+      _errorMessage = failedRecipients.isEmpty
+          ? null
+          : 'Some emails failed to send (${failedRecipients.length}/${normalizedRecipients.length}).';
+
+      await _firestore.collection('emails').doc(emailId).set({
+        'status': status,
+        'sentCount': sentCount,
+        'failedCount': failedRecipients.length,
+        'failedRecipients': failedRecipients,
+        'completedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
       _isLoading = false;
       notifyListeners();
-      return true;
+      return sentCount > 0;
     } catch (e) {
       _errorMessage = e.toString();
       _isLoading = false;
@@ -1063,8 +1129,7 @@ class AdminProvider extends ChangeNotifier {
 
       // Get all user emails
       final userEmails = _allUsers
-          .where((u) => u['email'] != null)
-          .map((u) => u['email'] as String)
+          .map((u) => (u['email'] ?? '').toString())
           .toList();
 
       return await sendEmailToUsers(

@@ -72,6 +72,19 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
     _selectedPlanLevel = _computedTier;
   }
 
+  // Hospitality-specific config defaults
+  bool _enableFrontDesk = true;
+  bool _enableRestaurant = false;
+  bool _enableBar = false;
+  bool _enableKitchen = false;
+  bool _enableLounge = false;
+  bool _enableRoomService = false;
+  bool _enableHallBooking = false;
+  bool _enablePool = false;
+  final _halfDayRateController = TextEditingController(text: '0.0');
+  final _checkoutReminderHoursController = TextEditingController(text: '24');
+  final _roomServiceFeeController = TextEditingController(text: '0.0');
+
   // Apartment-specific config defaults
   bool _allowBookings = true;
   final _defaultNightlyRateController = TextEditingController(text: '0.0');
@@ -94,6 +107,9 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
     _stateController.dispose();
 
     // Apartment controllers
+    _halfDayRateController.dispose();
+    _checkoutReminderHoursController.dispose();
+    _roomServiceFeeController.dispose();
     _defaultNightlyRateController.dispose();
     _defaultDepositController.dispose();
     _defaultUnitTypeController.dispose();
@@ -262,30 +278,54 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
                 'monthlyIncome': double.tryParse(_monthlyIncomeController.text) ?? 0.0,
               }
             }
-          : widget.businessType == 'apartment'
+          : widget.businessType == 'hotel'
               ? {
-                  'allowBookings': _allowBookings,
-                  'defaultNightlyRate': double.tryParse(_defaultNightlyRateController.text) ?? 0.0,
-                  'requireDeposit': _requireDeposit,
-                  'defaultDeposit': double.tryParse(_defaultDepositController.text) ?? 0.0,
-                  'defaultUnitType': _defaultUnitTypeController.text.trim(),
-                  'defaultUnitCount': int.tryParse(_unitCountController.text) ?? 0,
-                  'checkInTime': _checkInController.text,
-                  'checkOutTime': _checkOutController.text,
+                  'hospitalityServices': {
+                    'frontDesk': _enableFrontDesk,
+                    'restaurant': _enableRestaurant,
+                    'bar': _enableBar,
+                    'kitchen': _enableKitchen,
+                    'lounge': _enableLounge,
+                    'roomService': _enableRoomService,
+                    'hallBooking': _enableHallBooking,
+                    'pool': _enablePool,
+                  },
+                  'roomPricing': {
+                    'nightlyRate': double.tryParse(_defaultNightlyRateController.text) ?? 0.0,
+                    'halfDayRate': double.tryParse(_halfDayRateController.text) ?? 0.0,
+                    'roomServiceFee': double.tryParse(_roomServiceFeeController.text) ?? 0.0,
+                    'checkoutReminderHours': int.tryParse(_checkoutReminderHoursController.text) ?? 24,
+                  },
                   'sizeMetrics': {
                     'products': int.tryParse(_productCountController.text) ?? 0,
                     'staff': int.tryParse(_staffCountController.text) ?? 0,
                     'monthlyIncome': double.tryParse(_monthlyIncomeController.text) ?? 0.0,
                   }
                 }
-              : {
-                  // persist size metrics for later tier & pricing decisions
-                  'sizeMetrics': {
-                    'products': int.tryParse(_productCountController.text) ?? 0,
-                    'staff': int.tryParse(_staffCountController.text) ?? 0,
-                    'monthlyIncome': double.tryParse(_monthlyIncomeController.text) ?? 0.0,
-                  }
-                }),
+              : widget.businessType == 'apartment'
+                  ? {
+                      'allowBookings': _allowBookings,
+                      'defaultNightlyRate': double.tryParse(_defaultNightlyRateController.text) ?? 0.0,
+                      'requireDeposit': _requireDeposit,
+                      'defaultDeposit': double.tryParse(_defaultDepositController.text) ?? 0.0,
+                      'defaultUnitType': _defaultUnitTypeController.text.trim(),
+                      'defaultUnitCount': int.tryParse(_unitCountController.text) ?? 0,
+                      'checkInTime': _checkInController.text,
+                      'checkOutTime': _checkOutController.text,
+                      'sizeMetrics': {
+                        'products': int.tryParse(_productCountController.text) ?? 0,
+                        'staff': int.tryParse(_staffCountController.text) ?? 0,
+                        'monthlyIncome': double.tryParse(_monthlyIncomeController.text) ?? 0.0,
+                      }
+                    }
+                  : {
+                      // persist size metrics for later tier & pricing decisions
+                      'sizeMetrics': {
+                        'products': int.tryParse(_productCountController.text) ?? 0,
+                        'staff': int.tryParse(_staffCountController.text) ?? 0,
+                        'monthlyIncome': double.tryParse(_monthlyIncomeController.text) ?? 0.0,
+                      }
+                    }),
     );
 
     print('[BusinessDetails] Creating business ${business.id}');
@@ -789,6 +829,116 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
                               ),
                             ),
                           ],
+                        ),
+                      ],
+                    ).animate().fadeIn(delay: 450.ms, duration: 500.ms).slideY(
+                          begin: 0.2,
+                          end: 0,
+                          duration: 500.ms,
+                          curve: Curves.easeOut,
+                        ),
+
+                    if (widget.businessType == 'hotel') const SizedBox(height: 20),
+                    if (widget.businessType == 'hotel') _SectionCard(
+                      title: 'Hospitality Services',
+                      icon: Icons.room_service_outlined,
+                      children: [
+                        SwitchListTile(
+                          value: _enableFrontDesk,
+                          title: const Text('Front desk'),
+                          subtitle: const Text('Enable room check-in and front desk workflows'),
+                          onChanged: (v) => setState(() => _enableFrontDesk = v),
+                        ),
+                        SwitchListTile(
+                          value: _enableRestaurant,
+                          title: const Text('Restaurant'),
+                          subtitle: const Text('Enable restaurant and table ordering'),
+                          onChanged: (v) => setState(() => _enableRestaurant = v),
+                        ),
+                        SwitchListTile(
+                          value: _enableBar,
+                          title: const Text('Bar / Lounge'),
+                          subtitle: const Text('Enable bar sales and tab management'),
+                          onChanged: (v) => setState(() => _enableBar = v),
+                        ),
+                        SwitchListTile(
+                          value: _enableKitchen,
+                          title: const Text('Kitchen'),
+                          subtitle: const Text('Enable kitchen order preparation and menu integration'),
+                          onChanged: (v) => setState(() => _enableKitchen = v),
+                        ),
+                        SwitchListTile(
+                          value: _enableLounge,
+                          title: const Text('Lounge'),
+                          subtitle: const Text('Enable lounge and hospitality service areas'),
+                          onChanged: (v) => setState(() => _enableLounge = v),
+                        ),
+                        SwitchListTile(
+                          value: _enableRoomService,
+                          title: const Text('Room service'),
+                          subtitle: const Text('Keep food and bar orders attached to room bills'),
+                          onChanged: (v) => setState(() => _enableRoomService = v),
+                        ),
+                        SwitchListTile(
+                          value: _enableHallBooking,
+                          title: const Text('Hall booking'),
+                          subtitle: const Text('Enable event hall reservations and billing'),
+                          onChanged: (v) => setState(() => _enableHallBooking = v),
+                        ),
+                        SwitchListTile(
+                          value: _enablePool,
+                          title: const Text('Pool booking'),
+                          subtitle: const Text('Enable pool bookings and service tracking'),
+                          onChanged: (v) => setState(() => _enablePool = v),
+                        ),
+                        const SizedBox(height: 12),
+                        CustomTextField(
+                          controller: _defaultNightlyRateController,
+                          label: 'Default nightly rate',
+                          keyboardType: TextInputType.numberWithOptions(decimal: true),
+                          prefixIcon: Icons.price_change_outlined,
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return null;
+                            final parsed = double.tryParse(v);
+                            if (parsed == null) return 'Enter a valid number';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        CustomTextField(
+                          controller: _halfDayRateController,
+                          label: 'Half-day rate',
+                          keyboardType: TextInputType.numberWithOptions(decimal: true),
+                          prefixIcon: Icons.av_timer,
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return null;
+                            if (double.tryParse(v) == null) return 'Enter a valid number';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        CustomTextField(
+                          controller: _roomServiceFeeController,
+                          label: 'Room service fee',
+                          keyboardType: TextInputType.numberWithOptions(decimal: true),
+                          prefixIcon: Icons.room_service,
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return null;
+                            if (double.tryParse(v) == null) return 'Enter a valid number';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        CustomTextField(
+                          controller: _checkoutReminderHoursController,
+                          label: 'Checkout reminder (hours)',
+                          keyboardType: TextInputType.number,
+                          prefixIcon: Icons.notifications_active,
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return null;
+                            if (int.tryParse(v) == null) return 'Enter a valid integer';
+                            return null;
+                          },
                         ),
                       ],
                     ).animate().fadeIn(delay: 450.ms, duration: 500.ms).slideY(

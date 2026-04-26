@@ -16,6 +16,11 @@ class ProcurementRepository {
     String? supplierName,
     String? invoiceRef,
     String? referenceImageUrl,
+    String? createdById,
+    String? createdByName,
+    String? createdByEmail,
+    String? storeId,
+    String? storeName,
   }) async {
     final procurementRef = _firestore.collection('businesses').doc(businessId).collection('procurements').doc();
     final createdAt = FieldValue.serverTimestamp();
@@ -181,6 +186,11 @@ class ProcurementRepository {
       if (referenceImageUrl != null) {
         masterData['referenceImageUrl'] = referenceImageUrl;
       }
+      if (createdById != null) masterData['createdById'] = createdById;
+      if (createdByName != null) masterData['createdByName'] = createdByName;
+      if (createdByEmail != null) masterData['createdByEmail'] = createdByEmail;
+      if (storeId != null) masterData['storeId'] = storeId;
+      if (storeName != null) masterData['storeName'] = storeName;
       tx.set(procurementRef, masterData);
     });
 
