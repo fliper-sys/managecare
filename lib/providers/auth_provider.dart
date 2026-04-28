@@ -75,7 +75,10 @@ class AuthProvider with ChangeNotifier {
     // Listen to auth state changes
     _authService.authStateChanges.listen((User? firebaseUser) {
       if (firebaseUser != null) {
-        _loadCurrentUser(firebaseUser.uid);
+        _loadCurrentUser(
+          firebaseUser.uid,
+          allowSelfRecovery: _status == AuthStatus.loading,
+        );
       } else {
         _status = AuthStatus.unauthenticated;
         _currentUser = null;
@@ -360,11 +363,14 @@ class AuthProvider with ChangeNotifier {
     return isValid;
   }
 
-  Future<void> _loadCurrentUser(String uid) async {
+  Future<void> _loadCurrentUser(
+    String uid, {
+    bool allowSelfRecovery = false,
+  }) async {
     try {
       final access = await _authenticationService.resolveUserAccess(
         uid,
-        allowSelfRecovery: false,
+        allowSelfRecovery: allowSelfRecovery,
       );
       if (!access.isAllowed || access.user == null) {
         await _forceLogoutBecauseAccessChanged(
@@ -634,7 +640,10 @@ class AuthProvider with ChangeNotifier {
         );
 
         if (userCredential.user != null) {
-          await _loadCurrentUser(userCredential.user!.uid);
+          await _loadCurrentUser(
+            userCredential.user!.uid,
+            allowSelfRecovery: true,
+          );
 
           if (_currentUser != null && !_currentUser!.isOwner) {
             await _rejectWorkerFromOwnerLogin();

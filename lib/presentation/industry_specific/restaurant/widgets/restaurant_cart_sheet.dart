@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../services/receipt_manager.dart';
 import '../providers/restaurant_provider.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../widgets/async_button.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/worker_permissions.dart';
 
 class RestaurantCartSheet extends StatefulWidget {
   final Map<String, int> cart;
@@ -109,6 +111,17 @@ class _RestaurantCartSheetState extends State<RestaurantCartSheet> {
                           IconButton(
                             icon: const Icon(Icons.edit, size: 18),
                             onPressed: () async {
+                              final auth = Provider.of<AuthProvider>(context, listen: false);
+                              if (!auth.isOwnerUser) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Only business owners can edit prices'),
+                                    backgroundColor: Colors.orange,
+                                  ),
+                                );
+                                return;
+                              }
+                              // Existing edit price logic
                               final ctrl = TextEditingController(text: price.toStringAsFixed(2));
                               final res = await showDialog<double>(
                                 context: context,
@@ -164,14 +177,23 @@ class _RestaurantCartSheetState extends State<RestaurantCartSheet> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: TextField(
-                    controller: _discountCtrl,
-                    keyboardType: TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                      labelText: 'Discount',
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (v) => setState(() => _discountAmount = double.tryParse(v) ?? 0.0),
+                  child: Builder(
+                    builder: (context) {
+                      final auth = Provider.of<AuthProvider>(context, listen: false);
+                      final canApplyDiscount = auth.isOwnerUser || WorkerPermissions.canApplyDiscount(auth.currentUser?.role ?? '');
+                      return TextField(
+                        controller: _discountCtrl,
+                        keyboardType: TextInputType.numberWithOptions(decimal: true),
+                        decoration: InputDecoration(
+                          labelText: 'Discount',
+                          border: const OutlineInputBorder(),
+                          enabled: canApplyDiscount,
+                          hintText: canApplyDiscount ? null : 'Only owner/manager can apply discounts',
+                        ),
+                        enabled: canApplyDiscount,
+                        onChanged: canApplyDiscount ? (v) => setState(() => _discountAmount = double.tryParse(v) ?? 0.0) : null,
+                      );
+                    },
                   ),
                 ),
               ],

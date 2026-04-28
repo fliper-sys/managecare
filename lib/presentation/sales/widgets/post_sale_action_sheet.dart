@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:business_manager/core/access_control.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -12,6 +13,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../../data/models/currency_model.dart';
 import '../../../services/thermal_printer_manager.dart';
 import '../../../services/thermal_printing_service.dart';
 import '../../../services/esc_pos_receipt_generator.dart';
@@ -24,7 +26,8 @@ import '../../../services/analytics_service.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/receipt_settings_provider.dart';
 import '../../../providers/auth_provider.dart';
-import '../../../core/access_control.dart';
+import '../../../core/utils/worker_permissions.dart';
+import '../../../core/utils/currency.dart';
 import '../../../services/pdf_invoice_generator.dart';
 
 /// Post-sale action sheet allowing users to choose:
@@ -66,6 +69,11 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
   bool _pdfGenerating = false;
   Uint8List? _pdfBytes;
   File? _pdfFile;
+
+  // Editable sale data
+  late List<Map<String, dynamic>> _editableItems;
+  late double _editableDiscount;
+  late double _editableTax;
 
   // Resolve payment method from various possible sale map keys and normalize
   String _getPaymentMethod(Map<String, dynamic> data) {
@@ -284,6 +292,25 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         });
       });
     }
+
+    // Initialize editable sale data
+    _initializeEditableData();
+  }
+
+  void _initializeEditableData() {
+    // Deep copy the items for editing and ensure 'total' field is set correctly
+    _editableItems = List<Map<String, dynamic>>.from(
+      (widget.saleData['items'] as List? ?? []).map((item) {
+        final copiedItem = Map<String, dynamic>.from(item);
+        final quantity = (copiedItem['quantity'] as num?)?.toDouble() ?? 1.0;
+        final price = (copiedItem['price'] as num?)?.toDouble() ?? (copiedItem['unitPrice'] as num?)?.toDouble() ?? 0.0;
+        // Ensure 'total' field is set correctly
+        copiedItem['total'] = (copiedItem['total'] as num?)?.toDouble() ?? (price * quantity);
+        return copiedItem;
+      })
+    );
+    _editableDiscount = (widget.saleData['discount'] as num?)?.toDouble() ?? 0.0;
+    _editableTax = (widget.saleData['tax'] as num?)?.toDouble() ?? 0.0;
   }
 
   Future<void> _generateInvoice() async {
@@ -1469,6 +1496,35 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
   }
 
 
+  void _updateItemPrice(int index, double newPrice) {
+    setState(() {
+      _editableItems[index]['price'] = newPrice;
+      _editableItems[index]['total'] = newPrice * (_editableItems[index]['quantity'] ?? 1);
+    });
+  }
+
+  void _updateDiscount(double newDiscount) {
+    setState(() {
+      _editableDiscount = newDiscount;
+    });
+  }
+
+  void _removeItem(int index) {
+    setState(() {
+      _editableItems.removeAt(index);
+    });
+  }
+
+  double _calculateSubtotal() {
+    return _editableItems.fold(0.0, (sum, item) => sum + (item['total'] ?? 0.0));
+  }
+
+  double _calculateTotal() {
+    final subtotal = _calculateSubtotal();
+    return subtotal - _editableDiscount + _editableTax;
+  }
+
+
   @override
   Widget build(BuildContext context) {
     debugPrint(
@@ -1520,6 +1576,236 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                 ),
                 const SizedBox(height: 16),
               ],
+
+              // Edit Sale Items Section
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Edit Sale Items', style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w600)),
+                        Consumer<AuthProvider>(
+                          builder: (context, auth, _) {
+                            final canEditPrice = WorkerPermissions.canEditPrice(auth.currentUser?.role ?? '');
+                            final canApplyDiscount = WorkerPermissions.canApplyDiscount(auth.currentUser?.role ?? '');
+                            if (!canEditPrice && !canApplyDiscount) {
+                              return const SizedBox.shrink();
+                            }
+                            return Text(
+                              canEditPrice && canApplyDiscount ? 'Owner/Manager' :
+                              canEditPrice ? 'Owner Only' : 'Manager Only',
+                              style: AppTextStyles.caption.copyWith(color: Colors.blue, fontSize: 10),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // Items List
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _editableItems.length,
+                      itemBuilder: (context, index) {
+                        final item = _editableItems[index];
+                        final name = item['productName'] ?? item['name'] ?? 'Item';
+                        final quantity = item['quantity'] ?? 1;
+                        final price = item['price'] ?? 0.0;
+                        final total = item['total'] ?? (price * quantity);
+
+                        return Consumer<AuthProvider>(
+                          builder: (context, auth, _) {
+                            final canEditPrice = WorkerPermissions.canEditPrice(auth.currentUser?.role ?? '');
+
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(name, style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w500)),
+                                        Text('Qty: $quantity', style: AppTextStyles.caption),
+                                      ],
+                                    ),
+                                  ),
+                                  if (canEditPrice) ...[
+                                    SizedBox(
+                                      width: 80,
+                                      child: TextFormField(
+                                        initialValue: price.toStringAsFixed(2),
+                                        keyboardType: TextInputType.number,
+                                        textAlign: TextAlign.right,
+                                        style: AppTextStyles.body2,
+                                        decoration: const InputDecoration(
+                                          isDense: true,
+                                          border: OutlineInputBorder(),
+                                          contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        ),
+                                        onChanged: (value) {
+                                          final newPrice = double.tryParse(value) ?? price;
+                                          _updateItemPrice(index, newPrice);
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  Text(
+                                    formatCurrency(total),
+                                    style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                                    onPressed: () => _removeItem(index),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    // Discount and Tax editing
+                    Consumer<AuthProvider>(
+                      builder: (context, auth, _) {
+                        final canApplyDiscount = WorkerPermissions.canApplyDiscount(auth.currentUser?.role ?? '');
+
+                        if (!canApplyDiscount) return const SizedBox.shrink();
+
+                        return Column(
+                          children: [
+                            Row(
+                              children: [
+                                const Text('Discount: ', style: TextStyle(fontWeight: FontWeight.w500)),
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue: _editableDiscount.toStringAsFixed(2),
+                                    keyboardType: TextInputType.number,
+                                    textAlign: TextAlign.right,
+                                    style: AppTextStyles.body2,
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      border: OutlineInputBorder(),
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    ),
+                                    onChanged: (value) {
+                                      final newDiscount = double.tryParse(value) ?? _editableDiscount;
+                                      _updateDiscount(newDiscount);
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Text('Subtotal: ${formatCurrency(_calculateSubtotal())}', style: AppTextStyles.body2),
+                                const Spacer(),
+                                Text('Total: ${formatCurrency(_calculateTotal())}', style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Print Actions (Prioritized for fast sales)
+              Builder(builder: (ctx) {
+                final isFuel = (widget.saleData['category'] ?? '').toString().toLowerCase() == 'fuel' || (widget.saleData['category'] ?? '').toString().toLowerCase() == 'petrol' || (widget.saleData['category'] ?? '').toString().toLowerCase() == 'gas';
+                return Column(children: [
+                  if (isFuel) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                      decoration: BoxDecoration(color: Colors.yellow.withOpacity(0.08), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.yellow)),
+                      child: Row(children: const [Icon(Icons.print, size: 16, color: Colors.orange), SizedBox(width: 8), Expanded(child: Text('Print a 58mm POS receipt for the customer', style: TextStyle(fontWeight: FontWeight.w600)))]),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  // Determine whether to show USB print option based on settings or platform
+                  Builder(builder: (innerCtx) {
+                    if (kIsWeb) {
+                      // Web: Single optimized print button using browser dialog
+                      return SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _isPrinting ? null : _printReceiptWeb,
+                          icon: const Icon(Icons.print),
+                          label: const Text('Print Receipt'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            disabledBackgroundColor: Colors.grey,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      );
+                    }
+                    // Mobile: Show USB and Bluetooth options
+                    return Row(children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _isPrinting ? null : _printReceiptUsb,
+                          icon: const Icon(Icons.usb),
+                          label: const Text('Print (USB)'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            disabledBackgroundColor: Colors.grey,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _isPrinting ? null : _printReceipt,
+                          icon: const Icon(Icons.print),
+                          label: Text(isFuel ? 'Print (58mm)' : 'Print (Bluetooth)'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.success,
+                            disabledBackgroundColor: Colors.grey,
+                          ),
+                        ),
+                      )
+                    ]);
+                  }),
+
+                  // PDF preview / print action (similar UX to Receipt Customization preview)
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _isPreviewing ? null : _previewPdf,
+                      icon: const Icon(Icons.picture_as_pdf),
+                      label: const Text('Preview PDF'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        disabledBackgroundColor: Colors.grey,
+                      ),
+                    ),
+                  ),
+                ]);
+              }),
+              const SizedBox(height: 16),
 
               // Compact payment breakdown preview
               if ((widget.saleData['paymentBreakdown'] as List<dynamic>?)?.isNotEmpty ?? false) ...[
@@ -1632,6 +1918,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
               ),
               const SizedBox(height: 12),
 
+              // Other Actions (Email, Share, PDF Generation)
               Row(
                 children: [
                   Expanded(
@@ -1659,80 +1946,6 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Builder(builder: (ctx) {
-                final isFuel = (widget.saleData['category'] ?? '').toString().toLowerCase() == 'fuel' || (widget.saleData['category'] ?? '').toString().toLowerCase() == 'petrol' || (widget.saleData['category'] ?? '').toString().toLowerCase() == 'gas';
-                return Column(children: [
-                  if (isFuel) ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-                      decoration: BoxDecoration(color: Colors.yellow.withOpacity(0.08), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.yellow)),
-                      child: Row(children: const [Icon(Icons.print, size: 16, color: Colors.orange), SizedBox(width: 8), Expanded(child: Text('Print a 58mm POS receipt for the customer', style: TextStyle(fontWeight: FontWeight.w600)))]),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  // Determine whether to show USB print option based on settings or platform
-                  Builder(builder: (innerCtx) {
-                    if (kIsWeb) {
-                      // Web: Single optimized print button using browser dialog
-                      return SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _isPrinting ? null : _printReceiptWeb,
-                          icon: const Icon(Icons.print),
-                          label: const Text('Print Receipt'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.success,
-                            disabledBackgroundColor: Colors.grey,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                      );
-                    }
-                    // Mobile: Show USB and Bluetooth options
-                    return Row(children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isPrinting ? null : _printReceiptUsb,
-                          icon: const Icon(Icons.usb),
-                          label: const Text('Print (USB)'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.success,
-                            disabledBackgroundColor: Colors.grey,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isPrinting ? null : _printReceipt,
-                          icon: const Icon(Icons.print),
-                          label: Text(isFuel ? 'Print (58mm)' : 'Print (Bluetooth)'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.success,
-                            disabledBackgroundColor: Colors.grey,
-                          ),
-                        ),
-                      )
-                    ]);
-                  }),
-
-                  // PDF preview / print action (similar UX to Receipt Customization preview)
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _isPreviewing ? null : _previewPdf,
-                      icon: const Icon(Icons.picture_as_pdf),
-                      label: const Text('Preview PDF'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        disabledBackgroundColor: Colors.grey,
-                      ),
-                    ),
-                  ),
-                ]);
-              }),
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,

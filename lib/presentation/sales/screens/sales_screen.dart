@@ -177,11 +177,10 @@ class _SalesScreenState extends State<SalesScreen>
               final unitPrice = priceOverrides[e.key.id] ??
                   retail.getEffectivePriceForCartItem(e.key.id);
               final total = unitPrice * e.value;
-              final pricingMode = e.key.hasWholesalePricing &&
-                      e.key.wholesalePrice != null &&
-                      (unitPrice - e.key.wholesalePrice!).abs() < 0.0001
-                  ? 'wholesale'
-                  : 'retail';
+              final pricingMode = retail.getPricingModeForCartItem(e.key.id);
+              final saleUnit = retail.getEffectiveSaleUnitForCartItem(e.key.id);
+              final saleUnitMultiplier =
+                  retail.getEffectiveSaleUnitMultiplierForCartItem(e.key.id);
               subtotal += total;
               return {
                 'productId': e.key.id,
@@ -194,9 +193,9 @@ class _SalesScreenState extends State<SalesScreen>
                 'costPrice': e.key.cost,
                 'pricingMode': pricingMode,
                 'inventoryUnit': e.key.unit,
-                'saleUnit': e.key.resolvedSaleUnit,
-                'saleUnitMultiplier': e.key.resolvedSaleUnitMultiplier,
-                'inventoryQuantity': e.key.resolvedSaleUnitMultiplier * e.value,
+                'saleUnit': saleUnit,
+                'saleUnitMultiplier': saleUnitMultiplier,
+                'inventoryQuantity': saleUnitMultiplier * e.value,
                 'total': total,
               };
             }).toList();
@@ -2569,8 +2568,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   }
 
   String _saleUnitSummary(Product product) {
-    final saleUnit = product.resolvedSaleUnit;
-    final multiplier = product.resolvedSaleUnitMultiplier;
+    final retail = context.read<RetailProvider>();
+    final saleUnit = retail.getEffectiveSaleUnitForCartItem(product.id);
+    final multiplier =
+        retail.getEffectiveSaleUnitMultiplierForCartItem(product.id);
     if (saleUnit == product.unit && multiplier == 1) {
       return 'Sold in ${inventoryUnitLabel(saleUnit)}';
     }

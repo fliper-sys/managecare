@@ -3292,7 +3292,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete User'),
         content: Text(
-          'This will remove $displayName from normal access immediately and keep the account recoverable by admin for 30 days.',
+          'This will permanently delete $displayName from the users and workers collections where present. This action cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -3318,7 +3318,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                 SnackBar(
                   content: Text(
                     ok
-                        ? '$displayName deleted. Admin can restore the account within 30 days.'
+                        ? '$displayName deleted permanently.'
                         : 'Failed to delete user.',
                   ),
                 ),

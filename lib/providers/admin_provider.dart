@@ -1651,39 +1651,41 @@ class AdminProvider extends ChangeNotifier {
       notifyListeners();
 
       final userRef = _firestore.collection('users').doc(userId);
+      final workerRef = _firestore.collection('workers').doc(userId);
       final userSnap = await userRef.get();
-      if (!userSnap.exists) {
+      final workerSnap = await workerRef.get();
+      if (!userSnap.exists && !workerSnap.exists) {
         throw Exception('User account not found.');
       }
 
-      final userData = userSnap.data() ?? const <String, dynamic>{};
+      final userData = userSnap.data() ??
+          workerSnap.data() ??
+          const <String, dynamic>{};
       final displayName = _readString(
         userData['fullName'] ?? userData['name'] ?? userData['email'],
       );
-      final adminId = _auth.currentUser?.uid ?? 'system';
-      final recoveryDeadlineAt =
-          DeletionRecoveryService.computeRecoveryDeadline();
+      final tableSources = <String>[
+        if (userSnap.exists) 'users',
+        if (workerSnap.exists) 'workers',
+      ];
 
-      await _deletionRecoveryService.softDeleteUserAccount(
-        userId: userId,
-        actorId: adminId,
-        actorType: 'admin',
-        actorRole: 'admin',
-        reason: 'Deleted by admin. Recoverable only by admin for 30 days.',
-        cascadeOwnedBusinesses: true,
-      );
+      if (userSnap.exists) {
+        await userRef.delete();
+      }
+      if (workerSnap.exists) {
+        await workerRef.delete();
+      }
 
       await _firestore.collection('admin_notifications').add({
         'type': 'user',
-        'title': 'User Deleted',
+        'title': 'User Permanently Deleted',
         'message':
-            '${displayName.isNotEmpty ? displayName : userId} was deleted by admin and moved to a 30-day recovery window.',
+            '${displayName.isNotEmpty ? displayName : userId} was permanently deleted from ${tableSources.join(' and ')} by admin.',
         'data': {
           'userId': userId,
           'displayName': displayName,
-          'eventType': 'deleted',
-          'recoveryAccess': 'admin',
-          'recoveryDeadlineAt': Timestamp.fromDate(recoveryDeadlineAt),
+          'eventType': 'permanently_deleted',
+          'deletedFrom': tableSources,
         },
         'isRead': false,
         'createdAt': FieldValue.serverTimestamp(),

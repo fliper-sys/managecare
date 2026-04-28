@@ -1354,6 +1354,43 @@ class RetailProvider extends ChangeNotifier {
     // Otherwise use retail price
     return product.price;
   }
+
+  Product _findProductForCart(String productId) {
+    return _products.firstWhere(
+      (p) => p.id == productId,
+      orElse: () => Product(
+        id: productId,
+        name: 'Unknown',
+        price: 0,
+        stock: 0,
+        category: 'Unknown',
+      ),
+    );
+  }
+
+  bool _usesWholesaleSaleUnit(Product product, String mode) {
+    return mode == 'wholesale' &&
+        product.hasWholesalePricing &&
+        product.wholesalePrice != null;
+  }
+
+  String getEffectiveSaleUnitForCartItem(String productId) {
+    final product = _findProductForCart(productId);
+    final mode = getPricingModeForCartItem(productId);
+    if (_usesWholesaleSaleUnit(product, mode)) {
+      return product.resolvedSaleUnit;
+    }
+    return product.unit;
+  }
+
+  double getEffectiveSaleUnitMultiplierForCartItem(String productId) {
+    final product = _findProductForCart(productId);
+    final mode = getPricingModeForCartItem(productId);
+    if (_usesWholesaleSaleUnit(product, mode)) {
+      return product.resolvedSaleUnitMultiplier;
+    }
+    return 1.0;
+  }
   
 
   // Checkout with Firestore updates
@@ -1378,16 +1415,7 @@ class RetailProvider extends ChangeNotifier {
       // Compute subtotal applying any price overrides and pricing modes
       double subtotal = 0.0;
       for (final entry in activeCartEntries.entries) {
-        final product = _products.firstWhere(
-          (p) => p.id == entry.key,
-          orElse: () => Product(
-            id: entry.key,
-            name: 'Unknown',
-            price: 0,
-            stock: 0,
-            category: 'Unknown',
-          ),
-        );
+        final product = _findProductForCart(entry.key);
         // Use price overrides first, otherwise use effective price based on pricing mode
         final unitPrice = priceOverrides != null && priceOverrides.containsKey(entry.key)
             ? priceOverrides[entry.key]!
@@ -1403,20 +1431,14 @@ class RetailProvider extends ChangeNotifier {
         'cartId': _activeCartId,
         'cartLabel': activeCartLabel,
         'items': activeCartEntries.entries.map((e) {
-          final product = _products.firstWhere(
-            (p) => p.id == e.key,
-            orElse: () => Product(
-              id: e.key,
-              name: 'Unknown',
-              price: 0,
-              stock: 0,
-              category: 'Unknown',
-            ),
-          );
+          final product = _findProductForCart(e.key);
           final unitPrice = priceOverrides != null && priceOverrides.containsKey(e.key)
               ? priceOverrides[e.key]!
               : getEffectivePriceForCartItem(e.key);
           final pricingMode = getPricingModeForCartItem(e.key);
+          final saleUnit = getEffectiveSaleUnitForCartItem(e.key);
+          final saleUnitMultiplier =
+              getEffectiveSaleUnitMultiplierForCartItem(e.key);
           return {
             'productId': e.key,
             'productName': product.name,
@@ -1428,10 +1450,9 @@ class RetailProvider extends ChangeNotifier {
             'costPrice': product.cost,
             'pricingMode': pricingMode,
             'inventoryUnit': product.unit,
-            'saleUnit': product.resolvedSaleUnit,
-            'saleUnitMultiplier': product.resolvedSaleUnitMultiplier,
-            'inventoryQuantity':
-                product.resolvedSaleUnitMultiplier * e.value,
+            'saleUnit': saleUnit,
+            'saleUnitMultiplier': saleUnitMultiplier,
+            'inventoryQuantity': saleUnitMultiplier * e.value,
             'total': unitPrice * e.value,
           };
         }).toList(),
@@ -1471,19 +1492,11 @@ class RetailProvider extends ChangeNotifier {
 
         // Update product stock in inventory collection
         for (final entry in activeCartEntries.entries) {
-          final product = _products.firstWhere(
-            (p) => p.id == entry.key,
-            orElse: () => Product(
-              id: entry.key,
-              name: 'Unknown',
-              price: 0,
-              stock: 0,
-              category: 'Unknown',
-            ),
-          );
+          final product = _findProductForCart(entry.key);
 
           final stockReduction =
-              product.resolvedSaleUnitMultiplier * entry.value;
+              getEffectiveSaleUnitMultiplierForCartItem(entry.key) *
+                  entry.value;
           final newQuantity =
               (product.stock - stockReduction).clamp(0.0, 999999.0);
           await _firestore
@@ -1586,7 +1599,11 @@ class RetailProvider extends ChangeNotifier {
         // Insert items
         for (final e in activeCartEntries.entries) {
           final itemId = DateTime.now().millisecondsSinceEpoch.toString() + e.key;
-          final product = _products.firstWhere((p) => p.id == e.key, orElse: () => Product(id: e.key, name: 'Unknown', price: 0, stock: 0, category: 'Unknown'));
+          final product = _findProductForCart(e.key);
+          final pricingMode = getPricingModeForCartItem(e.key);
+          final saleUnit = getEffectiveSaleUnitForCartItem(e.key);
+          final saleUnitMultiplier =
+              getEffectiveSaleUnitMultiplierForCartItem(e.key);
           final item = {
             'id': itemId,
             'saleId': saleId,
@@ -1596,6 +1613,11 @@ class RetailProvider extends ChangeNotifier {
             'unitPrice': priceOverrides != null && priceOverrides.containsKey(e.key)
                 ? priceOverrides[e.key]!
                 : getEffectivePriceForCartItem(e.key),
+            'pricingMode': pricingMode,
+            'inventoryUnit': product.unit,
+            'saleUnit': saleUnit,
+            'saleUnitMultiplier': saleUnitMultiplier,
+            'inventoryQuantity': saleUnitMultiplier * e.value,
             'discount': 0.0,
             'total': (priceOverrides != null && priceOverrides.containsKey(e.key)
                     ? priceOverrides[e.key]!
@@ -1608,7 +1630,7 @@ class RetailProvider extends ChangeNotifier {
           final inv = await dbHelper.query('inventory', where: 'id = ? AND businessId = ?', whereArgs: [e.key, _businessId]);
           if (inv.isNotEmpty) {
             final currentQty = (inv.first['quantity'] as num).toDouble();
-            final newQty = (currentQty - (product.resolvedSaleUnitMultiplier * e.value))
+            final newQty = (currentQty - (saleUnitMultiplier * e.value))
                 .clamp(0, 999999);
             await dbHelper.update('inventory', {'quantity': newQty, 'syncStatus': 'pending'}, where: 'id = ? AND businessId = ?', whereArgs: [e.key, _businessId]);
           } else {
@@ -1617,7 +1639,7 @@ class RetailProvider extends ChangeNotifier {
               'businessId': _businessId!,
               'name': product.name,
               'unitPrice': product.price,
-              'quantity': (0 - (product.resolvedSaleUnitMultiplier * e.value))
+              'quantity': (0 - (saleUnitMultiplier * e.value))
                   .toDouble()
                   .clamp(0, 999999),
               'createdAt': DateTime.now().toIso8601String(),

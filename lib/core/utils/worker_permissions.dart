@@ -53,7 +53,7 @@ class WorkerPermissions {
       hasPermission(role, 'manage_inventory');
 
   static bool canEditPrice(String role) =>
-      ['admin', 'owner', 'manager'].contains(role.toLowerCase());
+      role.toLowerCase() == 'owner';
 
   static bool canViewAnalytics(String role) =>
       hasPermission(role, 'view_sales_history');
