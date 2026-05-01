@@ -739,6 +739,31 @@ class DrinkProvider extends ChangeNotifier {
     }
   }
 
+  void _restoreStockConsumption(List<OrderLine> lines) {
+    for (final line in lines) {
+      final drink = getDrinkById(line.drinkId);
+      final stock = getStock(line.drinkId);
+
+      if (drink == null || stock == null) {
+        // If drink or stock not found, we can't restore, but this shouldn't happen
+        debugPrint('Warning: Cannot restore stock for ${line.drinkId} - drink or stock not found');
+        continue;
+      }
+
+      // Add back the bottles to stock
+      var toRestore = line.quantityBottles;
+      
+      // First, try to add to existing bottles
+      stock.bottles += toRestore;
+      
+      // If we have more than a carton, convert to cartons
+      while (stock.bottles >= drink.bottlesPerCarton) {
+        stock.cartons += 1;
+        stock.bottles -= drink.bottlesPerCarton;
+      }
+    }
+  }
+
   void updateOrderStatus(String orderId, String status) {
     final o = orders.firstWhere((x) => x.id == orderId);
     o.status = status;
@@ -868,6 +893,16 @@ class DrinkProvider extends ChangeNotifier {
       throw StateError('Cannot create an invoice without items');
     }
 
+    // Validate stock availability before creating invoice
+    for (final line in lines) {
+      final drink = getDrinkById(line.drinkId);
+      final stock = getStock(line.drinkId);
+      if (drink == null || stock == null) {
+        throw StateError('Stock item not found for ${line.drinkId}');
+      }
+      // For invoice creation, we don't deduct stock yet - only when converted to sale
+    }
+
     final now = DateTime.now();
     final subtotal = lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
     final total = subtotal + tax - discount;
@@ -936,6 +971,7 @@ class DrinkProvider extends ChangeNotifier {
       throw StateError('Cannot save an invoice without items');
     }
 
+    // For invoice updates, stock will be deducted when converted to sale
     final subtotal =
         lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
     final updatedInvoice = BarInvoice(
@@ -1099,6 +1135,7 @@ class DrinkProvider extends ChangeNotifier {
         .add(saleData);
     await saleRef.update({'orderId': saleRef.id});
 
+    // Deduct stock when invoice is converted to sale (payment received)
     _applyStockConsumption(invoice.lines);
     for (final line in invoice.lines) {
       final stock = getStock(line.drinkId);

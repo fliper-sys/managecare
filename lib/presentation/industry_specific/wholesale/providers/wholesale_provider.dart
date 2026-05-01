@@ -48,6 +48,17 @@ class WholesaleProduct {
       return null;
     }
 
+    int _parseInt(dynamic value, {int fallback = 0}) {
+      if (value == null) return fallback;
+      if (value is int) return value;
+      if (value is num) return value.round();
+      if (value is String) {
+        final parsedNum = num.tryParse(value);
+        if (parsedNum != null) return parsedNum.round();
+      }
+      return fallback;
+    }
+
     return WholesaleProduct(
       id: (json['id'] as String?) ?? '',
       name: (json['name'] as String?) ?? '',
@@ -56,14 +67,16 @@ class WholesaleProduct {
       costPrice: (json['costPrice'] as num?)?.toDouble() ?? 0.0,
       sellingPrice: ((json['sellingPrice'] ?? json['price']) as num?)?.toDouble() ?? 0.0,
       wholesalePrice: (json['wholesalePrice'] as num?)?.toDouble() ?? 0.0,
-      quantity: (json['quantity'] as int?) ?? 0,
-      reorderLevel: json['reorderLevel'] as int? ?? 10,
-      reorderQuantity: json['reorderQuantity'] as int? ?? 50,
+      quantity: _parseInt(json['quantity']),
+      reorderLevel: _parseInt(json['reorderLevel'], fallback: 10),
+      reorderQuantity: _parseInt(json['reorderQuantity'], fallback: 50),
       imageUrl: json['imageUrl'] as String?,
       supplier: (json['supplier'] as String?) ?? '',
       createdAt: _parseDate(json['createdAt']),
       updatedAt: _parseDate(json['updatedAt']),
-      warehouseAllocations: (json['warehouseAllocations'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, (v as num).toInt())) ?? {},
+      warehouseAllocations: (json['warehouseAllocations'] as Map<String, dynamic>?)
+              ?.map((k, v) => MapEntry(k, _parseInt(v))) ??
+          {},
     );
   }
 

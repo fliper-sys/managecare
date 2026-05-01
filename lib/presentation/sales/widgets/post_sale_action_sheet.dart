@@ -1497,6 +1497,15 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
 
 
   void _updateItemPrice(int index, double newPrice) {
+    if (newPrice < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Price cannot be negative'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     setState(() {
       _editableItems[index]['price'] = newPrice;
       _editableItems[index]['total'] = newPrice * (_editableItems[index]['quantity'] ?? 1);

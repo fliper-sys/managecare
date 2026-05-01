@@ -2715,6 +2715,18 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                         final parsed = double.tryParse(
                                                 v.replaceAll(',', '')) ??
                                             0.0;
+                                        if (parsed < 0) {
+                                          // Show error for negative prices
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                  'Price cannot be negative'),
+                                              backgroundColor: Colors.red,
+                                            ),
+                                          );
+                                          return;
+                                        }
                                         if ((parsed - item.price).abs() <
                                             0.0001) {
                                           retail.setPricingModeForCartItem(

@@ -131,14 +131,14 @@ class BackgroundSubscriptionChecker {
       );
       final isSubscriptionActive =
           data['isSubscriptionActive'] as bool? ?? false;
-      final subscriptionEndDateStr = data['subscriptionEndDate'] as String?;
+      final subscriptionEndDateRaw = data['subscriptionEndDate'];
 
       // Check subscription validity
       final wasValid = _isSubscriptionValid(business);
       final isNowValid = _checkSubscriptionValidity(
         tier: subscriptionTier,
         isActive: isSubscriptionActive,
-        endDate: subscriptionEndDateStr,
+        endDate: subscriptionEndDateRaw,
       );
 
       _log.info(
@@ -156,8 +156,8 @@ class BackgroundSubscriptionChecker {
       }
 
       // Check expiration warning (7 days before expiry)
-      if (isSubscriptionActive && subscriptionEndDateStr != null) {
-        _checkExpirationWarning(business.id, subscriptionEndDateStr);
+      if (isSubscriptionActive && subscriptionEndDateRaw != null) {
+        _checkExpirationWarning(business.id, subscriptionEndDateRaw);
       }
 
       // Update local cache with latest subscription info
@@ -168,7 +168,7 @@ class BackgroundSubscriptionChecker {
           business.id,
           subscriptionTier,
           isSubscriptionActive,
-          subscriptionEndDateStr,
+          subscriptionEndDateRaw,
         );
       }
     } catch (e) {
@@ -178,9 +178,9 @@ class BackgroundSubscriptionChecker {
   }
 
   /// Check if subscription expires in next 7 days (and issue milestones)
-  void _checkExpirationWarning(String businessId, String endDateStr) {
+  void _checkExpirationWarning(String businessId, dynamic endDateRaw) {
     try {
-      final endDate = parseTimestamp(endDateStr);
+      final endDate = parseTimestamp(endDateRaw);
       final now = DateTime.now();
 
       final daysLeft = DateTime(endDate.year, endDate.month, endDate.day)
@@ -209,7 +209,7 @@ class BackgroundSubscriptionChecker {
         }
       }
     } catch (e) {
-      _log.error('Error parsing expiration date: $endDateStr', error: e);
+      _log.error('Error parsing expiration date: $endDateRaw', error: e);
     }
   }
 
@@ -234,7 +234,7 @@ class BackgroundSubscriptionChecker {
     String businessId,
     String subscriptionTier,
     bool isSubscriptionActive,
-    String? subscriptionEndDate,
+    dynamic subscriptionEndDate,
   ) async {
     try {
       // Get current cached business
@@ -393,7 +393,7 @@ class BackgroundSubscriptionChecker {
   bool _checkSubscriptionValidity({
     required String tier,
     required bool isActive,
-    required String? endDate,
+    required dynamic endDate,
   }) {
     if (!isActive) return false;
     if (endDate == null) return true;

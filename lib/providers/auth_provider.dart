@@ -102,6 +102,19 @@ class AuthProvider with ChangeNotifier {
       if (_localStorage!.isAutoLoginEnabled()) {
         final cachedUser = _localStorage!.getCachedUser();
         if (cachedUser != null) {
+          final firebaseUser = FirebaseAuth.instance.currentUser;
+          if (firebaseUser == null) {
+            print(
+              '[AuthProvider] Auto-login skipped for cached user ${cachedUser.email} because there is no active Firebase session.',
+            );
+            await _localStorage!.clearUser();
+            _status = AuthStatus.unauthenticated;
+            _currentUser = null;
+            _errorMessage = null;
+            notifyListeners();
+            return;
+          }
+
           print(
               '[AuthProvider] Auto-login: restoring cached user ${cachedUser.email}');
           _currentUser = cachedUser;

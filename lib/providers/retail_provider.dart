@@ -1412,6 +1412,16 @@ class RetailProvider extends ChangeNotifier {
     if (activeCartEntries.isEmpty) return false;
 
     try {
+      // Validate stock availability before proceeding
+      for (final entry in activeCartEntries.entries) {
+        final product = _findProductForCart(entry.key);
+        final stockReduction =
+            getEffectiveSaleUnitMultiplierForCartItem(entry.key) * entry.value;
+        if (product.stock < stockReduction) {
+          throw Exception('Insufficient stock for ${product.name}. Available: ${product.stock}, Required: $stockReduction');
+        }
+      }
+
       // Compute subtotal applying any price overrides and pricing modes
       double subtotal = 0.0;
       for (final entry in activeCartEntries.entries) {

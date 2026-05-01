@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../data/repositories/worker_repository_impl.dart';
 
@@ -146,12 +147,40 @@ class WorkersProvider with ChangeNotifier {
   /// Delete worker completely including auth account
   Future<void> deleteWorker(String workerId, {String? businessId}) async {
     try {
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+      if (firebaseUser == null) {
+        throw StateError(
+          'Your session has expired. Please sign in again before deleting a worker.',
+        );
+      }
+
+      try {
+        await firebaseUser.getIdToken();
+      } on FirebaseAuthException catch (e) {
+        if (e.code != 'network-request-failed') {
+          rethrow;
+        }
+        print(
+          '[WorkersProvider] Token refresh skipped due to network issue; attempting delete with existing session.',
+        );
+      }
+
       // Call Firebase Function to delete worker completely
       final functions = FirebaseFunctions.instance;
       final callable = functions.httpsCallable('deleteWorkerCompletely');
       await callable.call({'workerId': workerId});
 
       await _refreshBusinessScopeAfterMutation(businessId);
+    } on FirebaseFunctionsException catch (e) {
+      if (e.code == 'unauthenticated') {
+        throw StateError(
+          'Your session has expired. Please sign in again before deleting a worker.',
+        );
+      }
+      print(
+        '[WorkersProvider] deleteWorker failed: code=${e.code}, message=${e.message}, details=${e.details}',
+      );
+      rethrow;
     } catch (e) {
       print('[WorkersProvider] deleteWorker failed: $e');
       rethrow;

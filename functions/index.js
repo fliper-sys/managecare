@@ -174,14 +174,16 @@ async function deleteWorkerCompletely(workerId, actorId) {
   const workerRef = db.collection('workers').doc(workerId);
   const userRef = db.collection('users').doc(workerId);
 
-  // Check if worker exists
   const workerSnap = await workerRef.get();
-  if (!workerSnap.exists) {
+  const userSnap = await userRef.get();
+  if (!workerSnap.exists && !userSnap.exists) {
     throw new functions.https.HttpsError('not-found', 'Worker not found');
   }
 
   const workerData = workerSnap.data() || {};
-  const businessId = workerData.businessId;
+  const userData = userSnap.data() || {};
+  const mergedWorkerData = { ...workerData, ...userData };
+  const businessId = mergedWorkerData.businessId;
 
   // Verify the actor has permission (is owner of the business)
   if (businessId) {
@@ -190,7 +192,15 @@ async function deleteWorkerCompletely(workerId, actorId) {
     if (businessSnap.exists) {
       const businessData = businessSnap.data() || {};
       const ownerId = businessData.ownerId;
-      const ownerIds = businessData.ownerIds || [];
+      const ownerIds = Array.isArray(businessData.ownerIds) ? businessData.ownerIds : [];
+
+      console.log('[deleteWorkerCompletely] permission check', {
+        workerId,
+        actorId,
+        businessId,
+        ownerId,
+        ownerIdsCount: ownerIds.length,
+      });
 
       if (ownerId !== actorId && !ownerIds.includes(actorId)) {
         throw new functions.https.HttpsError('permission-denied', 'Only business owners can delete workers');
@@ -206,15 +216,40 @@ async function deleteWorkerCompletely(workerId, actorId) {
     console.error('[deleteWorkerCompletely] failed to delete worker doc', workerId, error);
   });
 
-  // Delete Firebase Auth user
+  // Delete Firebase Auth user. Some legacy worker documents use a synthetic
+  // Firestore id instead of the Firebase Auth uid, so fall back to email.
   try {
-    await admin.auth().deleteUser(workerId);
-    console.log('[deleteWorkerCompletely] Successfully deleted auth user', workerId);
+    const authUid = (mergedWorkerData.authUid || mergedWorkerData.uid || workerId || '').toString().trim();
+    await admin.auth().deleteUser(authUid);
+    console.log('[deleteWorkerCompletely] Successfully deleted auth user', authUid);
   } catch (error) {
-    if (error.code !== 'auth/user-not-found') {
-      console.error('[deleteWorkerCompletely] failed to delete auth user', workerId, error);
-      throw new functions.https.HttpsError('internal', 'Failed to delete user authentication');
+    if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-uid') {
+      const workerEmail = (mergedWorkerData.email || '').toString().trim();
+      if (workerEmail) {
+        try {
+          const userRecord = await admin.auth().getUserByEmail(workerEmail);
+          await admin.auth().deleteUser(userRecord.uid);
+          console.log('[deleteWorkerCompletely] Successfully deleted auth user by email', workerEmail, userRecord.uid);
+          await recursiveDeleteSafe(db.collection('users').doc(userRecord.uid)).catch((err) => {
+            console.error('[deleteWorkerCompletely] failed to delete fallback user doc', userRecord.uid, err);
+          });
+          await recursiveDeleteSafe(db.collection('workers').doc(userRecord.uid)).catch((err) => {
+            console.error('[deleteWorkerCompletely] failed to delete fallback worker doc', userRecord.uid, err);
+          });
+          return { success: true };
+        } catch (emailError) {
+          if (emailError.code !== 'auth/user-not-found') {
+            console.error('[deleteWorkerCompletely] failed to lookup auth user by email', workerEmail, emailError);
+            throw new functions.https.HttpsError('internal', 'Failed to delete user authentication');
+          }
+        }
+      }
+      console.log('[deleteWorkerCompletely] Auth user not found for workerId or email, skipping auth deletion', workerId);
+      return { success: true };
     }
+
+    console.error('[deleteWorkerCompletely] failed to delete auth user', workerId, error);
+    throw new functions.https.HttpsError('internal', 'Failed to delete user authentication');
   }
 
   return { success: true };
@@ -237,8 +272,32 @@ exports.deleteWorkerCompletely = functions.https.onCall(async (data, context) =>
     return await deleteWorkerCompletely(workerId, actorId);
   } catch (error) {
     console.error('[deleteWorkerCompletely] Error:', error);
+    const knownCodes = [
+      'invalid-argument',
+      'failed-precondition',
+      'out-of-range',
+      'unauthenticated',
+      'permission-denied',
+      'not-found',
+      'aborted',
+      'already-exists',
+      'resource-exhausted',
+      'cancelled',
+      'data-loss',
+      'unknown',
+      'internal',
+      'unavailable',
+      'deadline-exceeded',
+    ];
     if (error instanceof functions.https.HttpsError) {
       throw error;
+    }
+    if (typeof error?.code === 'string' && knownCodes.includes(error.code)) {
+      throw new functions.https.HttpsError(
+        error.code,
+        error.message || 'Delete worker failed',
+        error.details || null
+      );
     }
     throw new functions.https.HttpsError('internal', 'Failed to delete worker');
   }
