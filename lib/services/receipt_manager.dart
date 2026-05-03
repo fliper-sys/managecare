@@ -159,6 +159,7 @@ class ReceiptManager {
               (sale['customer'] is Map ? sale['customer']['email'] : null),
           saleData: sale,
           pdfFuture: pdfFuture,
+          allowEditing: false, // Disable price editing on print action sheet
         ),
       );
 
