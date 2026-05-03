@@ -2594,6 +2594,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   @override
   Widget build(BuildContext context) {
     final retail = context.watch<RetailProvider>();
+    final auth = context.watch<AuthProvider>();
+    final canEditSalePrice = auth.isAdminUser || auth.isOwnerUser;
     final entries = retail.cartItems.entries.toList();
     final currentProductIds = entries.map((entry) => entry.key.id).toSet();
     _priceOverrides.removeWhere(

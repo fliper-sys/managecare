@@ -208,6 +208,9 @@ async function deleteWorkerCompletely(workerId, actorId) {
     }
   }
 
+  const authUid = (mergedWorkerData.authUid || mergedWorkerData.uid || workerId || '').toString().trim();
+  const workerEmail = (mergedWorkerData.email || userData.email || workerData.email || '').toString().trim();
+
   // Delete Firestore documents
   await recursiveDeleteSafe(userRef).catch((error) => {
     console.error('[deleteWorkerCompletely] failed to delete user doc', workerId, error);
@@ -219,12 +222,15 @@ async function deleteWorkerCompletely(workerId, actorId) {
   // Delete Firebase Auth user. Some legacy worker documents use a synthetic
   // Firestore id instead of the Firebase Auth uid, so fall back to email.
   try {
-    const authUid = (mergedWorkerData.authUid || mergedWorkerData.uid || workerId || '').toString().trim();
+    if (!authUid) {
+      console.log('[deleteWorkerCompletely] No auth uid available, skipping direct auth deletion', workerId);
+      return { success: true };
+    }
+
     await admin.auth().deleteUser(authUid);
     console.log('[deleteWorkerCompletely] Successfully deleted auth user', authUid);
   } catch (error) {
     if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-uid') {
-      const workerEmail = (mergedWorkerData.email || '').toString().trim();
       if (workerEmail) {
         try {
           const userRecord = await admin.auth().getUserByEmail(workerEmail);
@@ -238,13 +244,20 @@ async function deleteWorkerCompletely(workerId, actorId) {
           });
           return { success: true };
         } catch (emailError) {
-          if (emailError.code !== 'auth/user-not-found') {
+          if (
+            emailError.code !== 'auth/user-not-found' &&
+            emailError.code !== 'auth/invalid-email'
+          ) {
             console.error('[deleteWorkerCompletely] failed to lookup auth user by email', workerEmail, emailError);
             throw new functions.https.HttpsError('internal', 'Failed to delete user authentication');
           }
         }
       }
-      console.log('[deleteWorkerCompletely] Auth user not found for workerId or email, skipping auth deletion', workerId);
+      console.log('[deleteWorkerCompletely] Auth user not found for workerId or email, skipping auth deletion', {
+        workerId,
+        authUid,
+        workerEmail,
+      });
       return { success: true };
     }
 

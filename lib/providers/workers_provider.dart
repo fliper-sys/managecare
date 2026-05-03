@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import '../data/repositories/worker_repository_impl.dart';
 
 class WorkersProvider with ChangeNotifier {
@@ -24,6 +23,64 @@ class WorkersProvider with ChangeNotifier {
   List<Map<String, dynamic>> get workers => _workers;
   bool get isLoading => _isLoading;
   String? get error => _error;
+
+  Future<void> _ensureAuthenticatedSession() async {
+    final firebaseAuth = FirebaseAuth.instance;
+    var firebaseUser = firebaseAuth.currentUser;
+    if (firebaseUser == null) {
+      throw StateError(
+        'Your session has expired. Please sign in again before deleting a worker.',
+      );
+    }
+
+    try {
+      await firebaseUser.reload();
+    } on FirebaseAuthException catch (e) {
+      // `requires-recent-login` is not expected for reload, but if Firebase has
+      // already invalidated the session we want to surface a clean message.
+      if (e.code == 'user-token-expired' ||
+          e.code == 'user-disabled' ||
+          e.code == 'user-not-found') {
+        throw StateError(
+          'Your session has expired. Please sign in again before deleting a worker.',
+        );
+      }
+      rethrow;
+    }
+
+    firebaseUser = firebaseAuth.currentUser;
+    if (firebaseUser == null) {
+      throw StateError(
+        'Your session has expired. Please sign in again before deleting a worker.',
+      );
+    }
+
+    try {
+      final token = await firebaseUser.getIdToken(true);
+      if (token == null || token.isEmpty) {
+        throw StateError(
+          'Your session has expired. Please sign in again before deleting a worker.',
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'network-request-failed') {
+        throw StateError(
+          'Unable to verify your session right now. Check your connection and try again.',
+        );
+      }
+
+      if (e.code == 'user-token-expired' ||
+          e.code == 'invalid-user-token' ||
+          e.code == 'user-disabled' ||
+          e.code == 'user-not-found') {
+        throw StateError(
+          'Your session has expired. Please sign in again before deleting a worker.',
+        );
+      }
+
+      rethrow;
+    }
+  }
 
   Future<void> _syncBusinessWorkerCount(String businessId) async {
     try {
@@ -144,43 +201,54 @@ class WorkersProvider with ChangeNotifier {
     }
   }
 
-  /// Delete worker completely including auth account
+  /// Delete worker from Firestore collections (users, workers, and business-specific collections)
+  /// Note: Firebase Auth account deletion cannot be performed from client-side code for security reasons.
+  /// This requires server-side implementation (Cloud Functions) to delete the Auth user.
   Future<void> deleteWorker(String workerId, {String? businessId}) async {
     try {
-      final firebaseUser = FirebaseAuth.instance.currentUser;
-      if (firebaseUser == null) {
-        throw StateError(
-          'Your session has expired. Please sign in again before deleting a worker.',
-        );
-      }
+      await _ensureAuthenticatedSession();
 
+      // Delete from main collections
+      await _repository.deleteWorker(workerId); // Deletes from 'workers' collection
+
+      // Delete from users collection
       try {
-        await firebaseUser.getIdToken();
-      } on FirebaseAuthException catch (e) {
-        if (e.code != 'network-request-failed') {
-          rethrow;
-        }
-        print(
-          '[WorkersProvider] Token refresh skipped due to network issue; attempting delete with existing session.',
-        );
+        await FirebaseFirestore.instance.collection('users').doc(workerId).delete();
+        print('[WorkersProvider] Deleted worker from users collection: $workerId');
+      } catch (e) {
+        print('[WorkersProvider] Failed to delete from users collection: $e');
+        // Continue with other deletions even if this fails
       }
 
-      // Call Firebase Function to delete worker completely
-      final functions = FirebaseFunctions.instance;
-      final callable = functions.httpsCallable('deleteWorkerCompletely');
-      await callable.call({'workerId': workerId});
+      // Delete from business-specific collections if businessId is provided
+      if (businessId != null && businessId.isNotEmpty) {
+        final businessDocRef = FirebaseFirestore.instance.collection('businesses').doc(businessId);
+
+        // Delete from barbers collection
+        try {
+          await businessDocRef.collection('barbers').doc(workerId).delete();
+          print('[WorkersProvider] Deleted worker from barbers collection: $workerId');
+        } catch (e) {
+          print('[WorkersProvider] Failed to delete from barbers collection: $e');
+        }
+
+        // Delete from stylists collection
+        try {
+          await businessDocRef.collection('stylists').doc(workerId).delete();
+          print('[WorkersProvider] Deleted worker from stylists collection: $workerId');
+        } catch (e) {
+          print('[WorkersProvider] Failed to delete from stylists collection: $e');
+        }
+
+        // Note: Add other business-specific collections here as needed for different business types
+        // For example: mechanics for auto service, staff for restaurants, etc.
+      }
+
+      // Note: Firebase Auth user deletion cannot be performed from client-side code.
+      // This requires a Cloud Function with admin privileges to delete the Auth user.
+      // The worker's login will remain active until deleted server-side.
 
       await _refreshBusinessScopeAfterMutation(businessId);
-    } on FirebaseFunctionsException catch (e) {
-      if (e.code == 'unauthenticated') {
-        throw StateError(
-          'Your session has expired. Please sign in again before deleting a worker.',
-        );
-      }
-      print(
-        '[WorkersProvider] deleteWorker failed: code=${e.code}, message=${e.message}, details=${e.details}',
-      );
-      rethrow;
     } catch (e) {
       print('[WorkersProvider] deleteWorker failed: $e');
       rethrow;

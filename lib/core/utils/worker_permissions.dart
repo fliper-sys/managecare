@@ -52,8 +52,10 @@ class WorkerPermissions {
   static bool canManageInventory(String role) =>
       hasPermission(role, 'manage_inventory');
 
-  static bool canEditPrice(String role) =>
-      role.toLowerCase() == 'owner';
+  static bool canEditPrice(String role) {
+    final normalizedRole = role.toLowerCase();
+    return normalizedRole == 'owner' || normalizedRole == 'admin';
+  }
 
   static bool canViewAnalytics(String role) =>
       hasPermission(role, 'view_sales_history');
