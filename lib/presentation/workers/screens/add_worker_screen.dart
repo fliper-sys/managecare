@@ -155,6 +155,16 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
     }
 
     try {
+      final normalizedEmail = _emailController.text.trim().toLowerCase();
+      final duplicateWorkerExists = workersProvider.workers.any((worker) {
+        final existingEmail =
+            (worker['email'] ?? '').toString().trim().toLowerCase();
+        return existingEmail == normalizedEmail;
+      });
+      if (duplicateWorkerExists) {
+        throw Exception('A worker with this email already exists.');
+      }
+
       // Prepare password (owner may supply it) or generate a temporary one
       var password = _passwordController.text.trim();
       if (password.isEmpty) {
@@ -165,8 +175,6 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
       // Hash password before storing in Firestore (better than plaintext).
       final passwordHash = sha256.convert(utf8.encode(password)).toString();
 
-      // Create a new worker user model and persist to Firestore
-      final workerId = 'worker_${DateTime.now().millisecondsSinceEpoch}';
       final businessType = context.read<BusinessProvider>().currentBusiness?.businessType;
 
       final primaryRole = _selectedRoles.isNotEmpty ? _selectedRoles.first : 'staff';
@@ -176,58 +184,67 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           ? (double.tryParse(_commissionController.text.trim()) ?? 0.0)
           : 0.0;
 
-      final worker = UserModel(
-        id: workerId,
-        email: _emailController.text.trim(),
-        fullName: _fullNameController.text.trim(),
-        phoneNumber: _phoneController.text.trim(),
-        role: primaryRole,
-        businessId: authProvider.currentUser!.businessId,
-        businessType: businessType,
-        storeId: _selectedStoreId,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        isActive: true,
-        isOwner: false,
-        pin: _pinController.text.trim(),
-        // Reuse subscriptionTransactionId as a temporary storage for the password hash.
-        subscriptionTransactionId: passwordHash,
-      );
-
+      late final UserModel worker;
+      fb_core.FirebaseApp? tempApp;
+      fb_auth.FirebaseAuth? tempAuth;
+      var authAccountCreated = false;
       try {
+        final defaultApp = fb_core.Firebase.app();
+        final tempAppName =
+            'temp_worker_create_${DateTime.now().millisecondsSinceEpoch}';
+        tempApp = await fb_core.Firebase.initializeApp(
+          name: tempAppName,
+          options: defaultApp.options,
+        );
+        tempAuth = fb_auth.FirebaseAuth.instanceFor(app: tempApp);
+
+        final authResult = await tempAuth.createUserWithEmailAndPassword(
+          email: normalizedEmail,
+          password: password,
+        );
+        final firebaseUser = authResult.user;
+        if (firebaseUser == null) {
+          throw Exception('Failed to create worker login account.');
+        }
+        authAccountCreated = true;
+
+        worker = UserModel(
+          id: firebaseUser.uid,
+          email: normalizedEmail,
+          fullName: _fullNameController.text.trim(),
+          phoneNumber: _phoneController.text.trim(),
+          role: primaryRole,
+          businessId: authProvider.currentUser!.businessId,
+          businessType: businessType,
+          storeId: _selectedStoreId,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+          isActive: true,
+          isOwner: false,
+          pin: _pinController.text.trim(),
+          // Reuse subscriptionTransactionId as a temporary storage for the password hash.
+          subscriptionTransactionId: passwordHash,
+        );
+
         final repo =
             AuthRepositoryImpl(firebaseAuth: fb_auth.FirebaseAuth.instance);
         await repo.createOrUpdateUser(worker);
       } catch (e) {
-        // If Firestore save fails, throw to be caught below and show error
-        rethrow;
-      }
-
-      // IMPORTANT: Also create a Firebase Auth user so the worker can login
-      try {
-        // Create a temporary Firebase app to perform auth user creation without
-        // affecting the currently signed-in admin user.
-        final defaultApp = fb_core.Firebase.app();
-        final tempAppName = 'temp_worker_create_${DateTime.now().millisecondsSinceEpoch}';
-        final tempApp = await fb_core.Firebase.initializeApp(name: tempAppName, options: defaultApp.options);
-        final tempAuth = fb_auth.FirebaseAuth.instanceFor(app: tempApp);
-        try {
-          await tempAuth.createUserWithEmailAndPassword(
-            email: _emailController.text.trim(),
-            password: password,
-          );
-        } finally {
-          // Ensure we sign out and delete the temporary app so we don't leak state
+        if (authAccountCreated && tempAuth?.currentUser != null) {
           try {
-            await tempAuth.signOut();
-          } catch (_) {}
-          try {
-            await tempApp.delete();
-          } catch (_) {}
+            await tempAuth!.currentUser!.delete();
+          } catch (deleteError) {
+            print('[AddWorker] Failed to rollback auth user creation: $deleteError');
+          }
         }
-      } catch (e) {
-        print('Failed to create Auth user via temp app: $e');
-        // Continue anyway - worker is at least in Firestore
+        rethrow;
+      } finally {
+        try {
+          await tempAuth?.signOut();
+        } catch (_) {}
+        try {
+          await tempApp?.delete();
+        } catch (_) {}
       }
 
       // ALSO save to workers collection for WorkersProvider to find
@@ -257,10 +274,11 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
 
         final workerData = {
-          'id': workerId,
+          'id': worker.id,
           'name': _fullNameController.text.trim(),
           'fullName': _fullNameController.text.trim(),
-          'email': _emailController.text.trim(),
+          'email': normalizedEmail,
+          'emailLowercase': normalizedEmail,
           'phoneNumber': _phoneController.text.trim(),
           'role': primaryRole,
           'roles': _selectedRoles.toList(),
@@ -279,23 +297,22 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           'updatedAt': DateTime.now(),
         };
         print(
-            '[AddWorker] Saving worker with ID: $workerId, data: $workerData');
+            '[AddWorker] Saving worker with ID: ${worker.id}, data: $workerData');
         await workerRepo.addWorker(workerData);
         print('[AddWorker] Worker saved successfully');
       } catch (e) {
         print('Failed to save worker to workers collection: $e');
-        // Don't fail the entire operation
+        rethrow;
       }
 
       // Send invitation email if enabled
       if (_sendInvitationEmail && _emailController.text.isNotEmpty) {
         try {
-          EmailService()
-              .sendWorkerInvitationEmail(_emailController.text.trim(), {
+          EmailService().sendWorkerInvitationEmail(normalizedEmail, {
             'name': _fullNameController.text.trim(),
             'role': _selectedRoles.map((r) => _readableRole(r)).join(', '),
             'businessName': authProvider.currentUser!.fullName,
-            'email': _emailController.text.trim(),
+            'email': normalizedEmail,
             'temporaryPassword': password,
           });
         } catch (e) {
@@ -331,12 +348,12 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                   .collection('businesses')
                   .doc(authProvider.currentUser!.businessId)
                   .collection('barbers')
-                  .doc(workerId);
+                  .doc(worker.id);
 
               await barberDoc.set({
-                'id': workerId,
+                'id': worker.id,
                 'name': _fullNameController.text.trim(),
-                'email': _emailController.text.trim(),
+                'email': normalizedEmail,
                 'phone': _phoneController.text.trim(),
                 'specialization': 'general',
                 'serviceIds': _selectedServiceIds,
@@ -362,12 +379,12 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                   .collection('businesses')
                   .doc(authProvider.currentUser!.businessId)
                   .collection('stylists')
-                  .doc(workerId);
+                  .doc(worker.id);
 
               await stylistDoc.set({
-                'id': workerId,
+                'id': worker.id,
                 'name': _fullNameController.text.trim(),
-                'email': _emailController.text.trim(),
+                'email': normalizedEmail,
                 'phone': _phoneController.text.trim(),
                 'specialization': 'stylist',
                 'serviceIds': _selectedServiceIds,

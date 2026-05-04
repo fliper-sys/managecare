@@ -32,6 +32,7 @@ import '../../../providers/customer_provider.dart';
 import '../../../core/utils/receipt_utility.dart';
 import '../../../core/utils/search_utils.dart';
 import '../../../core/utils/inventory_utils.dart';
+import '../../../core/utils/worker_permissions.dart';
 import '../../../data/models/customer_model.dart';
 import '../../widgets/product_view_switcher.dart';
 import 'customer_tracking_screen.dart';
@@ -81,6 +82,7 @@ class _SalesScreenState extends State<SalesScreen>
   String _productSort = 'none'; // 'none' | 'priceAsc' | 'priceDesc' | 'name'
   bool _isGridView = true; // Toggle between grid and list view
   String _globalPricingMode = 'retail'; // 'retail' | 'wholesale' - global mode for all items
+  bool _isCartPreviewCollapsed = false; // Toggle for cart preview collapse
 
   // Save reference to RetailProvider for safe cleanup in dispose()
   late RetailProvider _retailProvider;
@@ -1259,32 +1261,38 @@ class _SalesScreenState extends State<SalesScreen>
               ),
               child: SafeArea(
                 top: false,
-                child: Row(
+                child: ExpansionTile(
+                  initiallyExpanded: !_isCartPreviewCollapsed,
+                  onExpansionChanged: (expanded) {
+                    setState(() {
+                      _isCartPreviewCollapsed = !expanded;
+                    });
+                  },
+                  title: Row(
+                    children: [
+                      Icon(
+                        Icons.shopping_cart_rounded,
+                        color: Theme.of(context).colorScheme.primary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${retail.activeCartLabel} • ${retail.cartCount} items',
+                        style: AppTextStyles.body2Secondary,
+                      ),
+                      const Spacer(),
+                      Text(
+                        formatCurrency(retail.cartTotal),
+                        style: AppTextStyles.price,
+                      ),
+                    ],
+                  ),
                   children: [
-                    // Cart Info
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '${retail.activeCartLabel} • ${retail.cartCount} items',
-                            style: AppTextStyles.body2Secondary,
-                          ),
-                          Text(
-                            formatCurrency(retail.cartTotal),
-                            style: AppTextStyles.price,
-                          ),
-                        ],
-                      ),
-                    ),
-                    // View Cart Button
-                    Expanded(
-                      child: CustomButton(
-                        text: 'View Cart',
-                        onPressed: () => _showCheckout(context, retail),
-                        icon: Icons.shopping_cart_rounded,
-                      ),
+                    const SizedBox(height: 12),
+                    CustomButton(
+                      text: 'View Cart',
+                      onPressed: () => _showCheckout(context, retail),
+                      icon: Icons.shopping_cart_rounded,
                     ),
                   ],
                 ),
@@ -2595,7 +2603,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   Widget build(BuildContext context) {
     final retail = context.watch<RetailProvider>();
     final auth = context.watch<AuthProvider>();
-    final canEditSalePrice = auth.isAdminUser || auth.isOwnerUser;
+    final currentRole = auth.currentUser?.role ?? '';
+    final canEditSalePrice = WorkerPermissions.canEditPrice(currentRole);
+    final canApplyDiscount = WorkerPermissions.canApplyDiscount(currentRole);
     final entries = retail.cartItems.entries.toList();
     final currentProductIds = entries.map((entry) => entry.key.id).toSet();
     _priceOverrides.removeWhere(
@@ -2690,7 +2700,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                               const SizedBox(height: 6),
                               Row(
                                 children: [
-                                  SizedBox(
+                                  if (canEditSalePrice)
+                                    SizedBox(
                                     width: 120,
                                     child: TextFormField(
                                       key: ValueKey(
@@ -2750,10 +2761,19 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                         });
                                       },
                                     ),
-                                  ),
+                                  )
+                                  else
+                                    Text(
+                                      '₦${(_priceOverrides[item.id] ?? item.price).toStringAsFixed(2)}',
+                                      style: AppTextStyles.body2.copyWith(
+                                        color: scheme.onSurface,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                 ],
                               ),
-                              if (item.hasWholesalePricing) ...[
+                              if (canEditSalePrice &&
+                                  item.hasWholesalePricing) ...[
                                 const SizedBox(height: 8),
                                 Wrap(
                                   spacing: 8,
@@ -3072,8 +3092,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                         ],
                       ),
                       const SizedBox(height: 20),
-                      const Text('Tax & Discount',
-                          style: AppTextStyles.subtitle1),
+                      Text(
+                        canApplyDiscount ? 'Tax & Discount' : 'Tax',
+                        style: AppTextStyles.subtitle1,
+                      ),
                       const SizedBox(height: 12),
                       // Tax Field
                       Row(
@@ -3105,9 +3127,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                               style: AppTextStyles.caption),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      // Discount Field
-                      Row(
+                      if (canApplyDiscount) ...[
+                        const SizedBox(height: 12),
+                        // Discount Field
+                        Row(
                         children: [
                           Expanded(
                             child: Text('Discount (₦)',
@@ -3137,7 +3160,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                               style: AppTextStyles.caption
                                   .copyWith(color: AppColors.success)),
                         ],
-                      ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -3193,7 +3217,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             _paymentMethod,
                             _selectedStoreId,
                             double.tryParse(_taxRateController.text) ?? 0.0,
-                            double.tryParse(_discountController.text) ?? 0,
+                            canApplyDiscount
+                                ? (double.tryParse(_discountController.text) ??
+                                    0)
+                                : 0,
                             Map<String, double>.from(_priceOverrides),
                           ),
                           icon: Icons.check_circle_outline,

@@ -1499,6 +1499,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
 
 
   void _updateItemPrice(int index, double newPrice) {
+    final role = context.read<AuthProvider>().currentUser?.role ?? '';
+    if (!WorkerPermissions.canEditPrice(role)) {
+      return;
+    }
     if (newPrice < 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1515,12 +1519,20 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
   }
 
   void _updateDiscount(double newDiscount) {
+    final role = context.read<AuthProvider>().currentUser?.role ?? '';
+    if (!WorkerPermissions.canApplyDiscount(role)) {
+      return;
+    }
     setState(() {
       _editableDiscount = newDiscount;
     });
   }
 
   void _removeItem(int index) {
+    final role = context.read<AuthProvider>().currentUser?.role ?? '';
+    if (!WorkerPermissions.canEditPrice(role)) {
+      return;
+    }
     setState(() {
       _editableItems.removeAt(index);
     });
@@ -1540,6 +1552,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
   Widget build(BuildContext context) {
     debugPrint(
         '[PostSaleActionSheet] Building UI for orderId: ${widget.orderId}');
+    final auth = context.watch<AuthProvider>();
+    final currentRole = auth.currentUser?.role ?? '';
+    final canEditPrice = WorkerPermissions.canEditPrice(currentRole);
+    final canApplyDiscount = WorkerPermissions.canApplyDiscount(currentRole);
 
     return Container(
       decoration: const BoxDecoration(
@@ -1589,7 +1605,8 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
               ],
 
               // Edit Sale Items Section
-              if (widget.allowEditing) ...[
+              if (widget.allowEditing &&
+                  (canEditPrice || canApplyDiscount)) ...[
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -1604,19 +1621,14 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text('Edit Sale Items', style: AppTextStyles.caption.copyWith(fontWeight: FontWeight.w600)),
-                          Consumer<AuthProvider>(
-                            builder: (context, auth, _) {
-                              final canEditPrice = WorkerPermissions.canEditPrice(auth.currentUser?.role ?? '');
-                              final canApplyDiscount = WorkerPermissions.canApplyDiscount(auth.currentUser?.role ?? '');
-                              if (!canEditPrice && !canApplyDiscount) {
-                                return const SizedBox.shrink();
-                              }
-                              return Text(
-                                canEditPrice && canApplyDiscount ? 'Owner/Manager' :
-                                canEditPrice ? 'Owner Only' : 'Manager Only',
-                                style: AppTextStyles.caption.copyWith(color: Colors.blue, fontSize: 10),
-                              );
-                            },
+                          Text(
+                            canEditPrice
+                                ? 'Owner Price Access'
+                                : 'Manager Discount Access',
+                            style: AppTextStyles.caption.copyWith(
+                              color: Colors.blue,
+                              fontSize: 10,
+                            ),
                           ),
                         ],
                       ),
@@ -1633,111 +1645,123 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                           final price = item['price'] ?? 0.0;
                           final total = item['total'] ?? (price * quantity);
 
-                          return Consumer<AuthProvider>(
-                            builder: (context, auth, _) {
-                              final canEditPrice = WorkerPermissions.canEditPrice(auth.currentUser?.role ?? '');
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: Colors.grey.withOpacity(0.3)),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(name, style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w500)),
-                                          Text('Qty: $quantity', style: AppTextStyles.caption),
-                                        ],
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                  color: Colors.grey.withOpacity(0.3)),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        style: AppTextStyles.body2.copyWith(
+                                            fontWeight: FontWeight.w500),
                                       ),
-                                    ),
-                                    if (canEditPrice) ...[
-                                      SizedBox(
-                                        width: 80,
-                                        child: TextFormField(
-                                          initialValue: price.toStringAsFixed(2),
-                                          keyboardType: TextInputType.number,
-                                          textAlign: TextAlign.right,
-                                          style: AppTextStyles.body2,
-                                          decoration: const InputDecoration(
-                                            isDense: true,
-                                            border: OutlineInputBorder(),
-                                            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          ),
-                                          onChanged: (value) {
-                                            final newPrice = double.tryParse(value) ?? price;
-                                            _updateItemPrice(index, newPrice);
-                                          },
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
+                                      Text('Qty: $quantity',
+                                          style: AppTextStyles.caption),
                                     ],
-                                    Text(
-                                      formatCurrency(total),
-                                      style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                                      onPressed: () => _removeItem(index),
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                    ),
-                                  ],
+                                  ),
                                 ),
-                              );
-                            },
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      // Discount and Tax editing
-                      Consumer<AuthProvider>(
-                        builder: (context, auth, _) {
-                          final canApplyDiscount = WorkerPermissions.canApplyDiscount(auth.currentUser?.role ?? '');
-
-                          if (!canApplyDiscount) return const SizedBox.shrink();
-
-                          return Column(
-                            children: [
-                              Row(
-                                children: [
-                                  const Text('Discount: ', style: TextStyle(fontWeight: FontWeight.w500)),
-                                  Expanded(
+                                if (canEditPrice) ...[
+                                  SizedBox(
+                                    width: 80,
                                     child: TextFormField(
-                                      initialValue: _editableDiscount.toStringAsFixed(2),
+                                      initialValue: price.toStringAsFixed(2),
                                       keyboardType: TextInputType.number,
                                       textAlign: TextAlign.right,
                                       style: AppTextStyles.body2,
                                       decoration: const InputDecoration(
                                         isDense: true,
                                         border: OutlineInputBorder(),
-                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
                                       ),
                                       onChanged: (value) {
-                                        final newDiscount = double.tryParse(value) ?? _editableDiscount;
-                                        _updateDiscount(newDiscount);
+                                        final newPrice =
+                                            double.tryParse(value) ?? price;
+                                        _updateItemPrice(index, newPrice);
                                       },
                                     ),
                                   ),
+                                  const SizedBox(width: 8),
                                 ],
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Text('Subtotal: ${formatCurrency(_calculateSubtotal())}', style: AppTextStyles.body2),
-                                  const Spacer(),
-                                  Text('Total: ${formatCurrency(_calculateTotal())}', style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600)),
-                                ],
-                              ),
-                            ],
+                                Text(
+                                  formatCurrency(total),
+                                  style: AppTextStyles.body2.copyWith(
+                                      fontWeight: FontWeight.w600),
+                                ),
+                                if (canEditPrice)
+                                  IconButton(
+                                    icon: const Icon(Icons.delete,
+                                        color: Colors.red, size: 20),
+                                    onPressed: () => _removeItem(index),
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                              ],
+                            ),
                           );
                         },
                       ),
+                      const SizedBox(height: 8),
+                      // Discount and Tax editing
+                      if (canApplyDiscount)
+                        Column(
+                          children: [
+                            Row(
+                              children: [
+                                const Text('Discount: ',
+                                    style:
+                                        TextStyle(fontWeight: FontWeight.w500)),
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue:
+                                        _editableDiscount.toStringAsFixed(2),
+                                    keyboardType: TextInputType.number,
+                                    textAlign: TextAlign.right,
+                                    style: AppTextStyles.body2,
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      border: OutlineInputBorder(),
+                                      contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
+                                    ),
+                                    onChanged: (value) {
+                                      final newDiscount =
+                                          double.tryParse(value) ??
+                                              _editableDiscount;
+                                      _updateDiscount(newDiscount);
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Text(
+                                  'Subtotal: ${formatCurrency(_calculateSubtotal())}',
+                                  style: AppTextStyles.body2,
+                                ),
+                                const Spacer(),
+                                Text(
+                                  'Total: ${formatCurrency(_calculateTotal())}',
+                                  style: AppTextStyles.body2.copyWith(
+                                      fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
