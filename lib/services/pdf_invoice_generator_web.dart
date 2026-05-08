@@ -36,6 +36,7 @@ class PdfInvoiceGenerator {
       businessLogoUrl: businessLogoUrl,
       subscriptionTier: subscriptionTier,
       businessClass: businessClass,
+      allowBusinessLogoWithoutTier: true,
     );
 
     final symbol = branding.currencySymbol;
@@ -64,105 +65,115 @@ class PdfInvoiceGenerator {
         ),
         theme: pw.ThemeData.withFont(base: branding.font),
         build: (_) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
+          return pw.Stack(
             children: [
-              buildPdfHeader(
-                font: branding.font,
+              buildDocumentWatermark(
+                logoBytes: branding.showBusinessLogo
+                    ? branding.businessLogoBytes
+                    : null,
                 businessName: businessName,
-                businessDetails: headerDetails.isEmpty ? null : headerDetails,
-                logoBytes: primaryLogo,
-                stylePreset: 'minimal',
               ),
-              _buildLabel(branding.font),
-              pw.SizedBox(height: 8),
-              _buildMetaCard(
-                font: branding.font,
-                paperWidth: paperWidth,
-                invoiceNumber: invoiceNumber,
-                invoiceDate: invoiceDate,
-                cashierName: cashierName,
-                customerName: customerName.trim().isEmpty
-                    ? 'Walk-in Customer'
-                    : customerName.trim(),
-                customerEmail: customerEmail,
-              ),
-              pw.SizedBox(height: 8),
-              _buildItemsSection(
-                font: branding.font,
-                paperWidth: paperWidth,
-                cartItems: cartItems,
-                symbol: symbol,
-              ),
-              pw.SizedBox(height: 8),
-              _buildTotalsCard(
-                font: branding.font,
-                paperWidth: paperWidth,
-                symbol: symbol,
-                subtotal: subtotal,
-                tax: tax,
-                discount: discount,
-                total: total,
-              ),
-              if ((notes ?? '').trim().isNotEmpty) ...[
-                pw.SizedBox(height: 8),
-                pw.Container(
-                  width: double.infinity,
-                  padding: const pw.EdgeInsets.all(8),
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.grey300),
-                    borderRadius: pw.BorderRadius.circular(10),
-                  ),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'Notes',
-                        style: pw.TextStyle(
-                          font: branding.font,
-                          fontSize: paperWidth == '58' ? 7.8 : 8.8,
-                          fontWeight: pw.FontWeight.bold,
-                          color: PdfColor.fromInt(0xFF0F4C81),
-                        ),
-                      ),
-                      pw.SizedBox(height: 4),
-                      pw.Text(
-                        notes!.trim(),
-                        style: pw.TextStyle(
-                          font: branding.font,
-                          fontSize: paperWidth == '58' ? 7.4 : 8.4,
-                          color: PdfColors.grey800,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              pw.SizedBox(height: 10),
-              pw.Center(
-                child: pw.BarcodeWidget(
-                  barcode: pw.Barcode.code128(),
-                  data: invoiceNumber,
-                  width: pageWidth - (paperWidth == '58' ? 34 : 44),
-                  height: paperWidth == '58' ? 28 : 32,
-                ),
-              ),
-              pw.SizedBox(height: 6),
-              pw.Center(
-                child: pw.Text(
-                  'Please keep this invoice for your records',
-                  style: pw.TextStyle(
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  buildPdfHeader(
                     font: branding.font,
-                    fontSize: paperWidth == '58' ? 7.5 : 8.5,
-                    color: PdfColors.grey800,
+                    businessName: businessName,
+                    businessDetails: headerDetails.isEmpty ? null : headerDetails,
+                    logoBytes: primaryLogo,
+                    stylePreset: 'minimal',
                   ),
-                ),
-              ),
-              buildDocumentFooter(
-                font: branding.font,
-                manageCareLogoBytes: branding.manageCareLogoBytes,
-                poweredByText: poweredByText ?? 'Powered by Manage Care',
-                compact: true,
+                  _buildLabel(branding.font),
+                  pw.SizedBox(height: 8),
+                  _buildMetaCard(
+                    font: branding.font,
+                    paperWidth: paperWidth,
+                    invoiceNumber: invoiceNumber,
+                    invoiceDate: invoiceDate,
+                    cashierName: cashierName,
+                    customerName: customerName.trim().isEmpty
+                        ? 'Walk-in Customer'
+                        : customerName.trim(),
+                    customerEmail: customerEmail,
+                  ),
+                  pw.SizedBox(height: 8),
+                  _buildItemsSection(
+                    font: branding.font,
+                    paperWidth: paperWidth,
+                    cartItems: cartItems,
+                    symbol: symbol,
+                  ),
+                  pw.SizedBox(height: 8),
+                  _buildTotalsCard(
+                    font: branding.font,
+                    paperWidth: paperWidth,
+                    symbol: symbol,
+                    subtotal: subtotal,
+                    tax: tax,
+                    discount: discount,
+                    total: total,
+                  ),
+                  if ((notes ?? '').trim().isNotEmpty) ...[
+                    pw.SizedBox(height: 8),
+                    pw.Container(
+                      width: double.infinity,
+                      padding: const pw.EdgeInsets.all(8),
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border.all(color: PdfColors.grey300),
+                        borderRadius: pw.BorderRadius.circular(10),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            'Notes',
+                            style: pw.TextStyle(
+                              font: branding.font,
+                              fontSize: paperWidth == '58' ? 7.8 : 8.8,
+                              fontWeight: pw.FontWeight.bold,
+                              color: PdfColor.fromInt(0xFF0F4C81),
+                            ),
+                          ),
+                          pw.SizedBox(height: 4),
+                          pw.Text(
+                            notes!.trim(),
+                            style: pw.TextStyle(
+                              font: branding.font,
+                              fontSize: paperWidth == '58' ? 7.4 : 8.4,
+                              color: PdfColors.grey800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  pw.SizedBox(height: 10),
+                  pw.Center(
+                    child: pw.BarcodeWidget(
+                      barcode: pw.Barcode.code128(),
+                      data: invoiceNumber,
+                      width: pageWidth - (paperWidth == '58' ? 34 : 44),
+                      height: paperWidth == '58' ? 28 : 32,
+                    ),
+                  ),
+                  pw.SizedBox(height: 6),
+                  pw.Center(
+                    child: pw.Text(
+                      'Please keep this invoice for your records',
+                      style: pw.TextStyle(
+                        font: branding.font,
+                        fontSize: paperWidth == '58' ? 7.5 : 8.5,
+                        color: PdfColors.grey800,
+                      ),
+                    ),
+                  ),
+                  buildDocumentFooter(
+                    font: branding.font,
+                    manageCareLogoBytes: branding.manageCareLogoBytes,
+                    poweredByText: poweredByText ?? 'Powered by Manage Care',
+                    compact: true,
+                  ),
+                ],
               ),
             ],
           );
@@ -309,6 +320,15 @@ class PdfInvoiceGenerator {
               final lineTotal = _toDouble(
                 item['total'] ?? item['subtotal'] ?? (qty * unitPrice),
               );
+              final unit = _resolveItemUnit(item);
+              final pricingMode = _resolvePricingMode(item);
+              final lineMeta = _buildLineMeta(
+                quantity: qty,
+                unitPrice: unitPrice,
+                symbol: symbol,
+                unit: unit,
+                pricingMode: pricingMode,
+              );
               return pw.Container(
                 padding: const pw.EdgeInsets.symmetric(vertical: 4),
                 decoration: const pw.BoxDecoration(
@@ -345,7 +365,7 @@ class PdfInvoiceGenerator {
                     ),
                     pw.SizedBox(height: 2),
                     pw.Text(
-                      '${_displayQty(qty)} x ${_money(unitPrice, symbol)}',
+                      lineMeta,
                       style: pw.TextStyle(
                         font: font,
                         fontSize: bodySize - 0.2,
@@ -474,6 +494,49 @@ class PdfInvoiceGenerator {
   static double _toDouble(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse(value.toString()) ?? 0.0;
+  }
+
+  static String? _resolveItemUnit(Map<String, dynamic> item) {
+    for (final key in const [
+      'saleUnit',
+      'unit',
+      'unitName',
+      'inventoryUnit',
+    ]) {
+      final value = item[key];
+      if (value != null && value.toString().trim().isNotEmpty) {
+        return value.toString().trim();
+      }
+    }
+    return null;
+  }
+
+  static String? _resolvePricingMode(Map<String, dynamic> item) {
+    final value = item['pricingMode'];
+    if (value == null) return null;
+    final normalized = value.toString().trim().toLowerCase();
+    return normalized.isEmpty ? null : normalized;
+  }
+
+  static String _buildLineMeta({
+    required double quantity,
+    required double unitPrice,
+    required String symbol,
+    String? unit,
+    String? pricingMode,
+  }) {
+    final parts = <String>[
+      '${_displayQty(quantity)} x ${_money(unitPrice, symbol)}',
+    ];
+    if (unit != null && unit.isNotEmpty) {
+      parts.add(unit);
+    }
+    if (pricingMode != null && pricingMode.isNotEmpty) {
+      final label =
+          pricingMode[0].toUpperCase() + pricingMode.substring(1).toLowerCase();
+      parts.add(label);
+    }
+    return parts.join(' - ');
   }
 
   static String _displayQty(double quantity) {

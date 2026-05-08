@@ -214,11 +214,15 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       final priceNum = (price is num) ? (price).toDouble() : double.tryParse(price.toString()) ?? 0.0;
       final itemTotal = (item['total'] ?? qtyNum * priceNum);
       return <String, dynamic>{
+        'productName': item['productName'] ?? item['name'],
         'name': name,
         'quantity': qtyNum,
         'quantityRaw': quantity,
         'price': priceNum,
         'description': desc,
+        'pricingMode': item['pricingMode'] ?? item['priceType'],
+        'saleUnit': item['saleUnit'],
+        'inventoryUnit': item['inventoryUnit'],
         'unit': item['unit'] ?? item['uom'] ?? item['saleUnit'] ?? item['inventoryUnit'],
         'uom': item['uom'] ?? item['unit'] ?? item['saleUnit'] ?? item['inventoryUnit'],
         'total': (itemTotal is num) ? (itemTotal).toDouble() : double.tryParse(itemTotal.toString()) ?? (qtyNum * priceNum),
@@ -249,6 +253,42 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   double _asQuantity(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+
+  String _displayReceiptItemName(Map<String, dynamic> item) {
+    final baseName = (item['productName'] ?? item['name'] ?? item['title'] ?? 'Item')
+        .toString()
+        .trim();
+    var displayName = baseName.isEmpty ? 'Item' : baseName;
+
+    final unit = (item['saleUnit'] ??
+            item['unit'] ??
+            item['uom'] ??
+            item['inventoryUnit'] ??
+            '')
+        .toString()
+        .trim();
+    if (unit.isNotEmpty) {
+      final normalizedName = displayName.toLowerCase();
+      final normalizedUnit = unit.toLowerCase();
+      if (!normalizedName.contains('($normalizedUnit)') &&
+          !normalizedName.endsWith(' $normalizedUnit')) {
+        displayName = '$displayName ($unit)';
+      }
+    }
+
+    final pricingMode = (item['pricingMode'] ?? item['priceType'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (pricingMode == 'retail' || pricingMode == 'wholesale') {
+      final suffix = '[${pricingMode.toUpperCase()}]';
+      if (!displayName.toUpperCase().contains(suffix)) {
+        displayName = '$displayName $suffix';
+      }
+    }
+
+    return displayName;
   }
 
   double _resolvedSaleTotal(Map<String, dynamic> sale) {
@@ -336,6 +376,11 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     if (receiptSettings?.showCashier ?? false) {
       buffer.writeln('Cashier: ${sale['cashier'] ?? 'N/A'}');
     }
+    final customerName = _resolveCustomerName(sale);
+    if (customerName.trim().isNotEmpty &&
+        customerName.trim().toLowerCase() != 'walk-in customer') {
+      buffer.writeln('Customer: $customerName');
+    }
     if (receiptSettings?.showTableNo ?? false) {
       buffer.writeln('Table: ${sale['tableNo'] ?? 'N/A'}');
     }
@@ -356,7 +401,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         item['quantityRaw'] ?? item['quantity'] ?? item['qty'] ?? 1,
         unit: (item['unit'] ?? item['uom'] ?? '').toString(),
       );
-      buffer.writeln('${item['name'] ?? 'Item'} x$qtyDisplay');
+      buffer.writeln('${_displayReceiptItemName(item)} x$qtyDisplay');
       buffer.writeln(
         '  ${formatCurrency(price)} x $qtyDisplay = ${formatCurrency(itemTotal)}',
       );
@@ -1666,6 +1711,16 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       ));
     }
 
+    final customerName = _resolveCustomerName(sale);
+    if (customerName.trim().isNotEmpty &&
+        customerName.trim().toLowerCase() != 'walk-in customer') {
+      items.add((
+        label: 'Customer',
+        value: customerName,
+        icon: Icons.person,
+      ));
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1811,7 +1866,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        item['name'] ?? 'Product',
+                        _displayReceiptItemName(item),
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,

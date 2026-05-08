@@ -267,7 +267,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         businessPhone: business?.phone,
         businessEmail: business?.email,
         cashierName: auth.currentUser?.fullName,
-        businessLogoUrl: business?.logoUrl,
+        businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
         subscriptionTier: business?.subscriptionTier,
         businessClass: business?.businessClass,
       );

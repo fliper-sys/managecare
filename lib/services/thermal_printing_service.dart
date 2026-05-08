@@ -327,6 +327,7 @@ class ThermalPrintingService {
     required String paymentMethod,
     String? orderId,
     String? cashier,
+    String? customerName,
     String? storeName,
   }) {
     final sb = StringBuffer();
@@ -353,6 +354,9 @@ class ThermalPrintingService {
     if (cashier != null && cashier.isNotEmpty) {
       sb.writeln('Cashier: $cashier');
     }
+    if (customerName != null && customerName.isNotEmpty) {
+      sb.writeln('Customer: $customerName');
+    }
 
     sb.writeln('-' * paperWidth);
 
@@ -373,7 +377,9 @@ class ThermalPrintingService {
 
       // Determine decimal places based on unit (for fuel/volume: 2-3 decimals, for counts: 0)
       final unit = _resolveReceiptItemUnit(item);
-      final displayName = _appendUnitToItemName(name, unit);
+      final pricingMode = _resolveReceiptItemPricingMode(item);
+      final displayName =
+          _appendPricingModeToItemName(_appendUnitToItemName(name, unit), pricingMode);
       final qtyDecimals = _getDecimalPlacesForUnit(unit);
       final qtyPrice = '${qty.toStringAsFixed(qtyDecimals)} x ${price.toStringAsFixed(2)}';
       final lineName = displayName.length > nameColWidth
@@ -490,6 +496,13 @@ class ThermalPrintingService {
         .toLowerCase();
   }
 
+  static String _resolveReceiptItemPricingMode(Map<String, dynamic> item) {
+    return (item['pricingMode'] ?? item['priceType'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+  }
+
   static String _appendUnitToItemName(String name, String unit) {
     if (unit.isEmpty) {
       return name;
@@ -499,6 +512,22 @@ class ThermalPrintingService {
       return name;
     }
     return '$name ($unit)';
+  }
+
+  static String _appendPricingModeToItemName(String name, String pricingMode) {
+    final normalizedMode = pricingMode.trim().toLowerCase();
+    if (normalizedMode.isEmpty) {
+      return name;
+    }
+    if (normalizedMode != 'retail' && normalizedMode != 'wholesale') {
+      return name;
+    }
+
+    final suffix = '[${normalizedMode.toUpperCase()}]';
+    if (name.toUpperCase().contains(suffix)) {
+      return name;
+    }
+    return '$name $suffix';
   }
 
   /// Get available Bluetooth printers

@@ -362,6 +362,7 @@ class _RetailDashboardState extends State<RetailDashboard>
       add(Icons.storefront, 'Manage Stores', Routes.retailStores,
           AppColors.info);
       add(Icons.inventory_2, 'Catalog', Routes.retailCatalog, Colors.indigo);
+      add(Icons.event_busy, 'Expiry Tracker', Routes.expiryTracker, Colors.red);
       add(Icons.add_box, 'Add Product', Routes.retailAddProduct,
           AppColors.success);
       add(Icons.local_shipping, 'Suppliers', Routes.retailSuppliers,
@@ -375,6 +376,8 @@ class _RetailDashboardState extends State<RetailDashboard>
       }
       if (WorkerPermissions.canViewInventory(role)) {
         add(Icons.inventory_2, 'Catalog', Routes.retailCatalog, Colors.indigo);
+        add(Icons.event_busy, 'Expiry Tracker', Routes.expiryTracker,
+            Colors.red);
       }
       if (WorkerPermissions.canManageInventory(role)) {
         add(Icons.add_box, 'Add Product', Routes.retailAddProduct,

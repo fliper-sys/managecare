@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
+import '../../../presentation/inventory/widgets/expiry_badge.dart';
 import '../../../providers/business_provider.dart';
 import '../../../services/low_stock_detection_service.dart';
 
@@ -18,6 +19,8 @@ import '../../../services/low_stock_detection_service.dart';
 /// - Comprehensive product details
 /// - Quick reorder actions
 /// - Detailed statistics dashboard
+enum InventoryAlertMode { lowStock, expiry }
+
 class LowStockProductsScreen extends StatefulWidget {
   const LowStockProductsScreen({super.key});
 
@@ -28,18 +31,21 @@ class LowStockProductsScreen extends StatefulWidget {
 class _LowStockProductsScreenState extends State<LowStockProductsScreen> {
   late LowStockDetectionService _detectionService;
   late Future<List<LowStockProduct>> _lowStockProducts;
+  late Future<List<ExpiringProduct>> _expiringProducts;
   late Future<LowStockSummary> _stockSummary;
+  InventoryAlertMode _selectedMode = InventoryAlertMode.lowStock;
   int _minStockThreshold = 10;
+  int _expiringThresholdDays = 7;
   bool _showStatistics = true;
 
   @override
   void initState() {
     super.initState();
     _detectionService = LowStockDetectionService();
-    _loadLowStockProducts();
+    _loadItems();
   }
 
-  void _loadLowStockProducts() {
+  void _loadItems() {
     final businessProvider = context.read<BusinessProvider>();
     final businessId = businessProvider.currentBusiness?.id;
 
@@ -47,6 +53,7 @@ class _LowStockProductsScreenState extends State<LowStockProductsScreen> {
       setState(() {
         _lowStockProducts = Future.error('No business selected');
         _stockSummary = Future.error('No business selected');
+        _expiringProducts = Future.error('No business selected');
       });
       return;
     }
@@ -61,19 +68,44 @@ class _LowStockProductsScreenState extends State<LowStockProductsScreen> {
         businessId: businessId,
         threshold: _minStockThreshold,
       );
+      _expiringProducts = _detectionService.detectExpiringProducts(
+        businessId: businessId,
+        daysThreshold: _expiringThresholdDays,
+        includeExpired: true,
+        sortByExpiryDate: true,
+      );
     });
   }
 
   void _updateThreshold(int newThreshold) {
     setState(() {
       _minStockThreshold = newThreshold;
-      _loadLowStockProducts();
+      if (_selectedMode == InventoryAlertMode.lowStock) {
+        _loadItems();
+      }
+    });
+  }
+
+  void _updateExpiryThreshold(int newDays) {
+    setState(() {
+      _expiringThresholdDays = newDays;
+      if (_selectedMode == InventoryAlertMode.expiry) {
+        _loadItems();
+      }
     });
   }
 
   void _toggleStatistics() {
     setState(() {
       _showStatistics = !_showStatistics;
+    });
+  }
+
+  void _selectMode(InventoryAlertMode mode) {
+    if (_selectedMode == mode) return;
+    setState(() {
+      _selectedMode = mode;
+      _loadItems();
     });
   }
 
@@ -91,7 +123,7 @@ class _LowStockProductsScreenState extends State<LowStockProductsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadLowStockProducts,
+            onPressed: _loadItems,
             tooltip: 'Refresh',
           ),
           IconButton(
@@ -241,7 +273,7 @@ class _LowStockProductsScreenState extends State<LowStockProductsScreen> {
                             ElevatedButton.icon(
                               icon: const Icon(Icons.refresh),
                               label: const Text('Retry'),
-                              onPressed: _loadLowStockProducts,
+                              onPressed: _loadItems,
                             ),
                           ],
                         ),

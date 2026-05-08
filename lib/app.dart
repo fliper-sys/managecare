@@ -27,6 +27,7 @@ import 'services/business_restriction_service.dart';
 import 'services/business_reminder_service.dart';
 import 'services/snackbar_service.dart';
 import 'services/startup_notifications.dart';
+import 'services/subscription_service.dart';
 
 class App extends StatefulWidget {
   const App({super.key});
@@ -53,6 +54,7 @@ class _AppState extends State<App> {
   String? _lastStartupNotificationKey;
   String? _watchedRestrictionBusinessId;
   String? _activeRestrictionBusinessId;
+  String? _activeSubscriptionBlockedBusinessId;
 
   @override
   void initState() {
@@ -324,6 +326,66 @@ class _AppState extends State<App> {
       businessType: business.businessType,
       currentUserId: user.id,
       ownerUserId: business.ownerId,
+    );
+
+    await _enforceSubscriptionAccessIfNeeded(
+      userId: user.id,
+      businessId: business.id,
+      businessType: business.businessType,
+      userEmail: user.email,
+      userName: user.fullName,
+    );
+  }
+
+  Future<void> _enforceSubscriptionAccessIfNeeded({
+    required String userId,
+    required String businessId,
+    required String? businessType,
+    required String userEmail,
+    required String userName,
+  }) async {
+    if (!mounted || _authProvider == null) return;
+    final user = _authProvider!.currentUser;
+    if (user == null || !user.isOwner) return;
+
+    final valid = await SubscriptionService(
+      firestore: FirebaseFirestore.instance,
+    ).validateAndUpdateBusinessSubscriptionStatus(
+      businessId,
+      userId: userId,
+    );
+
+    if (!mounted) return;
+
+    if (valid) {
+      _activeSubscriptionBlockedBusinessId = null;
+      return;
+    }
+
+    if (_activeSubscriptionBlockedBusinessId == businessId) {
+      return;
+    }
+    _activeSubscriptionBlockedBusinessId = businessId;
+
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null) return;
+
+    SnackBarService.showSnackBar(
+      message:
+          'This subscription is past its renewal grace period. Please renew to continue.',
+      duration: const Duration(seconds: 4),
+    );
+
+    navigator.pushNamedAndRemoveUntil(
+      Routes.subscriptionPayment,
+      (_) => false,
+      arguments: {
+        'userId': userId,
+        'userEmail': userEmail,
+        'userName': userName,
+        'businessId': businessId,
+        'businessType': businessType,
+      },
     );
   }
 

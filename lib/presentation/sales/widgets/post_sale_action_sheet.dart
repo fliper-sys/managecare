@@ -13,7 +13,6 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
-import '../../../data/models/currency_model.dart';
 import '../../../services/thermal_printer_manager.dart';
 import '../../../services/thermal_printing_service.dart';
 import '../../../services/esc_pos_receipt_generator.dart';
@@ -101,7 +100,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         if (first is Map) {
           final v = first['method'] ?? first['name'] ?? first['payment'];
           if (v is String && v.trim().isNotEmpty) return _normalizePayment(v);
-        } else if (first is String && first.trim().isNotEmpty) return _normalizePayment(first);
+        } else if (first is String && first.trim().isNotEmpty) {
+          return _normalizePayment(first);
+        }
       }
     }
 
@@ -124,7 +125,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
     if (raw is List) {
       return raw.map((e) {
         if (e is Map<String, dynamic>) return e;
-        if (e is Map) return Map<String, dynamic>.from(e as Map);
+        if (e is Map) return Map<String, dynamic>.from(e);
         return {'method': e.toString(), 'amount': null};
       }).toList();
     }
@@ -208,6 +209,44 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         .toString()
         .trim();
     return rawUnit.isEmpty ? null : rawUnit;
+  }
+
+  String? _extractPricingMode(Map<String, dynamic> item) {
+    final raw = (item['pricingMode'] ?? item['priceType'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    return raw.isEmpty ? null : raw;
+  }
+
+  String _displaySaleItemName(Map<String, dynamic> item) {
+    final baseName = (item['productName'] ??
+            item['name'] ??
+            ((item['product'] is Map) ? item['product']['name'] : null) ??
+            'Item')
+        .toString()
+        .trim();
+    var displayName = baseName.isEmpty ? 'Item' : baseName;
+
+    final unit = _extractItemUnit(item);
+    if (unit != null && unit.isNotEmpty) {
+      final normalizedName = displayName.toLowerCase();
+      final normalizedUnit = unit.toLowerCase();
+      if (!normalizedName.contains('($normalizedUnit)') &&
+          !normalizedName.endsWith(' $normalizedUnit')) {
+        displayName = '$displayName ($unit)';
+      }
+    }
+
+    final pricingMode = _extractPricingMode(item);
+    if (pricingMode == 'retail' || pricingMode == 'wholesale') {
+      final suffix = '[${pricingMode!.toUpperCase()}]';
+      if (!displayName.toUpperCase().contains(suffix)) {
+        displayName = '$displayName $suffix';
+      }
+    }
+
+    return displayName;
   }
 
   String? _receiptStoreName() {
@@ -447,7 +486,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         businessPhone: business?.phone,
         businessEmail: business?.email,
         cashierName: auth.currentUser?.fullName,
-        businessLogoUrl: business?.logoUrl,
+        businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
         subscriptionTier: business?.subscriptionTier,
         businessClass: business?.businessClass,
       );
@@ -587,7 +626,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
           showQrCode: settings?.showQrCode ?? false,
           receiptUrlBase: settings?.receiptUrlBase,
           discount: (widget.saleData['discount'] ?? 0.0).toDouble(),
-          businessLogoUrl: business?.logoUrl,
+          businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
           businessAddress: business?.address,
           businessPhone: business?.phone,
           businessEmail: business?.email,
@@ -623,7 +662,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
           showQrCode: settings?.showQrCode ?? false,
           receiptUrlBase: settings?.receiptUrlBase,
           discount: (widget.saleData['discount'] ?? 0.0).toDouble(),
-          businessLogoUrl: business?.logoUrl,
+          businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
           businessAddress: business?.address,
           businessPhone: business?.phone,
           businessEmail: business?.email,
@@ -740,7 +779,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         showQrCode: settings?.showQrCode ?? false,
         receiptUrlBase: settings?.receiptUrlBase,
         discount: (widget.saleData['discount'] ?? 0.0).toDouble(),
-        businessLogoUrl: business?.logoUrl,
+        businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
         businessAddress: business?.address,
         businessPhone: business?.phone,
         businessEmail: business?.email,
@@ -820,7 +859,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
       final items = (widget.saleData['items'] as List? ?? []).map((e) {
         if (e is Map<String, dynamic>) {
           return {
-            'name': e['name'] ?? e['productName'] ?? 'Item',
+            'name': _displaySaleItemName(e),
             'quantity': e['quantity'] ?? e['qty'] ?? 1,
             'price': (e['price'] ?? e['unitPrice'] ?? 0).toDouble(),
           };
@@ -937,13 +976,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
       for (var e in rawItems) {
         String name = 'Item';
         if (e is Map<String, dynamic>) {
-          if (e['name'] != null && e['name'].toString().trim().isNotEmpty) {
-            name = e['name'].toString();
-          } else if (e['product'] is Map && e['product']['name'] != null) {
-            name = e['product']['name'].toString();
-          } else if (e['productName'] != null) {
-            name = e['productName'].toString();
-          }
+          name = _displaySaleItemName(e);
 
           final quantityRaw = e['quantity'] ?? e['qty'] ?? e['quantity_sold'] ?? 1;
           final quantity = ThermalPrintingService.parseNum(quantityRaw).toDouble();
@@ -972,6 +1005,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
               unitPrice: price,
               total: lineTotal,
               unit: unitRaw,
+              pricingMode: _extractPricingMode(e),
             ),
           );
         }
@@ -1005,6 +1039,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
           discount: discount,
           total: totalAmount,
           paymentMethod: widget.saleData['paymentMethod'] ?? 'Cash',
+          customerName: (widget.saleData['customer'] is Map)
+              ? (widget.saleData['customer']['name'] ?? widget.saleData['customerName'])
+                    ?.toString()
+              : widget.saleData['customerName']?.toString(),
           cashier: cashierName,
           storeName: _receiptStoreName(),
           // 🔥 NEW: Include business address and phone on receipt
@@ -1169,7 +1207,8 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         if (choice == 'use_default') {
           // Try to connect to the default printer (discovered or by address)
           if (defaultPrinter.name.isEmpty) {
-            final found = devices.firstWhere((d) => d.address == targetMac, orElse: () => ThermalPrinterDevice(address: targetMac!, name: targetMac!, type: 'bluetooth'));
+            final defaultMac = targetMac!;
+            final found = devices.firstWhere((d) => d.address == defaultMac, orElse: () => ThermalPrinterDevice(address: defaultMac, name: defaultMac, type: 'bluetooth'));
             final connected = await thermalService.connectToPrinter(found);
             if (!connected) {
               setState(() {

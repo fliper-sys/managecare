@@ -103,6 +103,63 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
     return null;
   }
 
+  String _resolveCustomerName(Map<String, dynamic> sale) {
+    final customer = sale['customer'];
+    if (customer is Map) {
+      for (final key in ['name', 'fullName', 'displayName']) {
+        final value = customer[key]?.toString().trim();
+        if (value != null && value.isNotEmpty) {
+          return value;
+        }
+      }
+    }
+
+    final fallback = (sale['customerName'] ??
+            sale['customer_name'] ??
+            sale['customerDisplayName'] ??
+            '')
+        .toString()
+        .trim();
+    if (fallback.isNotEmpty) {
+      return fallback;
+    }
+    return 'Walk-in Customer';
+  }
+
+  String _displaySaleItemName(Map<String, dynamic> item) {
+    final baseName = (_resolveProductName(context, item)).trim();
+    var displayName = baseName.isEmpty ? 'Item' : baseName;
+
+    final unit = (item['saleUnit'] ??
+            item['unit'] ??
+            item['uom'] ??
+            item['inventoryUnit'] ??
+            '')
+        .toString()
+        .trim();
+    if (unit.isNotEmpty) {
+      final normalizedName = displayName.toLowerCase();
+      final normalizedUnit = unit.toLowerCase();
+      if (!normalizedName.contains('($normalizedUnit)') &&
+          !normalizedName.endsWith(' $normalizedUnit')) {
+        displayName = '$displayName ($unit)';
+      }
+    }
+
+    final pricingMode = (item['pricingMode'] ?? item['priceType'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (pricingMode == 'retail' || pricingMode == 'wholesale') {
+      final suffix = '[${pricingMode.toUpperCase()}]';
+      if (!displayName.toUpperCase().contains(suffix)) {
+        displayName = '$displayName $suffix';
+      }
+    }
+
+    return displayName;
+  }
+
   Future<String?> _promptForEmail(BuildContext ctx, {String? initial}) async {
     final controller = TextEditingController(text: initial ?? '');
     final result = await showDialog<String?>(
@@ -136,7 +193,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       final orderId = widget.saleData['id']?.toString() ?? '';
       final total = _numToDouble(widget.saleData['total']);
       final customerEmail = widget.saleData['customerEmail'] ?? widget.saleData['customer_email'] ?? widget.saleData['email'];
-      final customerName = widget.saleData['customerName'] ?? widget.saleData['customer'] ?? widget.saleData['customer_name'] ?? '';
+      final customerName = _resolveCustomerName(widget.saleData);
 
       String? recipient = customerEmail?.toString();
       if (recipient == null || recipient.isEmpty) {
@@ -155,7 +212,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
         businessName: business?.name ?? 'Business',
         pdfFile: file,
         totalAmount: total,
-        customerName: customerName ?? '',
+        customerName: customerName,
       );
 
       if (success) {
@@ -198,11 +255,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       final discount = _numToDouble(widget.saleData['discount'] ?? 0.0);
       final paymentMethod =
           (widget.saleData['paymentMethod'] ?? 'Cash').toString();
-      final customerName = (widget.saleData['customerName'] ??
-              widget.saleData['customer'] ??
-              widget.saleData['customer_name'] ??
-              'Customer')
-          .toString();
+      final customerName = _resolveCustomerName(widget.saleData);
       final customerEmail = (widget.saleData['customerEmail'] ??
               widget.saleData['customer_email'] ??
               widget.saleData['email'])
@@ -564,11 +617,21 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
   String _generate58mmReceiptText() {
     final items = (widget.saleData['items'] as List<dynamic>?) ?? [];
 
-    final formattedItems = items.map((item) => {
-          'name': item['productName'] ?? item['name'] ?? 'Item',
-          'quantity': item['quantity'] ?? 1,
-          'price': (item['price'] ?? item['unitPrice'] ?? 0.0),
-        }).toList();
+    final formattedItems = items.map((item) {
+      final normalized = item is Map<String, dynamic>
+          ? item
+          : (item is Map ? Map<String, dynamic>.from(item) : <String, dynamic>{});
+      return {
+        'name': _displaySaleItemName(normalized),
+        'quantity': normalized['quantity'] ?? 1,
+        'price': (normalized['price'] ?? normalized['unitPrice'] ?? 0.0),
+        'unit': normalized['saleUnit'] ??
+            normalized['unit'] ??
+            normalized['uom'] ??
+            normalized['inventoryUnit'],
+        'pricingMode': normalized['pricingMode'] ?? normalized['priceType'],
+      };
+    }).toList();
 
     final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
     final cashier = _resolveCashier(widget.saleData);
@@ -587,6 +650,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       paymentMethod: widget.saleData['paymentMethod'] ?? 'Cash',
       orderId: widget.saleData['id'],
       cashier: cashier,
+      customerName: _resolveCustomerName(widget.saleData),
     );
   }
 
@@ -1033,7 +1097,6 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
 
                   const SizedBox(height: 12),
 
-                  // Cashier row (customer field removed per request)
                   Row(
                     children: [
                       Expanded(
@@ -1049,6 +1112,24 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                               const Text('Cashier', style: AppTextStyles.body2Secondary),
                               const SizedBox(height: 4),
                               Text(_resolveCashier(widget.saleData) ?? 'N/A', style: AppTextStyles.body1),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withAlpha(10),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Customer', style: AppTextStyles.body2Secondary),
+                              const SizedBox(height: 4),
+                              Text(_resolveCustomerName(widget.saleData), style: AppTextStyles.body1),
                             ],
                           ),
                         ),
@@ -1087,7 +1168,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            _resolveProductName(context, item),
+                                            _displaySaleItemName(item),
                                             style: AppTextStyles.subtitle1,
                                             maxLines: 2,
                                             overflow: TextOverflow.ellipsis,

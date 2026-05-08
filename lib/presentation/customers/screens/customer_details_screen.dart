@@ -1,9 +1,16 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+
+import '../../../core/constants/routes.dart';
 import '../../../core/theme/colors.dart';
-import '../../../data/local/database_helper.dart';
 import '../../../core/theme/text_styles.dart';
+import '../../../data/local/database_helper.dart';
+import '../../../data/models/customer_model.dart';
 import '../../../data/repositories/customer_repository_impl.dart';
+import '../../../providers/business_provider.dart';
+import '../../../providers/customer_provider.dart';
 import '../../../widgets/custom_button.dart';
 
 class CustomerDetailsScreen extends StatefulWidget {
@@ -18,7 +25,9 @@ class CustomerDetailsScreen extends StatefulWidget {
 class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
   late CustomerRepositoryImpl _repository;
   Map<String, dynamic>? _customer;
+  List<Map<String, dynamic>> _purchaseHistory = [];
   bool _isLoading = true;
+  bool _isLoadingHistory = false;
   String? _error;
 
   @override
@@ -35,26 +44,24 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
     });
 
     try {
-      // Try local DB first when available (skip or ignore errors on web)
       DatabaseHelper? db;
       try {
         db = DatabaseHelper.instance;
-        final local = await db.query('customers', where: 'id = ?', whereArgs: [widget.customerId], limit: 1);
+        final local = await db.query(
+          'customers',
+          where: 'id = ?',
+          whereArgs: [widget.customerId],
+          limit: 1,
+        );
         if (local.isNotEmpty) {
-          setState(() {
-            _customer = Map<String, dynamic>.from(local.first);
-            _isLoading = false;
-          });
-          return;
+          _customer = Map<String, dynamic>.from(local.first);
         }
       } catch (_) {
-        // Local DB may not be available on web or may fail; ignore and fallback to Firestore
         db = null;
       }
 
-      // Fallback to Firestore repository
       final data = await _repository.getCustomerById(widget.customerId);
-      if (data == null) {
+      if (data == null && _customer == null) {
         setState(() {
           _error = 'Customer not found';
           _isLoading = false;
@@ -62,62 +69,96 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
         return;
       }
 
-      // Persist to local DB for offline availability
-      final now = DateTime.now().toIso8601String();
-      String createdAtStr;
-      try {
-        final c = data['createdAt'];
-        if (c == null) {
-          createdAtStr = now;
-        } else if (c is String) {
-          createdAtStr = c;
-        } else if (c is DateTime) {
-          createdAtStr = c.toIso8601String();
-        } else if (c is Timestamp) {
-          createdAtStr = c.toDate().toIso8601String();
-        } else {
-          createdAtStr = c.toString();
-        }
-      } catch (_) {
-        createdAtStr = now;
-      }
-
-      final localRow = {
-        'id': widget.customerId,
-        'businessId': data['businessId'] ?? '',
-        'name': data['fullName'] ?? data['name'] ?? '',
-        'email': data['email'] ?? '',
-        'phone': data['phoneNumber'] ?? data['phone'] ?? '',
-        'address': data['address'] ?? '',
-        'city': data['city'] ?? '',
-        'state': data['state'] ?? '',
-        'loyaltyPoints': data['loyaltyPoints'] ?? 0,
-        'totalPurchases': data['totalPurchases'] ?? 0,
-        'isActive': (data['isActive'] ?? true) ? 1 : 0,
-        'createdAt': createdAtStr,
-        'updatedAt': now,
-        'syncStatus': 'synced',
-      };
-
-      // Persist to local DB when available (ignore errors on web or if DB missing)
-      if (db != null) {
+      if (data != null) {
+        final now = DateTime.now().toIso8601String();
+        String createdAtStr;
         try {
-          await db.insert('customers', localRow);
-        } catch (e) {
-          // ignore DB insert errors
-          print('[CustomerDetails] Warning: failed to insert local customer: $e');
+          final createdAt = data['createdAt'];
+          if (createdAt == null) {
+            createdAtStr = now;
+          } else if (createdAt is String) {
+            createdAtStr = createdAt;
+          } else if (createdAt is DateTime) {
+            createdAtStr = createdAt.toIso8601String();
+          } else if (createdAt is Timestamp) {
+            createdAtStr = createdAt.toDate().toIso8601String();
+          } else {
+            createdAtStr = createdAt.toString();
+          }
+        } catch (_) {
+          createdAtStr = now;
         }
+
+        final localRow = {
+          'id': widget.customerId,
+          'businessId': data['businessId'] ?? '',
+          'name': data['fullName'] ?? data['name'] ?? '',
+          'email': data['email'] ?? '',
+          'phone': data['phoneNumber'] ?? data['phone'] ?? '',
+          'address': data['address'] ?? '',
+          'city': data['city'] ?? '',
+          'state': data['state'] ?? '',
+          'loyaltyPoints': data['loyaltyPoints'] ?? 0,
+          'totalPurchases': data['totalPurchases'] ?? data['totalSpent'] ?? 0,
+          'isActive': (data['isActive'] ?? true) ? 1 : 0,
+          'createdAt': createdAtStr,
+          'updatedAt': now,
+          'syncStatus': 'synced',
+        };
+
+        if (db != null) {
+          try {
+            await db.insert('customers', localRow);
+          } catch (e) {
+            debugPrint(
+              '[CustomerDetails] Warning: failed to insert local customer: $e',
+            );
+          }
+        }
+
+        _customer = Map<String, dynamic>.from(data);
       }
 
+      await _loadPurchaseHistory();
+
+      if (!mounted) return;
       setState(() {
-        _customer = Map<String, dynamic>.from(data);
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = 'Failed to load customer: $e';
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _loadPurchaseHistory() async {
+    setState(() => _isLoadingHistory = true);
+    try {
+      final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
+          _customer?['businessId']?.toString() ??
+          '';
+      if (businessId.isEmpty) {
+        _purchaseHistory = [];
+        return;
+      }
+
+      final customerProvider = context.read<CustomerProvider>();
+      customerProvider.setBusinessId(businessId);
+      final history =
+          await customerProvider.getCustomerPurchaseHistory(widget.customerId);
+      _purchaseHistory = history
+          .map((entry) => Map<String, dynamic>.from(entry))
+          .toList();
+    } catch (e) {
+      debugPrint('[CustomerDetails] Failed to load purchase history: $e');
+      _purchaseHistory = [];
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingHistory = false);
+      }
     }
   }
 
@@ -129,8 +170,9 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
         content: const Text('Are you sure you want to delete this customer?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true),
@@ -144,17 +186,34 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
 
     try {
       await _repository.deleteCustomer(widget.customerId);
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Customer deleted')));
-        Navigator.pop(context);
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Customer deleted')));
+      Navigator.pop(context);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error: $e')));
     }
+  }
+
+  Future<void> _startSaleForCustomer() async {
+    final customer = _customer;
+    if (customer == null) return;
+
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
+        customer['businessId']?.toString() ??
+        '';
+    if (businessId.isNotEmpty) {
+      context.read<CustomerProvider>().setBusinessId(businessId);
+    }
+
+    context.read<CustomerProvider>().selectCustomer(
+          CustomerModel.fromJson(customer, documentId: widget.customerId),
+        );
+
+    if (!mounted) return;
+    Navigator.pushNamed(context, Routes.sales);
   }
 
   @override
@@ -178,13 +237,19 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
     final email = customer['email'] ?? 'N/A';
     final phone = customer['phoneNumber'] ?? customer['phone'] ?? 'N/A';
     final address = customer['address'] ?? 'N/A';
-    final isActive = customer['isActive'] != false;
-    final totalOrders = customer['totalOrders'] ?? 0;
-    final totalPurchases = customer['totalPurchases'] ?? 0;
+    final isActive = customer['isActive'] != false && customer['isActive'] != 0;
+    final totalOrders = customer['totalOrders'] ?? customer['totalTransactions'] ?? 0;
+    final totalPurchases = _readDouble(
+      customer['totalPurchases'] ?? customer['totalSpent'],
+    );
     final createdAt = customer['createdAt'];
 
-    final initials =
-        name.split(' ').map((s) => s.isNotEmpty ? s[0] : '').take(2).join();
+    final initials = name
+        .toString()
+        .split(' ')
+        .map((s) => s.isNotEmpty ? s[0] : '')
+        .take(2)
+        .join();
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -215,7 +280,6 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Customer Header
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -292,8 +356,6 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // Contact Information
             const _SectionHeader(title: 'Contact Information'),
             const SizedBox(height: 12),
             Container(
@@ -326,8 +388,6 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // Purchase Statistics
             const _SectionHeader(title: 'Purchase Statistics'),
             const SizedBox(height: 12),
             Row(
@@ -345,22 +405,69 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
                   child: _StatCard(
                     icon: Icons.trending_up,
                     label: 'Total Spent',
-                    value: 'â‚¦$totalPurchases',
+                    value: 'NGN ${totalPurchases.toStringAsFixed(2)}',
                     color: AppColors.success,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 24),
-
-            // Actions
+            Row(
+              children: [
+                Expanded(
+                  child: CustomButton(
+                    text: 'Start New Sale',
+                    onPressed: _startSaleForCustomer,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _loadPurchaseHistory,
+                    icon: const Icon(Icons.history),
+                    label: const Text('Refresh History'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            const _SectionHeader(title: 'Purchase History'),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: _isLoadingHistory
+                  ? const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : _purchaseHistory.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Text(
+                            'No purchase history yet for this customer.',
+                          ),
+                        )
+                      : Column(
+                          children: _purchaseHistory
+                              .map((purchase) => _PurchaseHistoryTile(
+                                    purchase: purchase,
+                                  ))
+                              .toList(),
+                        ),
+            ),
+            const SizedBox(height: 24),
             const _SectionHeader(title: 'Actions'),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               height: 48,
               child: CustomButton(
-                text: 'Refresh',
+                text: 'Refresh Customer',
                 onPressed: _loadCustomer,
               ),
             ),
@@ -372,9 +479,22 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
   }
 
   String _formatDate(dynamic date) {
-    if (date == null) return 'Unknown';
-    if (date is DateTime) return '${date.day}/${date.month}/${date.year}';
-    return date.toString();
+    final resolved = _toDateTime(date);
+    if (resolved == null) return 'Unknown';
+    return DateFormat('dd MMM yyyy').format(resolved);
+  }
+
+  DateTime? _toDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
+  }
+
+  double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
   }
 }
 
@@ -414,22 +534,25 @@ class _ContactRow extends StatelessWidget {
         children: [
           Icon(icon, color: AppColors.primary, size: 20),
           const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: AppTextStyles.caption.copyWith(
-                  color: AppColors.textSecondary,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppTextStyles.caption.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                value,
-                style:
-                    AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ],
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: AppTextStyles.body1.copyWith(
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -453,29 +576,29 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.05),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(height: 8),
+          Icon(icon, color: color),
+          const SizedBox(height: 12),
           Text(
-            label,
-            style: AppTextStyles.caption.copyWith(
-              color: AppColors.textSecondary,
+            value,
+            style: AppTextStyles.heading5.copyWith(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.bold,
             ),
           ),
           const SizedBox(height: 4),
           Text(
-            value,
-            style: AppTextStyles.heading5.copyWith(
-              fontWeight: FontWeight.w700,
-              color: color,
+            label,
+            style: AppTextStyles.caption.copyWith(
+              color: AppColors.textSecondary,
             ),
           ),
         ],
@@ -484,3 +607,79 @@ class _StatCard extends StatelessWidget {
   }
 }
 
+class _PurchaseHistoryTile extends StatelessWidget {
+  final Map<String, dynamic> purchase;
+
+  const _PurchaseHistoryTile({required this.purchase});
+
+  @override
+  Widget build(BuildContext context) {
+    final createdAt = purchase['createdAt'];
+    final total = purchase['totalAmount'] ?? purchase['total'] ?? 0;
+    final paymentMethod =
+        (purchase['paymentMethod'] ?? 'Unknown').toString();
+    final saleId = (purchase['saleId'] ?? purchase['orderId'] ?? 'N/A')
+        .toString();
+    final items = (purchase['items'] as List?) ?? const [];
+
+    DateTime? resolvedDate;
+    if (createdAt is Timestamp) {
+      resolvedDate = createdAt.toDate();
+    } else if (createdAt is DateTime) {
+      resolvedDate = createdAt;
+    } else if (createdAt is String) {
+      resolvedDate = DateTime.tryParse(createdAt);
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  saleId,
+                  style: AppTextStyles.body1.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                'NGN ${(total is num ? total.toDouble() : double.tryParse(total.toString()) ?? 0.0).toStringAsFixed(2)}',
+                style: AppTextStyles.body1.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.success,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${items.length} item(s) • ${paymentMethod.toUpperCase()}',
+            style: AppTextStyles.caption.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+          if (resolvedDate != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              DateFormat('dd MMM yyyy, hh:mm a').format(resolvedDate),
+              style: AppTextStyles.caption.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}

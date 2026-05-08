@@ -1163,10 +1163,19 @@ class BusinessProvider with ChangeNotifier {
     }
 
     final end = _currentBusiness!.subscriptionEndDate;
-    if (end != null && DateTime.now().isAfter(end)) {
+    if (end != null &&
+        !SubscriptionService.isWithinSubscriptionAccessWindow(end)) {
       final formattedDate =
           '${end.day.toString().padLeft(2, '0')}/${end.month.toString().padLeft(2, '0')}/${end.year}';
       return 'The current business subscription expired on $formattedDate. Renew this business plan to continue.';
+    }
+
+    if (end != null &&
+        SubscriptionService.isInSubscriptionGracePeriod(end)) {
+      final daysSinceEnd = SubscriptionService.daysSinceSubscriptionEnd(end);
+      final graceLeft =
+          SubscriptionService.subscriptionGracePeriodDays - daysSinceEnd;
+      return 'This business subscription has expired, but it is currently in its renewal grace period. Renew within $graceLeft day${graceLeft == 1 ? '' : 's'} to avoid losing access.';
     }
 
     final requiredTier = feature == null

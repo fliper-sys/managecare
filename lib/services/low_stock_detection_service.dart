@@ -178,7 +178,88 @@ class LowStockDetectionService {
     }
   }
 
-  /// Get color for stock status
+  DateTime? _parseExpiryDate(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is DateTime) return raw;
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is String) {
+      try {
+        return DateTime.parse(raw);
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /// Detect expiring or expired products within the given window
+  Future<List<ExpiringProduct>> detectExpiringProducts({
+    required String businessId,
+    int daysThreshold = 7,
+    bool includeExpired = true,
+    bool sortByExpiryDate = true,
+  }) async {
+    try {
+      final now = DateTime.now();
+      final docs = await _fetchAllProductDocs(businessId);
+
+      final expiringItems = docs
+          .map((doc) {
+            final data = doc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
+            final expiryDate = _parseExpiryDate(data['expiryDate']);
+            final qty = _getProductQuantity(data);
+            if (expiryDate == null || qty <= 0) return null;
+
+            final daysUntilExpiry = expiryDate.difference(now).inDays;
+            final shouldInclude = (includeExpired && expiryDate.isBefore(now)) ||
+                daysUntilExpiry <= daysThreshold;
+            if (!shouldInclude) return null;
+
+            return ExpiringProduct(
+              id: doc.id,
+              name: data['name'] ?? 'Unknown',
+              quantity: qty,
+              unit: data['unit'] ?? 'units',
+              expiryDate: expiryDate,
+              daysUntilExpiry: daysUntilExpiry,
+              category: data['category'] ?? 'General',
+              supplier: data['supplier'] ?? 'Not specified',
+            );
+          })
+          .whereType<ExpiringProduct>()
+          .toList();
+
+      if (sortByExpiryDate) {
+        expiringItems.sort((a, b) => a.expiryDate.compareTo(b.expiryDate));
+      }
+
+      return expiringItems;
+    } catch (e) {
+      debugPrint('[LowStockService] Error detecting expiring products: $e');
+      rethrow;
+    }
+  }
+
+  /// Get count of expiring items within a given threshold
+  Future<int> getExpiringCount({
+    required String businessId,
+    int daysThreshold = 7,
+    bool includeExpired = true,
+  }) async {
+    try {
+      final items = await detectExpiringProducts(
+        businessId: businessId,
+        daysThreshold: daysThreshold,
+        includeExpired: includeExpired,
+      );
+      return items.length;
+    } catch (e) {
+      debugPrint('[LowStockService] Error getting expiring count: $e');
+      return 0;
+    }
+  }
+
+  /// Get stock status color
   String getStatusColor(StockStatus status) {
     switch (status) {
       case StockStatus.outOfStock:
@@ -402,6 +483,38 @@ class LowStockProduct {
 
   /// Get potential loss value (cost of out-of-stock items)
   double get potentialLoss => costPrice * (reorderLevel - quantity).clamp(0, reorderLevel);
+}
+
+/// Model representing an expiring or expired product
+class ExpiringProduct {
+  final String id;
+  final String name;
+  final int quantity;
+  final String unit;
+  final DateTime expiryDate;
+  final int daysUntilExpiry;
+  final String category;
+  final String supplier;
+
+  ExpiringProduct({
+    required this.id,
+    required this.name,
+    required this.quantity,
+    required this.unit,
+    required this.expiryDate,
+    required this.daysUntilExpiry,
+    required this.category,
+    required this.supplier,
+  });
+
+  String get formattedExpiryDate => '${expiryDate.year}-${expiryDate.month.toString().padLeft(2, '0')}-${expiryDate.day.toString().padLeft(2, '0')}';
+
+  String get expiryStatus {
+    if (daysUntilExpiry < 0) {
+      return 'Expired ${-daysUntilExpiry} day${(-daysUntilExpiry) == 1 ? '' : 's'} ago';
+    }
+    return 'Expires in $daysUntilExpiry day${daysUntilExpiry == 1 ? '' : 's'}';
+  }
 }
 
 /// Low stock summary statistics

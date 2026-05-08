@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../core/utils/datetime_utils.dart';
 import '../data/models/business_model.dart';
 import 'local_business_storage.dart';
+import 'notification_service.dart';
 import 'subscription_service.dart';
 
 /// Background subscription status checker
@@ -23,6 +24,7 @@ class BackgroundSubscriptionChecker {
 
   // Keep latest reminder milestone per business to avoid repeated triggers
   final Map<String, int> _lastReminderMilestoneSent = {};
+  final Map<String, String> _lastReminderDateKeyByBusiness = {};
 
   // Logging
   final _log = _SubscriptionCheckerLogger();
@@ -157,7 +159,12 @@ class BackgroundSubscriptionChecker {
 
       // Check expiration warning (7 days before expiry)
       if (isSubscriptionActive && subscriptionEndDateRaw != null) {
-        _checkExpirationWarning(business.id, subscriptionEndDateRaw);
+        await _checkExpirationWarning(
+          userId: userId,
+          businessId: business.id,
+          businessName: business.name,
+          endDateRaw: subscriptionEndDateRaw,
+        );
       }
 
       // Update local cache with latest subscription info
@@ -178,34 +185,57 @@ class BackgroundSubscriptionChecker {
   }
 
   /// Check if subscription expires in next 7 days (and issue milestones)
-  void _checkExpirationWarning(String businessId, dynamic endDateRaw) {
+  Future<void> _checkExpirationWarning({
+    required String userId,
+    required String businessId,
+    required String businessName,
+    required dynamic endDateRaw,
+  }) async {
     try {
       final endDate = parseTimestamp(endDateRaw);
       final now = DateTime.now();
-
-      final daysLeft = DateTime(endDate.year, endDate.month, endDate.day)
-          .difference(DateTime(now.year, now.month, now.day))
-          .inDays;
+      final daysLeft =
+          SubscriptionService.daysUntilSubscriptionEnd(endDate, now: now);
 
       if (daysLeft < 0) {
         // Already expired; nothing to do here (handled elsewhere)
         return;
       }
 
-      final reminderMilestones = [7, 3, 2, 1];
+      final milestone = SubscriptionService.calculateReminderMilestone(
+        now: now,
+        endDate: endDate,
+      );
 
-      if (reminderMilestones.contains(daysLeft)) {
+      if (milestone != null) {
         _log.warn(
             'Subscription expiring in $daysLeft days for business: $businessId');
 
         // Avoid repeating same milestone notifications repeatedly
         final lastSent = _lastReminderMilestoneSent[businessId];
-        if (lastSent != daysLeft) {
-          _lastReminderMilestoneSent[businessId] = daysLeft;
-          onSubscriptionExpiringSoon?.call(businessId, daysLeft);
+        final dateKey =
+            '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+        final reminderKey = '$milestone:$dateKey';
+        if (lastSent != milestone ||
+            _lastReminderDateKeyByBusiness[businessId] != reminderKey) {
+          _lastReminderMilestoneSent[businessId] = milestone;
+          _lastReminderDateKeyByBusiness[businessId] = reminderKey;
+          onSubscriptionExpiringSoon?.call(businessId, milestone);
 
-          final milestoneLabel = _milestoneLabel(daysLeft);
-          onSubscriptionRenewalReminder?.call(businessId, daysLeft, milestoneLabel);
+          final milestoneLabel =
+              SubscriptionService.reminderMilestoneLabel(milestone);
+          onSubscriptionRenewalReminder?.call(
+            businessId,
+            milestone,
+            milestoneLabel,
+          );
+          await _deliverRenewalReminder(
+            userId: userId,
+            businessId: businessId,
+            businessName: businessName,
+            daysLeft: milestone,
+            milestoneLabel: milestoneLabel,
+          );
         }
       }
     } catch (e) {
@@ -213,18 +243,55 @@ class BackgroundSubscriptionChecker {
     }
   }
 
-  String _milestoneLabel(int daysLeft) {
-    switch (daysLeft) {
-      case 7:
-        return '1 week';
-      case 3:
-        return '3 days';
-      case 2:
-        return '2 days';
-      case 1:
-        return '1 day';
-      default:
-        return '$daysLeft day(s)';
+  Future<void> _deliverRenewalReminder({
+    required String userId,
+    required String businessId,
+    required String businessName,
+    required int daysLeft,
+    required String milestoneLabel,
+  }) async {
+    final title = 'Subscription renewal reminder';
+    final body =
+        '$businessName has $milestoneLabel left before renewal is required.';
+    final notificationId =
+        (businessId.hashCode ^ daysLeft.hashCode) & 0x7fffffff;
+
+    try {
+      await NotificationService.instance.sendNotification(
+        title,
+        body,
+        id: notificationId,
+      );
+    } catch (e) {
+      _log.error('Failed to send local renewal reminder', error: e);
+    }
+
+    try {
+      await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('notifications')
+          .add({
+        'title': title,
+        'body': body,
+        'type': 'subscription_renewal_reminder',
+        'businessId': businessId,
+        'businessName': businessName,
+        'daysLeft': daysLeft,
+        'milestoneLabel': milestoneLabel,
+        'channel': 'subscription',
+        'isRead': false,
+        'delivered': true,
+        'createdAt': FieldValue.serverTimestamp(),
+        'data': {
+          'type': 'subscription_renewal_reminder',
+          'businessId': businessId,
+          'daysLeft': daysLeft,
+          'milestoneLabel': milestoneLabel,
+        },
+      });
+    } catch (e) {
+      _log.error('Failed to save renewal reminder notification', error: e);
     }
   }
 
@@ -387,7 +454,9 @@ class BackgroundSubscriptionChecker {
   bool _isSubscriptionValid(BusinessModel business) {
     if (!business.isSubscriptionActive) return false;
     if (business.subscriptionEndDate == null) return true;
-    return DateTime.now().isBefore(business.subscriptionEndDate!);
+    return SubscriptionService.isWithinSubscriptionAccessWindow(
+      business.subscriptionEndDate!,
+    );
   }
 
   bool _checkSubscriptionValidity({
@@ -398,27 +467,20 @@ class BackgroundSubscriptionChecker {
     if (!isActive) return false;
     if (endDate == null) return true;
     try {
-      return DateTime.now().isBefore(parseTimestamp(endDate));
+      return SubscriptionService.isWithinSubscriptionAccessWindow(
+        parseTimestamp(endDate),
+      );
     } catch (e) {
       _log.error('Error parsing end date: $endDate', error: e);
       return false;
     }
   }
 
-  /// Returns reminder milestone (number of days) when the given end date is
-  /// exactly 7, 3, 2 or 1 day ahead of the reference date.
-  static int? calculateReminderMilestone({required DateTime now, required DateTime endDate}) {
-    final daysLeft = DateTime(endDate.year, endDate.month, endDate.day)
-        .difference(DateTime(now.year, now.month, now.day))
-        .inDays;
-
-    const reminderMilestones = [7, 3, 2, 1];
-    return reminderMilestones.contains(daysLeft) ? daysLeft : null;
-  }
-
   int? _getDaysUntilExpiration(BusinessModel business) {
     if (business.subscriptionEndDate == null) return null;
-    return business.subscriptionEndDate!.difference(DateTime.now()).inDays;
+    return SubscriptionService.daysUntilSubscriptionEnd(
+      business.subscriptionEndDate!,
+    );
   }
 
   /// Dispose resources

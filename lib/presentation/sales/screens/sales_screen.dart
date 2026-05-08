@@ -504,21 +504,44 @@ class _SalesScreenState extends State<SalesScreen>
       }
 
       final auth = Provider.of<AuthProvider>(context, listen: false);
-      final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
-      final customerProvider = Provider.of<CustomerProvider>(context, listen: false);
+      final business =
+          Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+      final customerProvider =
+          Provider.of<CustomerProvider>(context, listen: false);
       final selectedCustomer = customerProvider.selectedCustomer;
+      if (business == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Business information is not available yet.'),
+          ),
+        );
+        return;
+      }
 
       double subtotal = 0.0;
       final cartItems = retail.cartItems.entries.map((entry) {
-        final price = entry.key.price;
+        final price = retail.getEffectivePriceForCartItem(entry.key.id);
         final itemTotal = price * entry.value;
+        final saleUnit = retail.getEffectiveSaleUnitForCartItem(entry.key.id);
+        final pricingMode = retail.getPricingModeForCartItem(entry.key.id);
+        final lineLabel = saleUnit.isNotEmpty && saleUnit != entry.key.unit
+            ? '${entry.key.name} ($saleUnit)'
+            : entry.key.name;
         subtotal += itemTotal;
         return {
-          'name': entry.key.name,
-          'menuItemName': entry.key.name,
+          'productId': entry.key.id,
+          'name': lineLabel,
+          'menuItemName': lineLabel,
+          'productName': entry.key.name,
           'quantity': entry.value,
           'price': price,
           'unitPrice': price,
+          'pricingMode': pricingMode,
+          'saleUnit': saleUnit,
+          'inventoryUnit': entry.key.unit,
+          'saleUnitMultiplier':
+              retail.getEffectiveSaleUnitMultiplierForCartItem(entry.key.id),
           'subtotal': itemTotal,
           'total': itemTotal,
           'specialInstructions': null,
@@ -530,11 +553,12 @@ class _SalesScreenState extends State<SalesScreen>
       final tax = 0.0;
       final discount = 0.0;
       final total = subtotal + tax - discount;
+      final createdAt = DateTime.now();
 
       final pdfBytes = await PdfInvoiceGenerator.generateInvoicePdfBytes(
-        businessName: business?.name ?? 'Manage Care',
+        businessName: business.name,
         invoiceNumber: invoiceNumber,
-        invoiceDate: DateTime.now(),
+        invoiceDate: createdAt,
         cartItems: cartItems,
         subtotal: subtotal,
         tax: tax,
@@ -542,24 +566,60 @@ class _SalesScreenState extends State<SalesScreen>
         total: total,
         customerName: selectedCustomer?.name ?? 'Walk-in Customer',
         customerEmail: selectedCustomer?.email,
-        businessAddress: business?.address,
-        businessPhone: business?.phone,
-        businessEmail: business?.email,
+        businessAddress: business.address,
+        businessPhone: business.phone,
+        businessEmail: business.email,
         cashierName: auth.currentUser?.fullName,
-        businessLogoUrl: business?.logoUrl,
-        subscriptionTier: business?.subscriptionTier,
-        businessClass: business?.businessClass,
+        businessLogoUrl: business.photoUrl ?? business.logoUrl,
+        subscriptionTier: business.subscriptionTier,
+        businessClass: business.businessClass,
+        notes: selectedCustomer?.phone?.trim().isNotEmpty == true
+            ? 'Customer phone: ${selectedCustomer!.phone!.trim()}'
+            : null,
       );
+
+      await FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(business.id)
+          .collection('invoices')
+          .add({
+        'invoiceNumber': invoiceNumber,
+        'businessId': business.id,
+        'businessName': business.name,
+        'status': 'draft',
+        'source': 'sales_screen',
+        'customerId': selectedCustomer?.id,
+        'customerName': selectedCustomer?.name ?? 'Walk-in Customer',
+        'customerEmail': selectedCustomer?.email,
+        'customerPhone': selectedCustomer?.phone,
+        'items': cartItems,
+        'subtotal': subtotal,
+        'tax': tax,
+        'discount': discount,
+        'total': total,
+        'createdAt': Timestamp.fromDate(createdAt),
+        'updatedAt': Timestamp.fromDate(createdAt),
+        'createdBy': auth.currentUser?.id,
+        'createdByName': auth.currentUser?.fullName,
+      });
 
       final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
       if (kIsWeb) {
         web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Invoice downloaded: $filename')),
+          SnackBar(
+            content: Text('Invoice saved and downloaded: $filename'),
+          ),
         );
       } else {
         await _sharePdfOnMobile(pdfBytes, filename);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Invoice saved and ready to share.'),
+          ),
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -903,6 +963,12 @@ class _SalesScreenState extends State<SalesScreen>
         title: Text(widget.title),
         elevation: 0,
         actions: [
+          if (widget.title.toLowerCase().contains('quick sale'))
+            IconButton(
+              icon: const Icon(Icons.receipt_long_rounded),
+              tooltip: 'Generate invoice',
+              onPressed: () async => await _generateInvoice(retail),
+            ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Refresh products',
@@ -2214,6 +2280,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   // Per-item price overrides (keyed by product id)
   final Map<String, double> _priceOverrides = {};
+  final Map<String, TextEditingController> _priceControllers = {};
 
   ScrollController get _effectiveScrollController =>
       widget.scrollController ?? _internalScrollController!;
@@ -2589,6 +2656,32 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return 'Sold in ${inventoryUnitLabel(saleUnit)} • 1 ${saleUnit.isEmpty ? product.unit : saleUnit} = $multiplierLabel ${product.unit}';
   }
 
+  TextEditingController _getPriceController(
+    String productId,
+    double initialPrice,
+  ) {
+    return _priceControllers.putIfAbsent(
+      productId,
+      () => TextEditingController(text: initialPrice.toStringAsFixed(2)),
+    );
+  }
+
+  void _setPriceOverrideValue(
+    String productId,
+    double price, {
+    bool updateController = true,
+  }) {
+    _priceOverrides[productId] = price;
+    if (!updateController) return;
+
+    final formattedPrice = price.toStringAsFixed(2);
+    final controller = _getPriceController(productId, price);
+    controller.value = TextEditingValue(
+      text: formattedPrice,
+      selection: TextSelection.collapsed(offset: formattedPrice.length),
+    );
+  }
+
   @override
   void dispose() {
     _internalScrollController?.dispose();
@@ -2596,6 +2689,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     _customerNameController.dispose();
     _taxRateController.dispose();
     _discountController.dispose();
+    for (final controller in _priceControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -2611,10 +2707,20 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     _priceOverrides.removeWhere(
       (productId, _) => !currentProductIds.contains(productId),
     );
+    final removedControllerIds = _priceControllers.keys
+        .where((productId) => !currentProductIds.contains(productId))
+        .toList();
+    for (final productId in removedControllerIds) {
+      _priceControllers.remove(productId)?.dispose();
+    }
     for (final entry in entries) {
       _priceOverrides.putIfAbsent(
         entry.key.id,
         () => retail.getEffectivePriceForCartItem(entry.key.id),
+      );
+      _getPriceController(
+        entry.key.id,
+        _priceOverrides[entry.key.id] ?? entry.key.price,
       );
     }
     final customerProvider = context.watch<CustomerProvider>();
@@ -2704,12 +2810,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                     SizedBox(
                                     width: 120,
                                     child: TextFormField(
-                                      key: ValueKey(
-                                        '${item.id}-${(_priceOverrides[item.id] ?? item.price).toStringAsFixed(2)}',
+                                      controller: _getPriceController(
+                                        item.id,
+                                        _priceOverrides[item.id] ?? item.price,
                                       ),
-                                      initialValue: (_priceOverrides[item.id] ??
-                                              item.price)
-                                          .toStringAsFixed(2),
                                       keyboardType:
                                           const TextInputType.numberWithOptions(
                                               decimal: true),
@@ -2725,9 +2829,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                                 vertical: 12, horizontal: 8),
                                       ),
                                       onChanged: (v) {
-                                        final parsed = double.tryParse(
-                                                v.replaceAll(',', '')) ??
-                                            0.0;
+                                        final normalized =
+                                            v.replaceAll(',', '').trim();
+                                        final parsed = normalized.isEmpty
+                                            ? 0.0
+                                            : double.tryParse(normalized);
+                                        if (parsed == null) return;
                                         if (parsed < 0) {
                                           // Show error for negative prices
                                           ScaffoldMessenger.of(context)
@@ -2757,7 +2864,11 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                           );
                                         }
                                         setState(() {
-                                          _priceOverrides[item.id] = parsed;
+                                          _setPriceOverrideValue(
+                                            item.id,
+                                            parsed,
+                                            updateController: false,
+                                          );
                                         });
                                       },
                                     ),
@@ -2790,7 +2901,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                           'retail',
                                         );
                                         setState(() {
-                                          _priceOverrides[item.id] = item.price;
+                                          _setPriceOverrideValue(
+                                            item.id,
+                                            item.price,
+                                          );
                                         });
                                       },
                                     ),
@@ -2806,8 +2920,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                           'wholesale',
                                         );
                                         setState(() {
-                                          _priceOverrides[item.id] =
-                                              item.wholesalePrice!;
+                                          _setPriceOverrideValue(
+                                            item.id,
+                                            item.wholesalePrice!,
+                                          );
                                         });
                                       },
                                     ),

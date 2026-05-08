@@ -16,15 +16,23 @@ class CustomerListScreen extends StatefulWidget {
 
 class _CustomerListScreenState extends State<CustomerListScreen> {
   late CustomerRepositoryImpl _repository;
+  final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _customers = [];
   bool _isLoading = true;
   String? _error;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _repository = CustomerRepositoryImpl(firestore: FirebaseFirestore.instance);
     _loadCustomers();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadCustomers() async {
@@ -62,6 +70,23 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final query = _searchQuery.trim().toLowerCase();
+    final filteredCustomers = query.isEmpty
+        ? _customers
+        : _customers.where((customer) {
+            final name = (customer['fullName'] ?? customer['name'] ?? '')
+                .toString()
+                .toLowerCase();
+            final phone = (customer['phoneNumber'] ?? customer['phone'] ?? '')
+                .toString()
+                .toLowerCase();
+            final email =
+                (customer['email'] ?? '').toString().toLowerCase();
+            return name.contains(query) ||
+                phone.contains(query) ||
+                email.contains(query);
+          }).toList();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Customers'),
@@ -82,35 +107,69 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(child: Text(_error!))
-              : _customers.isEmpty
-                  ? const Center(child: Text('No customers yet'))
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _customers.length,
-                      itemBuilder: (context, index) {
-                        final customer = _customers[index];
-                        final id = customer['id'] ?? '';
-                        final name = customer['fullName'] ??
-                            customer['name'] ??
-                            'Unknown';
-                        final phone = customer['phoneNumber'] ??
-                            customer['phone'] ??
-                            'N/A';
-                        final totalPurchases = customer['totalPurchases'] ?? 0;
-
-                        return CustomerCard(
-                          name: name,
-                          phone: phone,
-                          totalPurchases: '₦$totalPurchases',
-                          onTap: () => Navigator.pushNamed(
-                            context,
-                            Routes.customerDetails,
-                            arguments: {'customerId': id},
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: TextField(
+                        controller: _searchController,
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search),
+                          hintText: 'Search by name, phone, or email',
+                          suffixIcon: _searchQuery.isEmpty
+                              ? null
+                              : IconButton(
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    setState(() => _searchQuery = '');
+                                  },
+                                  icon: const Icon(Icons.clear),
+                                ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                        );
-                      },
+                        ),
+                        onChanged: (value) =>
+                            setState(() => _searchQuery = value),
+                      ),
                     ),
+                    Expanded(
+                      child: _customers.isEmpty
+                          ? const Center(child: Text('No customers yet'))
+                          : filteredCustomers.isEmpty
+                              ? const Center(
+                                  child: Text('No customers match your search'),
+                                )
+                              : ListView.builder(
+                                  padding: const EdgeInsets.all(16),
+                                  itemCount: filteredCustomers.length,
+                                  itemBuilder: (context, index) {
+                                    final customer = filteredCustomers[index];
+                                    final id = customer['id'] ?? '';
+                                    final name = customer['fullName'] ??
+                                        customer['name'] ??
+                                        'Unknown';
+                                    final phone = customer['phoneNumber'] ??
+                                        customer['phone'] ??
+                                        'N/A';
+                                    final totalPurchases =
+                                        customer['totalPurchases'] ?? 0;
+
+                                    return CustomerCard(
+                                      name: name,
+                                      phone: phone,
+                                      totalPurchases: 'NGN $totalPurchases',
+                                      onTap: () => Navigator.pushNamed(
+                                        context,
+                                        Routes.customerDetails,
+                                        arguments: {'customerId': id},
+                                      ),
+                                    );
+                                  },
+                                ),
+                    ),
+                  ],
+                ),
     );
   }
 }
-

@@ -8,6 +8,21 @@ import '../providers/auth_provider.dart';
 import '../presentation/sales/widgets/post_sale_action_sheet.dart';
 
 class ReceiptManager {
+  static String? _resolveCustomerName(Map<String, dynamic> sale) {
+    final raw = (sale['customerName'] ??
+            sale['customerDisplayName'] ??
+            (sale['customer'] is Map ? sale['customer']['name'] : null))
+        ?.toString()
+        .trim();
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+    if (raw.toLowerCase() == 'walk-in customer') {
+      return null;
+    }
+    return raw;
+  }
+
   /// Handle post-sale actions: show action sheet with Share/Email/Print options
   static Future<void> handlePostSale(
       BuildContext context, Map<String, dynamic> sale) async {
@@ -37,6 +52,7 @@ class ReceiptManager {
           .trim();
       final storeName =
           (rawStoreName != null && rawStoreName.isNotEmpty) ? rawStoreName : null;
+      final customerName = _resolveCustomerName(sale);
 
       // Build items in expected structure for ThermalPrintingService
       final items = <Map<String, dynamic>>[];
@@ -98,6 +114,7 @@ class ReceiptManager {
             'quantity': quantity,
             'price': price,
             'unit': unitRaw.isNotEmpty ? unitRaw : null,
+            'pricingMode': it['pricingMode']?.toString(),
           });
         }
       }
@@ -120,6 +137,7 @@ class ReceiptManager {
             auth.currentUser?.fullName ??
             auth.currentUser?.email ??
             'POS',
+        customerName: customerName,
         storeName: storeName,
       );
 

@@ -416,7 +416,7 @@ class _PendingOrdersAndCheckoutScreenState
         businessPhone: business?.phone,
         businessEmail: business?.email,
         cashierName: authProvider.currentUser?.fullName,
-        businessLogoUrl: business?.logoUrl,
+        businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
         subscriptionTier: business?.subscriptionTier,
         businessClass: business?.businessClass,
       );

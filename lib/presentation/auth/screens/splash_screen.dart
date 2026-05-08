@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../widgets/loading_indicator.dart';
 import '../../../core/constants/routes.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../services/subscription_service.dart';
 import '../../../services/business_restriction_service.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -201,8 +202,8 @@ class _SplashScreenState extends State<SplashScreen>
         status == 'approved' ||
         status == 'active';
     final endDate = _parseSubscriptionDate(subscriptionData['subscriptionEndDate']);
-    final isWithinDuration =
-        endDate == null || !DateTime.now().isAfter(endDate);
+    final isWithinDuration = endDate == null ||
+        SubscriptionService.isWithinSubscriptionAccessWindow(endDate);
 
     return (hasActiveFlag || statusLooksActive) && isWithinDuration;
   }
@@ -465,4 +466,3 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 }
-

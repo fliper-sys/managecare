@@ -31,6 +31,9 @@ class SubscriptionPlan {
 }
 
 class SubscriptionService {
+  static const int subscriptionGracePeriodDays = 7;
+  static const List<int> subscriptionReminderMilestones = [30, 15, 7, 3];
+
   final FirebaseFirestore _firestore;
   final EmailService _emailService;
 
@@ -932,7 +935,58 @@ class SubscriptionService {
     if (!user.hasActiveSubscription || user.subscriptionEndDate == null) {
       return false;
     }
-    return DateTime.now().isBefore(user.subscriptionEndDate!);
+    return isWithinSubscriptionAccessWindow(user.subscriptionEndDate!);
+  }
+
+  static DateTime normalizeToDate(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
+
+  static bool isWithinSubscriptionAccessWindow(
+    DateTime endDate, {
+    DateTime? now,
+  }) {
+    final today = normalizeToDate(now ?? DateTime.now());
+    final graceEnds =
+        normalizeToDate(endDate).add(const Duration(days: subscriptionGracePeriodDays));
+    return !today.isAfter(graceEnds);
+  }
+
+  static int daysUntilSubscriptionEnd(DateTime endDate, {DateTime? now}) {
+    final today = normalizeToDate(now ?? DateTime.now());
+    return normalizeToDate(endDate).difference(today).inDays;
+  }
+
+  static int daysSinceSubscriptionEnd(DateTime endDate, {DateTime? now}) {
+    final today = normalizeToDate(now ?? DateTime.now());
+    return today.difference(normalizeToDate(endDate)).inDays;
+  }
+
+  static bool isInSubscriptionGracePeriod(DateTime endDate, {DateTime? now}) {
+    final daysSinceEnd = daysSinceSubscriptionEnd(endDate, now: now);
+    return daysSinceEnd >= 0 && daysSinceEnd <= subscriptionGracePeriodDays;
+  }
+
+  static int? calculateReminderMilestone({
+    required DateTime now,
+    required DateTime endDate,
+  }) {
+    final daysLeft = daysUntilSubscriptionEnd(endDate, now: now);
+    return subscriptionReminderMilestones.contains(daysLeft) ? daysLeft : null;
+  }
+
+  static String reminderMilestoneLabel(int daysLeft) {
+    switch (daysLeft) {
+      case 30:
+        return '30 days';
+      case 15:
+        return '15 days';
+      case 7:
+        return '1 week';
+      case 3:
+        return '3 days';
+      default:
+        return '$daysLeft day(s)';
+    }
   }
 
   static String? _normalizeTierId(String? value) {
@@ -1309,7 +1363,7 @@ class SubscriptionService {
       if (subscription['hasActiveSubscription'] == true &&
           subscription['subscriptionEndDate'] != null) {
         final endDate = parseTimestamp(subscription['subscriptionEndDate']);
-        if (DateTime.now().isAfter(endDate)) {
+        if (!isWithinSubscriptionAccessWindow(endDate)) {
           await expireSubscription(userId);
           return false;
         }
@@ -1334,9 +1388,10 @@ class SubscriptionService {
       final isActive = business['isSubscriptionActive'] as bool? ?? false;
       final endRaw = business['subscriptionEndDate'];
       final endDate = endRaw != null ? parseTimestamp(endRaw) : null;
-      final isValid = isActive && (endDate == null || now.isBefore(endDate));
+      final isValid = isActive &&
+          (endDate == null || isWithinSubscriptionAccessWindow(endDate, now: now));
 
-      if (isActive && endDate != null && now.isAfter(endDate)) {
+      if (isActive && endDate != null && !isWithinSubscriptionAccessWindow(endDate, now: now)) {
         await _firestore.collection('businesses').doc(businessId).set({
           'isSubscriptionActive': false,
           'subscriptionStatus': 'expired',

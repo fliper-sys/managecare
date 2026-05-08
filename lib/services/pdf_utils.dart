@@ -327,3 +327,46 @@ pw.Widget buildDocumentFooter({
     ),
   );
 }
+
+pw.Widget buildDocumentWatermark({
+  Uint8List? logoBytes,
+  String? businessName,
+  double opacity = 0.07,
+}) {
+  if (logoBytes == null && (businessName ?? '').trim().isEmpty) {
+    return pw.SizedBox.shrink();
+  }
+
+  return pw.Positioned.fill(
+    child: pw.Center(
+      child: pw.Opacity(
+        opacity: opacity,
+        child: pw.Column(
+          mainAxisSize: pw.MainAxisSize.min,
+          children: [
+            if (logoBytes != null)
+              pw.Container(
+                width: 140,
+                height: 140,
+                child: pw.Image(
+                  pw.MemoryImage(logoBytes),
+                  fit: pw.BoxFit.contain,
+                ),
+              ),
+            if (logoBytes != null) pw.SizedBox(height: 10),
+            if ((businessName ?? '').trim().isNotEmpty)
+              pw.Text(
+                businessName!.trim().toUpperCase(),
+                style: pw.TextStyle(
+                  fontSize: 18,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.grey600,
+                  letterSpacing: 2,
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}

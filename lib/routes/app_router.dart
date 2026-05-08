@@ -25,12 +25,13 @@ import '../presentation/business/screens/business_switcher_screen.dart';
 import '../presentation/sales/screens/sales_screen.dart';
 import '../presentation/sales/screens/sales_history_screen.dart';
 import '../presentation/inventory/screens/inventory_list_screen.dart';
+import '../presentation/inventory/screens/inventory_expiry_tracker_screen.dart';
 import '../presentation/inventory/screens/low_stock_products_screen.dart';
 import '../presentation/inventory/screens/add_inventory_screen.dart';
 import '../presentation/inventory/screens/edit_inventory_screen.dart';
 import '../presentation/customers/screens/customer_list_screen.dart';
 import '../presentation/customers/screens/add_customer_screen.dart';
-import '../presentation/customers/screens/customer_details_screen.dart';
+import 'package:business_manager/presentation/customers/screens/customer_details_screen.dart';
 import '../presentation/reports/screens/reports_dashboard_screen.dart';
 import '../presentation/reports/screens/financial_report_screen.dart';
 import '../presentation/reports/screens/sales_report_screen.dart';
@@ -295,6 +296,9 @@ class AppRouter {
 
       case Routes.inventory:
         return _buildRoute(const InventoryListScreen());
+
+      case Routes.expiryTracker:
+        return _buildRoute(const InventoryExpiryTrackerScreen());
 
       case Routes.productDetails:
         final args = settings.arguments as Map<String, dynamic>?;

@@ -9,6 +9,7 @@ import '../providers/notification_provider.dart';
 import '../providers/reports_provider.dart';
 import '../providers/pharmacy_provider.dart';
 import '../providers/inventory_alerts_provider.dart';
+import 'inventory_expiry_service.dart';
 import 'notification_service.dart';
 
 
@@ -35,6 +36,7 @@ class StartupNotifications {
       final reports = context.read<ReportsProvider>();
       final inventoryProvider = context.read<InventoryAlertsProvider>();
       final pharmacyProvider = context.read<PharmacyProvider>();
+      final expiryService = InventoryExpiryService();
 
       // --- Recent sales (2 most recent) ---
       try {
@@ -101,9 +103,17 @@ class StartupNotifications {
           if (expiring.isNotEmpty) {
             final count = expiring.length;
             final title = count == 1 ? 'Expiring Soon' : 'Expiring Items';
-            final body = '${count} item(s) expiring soon';
+            final body = '$count item(s) expiring soon';
 
             await _sendOrScheduleNotification(business.id, title, body, notifPref, 'startup_expiry');
+          }
+
+          if (business.ownerId.trim().isNotEmpty) {
+            await expiryService.syncExpiryNotifications(
+              businessId: business.id,
+              ownerUserId: business.ownerId,
+              businessName: business.name,
+            );
           }
         }
       } catch (e) {

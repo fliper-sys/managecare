@@ -87,13 +87,22 @@ class UserModel {
     if (!hasActiveSubscription || subscriptionEndDate == null) {
       return false;
     }
-    return DateTime.now().isBefore(subscriptionEndDate!);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final end = subscriptionEndDate!;
+    final normalizedEnd = DateTime(end.year, end.month, end.day);
+    final graceEnds = normalizedEnd.add(const Duration(days: 7));
+    return !today.isAfter(graceEnds);
   }
 
   /// Get days remaining in subscription
   int? get daysRemainingInSubscription {
     if (subscriptionEndDate == null) return null;
-    final diff = subscriptionEndDate!.difference(DateTime.now()).inDays;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final end = subscriptionEndDate!;
+    final normalizedEnd = DateTime(end.year, end.month, end.day);
+    final diff = normalizedEnd.difference(today).inDays;
     return diff > 0 ? diff : 0;
   }
 

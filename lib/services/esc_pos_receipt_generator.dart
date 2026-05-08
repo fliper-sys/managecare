@@ -297,17 +297,26 @@ class EscPosReceiptGenerator {
   }
 
   static String _displayItemName(ReceiptLineItem item) {
+    var displayName = item.name;
     final unit = item.unit?.trim() ?? '';
-    if (unit.isEmpty) {
-      return item.name;
+    if (unit.isNotEmpty) {
+      final normalizedName = displayName.toLowerCase();
+      final normalizedUnit = unit.toLowerCase();
+      if (!normalizedName.contains('($normalizedUnit)') &&
+          !normalizedName.endsWith(' $normalizedUnit')) {
+        displayName = '$displayName ($unit)';
+      }
     }
-    final normalizedName = item.name.toLowerCase();
-    final normalizedUnit = unit.toLowerCase();
-    if (normalizedName.contains('($normalizedUnit)') ||
-        normalizedName.endsWith(' $normalizedUnit')) {
-      return item.name;
+
+    final pricingMode = item.pricingMode?.trim().toLowerCase() ?? '';
+    if (pricingMode == 'retail' || pricingMode == 'wholesale') {
+      final suffix = '[${pricingMode.toUpperCase()}]';
+      if (!displayName.toUpperCase().contains(suffix)) {
+        displayName = '$displayName $suffix';
+      }
     }
-    return '${item.name} ($unit)';
+
+    return displayName;
   }
 }
 
@@ -318,6 +327,7 @@ class ReceiptLineItem {
   final double unitPrice;
   final double total;
   final String? unit; // e.g. 'L', 'kg', 'litre', 'cyl'
+  final String? pricingMode;
 
   ReceiptLineItem({
     required this.name,
@@ -325,6 +335,7 @@ class ReceiptLineItem {
     required this.unitPrice,
     required this.total,
     this.unit,
+    this.pricingMode,
   });
 }
 

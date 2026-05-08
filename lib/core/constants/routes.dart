@@ -30,6 +30,7 @@ class Routes {
   static const String workerInventory = '/worker/inventory';
 
   static const String inventory = '/inventory';
+  static const String expiryTracker = '/inventory/expiry-tracker';
   static const String inventoryAdd = '/inventory/add';
   static const String inventoryEdit = '/inventory/edit';
   static const String inventorySearch = '/inventory/search';

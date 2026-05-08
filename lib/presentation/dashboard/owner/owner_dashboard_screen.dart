@@ -2894,6 +2894,13 @@ class _HomeTabState extends State<_HomeTab> {
             route: Routes.lowStockProducts,
           ),
           _QuickActionItem(
+            title: 'Expiry Tracker',
+            subtitle: 'Track expiring stock',
+            icon: Icons.event_busy_rounded,
+            color: Colors.red,
+            route: Routes.expiryTracker,
+          ),
+          _QuickActionItem(
             title: 'Procurement',
             subtitle: 'Manage inventory',
             icon: Icons.shopping_cart_rounded,
@@ -3095,6 +3102,13 @@ class _HomeTabState extends State<_HomeTab> {
             icon: Icons.warning_rounded,
             color: Colors.orange,
             route: Routes.lowStockProducts,
+          ),
+          _QuickActionItem(
+            title: 'Expiry Tracker',
+            subtitle: 'Track expiring stock',
+            icon: Icons.event_busy_rounded,
+            color: Colors.red,
+            route: Routes.expiryTracker,
           ),
           _QuickActionItem(
             title: 'Procurement',
