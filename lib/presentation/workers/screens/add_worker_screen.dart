@@ -80,7 +80,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
   List<String> _getRolesForBusiness(String businessType) {
     switch (businessType.toLowerCase()) {
       case 'restaurant':
-        return ['manager', 'chef', 'cashier', 'waiter', 'staff'];
+        return ['sub_admin', 'manager', 'chef', 'cashier', 'waiter', 'staff'];
       case 'salon':
       case 'barber':
       case 'barbershop':
@@ -102,6 +102,31 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
         ];
       default:
         return ['manager', 'cashier', 'staff', 'assistant'];
+    }
+  }
+
+  List<String> _getPermissionsForBusiness(String businessType) {
+    switch (businessType.toLowerCase()) {
+      case 'restaurant':
+        return const [
+          'sales',
+          'view_orders',
+          'manage_menu',
+          'procurement_management',
+          'table_management',
+          'view_inventory',
+          'view_reports',
+          'view_low_stock',
+          'manage_staff',
+        ];
+      default:
+        return const [
+          'sales',
+          'inventory_management',
+          'customer_management',
+          'reports_access',
+          'worker_management',
+        ];
     }
   }
 
@@ -282,6 +307,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           'phoneNumber': _phoneController.text.trim(),
           'role': primaryRole,
           'roles': _selectedRoles.toList(),
+          'customPermissions': selectedPermissions.toList(),
           'serviceIds': _selectedServiceIds,
           'serviceNames': selectedServiceNames,
           'commissionPercentage': commissionPct,
@@ -739,7 +765,18 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                 style: AppTextStyles.heading3,
               ),
               const SizedBox(height: 12),
-              const PermissionSelector(),
+              PermissionSelector(
+                availablePermissions: _getPermissionsForBusiness(
+                  context.read<BusinessProvider>().currentBusiness?.businessType ??
+                      '',
+                ),
+                selectedPermissions: selectedPermissions,
+                onChanged: (value) {
+                  selectedPermissions
+                    ..clear()
+                    ..addAll(value);
+                },
+              ),
               const SizedBox(height: 32),
 
               // Add Worker Button

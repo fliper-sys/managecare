@@ -20,7 +20,9 @@ class GymDashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(
         title: const Text('Gym Dashboard'),
         backgroundColor: AppColors.primary,
@@ -209,7 +211,7 @@ class GymDashboardScreen extends StatelessWidget {
                             child: Container(
                               width: 86,
                               decoration: BoxDecoration(
-                                  color: Colors.grey[100],
+                                  color: colorScheme.surfaceContainer,
                                   borderRadius: BorderRadius.circular(12)),
                               child: const Center(
                                   child: Text('Plans',
@@ -246,7 +248,7 @@ class GymDashboardScreen extends StatelessWidget {
                                             color: Colors.red,
                                             shape: BoxShape.circle,
                                             border: Border.all(
-                                                color: Colors.white,
+                                                color: colorScheme.surface,
                                                 width: 1.5)),
                                       ),
                                     ),
@@ -467,6 +469,7 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(12),
@@ -478,11 +481,12 @@ class _MetricCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(title,
-                style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                style: theme.textTheme.bodySmall),
             const SizedBox(height: 6),
             Text(value,
-                style:
-                    const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                )),
           ],
         ),
       ),

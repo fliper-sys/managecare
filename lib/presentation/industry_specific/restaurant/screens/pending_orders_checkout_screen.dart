@@ -797,12 +797,12 @@ class _PendingOrdersAndCheckoutScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Active Orders Awaiting Payment',
+                  'Order Workflow & Checkout',
                   style: AppTextStyles.heading3,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Keep service moving while you settle all unpaid tables in one place.',
+                  'Track pending, preparing, ready-to-serve, and unpaid tables in one place.',
                   style: AppTextStyles.body2.copyWith(
                     color: AppColors.textSecondary,
                   ),
@@ -813,7 +813,7 @@ class _PendingOrdersAndCheckoutScreenState
                   child: Row(
                     children: [
                       _OrderStatusBadge(
-                        label: 'Payment Queue',
+                        label: 'Orders History',
                         count: unpaidOrders.length,
                         color: AppColors.error,
                       ),

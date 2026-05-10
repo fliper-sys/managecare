@@ -315,10 +315,26 @@ class MarketerProvider extends ChangeNotifier {
 
       for (final marketer in _marketers) {
         final marketerEmail = _normalizeEmail(marketer.email);
+        
+        // Find users with matching referralEmail
+        final usersWithReferralEmail = usersById.entries
+            .where((entry) => _normalizeEmail(_readString(entry.value['referralEmail'] ?? entry.value['referredBy'])) == marketerEmail)
+            .map((entry) => entry.key)
+            .toList();
+
+        final businessesWithReferralEmailOwnerIds = businessesById.values
+            .where((b) => _normalizeEmail(_readString(b['referralEmail'] ?? b['referredBy'])) == marketerEmail)
+            .map((b) => _readString(b['ownerId']))
+            .where((id) => id.isNotEmpty)
+            .toList();
+
         final linkedUserIds = <String>{
           ...marketer.referredUserIds,
           ...?linkedUserIdsByMarketer[marketerEmail],
+          ...usersWithReferralEmail,
+          ...businessesWithReferralEmailOwnerIds,
         };
+        
         final marketerRewards =
             rewardsByMarketer[marketerEmail] ?? const <MarketerRewardEntry>[];
         final marketerReferrals =
@@ -749,6 +765,7 @@ class MarketerProvider extends ChangeNotifier {
     String? phoneNumber,
     String? profilePhotoUrl,
     bool? isActive,
+    double? commissionRateOverride,
   }) async {
     try {
       _isLoading = true;
@@ -764,6 +781,14 @@ class MarketerProvider extends ChangeNotifier {
       if (profilePhotoUrl != null)
         updateData['profilePhotoUrl'] = profilePhotoUrl;
       if (isActive != null) updateData['isActive'] = isActive;
+      if (commissionRateOverride != null) {
+        // -1 acts as a sentinel value to clear the override
+        if (commissionRateOverride < 0) {
+          updateData['commissionRateOverride'] = FieldValue.delete();
+        } else {
+          updateData['commissionRateOverride'] = commissionRateOverride;
+        }
+      }
 
       await _firestore
           .collection('app_marketers')
@@ -778,6 +803,7 @@ class MarketerProvider extends ChangeNotifier {
           phoneNumber: phoneNumber,
           profilePhotoUrl: profilePhotoUrl,
           isActive: isActive,
+          commissionRateOverride: commissionRateOverride != null && commissionRateOverride < 0 ? null : commissionRateOverride,
         );
       }
 
@@ -1255,8 +1281,8 @@ class MarketerProvider extends ChangeNotifier {
 
       final marketerDoc = marketerSnapshot.docs.first;
       final marketer = MarketerModel.fromFirestore(marketerDoc);
-      final commissionAmount =
-          amount * _rewardConfig.subscriptionCommissionRate;
+      final commissionRate = marketer.commissionRateOverride ?? _rewardConfig.subscriptionCommissionRate;
+      final commissionAmount = amount * commissionRate;
       if (commissionAmount <= 0) return false;
 
       final referralSnapshot = await _firestore

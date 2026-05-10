@@ -18,6 +18,7 @@ class MarketerModel {
   final double totalCommissionEarned;
   final int totalReferralsApproved;
   final int totalReferralsPending;
+  final double? commissionRateOverride;
 
   MarketerModel({
     required this.id,
@@ -36,6 +37,7 @@ class MarketerModel {
     this.totalCommissionEarned = 0.0,
     this.totalReferralsApproved = 0,
     this.totalReferralsPending = 0,
+    this.commissionRateOverride,
   });
 
   /// Create from Firestore document
@@ -58,6 +60,7 @@ class MarketerModel {
       totalCommissionEarned: (data['totalCommissionEarned'] ?? 0.0).toDouble(),
       totalReferralsApproved: data['totalReferralsApproved'] ?? 0,
       totalReferralsPending: data['totalReferralsPending'] ?? 0,
+      commissionRateOverride: data['commissionRateOverride'] != null ? (data['commissionRateOverride'] as num).toDouble() : null,
     );
   }
 
@@ -79,6 +82,7 @@ class MarketerModel {
       'totalCommissionEarned': totalCommissionEarned,
       'totalReferralsApproved': totalReferralsApproved,
       'totalReferralsPending': totalReferralsPending,
+      'commissionRateOverride': commissionRateOverride,
     };
   }
 
@@ -96,6 +100,7 @@ class MarketerModel {
     double? totalCommissionEarned,
     int? totalReferralsApproved,
     int? totalReferralsPending,
+    double? commissionRateOverride,
   }) {
     return MarketerModel(
       id: id,
@@ -114,6 +119,7 @@ class MarketerModel {
       totalCommissionEarned: totalCommissionEarned ?? this.totalCommissionEarned,
       totalReferralsApproved: totalReferralsApproved ?? this.totalReferralsApproved,
       totalReferralsPending: totalReferralsPending ?? this.totalReferralsPending,
+      commissionRateOverride: commissionRateOverride ?? this.commissionRateOverride,
     );
   }
 }

@@ -283,7 +283,8 @@ class AdminProvider extends ChangeNotifier {
 
   bool _isBusinessAvailable(Map<String, dynamic> business) {
     return !_isBusinessRestricted(business) &&
-        (business['isActive'] == null || _readBool(business['isActive']));
+        (business['isActive'] == null || _readBool(business['isActive'])) &&
+        _isSubscriptionActive(business);
   }
 
   bool _isBusinessRestricted(Map<String, dynamic> business) {

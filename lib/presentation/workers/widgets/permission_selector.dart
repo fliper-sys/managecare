@@ -1,20 +1,49 @@
 import 'package:flutter/material.dart';
 
 class PermissionSelector extends StatefulWidget {
-  const PermissionSelector({super.key});
+  final List<String> availablePermissions;
+  final Set<String> selectedPermissions;
+  final ValueChanged<Set<String>>? onChanged;
+
+  const PermissionSelector({
+    super.key,
+    this.availablePermissions = const [
+      'sales',
+      'inventory_management',
+      'customer_management',
+      'reports_access',
+      'worker_management',
+    ],
+    this.selectedPermissions = const {},
+    this.onChanged,
+  });
 
   @override
   State<PermissionSelector> createState() => _PermissionSelectorState();
 }
 
 class _PermissionSelectorState extends State<PermissionSelector> {
-  final permissions = {
-    'Sales Management': false,
-    'Inventory Management': false,
-    'Customer Management': false,
-    'Reports Access': false,
-    'Worker Management': false,
-  };
+  late final Map<String, bool> permissions;
+
+  @override
+  void initState() {
+    super.initState();
+    permissions = {
+      for (final permission in widget.availablePermissions)
+        permission: widget.selectedPermissions.contains(permission),
+    };
+  }
+
+  String _labelFor(String permission) {
+    return permission
+        .split('_')
+        .map(
+          (part) => part.isEmpty
+              ? part
+              : '${part[0].toUpperCase()}${part.substring(1)}',
+        )
+        .join(' ');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,10 +57,16 @@ class _PermissionSelectorState extends State<PermissionSelector> {
         const SizedBox(height: 12),
         ...permissions.entries.map(
           (entry) => CheckboxListTile(
-            title: Text(entry.key),
+            title: Text(_labelFor(entry.key)),
             value: entry.value,
             onChanged: (value) {
               setState(() => permissions[entry.key] = value ?? false);
+              widget.onChanged?.call(
+                permissions.entries
+                    .where((permission) => permission.value)
+                    .map((permission) => permission.key)
+                    .toSet(),
+              );
             },
           ),
         ),

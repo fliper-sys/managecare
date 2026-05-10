@@ -1,7 +1,14 @@
 /// Worker permissions and role-based access control
 class WorkerPermissions {
+  static const Set<String> _fullAccessRoles = {'owner', 'admin', 'sub_admin'};
+
   static const Map<String, List<String>> rolePermissions = {
-    'cashier': ['sales', 'view_inventory', 'view_sales_history'],
+    'cashier': [
+      'sales',
+      'view_inventory',
+      'view_sales_history',
+      'view_orders',
+    ],
     'manager': [
       'sales',
       'view_inventory',
@@ -11,6 +18,28 @@ class WorkerPermissions {
       'payroll_view',
       'apply_discount',
       'manage_staff',
+      'manage_menu',
+      'procurement_management',
+      'table_management',
+      'view_orders',
+      'view_reports',
+      'view_low_stock',
+    ],
+    'sub_admin': [
+      'sales',
+      'view_inventory',
+      'manage_inventory',
+      'view_sales_history',
+      'attendance',
+      'payroll_view',
+      'apply_discount',
+      'manage_staff',
+      'manage_menu',
+      'procurement_management',
+      'table_management',
+      'view_orders',
+      'view_reports',
+      'view_low_stock',
     ],
     'staff': ['sales', 'view_inventory', 'attendance'],
     'worker': ['sales', 'view_inventory', 'attendance'],
@@ -23,8 +52,14 @@ class WorkerPermissions {
     'pharmacy_assistant': ['sales', 'view_inventory'],
     'bartender': ['sales', 'view_inventory'],
     'pump_operator': ['sales', 'view_inventory'],
-    'chef': ['manage_menu', 'view_orders'],
-    'waiter': ['sales', 'view_orders'],
+    'chef': [
+      'manage_menu',
+      'view_orders',
+      'procurement_management',
+      'view_inventory',
+      'view_low_stock',
+    ],
+    'waiter': ['sales', 'view_orders', 'table_management'],
     'receptionist': ['bookings', 'guest_checkin', 'view_inventory'],
     'frontdesk': ['bookings', 'guest_checkin', 'view_inventory'],
     'housekeeper': ['room_status', 'maintenance_requests'],
@@ -36,6 +71,9 @@ class WorkerPermissions {
   };
 
   static bool hasPermission(String role, String permission) {
+    if (_fullAccessRoles.contains(role.toLowerCase())) {
+      return true;
+    }
     final permissions = rolePermissions[role.toLowerCase()] ?? [];
     return permissions.contains(permission);
   }
@@ -54,30 +92,39 @@ class WorkerPermissions {
 
   static bool canEditPrice(String role) {
     final normalizedRole = role.toLowerCase();
-    return normalizedRole == 'owner' || normalizedRole == 'admin';
+    return _fullAccessRoles.contains(normalizedRole);
   }
 
   static bool canViewAnalytics(String role) =>
       hasPermission(role, 'view_sales_history');
 
   static bool canManageStaff(String role) =>
-      role.toLowerCase() == 'owner' ||
+      _fullAccessRoles.contains(role.toLowerCase()) ||
       role.toLowerCase() == 'manager' ||
       hasPermission(role, 'manage_staff');
 
   static bool canAccessPayroll(String role) =>
-      role.toLowerCase() == 'owner' || hasPermission(role, 'payroll_view');
+      _fullAccessRoles.contains(role.toLowerCase()) ||
+      hasPermission(role, 'payroll_view');
 
   static bool canAttendance(String role) => hasPermission(role, 'attendance');
 
   static bool canApplyDiscount(String role) =>
-      role.toLowerCase() == 'owner' || hasPermission(role, 'apply_discount');
+      _fullAccessRoles.contains(role.toLowerCase()) ||
+      hasPermission(role, 'apply_discount');
 
   static List<String> getAvailableRoles(String businessType) {
     final rolesByBusiness = <String, List<String>>{
       'pharmacy': ['cashier', 'pharmacist', 'pharmacy_assistant', 'manager'],
       'retail': ['cashier', 'manager', 'staff'],
-      'restaurant': ['waiter', 'bartender', 'chef', 'manager'],
+      'restaurant': [
+        'sub_admin',
+        'manager',
+        'waiter',
+        'cashier',
+        'chef',
+        'staff',
+      ],
       'hotel': [
         'receptionist',
         'frontdesk',
@@ -117,6 +164,7 @@ class WorkerPermissions {
   static String getRoleDisplayName(String role) {
     final displayNames = {
       'cashier': 'Cashier',
+      'sub_admin': 'Sub Admin',
       'manager': 'Manager',
       'staff': 'Staff',
       'worker': 'Worker',

@@ -98,8 +98,10 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: colorScheme.surface,
       body: Stack(
         children: [
           // Top gradient header
@@ -247,11 +249,10 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                       const SizedBox(height: 24),
 
                       // Operations
-                      const Text('Operations',
-                          style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87)),
+                      Text('Operations',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          )),
                       const SizedBox(height: 16),
                       GridView.count(
                         shrinkWrap: true,
@@ -309,11 +310,10 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                       Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Recent Transactions',
-                                style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black87)),
+                            Text('Recent Transactions',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                )),
                             TextButton(
                                 onPressed: () => Navigator.pushNamed(
                                     context, Routes.gasSalesHistory),
@@ -340,23 +340,24 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                                       margin: const EdgeInsets.only(bottom: 12),
                                       padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
-                                          color: Colors.white,
+                                          color: colorScheme.surfaceContainerHighest,
                                           borderRadius:
                                               BorderRadius.circular(12),
                                           border: Border.all(
-                                              color: Colors.grey.shade100)),
+                                              color: colorScheme.outlineVariant)),
                                       child: Row(
                                         children: [
                                           Container(
                                               padding: const EdgeInsets.all(10),
                                               decoration: BoxDecoration(
-                                                  color: Colors.grey[100],
+                                                  color: colorScheme.surfaceContainer,
                                                   borderRadius:
                                                       BorderRadius.circular(
                                                           12)),
-                                              child: const Icon(
+                                              child: Icon(
                                                   Icons.local_gas_station,
-                                                  color: Colors.grey)),
+                                                  color: colorScheme
+                                                      .onSurfaceVariant)),
                                           const SizedBox(width: 16),
                                           Expanded(
                                             child: Column(
@@ -368,11 +369,15 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                                                       style: const TextStyle(
                                                           fontWeight:
                                                               FontWeight.bold)),
-                                                  Text(dateStr,
-                                                      style: TextStyle(
-                                                          fontSize: 12,
-                                                          color: Colors
-                                                              .grey[600])),
+                                                  Text(
+                                                    dateStr,
+                                                    style: theme.textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: colorScheme
+                                                              .onSurfaceVariant,
+                                                        ),
+                                                  ),
                                                 ]),
                                           ),
                                           Column(
@@ -386,10 +391,14 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                                                             FontWeight.bold)),
                                                 const SizedBox(height: 4),
                                                 Text(
-                                                    '${(s['fuelVolume'] ?? 0.0).toStringAsFixed(2)} L',
-                                                    style: const TextStyle(
-                                                        fontSize: 12,
-                                                        color: Colors.grey)),
+                                                  '${(s['fuelVolume'] ?? 0.0).toStringAsFixed(2)} L',
+                                                  style: theme.textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        color: colorScheme
+                                                            .onSurfaceVariant,
+                                                      ),
+                                                ),
                                               ])
                                         ],
                                       ),
@@ -418,11 +427,13 @@ class _HeroValueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
@@ -447,25 +458,32 @@ class _HeroValueCard extends StatelessWidget {
                     color: AppColors.primary, size: 20),
               ),
               const SizedBox(width: 12),
-              Text('Revenue (Today)',
-                  style: TextStyle(
-                      color: Colors.grey[600], fontWeight: FontWeight.w500)),
+              Text(
+                'Revenue (Today)',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
           Text(
             NumberFormat.currency(locale: 'en_NG', symbol: '₦').format(value),
-            style: const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.w800,
-                color: Colors.black87),
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 8),
           Row(children: [
             const Icon(Icons.arrow_upward, size: 16, color: Colors.green),
             const SizedBox(width: 4),
-            Text('Updated just now',
-                style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+            Text(
+              'Updated just now',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
           ]),
         ],
       ),
@@ -487,10 +505,12 @@ class _CompactStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -502,10 +522,17 @@ class _CompactStatCard extends StatelessWidget {
       child: Column(children: [
         Icon(icon, color: color, size: 24),
         const SizedBox(height: 8),
-        Text(value,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        Text(
+          value,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         Text(label,
-            style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontSize: 10,
+              color: colorScheme.onSurfaceVariant,
+            ),
             textAlign: TextAlign.center)
       ]),
     );
@@ -526,11 +553,13 @@ class _OperationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-            color: Colors.white,
+            color: colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
@@ -545,8 +574,12 @@ class _OperationCard extends StatelessWidget {
                   color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
               child: Icon(icon, color: color, size: 28)),
           const SizedBox(height: 12),
-          Text(title,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14))
+          Text(
+            title,
+            style: theme.textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          )
         ]),
       ),
     );
@@ -556,14 +589,18 @@ class _OperationCard extends StatelessWidget {
 class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Center(
         child: Padding(
             padding: const EdgeInsets.all(24.0),
             child: Column(children: [
-              Icon(Icons.inbox_outlined, size: 48, color: Colors.grey[300]),
+              Icon(Icons.inbox_outlined,
+                  size: 48, color: colorScheme.onSurfaceVariant),
               const SizedBox(height: 8),
-              Text('No recent activity',
-                  style: TextStyle(color: Colors.grey[400]))
+              Text(
+                'No recent activity',
+                style: TextStyle(color: colorScheme.onSurfaceVariant),
+              )
             ])));
   }
 }

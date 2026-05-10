@@ -60,21 +60,27 @@ class _PrescriptionScreenState extends State<PrescriptionScreen> {
           if (_searchQuery.isNotEmpty) {
             final q = _searchQuery.toLowerCase();
             prescriptions = prescriptions.where((p) {
-              final patient = provider.patients
-                  .cast<Patient?>()
-                  .firstWhere((pt) => pt?.id == p.patientId, orElse: () => null);
+              var patient;
+              try {
+                patient = provider.patients.firstWhere((pt) => pt.id == p.patientId);
+              } catch (_) {
+                patient = null;
+              }
               final pname = patient != null
                   ? patient.name
-                  : ((p as dynamic).patientName as String?) ?? p.patientId;
+                  : (p.patientName ?? p.patientId);
               if (pname.toLowerCase().contains(q)) return true;
               if (p.id.toLowerCase().contains(q)) return true;
-              final prescriber = (p as dynamic).prescriber as String?;
+              final prescriber = p.prescriber;
               if (prescriber != null && prescriber.toLowerCase().contains(q))
                 return true;
               for (final it in p.items) {
-                final drug = provider.drugs
-                    .cast<Drug?>()
-                    .firstWhere((d) => d?.id == it['drugId'], orElse: () => null);
+                var drug;
+                try {
+                  drug = provider.drugs.firstWhere((d) => d.id == (it['drugId'] as String?));
+                } catch (_) {
+                  drug = null;
+                }
                 final dname = drug != null ? drug.name : (it['drugId'] as String);
                 if (dname.toLowerCase().contains(q)) return true;
               }

@@ -57,7 +57,18 @@ class _ManageMenuScreenState extends State<ManageMenuScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final business = context.read<BusinessProvider>().currentBusiness;
+      if (business != null) {
+        context.read<RestaurantProvider>().setBusinessId(business.id);
+        await context.read<RestaurantProvider>().initializeMenu(
+              businessId: business.id,
+            );
+        await context.read<RetailProvider>().initialize(business.id);
+        context
+            .read<RestaurantProvider>()
+            .syncMenuWithRetail(context.read<RetailProvider>());
+      }
       final args = ModalRoute.of(context)?.settings.arguments;
       if (args is Map && args['openAdd'] == true) {
         _showEditDialog();

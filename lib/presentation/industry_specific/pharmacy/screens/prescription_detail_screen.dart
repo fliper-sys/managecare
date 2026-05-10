@@ -27,9 +27,12 @@ class PrescriptionDetailScreen extends StatelessWidget {
       );
     }
 
-    final patient = provider.patients
-        .cast<Patient?>()
-        .firstWhere((pt) => pt?.id == pres.patientId, orElse: () => null);
+    var patient;
+    try {
+      patient = provider.patients.firstWhere((pt) => pt.id == pres.patientId);
+    } catch (_) {
+      patient = null;
+    }
     final patientName =
         patient?.name ?? pres.patientName ?? pres.patientId;
     final patientAge =

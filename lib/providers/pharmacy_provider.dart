@@ -5,6 +5,7 @@ import '../data/repositories/industry_specific/pharmacy_repository_impl.dart';
 import '../data/models/industry_specific/pharmacy/drug_model.dart' as dm;
 import '../data/models/industry_specific/pharmacy/prescription_model.dart'
     as pm;
+import '../data/models/industry_specific/pharmacy/patient_model.dart';
 import '../services/business_notification_manager.dart';
 
 class Drug {
@@ -14,6 +15,7 @@ class Drug {
   DateTime expiry;
   int stock;
   double price; // Price per unit
+  final List<Map<String, dynamic>> prescriptions; // [{ageRange: '8-12', intensity: '1-3', dosage: '2 tablets daily'}, ...]
 
   Drug({
     required this.id,
@@ -22,6 +24,7 @@ class Drug {
     required this.expiry,
     required this.stock,
     this.price = 0.0,
+    this.prescriptions = const [],
   });
 }
 
@@ -53,18 +56,112 @@ class Prescription {
       : createdAt = createdAt ?? DateTime.now();
 }
 
+class Treatment {
+  final String id;
+  final String patientId;
+  final String name;
+  final String drugName;
+  final String dosage;
+  final int frequencyPerDay;
+  final int durationDays;
+  final DateTime startDate;
+  final DateTime endDate;
+  bool isActive;
+  final List<DateTime> administeredDates;
+
+  Treatment({
+    required this.id,
+    required this.patientId,
+    required this.name,
+    required this.drugName,
+    required this.dosage,
+    required this.frequencyPerDay,
+    required this.durationDays,
+    required this.startDate,
+    DateTime? endDate,
+    this.isActive = true,
+    this.administeredDates = const [],
+  }) : endDate = endDate ?? startDate.add(Duration(days: durationDays));
+
+  bool get isCompleted => DateTime.now().isAfter(this.endDate);
+  int get daysRemaining => this.endDate.difference(DateTime.now()).inDays;
+}
+
 class Patient {
   final String id;
   final String name;
   final String phone;
+  final String? email;
+  final String? address;
   final DateTime? dateOfBirth;
+  final String? allergies;
+  final String? bloodType;
+  final String? additionalNotes;
 
   Patient({
     required this.id,
     required this.name,
     required this.phone,
+    this.email,
+    this.address,
     this.dateOfBirth,
+    this.allergies,
+    this.bloodType,
+    this.additionalNotes,
   });
+
+  int? get age {
+    if (dateOfBirth == null) return null;
+    final now = DateTime.now();
+    int age = now.year - dateOfBirth!.year;
+    if (now.month < dateOfBirth!.month ||
+        (now.month == dateOfBirth!.month && now.day < dateOfBirth!.day)) {
+      age--;
+    }
+    return age;
+  }
+
+  factory Patient.fromModel(PatientModel model) {
+    return Patient(
+      id: model.id,
+      name: model.name,
+      phone: model.phone,
+      email: model.email,
+      address: model.address,
+      dateOfBirth: model.dateOfBirth,
+      allergies: model.allergies,
+      bloodType: model.bloodType,
+      additionalNotes: model.additionalNotes,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'phone': phone,
+        if (email != null) 'email': email,
+        if (address != null) 'address': address,
+        if (dateOfBirth != null) 'dateOfBirth': dateOfBirth!.toIso8601String(),
+        if (allergies != null) 'allergies': allergies,
+        if (bloodType != null) 'bloodType': bloodType,
+        if (additionalNotes != null) 'additionalNotes': additionalNotes,
+      };
+
+  factory Patient.fromJson(Map<String, dynamic> json) {
+    return Patient(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      phone: json['phone'] as String? ?? '',
+      email: json['email'] as String?,
+      address: json['address'] as String?,
+      dateOfBirth: json['dateOfBirth'] != null
+          ? DateTime.parse(json['dateOfBirth'] as String)
+          : null,
+      allergies: json['allergies'] as String?,
+      bloodType: json['bloodType'] as String?,
+      additionalNotes: json['additionalNotes'] as String?,
+    );
+  }
 }
 
 class PharmacyProvider extends ChangeNotifier {
@@ -73,6 +170,7 @@ class PharmacyProvider extends ChangeNotifier {
   final List<Drug> _drugs = [];
   final List<Prescription> _prescriptions = [];
   final List<Patient> _patients = [];
+  final List<Treatment> _treatments = [];
 
   PharmacyProvider({PharmacyRepositoryImpl? repository})
       : _repository = repository {
@@ -119,18 +217,21 @@ class PharmacyProvider extends ChangeNotifier {
       await _loadLocalDrugs();
       await _loadLocalPrescriptions();
       await _loadLocalPatients();
+      await _loadLocalTreatments();
     }
   }
 
   List<Drug> get drugs => List.unmodifiable(_drugs);
   List<Prescription> get prescriptions => List.unmodifiable(_prescriptions);
   List<Patient> get patients => List.unmodifiable(_patients);
+  List<Treatment> get treatments => List.unmodifiable(_treatments);
 
   // Controlled drugs are stored locally in Hive
   static const String _controlledBox = 'pharmacy_controlled';
   static const String _drugsBox = 'pharmacy_drugs';
   static const String _prescriptionsBox = 'pharmacy_prescriptions';
   static const String _patientsBox = 'pharmacy_patients';
+  static const String _treatmentsBox = 'pharmacy_treatments';
 
   Set<String> _controlled = {};
 
@@ -248,7 +349,12 @@ class PharmacyProvider extends ChangeNotifier {
                 'id': p.id,
                 'name': p.name,
                 'phone': p.phone,
+                'email': p.email,
+                'address': p.address,
                 'dateOfBirth': p.dateOfBirth?.toIso8601String(),
+                'allergies': p.allergies,
+                'bloodType': p.bloodType,
+                'additionalNotes': p.additionalNotes,
               })
           .toList();
       await box.put('patients', data);
@@ -267,9 +373,64 @@ class PharmacyProvider extends ChangeNotifier {
             id: m['id'] as String,
             name: m['name'] as String,
             phone: m['phone'] as String,
+            email: m['email'] as String?,
+            address: m['address'] as String?,
             dateOfBirth: m['dateOfBirth'] != null
                 ? parseTimestamp(m['dateOfBirth'])
                 : null,
+            allergies: m['allergies'] as String?,
+            bloodType: m['bloodType'] as String?,
+            additionalNotes: m['additionalNotes'] as String?,
+          );
+        }));
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> _saveLocalTreatments() async {
+    try {
+      final box = await Hive.openBox(_treatmentsBox);
+      final data = _treatments
+          .map((t) => {
+                'id': t.id,
+                'patientId': t.patientId,
+                'name': t.name,
+                'drugName': t.drugName,
+                'dosage': t.dosage,
+                'frequencyPerDay': t.frequencyPerDay,
+                'durationDays': t.durationDays,
+                'startDate': t.startDate.toIso8601String(),
+                'endDate': t.endDate.toIso8601String(),
+                'isActive': t.isActive,
+                'administeredDates': t.administeredDates.map((d) => d.toIso8601String()).toList(),
+              })
+          .toList();
+      await box.put('treatments', data);
+    } catch (_) {}
+  }
+
+  Future<void> _loadLocalTreatments() async {
+    try {
+      final box = await Hive.openBox(_treatmentsBox);
+      final data = box.get('treatments', defaultValue: <dynamic>[]) as List<dynamic>;
+      _treatments
+        ..clear()
+        ..addAll(data.map((e) {
+          final m = e as Map<dynamic, dynamic>;
+          return Treatment(
+            id: m['id'] as String,
+            patientId: m['patientId'] as String,
+            name: m['name'] as String,
+            drugName: m['drugName'] as String,
+            dosage: m['dosage'] as String,
+            frequencyPerDay: m['frequencyPerDay'] as int,
+            durationDays: m['durationDays'] as int,
+            startDate: parseTimestamp(m['startDate']),
+            endDate: parseTimestamp(m['endDate']),
+            isActive: m['isActive'] as bool? ?? true,
+            administeredDates: (m['administeredDates'] as List<dynamic>?)
+                ?.map((e) => parseTimestamp(e as String))
+                .toList() ?? [],
           );
         }));
       notifyListeners();
@@ -406,13 +567,19 @@ class PharmacyProvider extends ChangeNotifier {
                   id: p.id,
                   name: p.name,
                   phone: p.phone,
+                  email: p.email,
+                  address: p.address,
                   dateOfBirth: p.dateOfBirth,
+                  allergies: p.allergies,
+                  bloodType: p.bloodType,
+                  additionalNotes: p.additionalNotes,
                 )));
 
       // persist to local cache
       await _saveLocalDrugs();
       await _saveLocalPrescriptions();
       await _saveLocalPatients();
+      await _saveLocalTreatments();
 
       if (kDebugMode) {
         debugPrint('[PharmacyProvider] Loaded ${_drugs.length} drugs, ${_prescriptions.length} prescriptions, ${_patients.length} patients for businessId=$businessId');
@@ -941,7 +1108,12 @@ class PharmacyProvider extends ChangeNotifier {
           'id': patient.id,
           'name': patient.name,
           'phone': patient.phone,
+          'email': patient.email,
+          'address': patient.address,
           'dateOfBirth': patient.dateOfBirth?.toIso8601String(),
+          'allergies': patient.allergies,
+          'bloodType': patient.bloodType,
+          'additionalNotes': patient.additionalNotes,
         }, businessId: businessId);
       } catch (e) {
         if (kDebugMode) debugPrint('[PharmacyProvider] Failed to persist patient: $e');
@@ -950,28 +1122,47 @@ class PharmacyProvider extends ChangeNotifier {
   }
 
   /// Update patient information (optionally persist remotely)
-  Future<void> updatePatient(String patientId, String name, String phone,
-      {DateTime? dateOfBirth,
-      bool persist = false, String? businessId}) async {
+  Future<void> updatePatient(String patientId, {
+    String? name,
+    String? phone,
+    String? email,
+    String? address,
+    DateTime? dateOfBirth,
+    String? allergies,
+    String? bloodType,
+    String? additionalNotes,
+    bool persist = false,
+    String? businessId
+  }) async {
     final patient = _patients.firstWhere((p) => p.id == patientId,
         orElse: () => throw Exception('Patient not found'));
     // Patients are immutable, so we need to remove and re-add
     _patients.remove(patient);
     _patients.add(Patient(
       id: patientId,
-      name: name,
-      phone: phone,
+      name: name ?? patient.name,
+      phone: phone ?? patient.phone,
+      email: email ?? patient.email,
+      address: address ?? patient.address,
       dateOfBirth: dateOfBirth ?? patient.dateOfBirth,
+      allergies: allergies ?? patient.allergies,
+      bloodType: bloodType ?? patient.bloodType,
+      additionalNotes: additionalNotes ?? patient.additionalNotes,
     ));
     notifyListeners();
     await _saveLocalPatients();
     if (persist && _repository != null) {
       try {
         await _repository!.updatePatient(patientId, {
-          'name': name,
-          'phone': phone,
+          'name': name ?? patient.name,
+          'phone': phone ?? patient.phone,
+          'email': email ?? patient.email,
+          'address': address ?? patient.address,
           'businessId': businessId,
           'dateOfBirth': (dateOfBirth ?? patient.dateOfBirth)?.toIso8601String(),
+          'allergies': allergies ?? patient.allergies,
+          'bloodType': bloodType ?? patient.bloodType,
+          'additionalNotes': additionalNotes ?? patient.additionalNotes,
         });
       } catch (e) {
         if (kDebugMode) debugPrint('[PharmacyProvider] Failed to update patient remotely: $e');
@@ -1171,6 +1362,97 @@ class PharmacyProvider extends ChangeNotifier {
         'businessId': businessId,
       });
     }
+  }
+
+  // ==================== TREATMENT METHODS ====================
+
+  /// Add a new treatment for a patient
+  Future<void> addTreatment(Treatment treatment, {bool persist = false, String? businessId}) async {
+    _treatments.add(treatment);
+    notifyListeners();
+    await _saveLocalTreatments();
+    if (persist && _repository != null) {
+      try {
+        await _repository!.addTreatment({
+          'id': treatment.id,
+          'patientId': treatment.patientId,
+          'name': treatment.name,
+          'drugName': treatment.drugName,
+          'dosage': treatment.dosage,
+          'frequencyPerDay': treatment.frequencyPerDay,
+          'durationDays': treatment.durationDays,
+          'startDate': treatment.startDate.toIso8601String(),
+          'endDate': treatment.endDate.toIso8601String(),
+          'isActive': treatment.isActive,
+          'administeredDates': treatment.administeredDates.map((d) => d.toIso8601String()).toList(),
+        }, businessId: businessId);
+      } catch (e) {
+        if (kDebugMode) debugPrint('[PharmacyProvider] Failed to persist treatment: $e');
+      }
+    }
+  }
+
+  /// Get treatments for a patient
+  List<Treatment> getPatientTreatments(String patientId) {
+    return _treatments.where((t) => t.patientId == patientId).toList()
+      ..sort((a, b) => b.startDate.compareTo(a.startDate));
+  }
+
+  /// Get active treatments for a patient
+  List<Treatment> getActivePatientTreatments(String patientId) {
+    return _treatments.where((t) => t.patientId == patientId && t.isActive && !t.isCompleted).toList();
+  }
+
+  /// Mark treatment dose as administered
+  Future<void> administerTreatmentDose(String treatmentId, DateTime date,
+      {bool persist = false, String? businessId, String? userId}) async {
+    final treatment = _treatments.firstWhere((t) => t.id == treatmentId,
+        orElse: () => throw Exception('Treatment not found'));
+
+    if (!treatment.administeredDates.contains(date)) {
+      treatment.administeredDates.add(date);
+    }
+
+    notifyListeners();
+    await _saveLocalTreatments();
+
+    if (persist && _repository != null) {
+      await _repository!.logAudit({
+        'action': 'treatment_dose_administered',
+        'treatmentId': treatmentId,
+        'patientId': treatment.patientId,
+        'date': date.toIso8601String(),
+        'userId': userId ?? 'system',
+        'businessId': businessId,
+      });
+    }
+  }
+
+  /// Complete a treatment
+  Future<void> completeTreatment(String treatmentId,
+      {bool persist = false, String? businessId, String? userId}) async {
+    final treatment = _treatments.firstWhere((t) => t.id == treatmentId,
+        orElse: () => throw Exception('Treatment not found'));
+
+    treatment.isActive = false;
+    notifyListeners();
+    await _saveLocalTreatments();
+
+    if (persist && _repository != null) {
+      await _repository!.logAudit({
+        'action': 'treatment_completed',
+        'treatmentId': treatmentId,
+        'patientId': treatment.patientId,
+        'userId': userId ?? 'system',
+        'businessId': businessId,
+      });
+    }
+  }
+
+  /// Get treatment history for a patient
+  List<Treatment> getPatientTreatmentHistory(String patientId) {
+    return _treatments.where((t) => t.patientId == patientId && !t.isActive).toList()
+      ..sort((a, b) => b.endDate.compareTo(a.endDate));
   }
 }
 

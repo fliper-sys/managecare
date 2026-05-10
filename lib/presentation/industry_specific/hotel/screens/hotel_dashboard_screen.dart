@@ -13,6 +13,8 @@ class HotelDashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     // Determine permissions once to keep build method clean
     final auth = Provider.of<AuthProvider>(context);
     final role = auth.currentUser?.role ?? '';
@@ -29,7 +31,7 @@ class HotelDashboardScreen extends StatelessWidget {
         auth.isOwnerUser || WorkerPermissions.canManageStaff(role);
 
     return Scaffold(
-      backgroundColor: Colors.grey[50], // Modern light background
+      backgroundColor: colorScheme.surface, // Modern light background
       appBar: AppBar(
         title: const Column(
           children: [
@@ -83,6 +85,7 @@ class HotelDashboardScreen extends StatelessWidget {
                   children: [
                     Expanded(
                         child: _buildMetricTile(
+                      context: context,
                       icon: Icons.pie_chart_outline,
                       title: 'Occupancy',
                       value: '${provider.occupancy.toStringAsFixed(1)}%',
@@ -91,6 +94,7 @@ class HotelDashboardScreen extends StatelessWidget {
                     const SizedBox(width: 16),
                     Expanded(
                         child: _buildMetricTile(
+                      context: context,
                       icon: Icons.bed_outlined,
                       title: 'Total Rooms',
                       value: '${provider.totalRooms}',
@@ -103,6 +107,7 @@ class HotelDashboardScreen extends StatelessWidget {
                   children: [
                     Expanded(
                         child: _buildMetricTile(
+                      context: context,
                       icon: Icons.check_circle_outline,
                       title: 'Occupied',
                       value: '${provider.occupiedRooms}',
@@ -111,6 +116,7 @@ class HotelDashboardScreen extends StatelessWidget {
                     const SizedBox(width: 16),
                     Expanded(
                         child: _buildMetricTile(
+                      context: context,
                       icon: Icons.star_border_rounded,
                       title: 'Rating',
                       value: provider.getAverageRating().toStringAsFixed(1),
@@ -121,25 +127,25 @@ class HotelDashboardScreen extends StatelessWidget {
                 const SizedBox(height: 24),
 
                 // 3. ROOM STATUS VISUALIZATION
-                const Text('Room Status Distribution',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text('Room Status Distribution',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
-                _buildRoomStatusBar(provider),
+                _buildRoomStatusBar(context, provider),
                 const SizedBox(height: 24),
 
                 // 4. TODAY'S ACTIVITY
-                const Text('Today\'s Activity',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text('Today\'s Activity',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
                 _buildTodaysSummaryRow(provider),
                 const SizedBox(height: 24),
 
                 // 5. QUICK ACTIONS GRID
-                const Text('Quick Actions',
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                Text('Quick Actions',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
                 _buildActionGrid(context, canBook, canViewService, canManageStaff),
                 const SizedBox(height: 30),
@@ -210,15 +216,18 @@ class HotelDashboardScreen extends StatelessWidget {
   }
 
   Widget _buildMetricTile({
+    required BuildContext context,
     required IconData icon,
     required String title,
     required String value,
     required Color color,
   }) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -240,7 +249,10 @@ class HotelDashboardScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(title,
-              style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+                fontSize: 13,
+              )),
           const SizedBox(height: 4),
           Text(value,
               style:
@@ -250,7 +262,8 @@ class HotelDashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildRoomStatusBar(HotelProvider provider) {
+  Widget _buildRoomStatusBar(BuildContext context, HotelProvider provider) {
+    final colorScheme = Theme.of(context).colorScheme;
     final dist = provider.getRoomStatusDistribution();
 
 
@@ -263,7 +276,7 @@ class HotelDashboardScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -300,7 +313,7 @@ class HotelDashboardScreen extends StatelessWidget {
                   // Fallback if empty to prevent error
                   if (availFlex + occFlex + resFlex + maintFlex == 0)
                     Expanded(
-                        child: Container(color: Colors.grey[300])),
+                        child: Container(color: colorScheme.outlineVariant)),
                 ],
               ),
             ),
@@ -310,10 +323,10 @@ class HotelDashboardScreen extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildLegendItem('Available', availFlex, Colors.green),
-              _buildLegendItem('Occupied', occFlex, Colors.blue),
-              _buildLegendItem('Reserved', resFlex, Colors.orange),
-              _buildLegendItem('Maint.', maintFlex, Colors.red),
+              _buildLegendItem(context, 'Available', availFlex, Colors.green),
+              _buildLegendItem(context, 'Occupied', occFlex, Colors.blue),
+              _buildLegendItem(context, 'Reserved', resFlex, Colors.orange),
+              _buildLegendItem(context, 'Maint.', maintFlex, Colors.red),
             ],
           )
         ],
@@ -321,7 +334,8 @@ class HotelDashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildLegendItem(String label, int count, Color color) {
+  Widget _buildLegendItem(BuildContext context, String label, int count, Color color) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Column(
       children: [
         Row(
@@ -337,7 +351,9 @@ class HotelDashboardScreen extends StatelessWidget {
                     const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           ],
         ),
-        Text(label, style: TextStyle(color: Colors.grey[500], fontSize: 10)),
+        Text(label,
+            style:
+                TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 10)),
       ],
     );
   }
@@ -553,8 +569,9 @@ class HotelDashboardScreen extends StatelessWidget {
     required Color color,
     required VoidCallback onTap,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Material(
-      color: Colors.white,
+      color: colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(12),
       elevation: 1,
       child: InkWell(
@@ -562,7 +579,7 @@ class HotelDashboardScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         child: Container(
           decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: colorScheme.outlineVariant),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(

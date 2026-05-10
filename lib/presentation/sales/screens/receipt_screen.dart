@@ -120,6 +120,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     // Store canonical ISO date and a short time string
     sale['date'] = dateTime.toIso8601String();
     sale['time'] = '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+    sale['tableNo'] =
+        sale['tableNo'] ?? sale['tableLabel'] ?? sale['tableNumber'];
 
     // Human-friendly display date (Month day, Year)
     sale['displayDate'] = DateFormat('MMMM d, yyyy').format(dateTime);
@@ -206,7 +208,12 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     // Normalize items and map common field names to expected ones
     final rawItems = sale['items'];
     final items = _normalizeItems(rawItems).map((item) {
-      final name = item['name'] ?? item['productName'] ?? item['product'] ?? item['productName'] ?? 'Item';
+      final name = item['name'] ??
+          item['productName'] ??
+          item['menuItemName'] ??
+          item['product'] ??
+          item['productName'] ??
+          'Item';
       final quantity = (item['quantity'] ?? item['qty'] ?? 1);
       final price = (item['price'] ?? item['unitPrice'] ?? item['unit_price'] ?? item['unitPriceN'] ?? 0.0);
       final desc = item['description'] ?? item['productDescription'] ?? item['desc'];
@@ -214,7 +221,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       final priceNum = (price is num) ? (price).toDouble() : double.tryParse(price.toString()) ?? 0.0;
       final itemTotal = (item['total'] ?? qtyNum * priceNum);
       return <String, dynamic>{
-        'productName': item['productName'] ?? item['name'],
+        'productName':
+            item['productName'] ?? item['menuItemName'] ?? item['name'],
         'name': name,
         'quantity': qtyNum,
         'quantityRaw': quantity,
@@ -256,7 +264,11 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   }
 
   String _displayReceiptItemName(Map<String, dynamic> item) {
-    final baseName = (item['productName'] ?? item['name'] ?? item['title'] ?? 'Item')
+    final baseName = (item['productName'] ??
+            item['menuItemName'] ??
+            item['name'] ??
+            item['title'] ??
+            'Item')
         .toString()
         .trim();
     var displayName = baseName.isEmpty ? 'Item' : baseName;

@@ -533,6 +533,8 @@ class Server {
   final String phone;
   final String role;
   final bool active;
+  final List<String> sections;
+  final List<String> permissions;
 
   Server({
     required this.id,
@@ -540,6 +542,8 @@ class Server {
     this.phone = '',
     this.role = 'waiter',
     this.active = true,
+    this.sections = const [],
+    this.permissions = const [],
   });
 
   factory Server.fromJson(Map<String, dynamic> json) => Server(
@@ -548,6 +552,14 @@ class Server {
         phone: json['phone'] as String? ?? '',
         role: json['role'] as String? ?? 'waiter',
         active: json['active'] as bool? ?? true,
+        sections: (json['sections'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            const [],
+        permissions: (json['permissions'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            const [],
       );
 
   Map<String, dynamic> toJson() => {
@@ -556,6 +568,8 @@ class Server {
         'phone': phone,
         'role': role,
         'active': active,
+        'sections': sections,
+        'permissions': permissions,
       };
 }
 
@@ -829,6 +843,7 @@ class RestaurantProvider extends ChangeNotifier {
       _businessId = bid;
       if (bid.isNotEmpty) {
         final cached = await _readCacheList('menu', bid);
+        final hadCachedItems = cached.isNotEmpty;
         if (cached.isNotEmpty) {
           _menuItems = cached.map(MenuItem.fromJson).toList();
           notifyListeners();
@@ -837,9 +852,12 @@ class RestaurantProvider extends ChangeNotifier {
             .collection('restaurant_menu')
             .where('businessId', isEqualTo: bid)
             .get();
-        _menuItems = snap.docs
+        final fetchedItems = snap.docs
             .map((d) => MenuItem.fromJson({...d.data(), 'id': d.id}))
             .toList();
+        if (fetchedItems.isNotEmpty || !hadCachedItems) {
+          _menuItems = fetchedItems;
+        }
         await _persistMenuCache();
         if (kDebugMode) print('[RestaurantProvider] initializeMenu: loaded ${_menuItems.length} items for business $bid');
       } else {

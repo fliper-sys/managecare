@@ -134,6 +134,7 @@ class _AppState extends State<App> {
     unawaited(receiptProvider.fetchReceiptPreferences(business.id));
 
     _queueStartupNotificationsIfNeeded();
+    unawaited(_syncBusinessReminders());
     unawaited(_syncBusinessRestrictionWatcher());
 
     Future.microtask(() async {
@@ -347,6 +348,31 @@ class _AppState extends State<App> {
     if (!mounted || _authProvider == null) return;
     final user = _authProvider!.currentUser;
     if (user == null || !user.isOwner) return;
+
+    final restrictionState = await _restrictionService.getRestrictionState(
+      userId: userId,
+      businessId: businessId,
+    );
+
+    if (!mounted) return;
+
+    if (restrictionState != null && restrictionState.isRestricted) {
+      _activeSubscriptionBlockedBusinessId = null;
+      _activeRestrictionBusinessId = restrictionState.businessId;
+      final navigator = _navigatorKey.currentState;
+      if (navigator != null) {
+        navigator.pushNamedAndRemoveUntil(
+          Routes.restrictedBusiness,
+          (_) => false,
+          arguments: {
+            'businessName': restrictionState.businessName,
+            'restrictionReason': restrictionState.restrictionReason,
+            'customerCareWhatsapp': restrictionState.customerCareWhatsapp,
+          },
+        );
+      }
+      return;
+    }
 
     final valid = await SubscriptionService(
       firestore: FirebaseFirestore.instance,

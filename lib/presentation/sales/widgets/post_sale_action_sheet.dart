@@ -28,6 +28,8 @@ import '../../../providers/auth_provider.dart';
 import '../../../core/utils/worker_permissions.dart';
 import '../../../core/utils/currency.dart';
 import '../../../services/pdf_invoice_generator.dart';
+import '../../../../providers/pharmacy_provider.dart';
+import '../../../../services/prescription_print_service.dart';
 
 /// Post-sale action sheet allowing users to choose:
 /// Share receipt as text

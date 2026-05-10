@@ -320,5 +320,37 @@ class PharmacyRepositoryImpl {
       rethrow;
     }
   }
+
+  /// Add a new treatment record
+  Future<void> addTreatment(Map<String, dynamic> treatment, {String? businessId}) async {
+    try {
+      if (businessId == null) return;
+      
+      final data = {
+        ...treatment,
+        'businessId': businessId,
+        'createdAt': DateTime.now().toIso8601String(),
+        'updatedAt': DateTime.now().toIso8601String(),
+      };
+      
+      final treatmentId = treatment['id'] as String?;
+      if (treatmentId != null && treatmentId.isNotEmpty) {
+        await _firestore
+            .collection('businesses')
+            .doc(businessId)
+            .collection('treatments')
+            .doc(treatmentId)
+            .set(data, SetOptions(merge: true));
+      } else {
+        await _firestore
+            .collection('businesses')
+            .doc(businessId)
+            .collection('treatments')
+            .add(data);
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
 }
 

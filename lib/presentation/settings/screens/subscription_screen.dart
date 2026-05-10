@@ -202,9 +202,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   List<Widget> _buildPlanCards({
     required String? businessType,
+    required String? tierId,
     required String currentPlanId,
   }) {
-    return SubscriptionService.getPlansForBusinessType(businessType)
+    return SubscriptionService.getPlansForBusinessType(businessType, tierId: tierId)
         .map((plan) => Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: _PlanCard(
@@ -590,6 +591,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       const SizedBox(height: 12),
                       ..._buildPlanCards(
                         businessType: business?.businessType ?? user?.businessType,
+                        tierId: business?.subscriptionTier ?? business?.businessClass,
                         currentPlanId: currentPlanId,
                       ),
                       const SizedBox(height: 32),

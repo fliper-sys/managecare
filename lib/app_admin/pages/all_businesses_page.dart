@@ -502,7 +502,15 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
       final owner = business['ownerName']?.toString().toLowerCase() ?? '';
       final type = business['businessType']?.toString().toLowerCase() ?? '';
       final businessClass = business['businessClass']?.toString().toLowerCase() ?? 'tier1';
-      final isActive = business['isActive'] ?? true;
+      final isRestricted = business['isRestricted'] == true ||
+          (business['restrictionStatus']?.toString().toLowerCase() == 'restricted');
+      final hasActiveSubscription = business['isSubscriptionActive'] == true ||
+          business['hasActiveSubscription'] == true;
+      final isActive =
+          (business['isActive'] ?? true) == true &&
+          !isRestricted &&
+          business['isDeleted'] != true &&
+          hasActiveSubscription;
 
       final searchQuery = _searchController.text.toLowerCase();
       final matchesSearch = name.contains(searchQuery) ||

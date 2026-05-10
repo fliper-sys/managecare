@@ -871,12 +871,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                           SizedBox(
                             width: double.infinity,
                             child: Row(
-                              children: [
+                              children: const [
                                 Icon(Icons.image_outlined,
                                     size: 18, color: AppColors.primary),
-                                const SizedBox(width: 8),
+                                SizedBox(width: 8),
                                 Expanded(
-                                  child: const Text(
+                                  child: Text(
                                       'Reference Image (optional)',
                                       style: TextStyle(
                                           fontWeight: FontWeight.w600,

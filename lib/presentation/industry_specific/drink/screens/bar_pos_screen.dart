@@ -670,6 +670,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         'customerName': _resolvedCustomerName(),
         if (_tableLabelController.text.trim().isNotEmpty)
           'tableLabel': _tableLabelController.text.trim(),
+        if (_tableLabelController.text.trim().isNotEmpty)
+          'tableNo': _tableLabelController.text.trim(),
         if (authProvider.currentUser?.id != null)
           'workerId': authProvider.currentUser!.id,
         if (authProvider.currentUser?.fullName != null)

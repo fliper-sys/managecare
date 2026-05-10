@@ -329,6 +329,7 @@ class ThermalPrintingService {
     String? cashier,
     String? customerName,
     String? storeName,
+    String? tableLabel,
   }) {
     final sb = StringBuffer();
 
@@ -356,6 +357,9 @@ class ThermalPrintingService {
     }
     if (customerName != null && customerName.isNotEmpty) {
       sb.writeln('Customer: $customerName');
+    }
+    if (tableLabel != null && tableLabel.trim().isNotEmpty) {
+      sb.writeln('Table: ${tableLabel.trim()}');
     }
 
     sb.writeln('-' * paperWidth);

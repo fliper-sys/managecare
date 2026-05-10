@@ -43,6 +43,8 @@ class BusinessRestrictionService {
     ).toLowerCase();
 
     return _readBool(businessData['isRestricted']) ||
+        businessData['isDeleted'] == true ||
+        businessData['isActive'] == false ||
         restrictionStatus == 'restricted' ||
         restrictionStatus == 'suspended' ||
         restrictionStatus == 'blocked';
@@ -80,7 +82,13 @@ class BusinessRestrictionService {
             ? _readString(businessData['name'])
             : resolvedBusinessId,
         isRestricted: _isRestrictedBusiness(businessData),
-        restrictionReason: _readString(businessData['restrictionReason']),
+        restrictionReason: _readString(businessData['restrictionReason']).isNotEmpty
+            ? _readString(businessData['restrictionReason'])
+            : businessData['isDeleted'] == true
+                ? 'This business was deleted by admin and can only be restored by support.'
+                : businessData['isActive'] == false
+                    ? 'This business is currently deactivated. Contact customer care for support.'
+                    : '',
         customerCareWhatsapp: _readString(
           settings['customerCareWhatsapp'] ??
               settings['supportWhatsapp'] ??

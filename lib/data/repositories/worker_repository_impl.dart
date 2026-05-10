@@ -87,12 +87,23 @@ class WorkerRepositoryImpl implements WorkerRepository {
           '[WorkerRepo] Found ${usersWorkers.length} workers in users collection');
 
       // Merge and deduplicate (prefer users collection data as it's more up-to-date)
+      String _dedupeKey(Map<String, dynamic> worker) {
+        final email = ((worker['emailLowercase'] ?? worker['email']) as String?)
+                ?.trim()
+                .toLowerCase() ??
+            '';
+        if (email.isNotEmpty) {
+          return 'email:$email';
+        }
+        return 'id:${(worker['id'] ?? '').toString()}';
+      }
+
       final workerMap = <String, dynamic>{};
       for (var worker in workers) {
-        workerMap[worker['id']] = worker;
+        workerMap[_dedupeKey(Map<String, dynamic>.from(worker))] = worker;
       }
       for (var worker in usersWorkers) {
-        workerMap[worker['id']] = worker;
+        workerMap[_dedupeKey(Map<String, dynamic>.from(worker))] = worker;
       }
 
       final result = workerMap.values

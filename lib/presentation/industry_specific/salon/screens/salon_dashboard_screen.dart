@@ -31,8 +31,10 @@ class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Scaffold(
-      backgroundColor: Colors.grey[50], // Lighter background for contrast
+      backgroundColor: colorScheme.surface, // Lighter background for contrast
       appBar: AppBar(
         elevation: 0,
         title: const Text('Salon Dashboard'),
@@ -84,9 +86,8 @@ class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
                   // 1. Welcome / Header Section
                   Text(
                     'Good Morning, Manager',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -268,17 +269,18 @@ class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(32),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade200),
+                        border: Border.all(color: colorScheme.outlineVariant),
                       ),
                       child: Column(
                         children: [
-                          Icon(Icons.event_busy, size: 48, color: Colors.grey.shade300),
+                          Icon(Icons.event_busy,
+                              size: 48, color: colorScheme.onSurfaceVariant),
                           const SizedBox(height: 8),
                           Text(
                             'No upcoming appointments',
-                            style: TextStyle(color: Colors.grey.shade500),
+                            style: TextStyle(color: colorScheme.onSurfaceVariant),
                           ),
                         ],
                       ),
@@ -330,15 +332,19 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade100),
+        border: Border.all(color: colorScheme.outlineVariant),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.shade100,
+            color: Colors.black.withOpacity(
+              theme.brightness == Brightness.dark ? 0.18 : 0.06,
+            ),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -358,16 +364,17 @@ class _StatCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 20,
+            style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
-              color: Colors.black87,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             title,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontSize: 12,
+              color: colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -390,6 +397,7 @@ class _QuickActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.only(right: 12),
       child: GestureDetector(
@@ -400,9 +408,13 @@ class _QuickActionButton extends StatelessWidget {
               height: 50,
               width: 50,
               decoration: BoxDecoration(
-                color: isPrimary ? AppColors.primary : Colors.white,
+                color: isPrimary
+                    ? AppColors.primary
+                    : colorScheme.surfaceContainerHighest,
                 shape: BoxShape.circle,
-                border: isPrimary ? null : Border.all(color: Colors.grey.shade300),
+                border: isPrimary
+                    ? null
+                    : Border.all(color: colorScheme.outlineVariant),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.05),
@@ -413,7 +425,7 @@ class _QuickActionButton extends StatelessWidget {
               ),
               child: Icon(
                 icon,
-                color: isPrimary ? Colors.white : Colors.grey.shade700,
+                color: isPrimary ? Colors.white : colorScheme.onSurfaceVariant,
                 size: 24,
               ),
             ),
@@ -423,7 +435,7 @@ class _QuickActionButton extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w500,
-                color: Colors.grey.shade700,
+                color: colorScheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -440,12 +452,13 @@ class _AppointmentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade100),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Row(
         children: [
@@ -453,7 +466,7 @@ class _AppointmentCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.grey.shade50,
+              color: colorScheme.surfaceContainer,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Builder(builder: (_) {
@@ -466,14 +479,21 @@ class _AppointmentCard extends StatelessWidget {
                 return Column(
                   children: [
                     Text(timeStr, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text(ampm, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                    Text(ampm,
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: colorScheme.onSurfaceVariant)),
                   ],
                 );
               } catch (e) {
                 return Column(
-                  children: const [
-                    Text("--:--", style: TextStyle(fontWeight: FontWeight.bold)),
-                    Text("", style: TextStyle(fontSize: 10, color: Colors.grey)),
+                  children: [
+                    const Text("--:--",
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text("",
+                        style: TextStyle(
+                            fontSize: 10,
+                            color: colorScheme.onSurfaceVariant)),
                   ],
                 );
               }

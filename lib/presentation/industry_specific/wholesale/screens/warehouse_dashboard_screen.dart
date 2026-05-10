@@ -55,8 +55,10 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: colorScheme.surface,
       body: Consumer<WholesaleProvider>(
         builder: (context, provider, _) {
           final totalItems = provider.getTotalItems();
@@ -213,12 +215,10 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
                           const SizedBox(height: 24),
 
                           // Operations Grid
-                          const Text(
+                          Text(
                             'Operations',
-                            style: TextStyle(
-                              fontSize: 18,
+                            style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.bold,
-                              color: Colors.black87,
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -284,12 +284,10 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text(
+                              Text(
                                 'Recent Orders',
-                                style: TextStyle(
-                                  fontSize: 18,
+                                style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
                                 ),
                               ),
                               TextButton(
@@ -433,11 +431,13 @@ class _HeroValueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
@@ -464,8 +464,8 @@ class _HeroValueCard extends StatelessWidget {
               const SizedBox(width: 12),
               Text(
                 'Total Inventory Value',
-                style: TextStyle(
-                  color: Colors.grey[600],
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -474,10 +474,8 @@ class _HeroValueCard extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             formatCurrency(value, decimalDigits: 0), // Requires intl package or simple formatting
-            style: const TextStyle(
-              fontSize: 32,
+            style: theme.textTheme.headlineMedium?.copyWith(
               fontWeight: FontWeight.w800,
-              color: Colors.black87,
               letterSpacing: -1,
             ),
           ),
@@ -488,7 +486,10 @@ class _HeroValueCard extends StatelessWidget {
               const SizedBox(width: 4),
               Text(
                 'Updated just now',
-                style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
@@ -513,10 +514,12 @@ class _CompactStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -539,9 +542,9 @@ class _CompactStatCard extends StatelessWidget {
           ),
           Text(
             label,
-            style: TextStyle(
+            style: theme.textTheme.bodySmall?.copyWith(
               fontSize: 10,
-              color: Colors.grey[500],
+              color: colorScheme.onSurfaceVariant,
             ),
             textAlign: TextAlign.center,
           ),
@@ -558,14 +561,25 @@ class _LowStockBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [Colors.orange.shade50, Colors.white],
+          colors: [
+            Colors.orange.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.18 : 0.10,
+            ),
+            colorScheme.surfaceContainerHighest,
+          ],
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.orange.shade200),
+        border: Border.all(
+          color: Colors.orange.withValues(
+            alpha: theme.brightness == Brightness.dark ? 0.35 : 0.2,
+          ),
+        ),
       ),
       child: Row(
         children: [
@@ -621,11 +635,12 @@ class _OperationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
@@ -683,25 +698,28 @@ class _OrderListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final statusColor = _getStatusColor(order.status);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade100),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.grey[100],
+              color: colorScheme.surfaceContainer,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.receipt_long, color: Colors.grey),
+            child:
+                Icon(Icons.receipt_long, color: colorScheme.onSurfaceVariant),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -714,7 +732,9 @@ class _OrderListTile extends StatelessWidget {
                 ),
                 Text(
                   '${order.items.length} Items',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -753,16 +773,18 @@ class _OrderListTile extends StatelessWidget {
 class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
-            Icon(Icons.inbox_outlined, size: 48, color: Colors.grey[300]),
+            Icon(Icons.inbox_outlined,
+                size: 48, color: colorScheme.onSurfaceVariant),
             const SizedBox(height: 8),
             Text(
               'No recent activity',
-              style: TextStyle(color: Colors.grey[400]),
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
             ),
           ],
         ),

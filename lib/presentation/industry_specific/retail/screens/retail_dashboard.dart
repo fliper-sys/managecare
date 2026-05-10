@@ -52,8 +52,9 @@ class _RetailDashboardState extends State<RetailDashboard>
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: Colors.grey[50], // Softer background
+      backgroundColor: colorScheme.surface, // Softer background
       body: Consumer<RetailProvider>(
         builder: (context, retailProvider, _) {
           // Pre-calculate stats
@@ -211,7 +212,7 @@ class _RetailDashboardState extends State<RetailDashboard>
                   child: Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: Colors.grey[200],
+                      color: colorScheme.surfaceContainer,
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Row(
@@ -321,15 +322,18 @@ class _RetailDashboardState extends State<RetailDashboard>
   }
 
   Widget _buildEmptySliver(String message) {
+    final colorScheme = Theme.of(context).colorScheme;
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.all(40),
         child: Center(
           child: Column(
             children: [
-              Icon(Icons.inbox_outlined, size: 48, color: Colors.grey[300]),
+              Icon(Icons.inbox_outlined,
+                  size: 48, color: colorScheme.onSurfaceVariant),
               const SizedBox(height: 10),
-              Text(message, style: TextStyle(color: Colors.grey[400])),
+              Text(message,
+                  style: TextStyle(color: colorScheme.onSurfaceVariant)),
             ],
           ),
         ),
@@ -411,11 +415,13 @@ class _HorizontalStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       width: 140,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(20),
         border: isAlert ? Border.all(color: color.withOpacity(0.5)) : null,
         boxShadow: [
@@ -444,19 +450,14 @@ class _HorizontalStatCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
+          Text(value,
+              style: theme.textTheme.titleLarge
+                  ?.copyWith(fontWeight: FontWeight.bold)),
           Text(
             label,
-            style: TextStyle(
+            style: theme.textTheme.bodySmall?.copyWith(
               fontSize: 12,
-              color: Colors.grey[600],
+              color: colorScheme.onSurfaceVariant,
             ),
           ),
         ],
@@ -478,6 +479,7 @@ class _SegmentedTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -485,7 +487,9 @@ class _SegmentedTab extends StatelessWidget {
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: isSelected ? Colors.white : Colors.transparent,
+            color: isSelected
+                ? colorScheme.surfaceContainerHighest
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
             boxShadow: isSelected
                 ? [
@@ -502,7 +506,9 @@ class _SegmentedTab extends StatelessWidget {
             style: TextStyle(
               fontSize: 13,
               fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              color: isSelected ? AppColors.primary : Colors.grey[600],
+              color: isSelected
+                  ? AppColors.primary
+                  : colorScheme.onSurfaceVariant,
             ),
           ),
         ),
@@ -519,11 +525,12 @@ class _ProductListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -610,17 +617,18 @@ class _StoreListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade100),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: Row(
         children: [
-          const Icon(Icons.location_on, color: Colors.grey),
+          Icon(Icons.location_on, color: colorScheme.onSurfaceVariant),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
@@ -629,11 +637,12 @@ class _StoreListTile extends StatelessWidget {
                 Text(store.name,
                     style: const TextStyle(fontWeight: FontWeight.bold)),
                 Text(store.location,
-                    style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                    style: TextStyle(
+                        color: colorScheme.onSurfaceVariant, fontSize: 12)),
               ],
             ),
           ),
-          const Icon(Icons.chevron_right, color: Colors.grey),
+          Icon(Icons.chevron_right, color: colorScheme.onSurfaceVariant),
         ],
       ),
     );
@@ -655,11 +664,12 @@ class _QuickActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
@@ -686,7 +696,7 @@ class _QuickActionCard extends StatelessWidget {
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 fontSize: 14,
-                color: Colors.grey[800],
+                color: colorScheme.onSurface,
               ),
             ),
           ],

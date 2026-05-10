@@ -753,6 +753,10 @@ class _MarketersPageState extends State<MarketersPage> {
   void _showEditDialog(MarketerModel marketer) {
     final nameCtrl = TextEditingController(text: marketer.fullName);
     final phoneCtrl = TextEditingController(text: marketer.phoneNumber);
+    final commissionCtrl = TextEditingController(
+        text: marketer.commissionRateOverride != null
+            ? (marketer.commissionRateOverride! * 100).toStringAsFixed(0)
+            : '');
 
     showDialog(
       context: context,
@@ -770,6 +774,15 @@ class _MarketersPageState extends State<MarketersPage> {
               controller: phoneCtrl,
               decoration: const InputDecoration(labelText: 'Phone'),
             ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: commissionCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Commission Rate (%)',
+                hintText: 'e.g., 10 for 10% (Leave empty for default)',
+              ),
+            ),
           ],
         ),
         actions: [
@@ -779,10 +792,22 @@ class _MarketersPageState extends State<MarketersPage> {
           ),
           FilledButton(
             onPressed: () async {
+              final commissionText = commissionCtrl.text.trim();
+              double? parsedRate;
+              if (commissionText.isNotEmpty) {
+                final rate = double.tryParse(commissionText);
+                if (rate != null) {
+                  parsedRate = rate / 100.0;
+                }
+              } else {
+                parsedRate = -1.0; // Sentinel value to remove override
+              }
+
               final ok = await context.read<MarketerProvider>().updateMarketer(
                     marketer.id,
                     fullName: nameCtrl.text.trim(),
                     phoneNumber: phoneCtrl.text.trim(),
+                    commissionRateOverride: parsedRate,
                   );
               if (!context.mounted) return;
               if (ok) {

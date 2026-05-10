@@ -165,12 +165,14 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final isWorker = authProvider.currentUser?.role == 'worker';
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(
         title: const Text('Bar Management'),
         backgroundColor: Colors.brown.shade700,
+        foregroundColor: colorScheme.onPrimary,
         elevation: 2,
         actions: [
           IconButton(
@@ -295,13 +297,13 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                                 Icon(
                                   Icons.local_bar_outlined,
                                   size: 48,
-                                  color: Colors.grey[400],
+                                  color: colorScheme.onSurfaceVariant,
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
                                   'No Products Added',
                                   style: AppTextStyles.heading5.copyWith(
-                                    color: Colors.grey[600],
+                                    color: colorScheme.onSurfaceVariant,
                                   ),
                                 ),
                                 const SizedBox(height: 8),
@@ -347,7 +349,7 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                                       height: 56,
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(12),
-                                        color: Colors.grey.shade100,
+                                        color: colorScheme.surfaceContainer,
                                         boxShadow: [
                                           BoxShadow(
                                               color: Colors.black
@@ -410,10 +412,11 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                                                         Routes.drinkInventory);
                                                   }
                                                 },
-                                                child: const Icon(
+                                                child: Icon(
                                                     Icons.more_vert,
                                                     size: 18,
-                                                    color: Colors.grey),
+                                                    color: colorScheme
+                                                        .onSurfaceVariant),
                                               ),
                                             ],
                                           ),
@@ -447,7 +450,8 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                                                       ? Colors.orange
                                                       : Colors.green,
                                                   backgroundColor:
-                                                      Colors.grey.shade200,
+                                                      colorScheme
+                                                          .surfaceContainerHighest,
                                                   minHeight: 6),
                                               const SizedBox(height: 6),
                                               Row(children: [
@@ -578,10 +582,12 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
       String? value,
       Future<double>? valueFuture,
       required Color color}) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
@@ -613,7 +619,13 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                 style: TextStyle(
                     fontSize: 24, fontWeight: FontWeight.bold, color: color)),
         const SizedBox(height: 4),
-        Text(label, style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 13,
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
       ]),
     );
   }
@@ -684,8 +696,10 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
   }
 
   Widget _buildBottomNavBar() {
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
-      decoration: BoxDecoration(color: Colors.white, boxShadow: [
+      decoration:
+          BoxDecoration(color: colorScheme.surfaceContainerHighest, boxShadow: [
         BoxShadow(
             color: Colors.black.withOpacity(0.05),
             blurRadius: 20,
@@ -706,6 +720,7 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
   }
 
   Widget _buildNavItem(IconData icon, String label, int index) {
+    final colorScheme = Theme.of(context).colorScheme;
     final isSelected = _selectedIndex == index;
     return InkWell(
         onTap: () => setState(() => _selectedIndex = index),
@@ -720,7 +735,9 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Icon(icon,
                   color:
-                      isSelected ? const Color(0xFF5D4037) : Colors.grey[400],
+                      isSelected
+                          ? const Color(0xFF5D4037)
+                          : colorScheme.onSurfaceVariant,
                   size: 24),
               const SizedBox(height: 4),
               Text(label,
@@ -730,7 +747,7 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                           isSelected ? FontWeight.w600 : FontWeight.normal,
                       color: isSelected
                           ? const Color(0xFF5D4037)
-                          : Colors.grey[400]))
+                          : colorScheme.onSurfaceVariant))
             ])));
   }
 
@@ -852,13 +869,14 @@ class _ActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border),
+          border: Border.all(color: colorScheme.outlineVariant),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.05),

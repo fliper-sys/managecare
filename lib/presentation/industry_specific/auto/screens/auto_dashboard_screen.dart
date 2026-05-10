@@ -38,11 +38,15 @@ class _AutoDashboardScreenState extends State<AutoDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Scaffold(
-      backgroundColor: Colors.grey[100], // Technical/Clean background
+      backgroundColor: colorScheme.surface,
       appBar: AppBar(
-        title: const Text('Workshop Overview', style: TextStyle(color: Colors.white)),
+        title: Text('Workshop Overview',
+            style: TextStyle(color: colorScheme.onPrimary)),
         backgroundColor: Colors.blueGrey[900], // Industrial dark header
+        foregroundColor: colorScheme.onPrimary,
         elevation: 0,
         actions: [
           IconButton(
@@ -114,8 +118,11 @@ class _AutoDashboardScreenState extends State<AutoDashboardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // 1. Overview Section
-                  const Text('Shop Performance', 
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  Text('Shop Performance',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onSurfaceVariant,
+                    )),
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -144,8 +151,11 @@ class _AutoDashboardScreenState extends State<AutoDashboardScreen> {
                   const SizedBox(height: 24),
 
                   // 2. Quick Actions
-                  const Text('Quick Actions', 
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  Text('Quick Actions',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.onSurfaceVariant,
+                    )),
                   const SizedBox(height: 12),
                   SizedBox(
                     height: 80,
@@ -203,8 +213,10 @@ class _AutoDashboardScreenState extends State<AutoDashboardScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Work Queue', 
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      Text('Work Queue',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        )),
                       TextButton(
                         onPressed: () => Navigator.pushNamed(context, Routes.autoServiceOrders),
                         child: const Text('View All'),
@@ -217,15 +229,18 @@ class _AutoDashboardScreenState extends State<AutoDashboardScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(32),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade200),
+                        border: Border.all(color: colorScheme.outlineVariant),
                       ),
                       child: Column(
                         children: [
-                          Icon(Icons.garage, size: 48, color: Colors.grey.shade300),
+                          Icon(Icons.garage,
+                              size: 48, color: colorScheme.onSurfaceVariant),
                           const SizedBox(height: 8),
-                          Text('Bay is empty', style: TextStyle(color: Colors.grey.shade500)),
+                          Text('Bay is empty',
+                              style: TextStyle(
+                                  color: colorScheme.onSurfaceVariant)),
                         ],
                       ),
                     )
@@ -280,17 +295,21 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
+          border: Border.all(color: colorScheme.outlineVariant),
           boxShadow: [
             BoxShadow(
-              color: Colors.grey.shade200,
+              color: Colors.black.withOpacity(
+                theme.brightness == Brightness.dark ? 0.18 : 0.08,
+              ),
               blurRadius: 4,
               offset: const Offset(0, 2),
             )
@@ -308,8 +327,13 @@ class _StatCard extends StatelessWidget {
               child: Icon(icon, color: color, size: 24),
             ),
             const SizedBox(height: 12),
-            Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            Text(value,
+                style: theme.textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+            Text(label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                )),
           ],
         ),
       ),
@@ -377,6 +401,8 @@ class _JobTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     // Determine status color
     Color statusColor = Colors.grey;
     if (status.toLowerCase().contains('progress')) statusColor = Colors.blue;
@@ -391,9 +417,9 @@ class _JobTile extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: colorScheme.outlineVariant),
           ),
           child: Row(
             children: [
@@ -402,7 +428,7 @@ class _JobTile extends StatelessWidget {
                 height: 50,
                 width: 50,
                 decoration: BoxDecoration(
-                  color: Colors.grey[100],
+                  color: colorScheme.surfaceContainer,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Icon(Icons.directions_car, color: Colors.blueGrey),
@@ -419,9 +445,15 @@ class _JobTile extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        Text('Job #$jobId', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                        Text('Job #$jobId',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            )),
                         const SizedBox(width: 8),
-                        Container(width: 1, height: 10, color: Colors.grey[300]),
+                        Container(
+                            width: 1,
+                            height: 10,
+                            color: colorScheme.outlineVariant),
                         const SizedBox(width: 8),
                          Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -442,7 +474,8 @@ class _JobTile extends StatelessWidget {
               Text(formatCurrency(cost), 
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(width: 8),
-              Icon(Icons.chevron_right, color: Colors.grey[400], size: 20),
+              Icon(Icons.chevron_right,
+                  color: colorScheme.onSurfaceVariant, size: 20),
             ],
           ),
         ),

@@ -21,6 +21,7 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
   late TextEditingController _stockController;
   late TextEditingController _priceController;
   DateTime _expiry = DateTime.now().add(const Duration(days: 365));
+  final List<Map<String, dynamic>> _prescriptions = [];
 
   @override
   void initState() {
@@ -42,6 +43,7 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
     _priceController = TextEditingController(
         text: d != null ? d.price.toStringAsFixed(2) : '0.00');
     _expiry = d?.expiry ?? _expiry;
+    _prescriptions.addAll(d?.prescriptions ?? []);
   }
 
   @override
@@ -71,6 +73,7 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
         expiry: _expiry,
         stock: stock,
         price: price,
+        prescriptions: _prescriptions,
       );
 
       provider.addDrug(newDrug, persist: provider.hasRemote, businessId: businessId);
@@ -83,12 +86,79 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
         expiry: _expiry,
         stock: stock,
         price: price,
+        prescriptions: _prescriptions,
       );
       await provider.updateDrug(updated, persist: provider.hasRemote, businessId: businessId);
     }
 
     if (!mounted) return;
     Navigator.pop(context);
+  }
+
+  void _showAddPrescriptionDialog() {
+    final ageRangeController = TextEditingController();
+    final intensityController = TextEditingController();
+    final dosageController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Prescription'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: ageRangeController,
+              decoration: const InputDecoration(
+                labelText: 'Age Range (e.g., 8-12)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: intensityController,
+              decoration: const InputDecoration(
+                labelText: 'Intensity Range (e.g., 1-3)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: dosageController,
+              decoration: const InputDecoration(
+                labelText: 'Dosage (e.g., 2 tablets daily)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final ageRange = ageRangeController.text.trim();
+              final intensity = intensityController.text.trim();
+              final dosage = dosageController.text.trim();
+
+              if (ageRange.isNotEmpty && intensity.isNotEmpty && dosage.isNotEmpty) {
+                setState(() {
+                  _prescriptions.add({
+                    'ageRange': ageRange,
+                    'intensity': intensity,
+                    'dosage': dosage,
+                  });
+                });
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -147,6 +217,26 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
                     child: Text(_expiry.toString().split(' ')[0]),
                   )
                 ],
+              ),
+              const SizedBox(height: 24),
+              const Text('Prescriptions (Optional)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              ..._prescriptions.map((pres) => Card(
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                child: ListTile(
+                  title: Text('Age: ${pres['ageRange']}, Intensity: ${pres['intensity']}'),
+                  subtitle: Text('Dosage: ${pres['dosage']}'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete),
+                    onPressed: () => setState(() => _prescriptions.remove(pres)),
+                  ),
+                ),
+              )),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.add),
+                label: const Text('Add Prescription'),
+                onPressed: _showAddPrescriptionDialog,
               ),
               const SizedBox(height: 24),
               ElevatedButton(

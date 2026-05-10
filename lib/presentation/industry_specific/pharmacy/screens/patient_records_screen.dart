@@ -3,6 +3,7 @@ import '../../../../widgets/profile_avatar.dart';
 import 'package:provider/provider.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../data/models/industry_specific/pharmacy/patient_model.dart';
 import 'prescription_detail_screen.dart';
 
 class PatientRecordsScreen extends StatefulWidget {
@@ -222,72 +223,155 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
       builder: (context) {
         final patientHistory =
             provider.getPatientPrescriptionHistory(patient['id'] as String);
+        final activeTreatments = provider.getActivePatientTreatments(patient['id'] as String);
+        final treatmentHistory = provider.getPatientTreatmentHistory(patient['id'] as String);
 
-        return Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(patient['name'] as String,
-                  style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              _buildDetailRow('Phone', patient['phone'] as String),
-              _buildDetailRow('ID', patient['id'] as String),
-              _buildDetailRow(
-                  'Total Prescriptions', '${patient['prescriptionCount']}'),
-              const SizedBox(height: 16),
-              const Text('Recent Prescriptions:',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              if (patientHistory.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text('No prescriptions',
-                      style: TextStyle(color: Colors.grey)),
-                )
-              else
-                ...patientHistory.take(5).map((pres) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: InkWell(
-                        onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                            builder: (_) => PrescriptionDetailScreen(prescriptionId: pres.id))),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(pres.id),
-                            Chip(
-                              label: Text(pres.status),
-                              backgroundColor: pres.status == 'dispensed'
-                                  ? Colors.green.shade100
-                                  : Colors.orange.shade100,
+        return DefaultTabController(
+          length: 3,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(patient['name'] as String,
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                _buildDetailRow('Phone', patient['phone'] as String),
+                if (patient['email'] != null && (patient['email'] as String).isNotEmpty)
+                  _buildDetailRow('Email', patient['email'] as String),
+                if (patient['address'] != null && (patient['address'] as String).isNotEmpty)
+                  _buildDetailRow('Address', patient['address'] as String),
+                if (patient['dateOfBirth'] != null)
+                  _buildDetailRow('Age', '${(patient['dateOfBirth'] as DateTime).year == 1970 ? 'N/A' : DateTime.now().year - (patient['dateOfBirth'] as DateTime).year}'),
+                if (patient['allergies'] != null && (patient['allergies'] as String).isNotEmpty)
+                  _buildDetailRow('Allergies', patient['allergies'] as String),
+                if (patient['bloodType'] != null && (patient['bloodType'] as String).isNotEmpty)
+                  _buildDetailRow('Blood Type', patient['bloodType'] as String),
+                if (patient['additionalNotes'] != null && (patient['additionalNotes'] as String).isNotEmpty)
+                  _buildDetailRow('Notes', patient['additionalNotes'] as String),
+                _buildDetailRow('ID', patient['id'] as String),
+                _buildDetailRow(
+                    'Total Prescriptions', '${patient['prescriptionCount']}'),
+                const SizedBox(height: 16),
+                const TabBar(
+                  tabs: [
+                    Tab(text: 'Prescriptions'),
+                    Tab(text: 'Active Treatments'),
+                    Tab(text: 'Treatment History'),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: 200,
+                  child: TabBarView(
+                    children: [
+                      // Prescriptions tab
+                      patientHistory.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Text('No prescriptions',
+                                  style: TextStyle(color: Colors.grey)),
+                            )
+                          : ListView(
+                              children: patientHistory.take(5).map((pres) => Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                child: InkWell(
+                                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                                      builder: (_) => PrescriptionDetailScreen(prescriptionId: pres.id))),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(pres.id),
+                                      Chip(
+                                        label: Text(pres.status),
+                                        backgroundColor: pres.status == 'dispensed'
+                                            ? Colors.green.shade100
+                                            : Colors.orange.shade100,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )).toList(),
                             ),
-                          ],
-                        ),
+                      // Active Treatments tab
+                      activeTreatments.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Text('No active treatments',
+                                  style: TextStyle(color: Colors.grey)),
+                            )
+                          : ListView(
+                              children: activeTreatments.map((treatment) => Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(treatment.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    Text('${treatment.drugName} - ${treatment.dosage}'),
+                                    Text('Days remaining: ${treatment.daysRemaining}'),
+                                  ],
+                                ),
+                              )).toList(),
+                            ),
+                      // Treatment History tab
+                      treatmentHistory.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Text('No treatment history',
+                                  style: TextStyle(color: Colors.grey)),
+                            )
+                          : ListView(
+                              children: treatmentHistory.map((treatment) => Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(treatment.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    Text('${treatment.drugName} - ${treatment.dosage}'),
+                                    Text('Completed: ${treatment.endDate.toString().split(' ')[0]}'),
+                                  ],
+                                ),
+                              )).toList(),
+                            ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.edit),
+                        label: const Text('Edit Patient'),
+                        onPressed: () => Navigator.pop(context),
                       ),
-                    )),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.edit),
-                      label: const Text('Edit Patient'),
-                      onPressed: () => Navigator.pop(context),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.note_add),
-                      label: const Text('New Rx'),
-                      onPressed: () => Navigator.pop(context),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.note_add),
+                        label: const Text('New Rx'),
+                        onPressed: () => Navigator.pop(context),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.medical_services),
+                        label: const Text('New Treatment'),
+                        onPressed: () => _showAddTreatmentDialog(context, patient['id'] as String, provider),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -310,31 +394,102 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
   void _showAddPatientDialog(BuildContext context) {
     final nameController = TextEditingController();
     final phoneController = TextEditingController();
+    final emailController = TextEditingController();
+    final addressController = TextEditingController();
+    final dateOfBirthController = TextEditingController();
+    final allergiesController = TextEditingController();
+    final bloodTypeController = TextEditingController();
+    final additionalNotesController = TextEditingController();
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Add Patient'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(
-                labelText: 'Patient Name',
-                border: OutlineInputBorder(),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Patient Name *',
+                  border: OutlineInputBorder(),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: phoneController,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Phone Number',
-                border: OutlineInputBorder(),
+              const SizedBox(height: 12),
+              TextField(
+                controller: phoneController,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(
+                  labelText: 'Phone Number *',
+                  border: OutlineInputBorder(),
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: addressController,
+                decoration: const InputDecoration(
+                  labelText: 'Address (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: dateOfBirthController,
+                readOnly: true,
+                decoration: const InputDecoration(
+                  labelText: 'Date of Birth (optional)',
+                  border: OutlineInputBorder(),
+                  suffixIcon: Icon(Icons.calendar_today),
+                ),
+                onTap: () async {
+                  final date = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.now().subtract(const Duration(days: 365 * 25)),
+                    firstDate: DateTime(1900),
+                    lastDate: DateTime.now(),
+                  );
+                  if (date != null) {
+                    dateOfBirthController.text = date.toString().split(' ')[0];
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: allergiesController,
+                decoration: const InputDecoration(
+                  labelText: 'Allergies/Drug Reactions (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: bloodTypeController,
+                decoration: const InputDecoration(
+                  labelText: 'Blood Type (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: additionalNotesController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Additional Notes/Diagnoses (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -345,13 +500,15 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
             onPressed: () async {
               final name = nameController.text.trim();
               final phone = phoneController.text.trim();
-              if (name.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter patient name')));
+              if (name.isEmpty || phone.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter patient name and phone number'))
+                );
                 return;
               }
               final provider = context.read<PharmacyProvider>();
               // Duplicate check by phone or exact name
-              final dup = provider.patients.where((p) => p.phone == phone || p.name.toLowerCase() == name.toLowerCase()).toList();
+              final dup = provider.patients.where((p) => p != null && (p.phone == phone || p.name.toLowerCase() == name.toLowerCase())).toList();
               if (dup.isNotEmpty) {
                 final keep = await showDialog<bool>(
                   context: context,
@@ -367,12 +524,131 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                 if (!keep) return;
               }
               final id = 'P${DateTime.now().millisecondsSinceEpoch}';
-              final newPatient = Patient(id: id, name: name, phone: phone);
+              DateTime? dob;
+              if (dateOfBirthController.text.isNotEmpty) {
+                try {
+                  dob = DateTime.parse(dateOfBirthController.text);
+                } catch (_) {}
+              }
+              final newPatient = Patient(
+                id: id,
+                name: name,
+                phone: phone,
+                email: emailController.text.isNotEmpty ? emailController.text : null,
+                address: addressController.text.isNotEmpty ? addressController.text : null,
+                dateOfBirth: dob,
+                allergies: allergiesController.text.isNotEmpty ? allergiesController.text : null,
+                bloodType: bloodTypeController.text.isNotEmpty ? bloodTypeController.text : null,
+                additionalNotes: additionalNotesController.text.isNotEmpty ? additionalNotesController.text : null,
+              );
               final businessId = context.read<BusinessProvider>().currentBusiness?.id;
               await provider.addPatient(newPatient, persist: true, businessId: businessId);
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Patient added')));
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddTreatmentDialog(BuildContext context, String patientId, PharmacyProvider provider) {
+    final nameController = TextEditingController();
+    final drugNameController = TextEditingController();
+    final dosageController = TextEditingController();
+    final frequencyController = TextEditingController(text: '1');
+    final durationController = TextEditingController(text: '7');
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Treatment'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Treatment Name *',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: drugNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Drug Name *',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: dosageController,
+                decoration: const InputDecoration(
+                  labelText: 'Dosage (e.g., 2 tablets) *',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: frequencyController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Times per day *',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: durationController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Duration (days) *',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameController.text.trim();
+              final drugName = drugNameController.text.trim();
+              final dosage = dosageController.text.trim();
+              final frequency = int.tryParse(frequencyController.text) ?? 1;
+              final duration = int.tryParse(durationController.text) ?? 7;
+
+              if (name.isEmpty || drugName.isEmpty || dosage.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please fill all required fields'))
+                );
+                return;
+              }
+
+              final treatment = Treatment(
+                id: 'T${DateTime.now().millisecondsSinceEpoch}',
+                patientId: patientId,
+                name: name,
+                drugName: drugName,
+                dosage: dosage,
+                frequencyPerDay: frequency,
+                durationDays: duration,
+                startDate: DateTime.now(),
+              );
+
+              await provider.addTreatment(treatment, persist: true);
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Treatment added')));
               }
             },
             child: const Text('Add'),

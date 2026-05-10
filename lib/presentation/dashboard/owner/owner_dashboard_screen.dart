@@ -2690,13 +2690,6 @@ class _HomeTabState extends State<_HomeTab> {
         route: Routes.workers,
       ),
       _QuickActionItem(
-        title: 'Printer Settings',
-        subtitle: 'Configure printers',
-        icon: Icons.print_rounded,
-        color: Colors.teal,
-        route: Routes.printerSettings,
-      ),
-      _QuickActionItem(
         title: 'Settings',
         subtitle: 'Configure',
         icon: Icons.settings_rounded,
@@ -3326,6 +3319,20 @@ class _HomeTabState extends State<_HomeTab> {
             icon: Icons.history_rounded,
             color: Colors.orange,
             route: Routes.gasSalesHistory,
+          ),
+           _QuickActionItem(
+            title: 'New Sale',
+            subtitle: 'Create transaction',
+            icon: Icons.point_of_sale_rounded,
+            color: Colors.green,
+            route: Routes.sales,
+          ),
+          _QuickActionItem(
+            title: 'Inventory',
+            subtitle: 'Beverage stock',
+            icon: Icons.inventory_2_rounded,
+            color: Colors.green,
+            route: Routes.inventory,
           ),
           ...commonItems,
         ];

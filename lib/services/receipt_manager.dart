@@ -53,6 +53,15 @@ class ReceiptManager {
       final storeName =
           (rawStoreName != null && rawStoreName.isNotEmpty) ? rawStoreName : null;
       final customerName = _resolveCustomerName(sale);
+      final rawTableLabel = (sale['tableLabel'] ??
+              sale['tableNo'] ??
+              sale['tableNumber'] ??
+              sale['table'] ??
+              '')
+          .toString()
+          .trim();
+      final tableLabel =
+          rawTableLabel.isNotEmpty ? rawTableLabel : null;
 
       // Build items in expected structure for ThermalPrintingService
       final items = <Map<String, dynamic>>[];
@@ -68,6 +77,9 @@ class ReceiptManager {
           } else if (it.containsKey('productName') &&
               it['productName']?.toString().trim().isNotEmpty == true) {
             name = it['productName'].toString();
+          } else if (it.containsKey('menuItemName') &&
+              it['menuItemName']?.toString().trim().isNotEmpty == true) {
+            name = it['menuItemName'].toString();
           } else if (it.containsKey('product_name') &&
               it['product_name']?.toString().trim().isNotEmpty == true) {
             name = it['product_name'].toString();
@@ -139,6 +151,7 @@ class ReceiptManager {
             'POS',
         customerName: customerName,
         storeName: storeName,
+        tableLabel: tableLabel,
       );
 
       // Do not generate PDFs automatically for pump/fuel sales. Defer generation

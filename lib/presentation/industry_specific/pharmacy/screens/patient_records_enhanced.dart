@@ -3,6 +3,7 @@ import '../../../../widgets/profile_avatar.dart';
 import 'package:provider/provider.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../data/models/industry_specific/pharmacy/patient_model.dart';
 import 'prescription_detail_screen.dart';
 
 class PatientRecordsScreen extends StatefulWidget {
@@ -351,7 +352,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
               }
               final provider = context.read<PharmacyProvider>();
               // Duplicate check by phone or exact name
-              final dup = provider.patients.where((p) => p.phone == phone || p.name.toLowerCase() == name.toLowerCase()).toList();
+              final dup = provider.patients.where((p) => p != null && (p.phone == phone || p.name.toLowerCase() == name.toLowerCase())).toList();
               if (dup.isNotEmpty) {
                 final keep = await showDialog<bool>(
                   context: context,

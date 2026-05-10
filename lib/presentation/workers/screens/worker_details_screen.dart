@@ -560,6 +560,9 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
     for (var r in roles) {
       permissionSet.addAll(WorkerPermissions.getPermissionsForRole(r));
     }
+    final customPermissions =
+        (_worker?['customPermissions'] as List<dynamic>?)?.cast<String>() ?? [];
+    permissionSet.addAll(customPermissions);
     final permissions = permissionSet.toList();
 
     return ListView(
