@@ -131,6 +131,28 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                           Colors.green,
                           () => _navigateToAttendance(context),
                         ),
+                      // Hotel-specific management quick actions
+                      _buildActionCard(
+                        context,
+                        'Room Management',
+                        Icons.bed_outlined,
+                        Colors.brown,
+                        () => Navigator.pushNamed(context, Routes.hotelRooms),
+                      ),
+                      _buildActionCard(
+                        context,
+                        'Guest Management',
+                        Icons.people_outline,
+                        Colors.indigo,
+                        () => Navigator.pushNamed(context, Routes.hotelGuests),
+                      ),
+                      _buildActionCard(
+                        context,
+                        'Housekeeping',
+                        Icons.cleaning_services,
+                        Colors.teal,
+                        () => Navigator.pushNamed(context, Routes.hotelHousekeeping),
+                      ),
                       if (WorkerPermissions.hasPermission(
                           _currentRole, 'manage_prescriptions'))
                         _buildActionCard(

@@ -9,6 +9,88 @@ import '../../../../core/constants/routes.dart';
 import '../../../../providers/hotel_provider.dart';
 
 class HotelDashboardScreen extends StatelessWidget {
+
+    // --- SUMMARY HEADER (Sales, Occupancy, Revenue) ---
+    Widget _buildSummaryHeader(HotelProvider provider) {
+      final occupancy = provider.occupancy;
+      final revenue = provider.revenue;
+      return FutureBuilder<double>(
+        future: provider.getTodaysSalesTotal(),
+        builder: (context, snapshot) {
+          final sales = snapshot.data ?? 0.0;
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [AppColors.primary, AppColors.primary.withOpacity(0.85)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                    color: AppColors.primary.withOpacity(0.18),
+                    blurRadius: 10,
+                    offset: const Offset(0, 5))
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildSummaryTile(
+                  icon: Icons.attach_money,
+                  label: 'Sales (Today)',
+                  value: formatCurrency(sales, decimalDigits: 0),
+                  color: Colors.greenAccent.shade100,
+                ),
+                _buildSummaryTile(
+                  icon: Icons.pie_chart,
+                  label: 'Occupancy',
+                  value: '${occupancy.toStringAsFixed(1)}%',
+                  color: Colors.blue.shade100,
+                ),
+                _buildSummaryTile(
+                  icon: Icons.account_balance_wallet_outlined,
+                  label: 'Total Revenue',
+                  value: formatCurrency(revenue, decimalDigits: 0),
+                  color: Colors.amber.shade100,
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+
+    Widget _buildSummaryTile({
+      required IconData icon,
+      required String label,
+      required String value,
+      required Color color,
+    }) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: Colors.black87, size: 26),
+          ),
+          const SizedBox(height: 8),
+          Text(label,
+              style: const TextStyle(
+                  color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 4),
+          Text(value,
+              style: const TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+        ],
+      );
+    }
   const HotelDashboardScreen({super.key});
 
   @override
@@ -76,8 +158,8 @@ class HotelDashboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. REVENUE HEADER (High Priority)
-                _buildRevenueHeader(provider),
+                // 1. SUMMARY HEADER (Sales, Occupancy, Revenue)
+                _buildSummaryHeader(provider),
                 const SizedBox(height: 24),
 
                 // 2. KPI GRID
@@ -412,62 +494,15 @@ class HotelDashboardScreen extends StatelessWidget {
       actions.add(_buildActionCard(
         context,
         icon: Icons.login,
-        label: 'Check-In',
+        label: 'Check-In / Guests',
         color: Colors.blue,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelBookings, arguments: {'initialFilter': 'confirmed'}),
-      ));
-      actions.add(_buildActionCard(
-        context,
-        icon: Icons.logout,
-        label: 'Check-Out',
-        color: Colors.orange,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelBookings, arguments: {'initialFilter': 'checked-in'}),
-      ));
-      actions.add(_buildActionCard(
-        context,
-        icon: Icons.calendar_month,
-        label: 'Reservations',
-        color: Colors.teal,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelBookings, arguments: {'initialFilter': 'reserved'}),
-      ));
-
-      // Guests management
-      actions.add(_buildActionCard(
-        context,
-        icon: Icons.people_outline,
-        label: 'Guests',
-        color: Colors.indigo,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelGuests),
+        onTap: () => Navigator.pushNamed(context, Routes.hotelBookings),
       ));
     }
 
-    // Rooms management actions (owner / staff only)
-    if (canManageStaff) {
-      actions.add(_buildActionCard(
-        context,
-        icon: Icons.bed_outlined,
-        label: 'Rooms',
-        color: Colors.brown,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelRooms),
-      ));
-      actions.add(_buildActionCard(
-        context,
-        icon: Icons.add_box_outlined,
-        label: 'Create Room',
-        color: Colors.green,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelCreateRoom),
-      ));
-    }
+    // Room, guest, and housekeeping management moved to work page (removed from home)
 
     if (canViewService) {
-      actions.add(_buildActionCard(
-        context,
-        icon: Icons.room_service,
-        label: 'Front Desk',
-        color: Colors.purple,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelFrontDesk),
-      ));
-
       actions.add(_buildActionCard(
         context,
         icon: Icons.restaurant_menu,
@@ -484,37 +519,13 @@ class HotelDashboardScreen extends StatelessWidget {
         onTap: () => Navigator.pushNamed(context, Routes.restaurantKitchen),
       ));
 
+      // Merge Bar POS and Bar Orders into one Bar button
       actions.add(_buildActionCard(
         context,
         icon: Icons.local_bar_outlined,
-        label: 'Bar POS',
+        label: 'Bar',
         color: Colors.indigo,
         onTap: () => Navigator.pushNamed(context, Routes.sales),
-      ));
-
-      actions.add(_buildActionCard(
-        context,
-        icon: Icons.receipt,
-        label: 'Bar Orders',
-        color: Colors.cyan,
-        onTap: () => Navigator.pushNamed(context, Routes.salesHistory),
-      ));
-
-    // Printer Settings (general quick action)
-    actions.add(_buildActionCard(
-      context,
-      icon: Icons.print,
-      label: 'Printer Settings',
-      color: Colors.teal,
-      onTap: () => Navigator.pushNamed(context, Routes.printerSettings),
-    ));
-
-      actions.add(_buildActionCard(
-        context,
-        icon: Icons.cleaning_services,
-        label: 'Housekeeping',
-        color: Colors.teal,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelHousekeeping),
       ));
 
       actions.add(_buildActionCard(
@@ -547,6 +558,33 @@ class HotelDashboardScreen extends StatelessWidget {
         label: 'Inventory',
         color: Colors.green,
         onTap: () => Navigator.pushNamed(context, Routes.inventory),
+      ));
+
+      // Add Procurement History quick action
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.history,
+        label: 'Procurement History',
+        color: Colors.brown,
+        onTap: () => Navigator.pushNamed(context, Routes.procurementHistory),
+      ));
+
+      // Add Printer Settings quick action
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.print,
+        label: 'Printer Settings',
+        color: Colors.teal,
+        onTap: () => Navigator.pushNamed(context, Routes.printerSettings),
+      ));
+
+      // Add Advanced Analytics quick action
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.analytics_outlined,
+        label: 'Advanced Analytics',
+        color: Colors.deepPurple,
+        onTap: () => Navigator.pushNamed(context, Routes.advancedAnalytics),
       ));
     }
 

@@ -1,3 +1,4 @@
+import 'package:business_manager/data/models/sale_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' as fs;
 import '../data/repositories/industry_specific/hotel_repository.dart';
@@ -61,6 +62,9 @@ class Room {
 
 // Booking/Reservation Models
 class Reservation {
+
+    // Add guestId getter for compatibility with UI code
+    String get guestId => id;
   final String id;
   final String roomId;
   final String guestName;
@@ -76,6 +80,9 @@ class Reservation {
   final String bookingSource;
   final String companyName;
   final String vehiclePlateNumber;
+  final String vehicleMake;
+  final String vehicleModel;
+  final String vehicleColor;
   final DateTime checkIn;
   final DateTime checkOut;
   final int adults;
@@ -102,6 +109,9 @@ class Reservation {
     this.bookingSource = 'walk-in',
     this.companyName = '',
     this.vehiclePlateNumber = '',
+    this.vehicleMake = '',
+    this.vehicleModel = '',
+    this.vehicleColor = '',
     required this.checkIn,
     required this.checkOut,
     required this.adults,
@@ -129,6 +139,9 @@ class Reservation {
     String? bookingSource,
     String? companyName,
     String? vehiclePlateNumber,
+    String? vehicleMake,
+    String? vehicleModel,
+    String? vehicleColor,
     DateTime? checkIn,
     DateTime? checkOut,
     int? adults,
@@ -156,6 +169,9 @@ class Reservation {
       bookingSource: bookingSource ?? this.bookingSource,
       companyName: companyName ?? this.companyName,
       vehiclePlateNumber: vehiclePlateNumber ?? this.vehiclePlateNumber,
+      vehicleMake: vehicleMake ?? this.vehicleMake,
+      vehicleModel: vehicleModel ?? this.vehicleModel,
+      vehicleColor: vehicleColor ?? this.vehicleColor,
       checkIn: checkIn ?? this.checkIn,
       checkOut: checkOut ?? this.checkOut,
       adults: adults ?? this.adults,
@@ -242,6 +258,22 @@ class ServiceOrder {
 }
 
 class HotelProvider extends ChangeNotifier {
+      // List of all sales (should be loaded from Firestore or repository)
+      final List<SaleModel> _sales = [];
+
+      List<SaleModel> get sales => _sales;
+    // Returns all sales for a given roomId
+    List<SaleModel> getSalesForRoom(String roomId) {
+      if (_businessId == null || _businessId!.isEmpty) return [];
+      // _sales should be a list of SaleModel loaded from Firestore
+      return _sales.where((sale) => sale.roomId == roomId).toList();
+    }
+
+    // Returns all sales for a given guestId
+    List<SaleModel> getSalesForGuest(String guestId) {
+      if (_businessId == null || _businessId!.isEmpty) return [];
+      return _sales.where((sale) => sale.guestId == guestId).toList();
+    }
   final HotelRepository? repository;
   final BusinessNotificationManager _notificationManager =
       BusinessNotificationManager.instance;
@@ -364,8 +396,8 @@ class HotelProvider extends ChangeNotifier {
         'reservationCount': (current?['reservationCount'] ?? 0) + 1,
         'checkedInCount': (current?['checkedInCount'] ?? 0) +
             (reservation.status == 'checked-in' ? 1 : 0),
-        'totalSpend':
-            (current?['totalSpend'] ?? 0.0) + getReservationBalance(reservation),
+        'totalSpend': (current?['totalSpend'] ?? 0.0) +
+            getReservationBalance(reservation),
         'lastReservation': reservation,
         'roomNumber': room?.number ?? '',
       };
@@ -390,7 +422,8 @@ class HotelProvider extends ChangeNotifier {
     };
   }
 
-  double estimateServiceCharge(String serviceName, {String priority = 'medium'}) {
+  double estimateServiceCharge(String serviceName,
+      {String priority = 'medium'}) {
     final normalized = serviceName.trim().toLowerCase();
     double base;
     switch (normalized) {
@@ -445,8 +478,8 @@ class HotelProvider extends ChangeNotifier {
     ];
 
     final relatedServices = _serviceOrders.where((service) {
-      final sameReservation =
-          service.reservationId != null && service.reservationId == reservation.id;
+      final sameReservation = service.reservationId != null &&
+          service.reservationId == reservation.id;
       final sameRoom =
           service.roomId == reservation.roomId && service.reservationId == null;
       final withinStay = !service.requestedAt.isBefore(reservation.checkIn) &&
@@ -1088,6 +1121,9 @@ class HotelProvider extends ChangeNotifier {
     String bookingSource = 'walk-in',
     String companyName = '',
     String vehiclePlateNumber = '',
+    String vehicleMake = '',
+    String vehicleModel = '',
+    String vehicleColor = '',
     required DateTime checkIn,
     required DateTime checkOut,
     required int adults,
@@ -1132,6 +1168,9 @@ class HotelProvider extends ChangeNotifier {
       bookingSource: bookingSource,
       companyName: companyName,
       vehiclePlateNumber: vehiclePlateNumber,
+      vehicleMake: vehicleMake,
+      vehicleModel: vehicleModel,
+      vehicleColor: vehicleColor,
       checkIn: checkIn,
       checkOut: checkOut,
       adults: adults,
@@ -1205,7 +1244,8 @@ class HotelProvider extends ChangeNotifier {
 
     if (_businessId != null && _businessId!.isNotEmpty) {
       try {
-        await BusinessReminderService.instance.scheduleHotelReservationReminders(
+        await BusinessReminderService.instance
+            .scheduleHotelReservationReminders(
           businessId: _businessId!,
           reservationId: reservationId,
           guestName: guestName,
@@ -1366,7 +1406,8 @@ class HotelProvider extends ChangeNotifier {
     required DateTime newCheckOut,
     String? extensionReason,
   }) async {
-    final index = _reservations.indexWhere((reservation) => reservation.id == reservationId);
+    final index = _reservations
+        .indexWhere((reservation) => reservation.id == reservationId);
     if (index == -1) {
       throw Exception('Reservation not found.');
     }
@@ -1388,11 +1429,13 @@ class HotelProvider extends ChangeNotifier {
     });
 
     if (conflict) {
-      throw Exception('The room already has another booking within the extension window.');
+      throw Exception(
+          'The room already has another booking within the extension window.');
     }
 
     final room = getRoomById(reservation.roomId);
-    final updatedSpecialRequests = List<String>.from(reservation.specialRequests);
+    final updatedSpecialRequests =
+        List<String>.from(reservation.specialRequests);
     if (extensionReason != null && extensionReason.trim().isNotEmpty) {
       updatedSpecialRequests.add('Stay extension: ${extensionReason.trim()}');
     }
@@ -1406,9 +1449,7 @@ class HotelProvider extends ChangeNotifier {
 
     _reservations[index] = updatedReservation;
 
-    if (repository != null &&
-        _businessId != null &&
-        _businessId!.isNotEmpty) {
+    if (repository != null && _businessId != null && _businessId!.isNotEmpty) {
       await repository!.updateReservation(
         _businessId!,
         reservationId,
@@ -1612,8 +1653,7 @@ class HotelProvider extends ChangeNotifier {
                   : double.tryParse(m['totalPrice']?.toString() ?? '0') ?? 0.0,
               specialRequests: List<String>.from(m['specialRequests'] ?? []),
               paymentStatus: m['paymentStatus']?.toString() ?? 'unpaid',
-              createdAt:
-                  _parseDynamicDate(m['createdAt']) ?? DateTime.now(),
+              createdAt: _parseDynamicDate(m['createdAt']) ?? DateTime.now(),
             );
           }).toList();
           notifyListeners();
@@ -1644,10 +1684,10 @@ class HotelProvider extends ChangeNotifier {
               _parseDynamicDate(data['createdAt'] ?? data['timestamp']);
           if (createdAt != null && _sameCalendarDay(createdAt, today)) {
             total += ((data['finalAmount'] ??
-                        data['totalAmount'] ??
-                        data['total'] ??
-                        0) as num)
-                    .toDouble();
+                    data['totalAmount'] ??
+                    data['total'] ??
+                    0) as num)
+                .toDouble();
           }
         }
 

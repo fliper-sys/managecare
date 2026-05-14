@@ -1,10 +1,25 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SaleModel {
+
+      // For compatibility with UI code expecting 'amount'
+      double get amount => finalAmount;
+    /// Returns a description for the sale, using notes if available, otherwise a summary of items.
+    String? get description {
+      if (notes != null && notes!.trim().isNotEmpty) {
+        return notes;
+      }
+      if (items.isNotEmpty) {
+        return items.map((e) => e.productName).join(', ');
+      }
+      return null;
+    }
   final String id;
   final String businessId;
   final String? customerId;
   final String? customerName;
+  final String? roomId;
+  final String? guestId;
   final List<SaleItem> items;
   final double totalAmount;
   final double discountAmount;
@@ -23,6 +38,8 @@ class SaleModel {
     required this.businessId,
     this.customerId,
     this.customerName,
+    this.roomId,
+    this.guestId,
     required this.items,
     required this.totalAmount,
     this.discountAmount = 0.0,
@@ -44,6 +61,8 @@ class SaleModel {
       businessId: data['businessId'] ?? '',
       customerId: data['customerId'],
       customerName: data['customerName'],
+      roomId: data['roomId'],
+      guestId: data['guestId'],
       items: (data['items'] as List<dynamic>)
           .map((item) => SaleItem.fromJson(item))
           .toList(),
@@ -68,6 +87,8 @@ class SaleModel {
       'businessId': businessId,
       'customerId': customerId,
       'customerName': customerName,
+      'roomId': roomId,
+      'guestId': guestId,
       'items': items.map((item) => item.toJson()).toList(),
       'totalAmount': totalAmount,
       'discountAmount': discountAmount,
@@ -89,6 +110,8 @@ class SaleModel {
       'businessId': businessId,
       'customerId': customerId,
       'customerName': customerName,
+      'roomId': roomId,
+      'guestId': guestId,
       'items': items.map((item) => item.toJson()).toList(),
       'totalAmount': totalAmount,
       'discountAmount': discountAmount,
@@ -109,6 +132,8 @@ class SaleModel {
     String? businessId,
     String? customerId,
     String? customerName,
+    String? roomId,
+    String? guestId,
     List<SaleItem>? items,
     double? totalAmount,
     double? discountAmount,
@@ -127,6 +152,8 @@ class SaleModel {
       businessId: businessId ?? this.businessId,
       customerId: customerId ?? this.customerId,
       customerName: customerName ?? this.customerName,
+      roomId: roomId ?? this.roomId,
+      guestId: guestId ?? this.guestId,
       items: items ?? this.items,
       totalAmount: totalAmount ?? this.totalAmount,
       discountAmount: discountAmount ?? this.discountAmount,

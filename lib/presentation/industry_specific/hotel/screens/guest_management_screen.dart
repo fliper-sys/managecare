@@ -108,6 +108,10 @@ class _GuestManagementScreenState extends State<GuestManagementScreen> {
       return item.guestName.trim().toLowerCase() == guestName;
     }).toList();
 
+    // --- SALES/ORDERS SECTION PATCH START ---
+    final guestSales = provider.getSalesForGuest(reservation.guestId);
+    final roomSales = provider.getSalesForRoom(reservation.roomId);
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -164,6 +168,59 @@ class _GuestManagementScreenState extends State<GuestManagementScreen> {
                   ],
                 ),
                 const SizedBox(height: 20),
+
+                // --- SALES/ORDERS SECTION ---
+                const Text('Sales / Orders', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                if (guestSales.isEmpty && roomSales.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text('No sales or orders attached.', style: TextStyle(color: Colors.grey)),
+                  ),
+                if (guestSales.isNotEmpty)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Guest Sales:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ...guestSales.map((sale) => ListTile(
+                            leading: const Icon(Icons.person, color: Colors.green),
+                            title: Text(sale.description ?? 'Sale'),
+                            subtitle: Text('Amount: ₦${sale.amount.toStringAsFixed(2)}'),
+                            trailing: Text(sale.status ?? ''),
+                          )),
+                    ],
+                  ),
+                if (roomSales.isNotEmpty)
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 8),
+                      const Text('Room Sales:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ...roomSales.map((sale) => ListTile(
+                            leading: const Icon(Icons.shopping_cart_outlined, color: Colors.blue),
+                            title: Text(sale.description ?? 'Sale'),
+                            subtitle: Text('Amount: ₦${sale.amount.toStringAsFixed(2)}'),
+                            trailing: Text(sale.status ?? ''),
+                          )),
+                    ],
+                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.add_shopping_cart),
+                      label: const Text('Attach Sale/Order'),
+                      onPressed: () {
+                        // TODO: Implement attach sale/order dialog
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Attach Sale/Order dialog coming soon!')),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                // --- END SALES/ORDERS SECTION ---
+
                 Text(
                   'Latest Stay',
                   style: TextStyle(

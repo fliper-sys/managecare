@@ -58,145 +58,169 @@ class HallBookingsScreen extends StatelessWidget {
     final customerPhoneCtrl = TextEditingController();
     final capacityCtrl = TextEditingController(text: '100');
     final decorationCtrl = TextEditingController(text: 'Standard');
-    final featuresCtrl =
-        TextEditingController(text: 'Decoration, Sound System, Seating');
+    final featuresCtrl = TextEditingController(text: 'Decoration, Sound System, Seating');
     final amountCtrl = TextEditingController(text: '0');
     final notesCtrl = TextEditingController();
     DateTime bookingDate = DateTime.now();
     TimeOfDay startTime = const TimeOfDay(hour: 10, minute: 0);
     TimeOfDay endTime = const TimeOfDay(hour: 16, minute: 0);
 
+    // Fetch halls from inventory
+    final business = context.read<BusinessProvider>().currentBusiness;
+    final businessIdForHalls = business?.id;
+    List<Map<String, dynamic>> halls = [];
+    if (businessIdForHalls != null && businessIdForHalls.isNotEmpty) {
+      final snapshot = await FirebaseFirestore.instance
+        .collection('businesses')
+        .doc(businessIdForHalls)
+        .collection('halls')
+        .get();
+      halls = snapshot.docs.map((doc) => doc.data()).toList();
+    }
+    String? selectedHallName;
+
     final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => StatefulBuilder(
-            builder: (dialogContext, setState) => AlertDialog(
-              title: const Text('New Hall Booking'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setState) => AlertDialog(
+          title: const Text('New Hall Booking'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Hall selection dropdown
+                if (halls.isNotEmpty)
+                  DropdownButtonFormField<String>(
+                    value: selectedHallName,
+                    items: halls
+                        .map((hall) => DropdownMenuItem<String>(
+                              value: hall['name'],
+                              child: Text(hall['name']),
+                            ))
+                        .toList(),
+                    onChanged: (val) {
+                      setState(() {
+                        selectedHallName = val;
+                        final hall = halls.firstWhere((h) => h['name'] == val, orElse: () => {});
+                        hallNameCtrl.text = hall['name'] ?? '';
+                        capacityCtrl.text = (hall['capacity'] ?? '').toString();
+                        amountCtrl.text = (hall['cost'] ?? '').toString();
+                        decorationCtrl.text = hall['decoration'] ?? '';
+                        featuresCtrl.text = (hall['features'] as List<dynamic>? ?? []).join(', ');
+                      });
+                    },
+                    decoration: const InputDecoration(labelText: 'Select Hall (from inventory)'),
+                  ),
+                TextField(
+                  controller: hallNameCtrl,
+                  decoration: const InputDecoration(labelText: 'Hall Name'),
+                ),
+                TextField(
+                  controller: customerNameCtrl,
+                  decoration: const InputDecoration(labelText: 'Customer Name'),
+                ),
+                TextField(
+                  controller: customerPhoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(labelText: 'Customer Phone'),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Booking Date'),
+                  subtitle: Text('${bookingDate.day}/${bookingDate.month}/${bookingDate.year}'),
+                  trailing: const Icon(Icons.calendar_today_outlined),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: dialogContext,
+                      initialDate: bookingDate,
+                      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+                    );
+                    if (picked != null) {
+                      setState(() => bookingDate = picked);
+                    }
+                  },
+                ),
+                Row(
                   children: [
-                    TextField(
-                      controller: hallNameCtrl,
-                      decoration: const InputDecoration(labelText: 'Hall Name'),
-                    ),
-                    TextField(
-                      controller: customerNameCtrl,
-                      decoration:
-                          const InputDecoration(labelText: 'Customer Name'),
-                    ),
-                    TextField(
-                      controller: customerPhoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      decoration:
-                          const InputDecoration(labelText: 'Customer Phone'),
-                    ),
-                    const SizedBox(height: 12),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Booking Date'),
-                      subtitle: Text(
-                        '${bookingDate.day}/${bookingDate.month}/${bookingDate.year}',
-                      ),
-                      trailing: const Icon(Icons.calendar_today_outlined),
-                      onTap: () async {
-                        final picked = await showDatePicker(
-                          context: dialogContext,
-                          initialDate: bookingDate,
-                          firstDate: DateTime.now()
-                              .subtract(const Duration(days: 1)),
-                          lastDate: DateTime.now()
-                              .add(const Duration(days: 365 * 2)),
-                        );
-                        if (picked != null) {
-                          setState(() => bookingDate = picked);
-                        }
-                      },
-                    ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Start Time'),
-                            subtitle: Text(startTime.format(dialogContext)),
-                            onTap: () async {
-                              final picked = await showTimePicker(
-                                context: dialogContext,
-                                initialTime: startTime,
-                              );
-                              if (picked != null) {
-                                setState(() => startTime = picked);
-                              }
-                            },
-                          ),
-                        ),
-                        Expanded(
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('End Time'),
-                            subtitle: Text(endTime.format(dialogContext)),
-                            onTap: () async {
-                              final picked = await showTimePicker(
-                                context: dialogContext,
-                                initialTime: endTime,
-                              );
-                              if (picked != null) {
-                                setState(() => endTime = picked);
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    TextField(
-                      controller: capacityCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration:
-                          const InputDecoration(labelText: 'Sitting Capacity'),
-                    ),
-                    TextField(
-                      controller: decorationCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Decoration Option',
+                    Expanded(
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Start Time'),
+                        subtitle: Text(startTime.format(dialogContext)),
+                        onTap: () async {
+                          final picked = await showTimePicker(
+                            context: dialogContext,
+                            initialTime: startTime,
+                          );
+                          if (picked != null) {
+                            setState(() => startTime = picked);
+                          }
+                        },
                       ),
                     ),
-                    TextField(
-                      controller: featuresCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Extra Features',
-                        helperText: 'Comma separated hall services/features',
+                    Expanded(
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('End Time'),
+                        subtitle: Text(endTime.format(dialogContext)),
+                        onTap: () async {
+                          final picked = await showTimePicker(
+                            context: dialogContext,
+                            initialTime: endTime,
+                          );
+                          if (picked != null) {
+                            setState(() => endTime = picked);
+                          }
+                        },
                       ),
-                    ),
-                    TextField(
-                      controller: amountCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      decoration:
-                          const InputDecoration(labelText: 'Booking Amount'),
-                    ),
-                    TextField(
-                      controller: notesCtrl,
-                      maxLines: 2,
-                      decoration: const InputDecoration(labelText: 'Notes'),
                     ),
                   ],
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancel'),
+                TextField(
+                  controller: capacityCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Sitting Capacity'),
                 ),
-                ElevatedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  child: const Text('Save'),
+                TextField(
+                  controller: decorationCtrl,
+                  decoration: const InputDecoration(labelText: 'Decoration Option'),
+                ),
+                TextField(
+                  controller: featuresCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Extra Features',
+                    helperText: 'Comma separated hall services/features',
+                  ),
+                ),
+                TextField(
+                  controller: amountCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Booking Amount'),
+                ),
+                TextField(
+                  controller: notesCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Notes'),
                 ),
               ],
             ),
           ),
-        ) ??
-        false;
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    ) ??
+    false;
 
     if (!confirmed) return;
 
