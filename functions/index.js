@@ -22,6 +22,43 @@ async function getKoraConfig() {
   return { publicKey, secretKey, encryptionKey };
 }
 
+function normalizeKoraReference(rawReference, uid) {
+  const cleaned = (rawReference || '')
+    .toString()
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '_');
+
+  if (cleaned && cleaned.length <= 50) {
+    return cleaned;
+  }
+
+  const lower = cleaned.toLowerCase();
+  const prefix = lower.startsWith('kora_gym')
+    ? 'kgym'
+    : lower.startsWith('kora_sub')
+      ? 'ksub'
+      : 'kora';
+  const uidPart = (uid || 'user').toString().replace(/[^a-zA-Z0-9]/g, '').slice(0, 10) || 'user';
+  const timePart = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).slice(2, 8);
+
+  return `${prefix}_${uidPart}_${timePart}${randomPart}`.slice(0, 50);
+}
+
+function getKoraErrorMessage(payload, fallback) {
+  const data = payload && typeof payload === 'object' ? payload.data : null;
+  if (data && typeof data === 'object') {
+    for (const value of Object.values(data)) {
+      if (value && typeof value === 'object') {
+        if (value.customErrorMessage) return value.customErrorMessage.toString();
+        if (value.message) return value.message.toString();
+      }
+    }
+  }
+
+  return (payload && payload.message ? payload.message : fallback).toString();
+}
+
 function parseFirestoreDate(value) {
   if (!value) return null;
   if (value instanceof admin.firestore.Timestamp) {
@@ -574,7 +611,7 @@ exports.initializeKoraSubscriptionPayment = functions.https.onCall(async (data, 
   }
   const kora = await getKoraConfig();
 
-  const reference = (data.reference || '').toString().trim();
+  let reference = (data.reference || '').toString().trim();
   const amount = Number(data.amount || 0);
   const currency = (data.currency || 'NGN').toString().trim().toUpperCase();
   const email = (data.email || '').toString().trim();
@@ -584,6 +621,7 @@ exports.initializeKoraSubscriptionPayment = functions.https.onCall(async (data, 
   if (!reference || !amount || !email || !fullName || !redirectUrl) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing required payment details');
   }
+  reference = normalizeKoraReference(reference, data.userId || context.auth.uid);
 
   const response = await fetch('https://api.korapay.com/merchant/api/v1/charges/initialize', {
     method: 'POST',
@@ -613,7 +651,11 @@ exports.initializeKoraSubscriptionPayment = functions.https.onCall(async (data, 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     console.error('[initializeKoraSubscriptionPayment] failed', payload);
-    throw new functions.https.HttpsError('internal', payload.message || 'Failed to initialize Kora payment');
+    const message = getKoraErrorMessage(payload, 'Failed to initialize Kora payment');
+    const code = payload && payload.error === 'validation_error'
+      ? 'invalid-argument'
+      : 'internal';
+    throw new functions.https.HttpsError(code, message, payload.data || null);
   }
 
   const checkoutUrl =

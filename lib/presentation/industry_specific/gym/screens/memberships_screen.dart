@@ -99,8 +99,10 @@ class MembershipsScreen extends StatelessWidget {
       return;
     }
 
-    final reference =
-        'kora_gym_${currentUser.id}_${DateTime.now().millisecondsSinceEpoch}';
+    final reference = KoraPaymentService.buildReference(
+      prefix: 'kgym',
+      userId: currentUser.id,
+    );
     final paymentService = KoraPaymentService();
     var isBlockingDialogVisible = false;
 
@@ -136,6 +138,7 @@ class MembershipsScreen extends StatelessWidget {
           builder: (_) => KoraCheckoutScreen(
             checkoutUrl: initialization.checkoutUrl,
             redirectUrl: initialization.redirectUrl,
+            reference: initialization.reference,
           ),
         ),
       );

@@ -39,6 +39,20 @@ class KoraPaymentService {
   static const String redirectUrl =
       'https://managecare.app/subscription/kora-complete';
 
+  static String buildReference({
+    required String prefix,
+    required String userId,
+  }) {
+    final safePrefix = prefix.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    final safeUserId = userId
+        .replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')
+        .padRight(10, '0')
+        .substring(0, 10);
+    final timestamp = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
+    final reference = '${safePrefix}_${safeUserId}_$timestamp';
+    return reference.length <= 50 ? reference : reference.substring(0, 50);
+  }
+
   Future<KoraCheckoutInitialization> initializeSubscriptionPayment({
     required String reference,
     required double amount,

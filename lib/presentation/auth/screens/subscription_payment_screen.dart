@@ -428,7 +428,10 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
 
     try {
       final businessType = _resolveBusinessType(businessProvider);
-      final reference = 'kora_sub_${widget.userId}_${DateTime.now().millisecondsSinceEpoch}';
+      final reference = KoraPaymentService.buildReference(
+        prefix: 'ksub',
+        userId: widget.userId,
+      );
       final init = await _koraPaymentService.initializeSubscriptionPayment(
         reference: reference,
         amount: selectedPlan.price,
@@ -450,6 +453,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
           builder: (_) => KoraCheckoutScreen(
             checkoutUrl: init.checkoutUrl,
             redirectUrl: init.redirectUrl,
+            reference: init.reference,
           ),
         ),
       );
