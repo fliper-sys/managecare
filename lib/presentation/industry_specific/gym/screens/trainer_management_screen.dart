@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/gym_provider.dart';
 import '../../../../data/models/gym_trainer_model.dart';
 
@@ -11,6 +13,9 @@ class TrainerManagementScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<GymProvider>(context);
+    final auth = Provider.of<AuthProvider>(context);
+    final canManageTrainers =
+        WorkerPermissions.canManageStaff(auth.currentUser?.role ?? '');
 
     return Scaffold(
       appBar: AppBar(
@@ -56,16 +61,24 @@ class TrainerManagementScreen extends StatelessWidget {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.edit),
-                          onPressed: () => _showTrainerDialog(
-                            context,
-                            provider,
-                            index: index,
-                            trainer: trainer,
-                          ),
+                          onPressed: canManageTrainers
+                              ? () => _showTrainerDialog(
+                                    context,
+                                    provider,
+                                    index: index,
+                                    trainer: trainer,
+                                  )
+                              : null,
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete),
-                          onPressed: () => _confirmDelete(context, provider, trainer),
+                          onPressed: canManageTrainers
+                              ? () => _confirmDelete(
+                                    context,
+                                    provider,
+                                    trainer,
+                                  )
+                              : null,
                         ),
                       ],
                     ),
@@ -74,7 +87,9 @@ class TrainerManagementScreen extends StatelessWidget {
               },
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showTrainerDialog(context, provider),
+        onPressed: canManageTrainers
+            ? () => _showTrainerDialog(context, provider)
+            : null,
         backgroundColor: AppColors.primary,
         icon: const Icon(Icons.add),
         label: const Text('Add Trainer'),

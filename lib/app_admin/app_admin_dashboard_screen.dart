@@ -437,11 +437,11 @@ class _DashboardPageState extends State<DashboardPage> {
                   children: [
                     Expanded(
                       child: _buildStatCard(
-                        'Pending Reviews',
+                        'Manual Reviews',
                         pendingApprovals.toString(),
                         Icons.fact_check_rounded,
                         const Color(0xFFF97316),
-                        pendingApprovals > 0 ? 'Needs action' : 'Clear',
+                        pendingApprovals > 0 ? 'Legacy requests' : 'Kora auto-approval',
                         onTap: () =>
                             Navigator.pushNamed(context, Routes.adminSubscriptions),
                       ),
@@ -654,7 +654,7 @@ class _DashboardPageState extends State<DashboardPage> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                '$pendingApprovals subscription reviews and $restrictedBusinesses restricted businesses need admin follow-up.',
+                                '$pendingApprovals legacy subscription reviews and $restrictedBusinesses restricted businesses need admin follow-up.',
                                 style: TextStyle(
                                   color: Colors.white.withOpacity(0.78),
                                   height: 1.35,
@@ -2719,7 +2719,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                     runSpacing: 10,
                     children: [
                       _buildHeaderChip(
-                        label: 'Pending Reviews',
+                        label: 'Manual Reviews',
                         value: admin.pendingSubscriptionApprovalsCount.toString(),
                         color: const Color(0xFFF97316),
                       ),

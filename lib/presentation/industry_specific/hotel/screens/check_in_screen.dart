@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
@@ -11,6 +13,9 @@ class CheckInScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<HotelProvider>(context);
+    final auth = Provider.of<AuthProvider>(context);
+    final canManageCheckIn =
+        WorkerPermissions.canManageGuestBookings(auth.currentUser?.role ?? '');
     final upcoming = provider
         .getUpcomingCheckIns(const Duration(days: 1))
       ..sort((a, b) => a.checkIn.compareTo(b.checkIn));
@@ -65,21 +70,23 @@ class CheckInScreen extends StatelessWidget {
                         backgroundColor: AppColors.primary,
                       ),
                       child: const Text('Check-in'),
-                      onPressed: () async {
-                        await provider.updateReservationStatus(
-                          r.id,
-                          'checked-in',
-                        );
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                '${r.guestName} checked in successfully',
-                              ),
-                            ),
-                          );
-                        }
-                      },
+                      onPressed: canManageCheckIn
+                          ? () async {
+                              await provider.updateReservationStatus(
+                                r.id,
+                                'checked-in',
+                              );
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      '${r.guestName} checked in successfully',
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
+                          : null,
                     ),
                   ),
                 );

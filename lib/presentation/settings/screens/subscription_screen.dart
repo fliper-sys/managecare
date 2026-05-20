@@ -1,19 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:image_picker/image_picker.dart';
-import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
-import '../../../services/subscription_storage_service.dart';
+import '../../../core/constants/routes.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../services/subscription_service.dart';
 // Use AuthProvider to update user instead of directly depending on AuthRepository
-
-import '../../../widgets/loading_indicator.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   const SubscriptionScreen({super.key});
@@ -24,9 +18,6 @@ class SubscriptionScreen extends StatefulWidget {
 
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
   String _currentPlan = 'tier1';
-  bool _isLoading = false;
-  File? _selectedReceipt;
-  double _uploadProgress = 0.0;
 
   String _resolveCurrentUserId(AuthProvider authProvider) {
     final userId = authProvider.currentUser?.id.trim() ?? '';
@@ -230,7 +221,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             const SizedBox(height: 8),
             Text('Duration: ${plan.durationInDays} days'),
             const SizedBox(height: 16),
-            const Text('Upload receipt to activate subscription:'),
+            const Text(
+              'Continue to secure Kora checkout for automatic subscription activation.',
+            ),
           ],
         ),
         actions: [
@@ -239,8 +232,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () => _pickReceiptFile(plan),
-            child: const Text('Upload Receipt'),
+            onPressed: () {
+              Navigator.pop(context);
+              _openSubscriptionCheckout(plan);
+            },
+            child: const Text('Continue'),
           ),
         ],
       ),
@@ -260,7 +256,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             const SizedBox(height: 8),
             Text('Duration: ${plan.durationInDays} days'),
             const SizedBox(height: 16),
-            const Text('Upload receipt to renew subscription:'),
+            const Text(
+              'Continue to secure Kora checkout for automatic renewal approval.',
+            ),
           ],
         ),
         actions: [
@@ -269,244 +267,41 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () => _pickReceiptFile(plan, isRenew: true),
-            child: const Text('Upload Receipt to Renew'),
+            onPressed: () {
+              Navigator.pop(context);
+              _openSubscriptionCheckout(plan);
+            },
+            child: const Text('Continue'),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _pickReceiptFile(SubscriptionPlan plan, {bool isRenew = false}) async {
-    final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
-
-    if (image == null) return;
-
+  void _openSubscriptionCheckout(SubscriptionPlan plan) {
     final authProvider = context.read<AuthProvider>();
+    final businessProvider = context.read<BusinessProvider>();
     final currentUser = authProvider.currentUser;
     final currentUserId = _resolveCurrentUserId(authProvider);
-    if (currentUser == null) {
-      _showError('Please sign in again before uploading a receipt.');
-      return;
-    }
-    if (currentUserId.isEmpty) {
-      _showError('We could not resolve your account ID. Please sign in again.');
+
+    if (currentUser == null || currentUserId.isEmpty) {
+      _showError('Please sign in again before updating your subscription.');
       return;
     }
 
-    // On web, ImagePicker returns an XFile that cannot be converted to dart:io File.
-    // Upload bytes directly and pass the resulting URL to the activation flow.
-    if (kIsWeb) {
-      try {
-        final bytes = await image.readAsBytes();
-        final storageService = SubscriptionStorageService();
-        final uploadResult = await storageService.uploadSubscriptionProofBytesWithProgress(
-          bytes,
-          image.name,
-          currentUserId,
-          plan.id,
-          onProgress: (progress) {
-            if (mounted) {
-              setState(() => _uploadProgress = progress);
-            }
-          },
-        );
-
-        if (!uploadResult.success || uploadResult.downloadUrl == null) {
-          _showError('Upload failed: ${uploadResult.error ?? 'Unknown error'}');
-          return;
-        }
-
-        // Directly proceed with activation using the uploaded URL
-        await _uploadReceiptAndActivateOrRenewSubscription(
-          plan,
-          isRenew: isRenew,
-          serverUrlOverride: uploadResult.downloadUrl,
-        );
-      } catch (e) {
-        _showError('Upload failed: $e');
-      }
-      return;
-    }
-
-    // Native platforms: use dart:io File
-    _selectedReceipt = File(image.path);
-    if (mounted) Navigator.pop(context);
-    await _uploadReceiptAndActivateOrRenewSubscription(plan, isRenew: isRenew);
-  }
-
-    Future<void> _uploadReceiptAndActivateOrRenewSubscription(
-      SubscriptionPlan plan, {bool isRenew = false, String? serverUrlOverride}) async {
-    if (_selectedReceipt == null && serverUrlOverride == null) {
-      _showError('No receipt selected');
-      return;
-    }
-
-    if (mounted) setState(() => _isLoading = true);
-
-    // Show a modal upload indicator (keeps flow consistent with profile upload)
-    if (mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          backgroundColor: Theme.of(context).colorScheme.surface,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(height: 16),
-              const Text('Uploading receipt...'),
-              if (_uploadProgress > 0) ...[
-                const SizedBox(height: 8),
-                LinearProgressIndicator(
-                  value: _uploadProgress,
-                  backgroundColor:
-                      Theme.of(context).colorScheme.surfaceContainerHighest,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${(_uploadProgress * 100).toInt()}%',
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ],
-            ],
-          ),
-        ),
-      );
-    }
-
-    try {
-      // Upload receipt using Firebase Storage
-      final authProvider = context.read<AuthProvider>();
-      final currentUser = authProvider.currentUser;
-      final currentUserId = _resolveCurrentUserId(authProvider);
-      final businessProvider = context.read<BusinessProvider>();
-      final currentBusiness = businessProvider.currentBusiness;
-
-      if (currentUser == null) {
-        if (mounted) {
-          Navigator.pop(context);
-          setState(() => _isLoading = false);
-        }
-        _showError('Please sign in again before updating your subscription.');
-        return;
-      }
-      if (currentUserId.isEmpty) {
-        if (mounted) {
-          Navigator.pop(context);
-          setState(() => _isLoading = false);
-        }
-        _showError('We could not resolve your account ID. Please sign in again.');
-        return;
-      }
-
-      String? receiptUrl = serverUrlOverride;
-      if (receiptUrl == null && _selectedReceipt != null) {
-        final storageService = SubscriptionStorageService();
-        final uploadResult = await storageService.uploadSubscriptionProofWithProgress(
-          _selectedReceipt!,
-          currentUserId,
-          plan.id,
-          onProgress: (progress) {
-            if (mounted) {
-              setState(() => _uploadProgress = progress);
-            }
-          },
-        );
-
-        if (!uploadResult.success || uploadResult.downloadUrl == null) {
-          if (!mounted) return;
-          Navigator.pop(context); // close upload dialog
-          _showError('Failed to upload receipt: ${uploadResult.error ?? 'Unknown error'}');
-          if (mounted) setState(() => _isLoading = false);
-          return;
-        }
-
-        receiptUrl = uploadResult.downloadUrl;
-      }
-
-      final pendingRequestService =
-          SubscriptionService(firestore: FirebaseFirestore.instance);
-      final submittedForApproval =
-          await pendingRequestService.submitManualSubscriptionForApproval(
-        userId: currentUserId,
-        planId: plan.id,
-        receiptUrl: receiptUrl!,
-        amount: plan.price,
-        businessId: currentBusiness?.id,
-        currency: currentBusiness?.currency ?? 'NGN',
-        userEmail: currentUser.email,
-        userName: currentUser.fullName,
-      );
-
-      if (!mounted) return;
-      Navigator.pop(context);
-
-      if (!submittedForApproval) {
-        if (mounted) setState(() => _isLoading = false);
-        _showError(
-            isRenew ? 'Failed to submit renewal request' : 'Failed to submit upgrade request');
-        return;
-      }
-
-      final stillHasActiveAccess = businessProvider.isSubscriptionValid();
-
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _selectedReceipt = null;
-          _uploadProgress = 0.0;
-        });
-      }
-
-      if (stillHasActiveAccess) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                isRenew
-                    ? 'Renewal request submitted for approval.'
-                    : 'Upgrade request submitted for approval.',
-              ),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-        return;
-      }
-
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed(
-          '/subscription-status',
-          arguments: {
-            'userId': currentUserId,
-            'userEmail': currentUser.email,
-            'userName': currentUser.fullName,
-            'businessId': currentBusiness?.id,
-            'businessType': currentBusiness?.businessType,
-            'subscriptionPlan': plan.id,
-            'subscriptionAmount': plan.price,
-          },
-        );
-      }
-      return;
-    } catch (e) {
-      if (mounted) {
-        try {
-          Navigator.pop(context);
-        } catch (_) {}
-      }
-      if (mounted) setState(() {
-        _isLoading = false;
-        _uploadProgress = 0.0;
-      });
-      _showError('Error: $e');
-    }
+    Navigator.of(context).pushNamed(
+      Routes.subscriptionPayment,
+      arguments: {
+        'userId': currentUserId,
+        'userEmail': currentUser.email,
+        'userName': currentUser.fullName,
+        'businessId': businessProvider.currentBusiness?.id,
+        'businessType': businessProvider.currentBusiness?.businessType,
+        'businessTier': businessProvider.currentBusiness?.subscriptionTier,
+        'businessClass': businessProvider.currentBusiness?.businessClass,
+        'initialPlanId': plan.id,
+      },
+    );
   }
 
   void _showError(String message) {
@@ -563,41 +358,38 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               ),
             ],
           ),
-          body: _isLoading
-              ? const Center(child: CustomLoadingIndicator())
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Current Plan Card
-                      if (currentPlan != null)
-                        _buildCurrentPlanCard(currentPlan,
-                            hasActiveSubscription, subscriptionEndDate),
-                      const SizedBox(height: 24),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Current Plan Card
+                if (currentPlan != null)
+                  _buildCurrentPlanCard(
+                      currentPlan, hasActiveSubscription, subscriptionEndDate),
+                const SizedBox(height: 24),
 
-                      // Billing Info
-                      _buildBillingInfoCard(
-                          business, currentPlan, subscriptionEndDate),
-                      const SizedBox(height: 24),
+                // Billing Info
+                _buildBillingInfoCard(business, currentPlan, subscriptionEndDate),
+                const SizedBox(height: 24),
 
-                      // Available Plans
-                      Text(
-                        'Available Plans',
-                        style: AppTextStyles.heading5.copyWith(
-                          color: scheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      ..._buildPlanCards(
-                        businessType: business?.businessType ?? user?.businessType,
-                        tierId: business?.subscriptionTier ?? business?.businessClass,
-                        currentPlanId: currentPlanId,
-                      ),
-                      const SizedBox(height: 32),
-                    ],
+                // Available Plans
+                Text(
+                  'Available Plans',
+                  style: AppTextStyles.heading5.copyWith(
+                    color: scheme.onSurface,
                   ),
                 ),
+                const SizedBox(height: 12),
+                ..._buildPlanCards(
+                  businessType: business?.businessType ?? user?.businessType,
+                  tierId: business?.subscriptionTier ?? business?.businessClass,
+                  currentPlanId: currentPlanId,
+                ),
+                const SizedBox(height: 32),
+              ],
+            ),
+          ),
         );
       },
     );

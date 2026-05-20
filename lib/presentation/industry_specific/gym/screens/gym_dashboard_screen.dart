@@ -276,7 +276,7 @@ class GymDashboardScreen extends StatelessWidget {
                     final actions = <Widget>[];
 
                     if (auth.isOwnerUser ||
-                        WorkerPermissions.hasPermission(role, 'memberships') ||
+                        WorkerPermissions.canManageGymBookings(role) ||
                         WorkerPermissions.canManageStaff(role)) {
                       actions.add(Expanded(
                         child: ElevatedButton.icon(
@@ -306,7 +306,7 @@ class GymDashboardScreen extends StatelessWidget {
 
                     // Add Equipment Management for owners and managers
                     if (auth.isOwnerUser ||
-                        WorkerPermissions.hasPermission(role, 'memberships') ||
+                        WorkerPermissions.canManageGymBookings(role) ||
                         WorkerPermissions.canManageStaff(role)) {
                       if (actions.isNotEmpty) {
                         actions.add(const SizedBox(width: 12));

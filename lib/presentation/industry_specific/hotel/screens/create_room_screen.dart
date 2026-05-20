@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/worker_permissions.dart';
 
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../widgets/custom_text_field.dart';
 import '../../../../providers/hotel_provider.dart';
@@ -174,6 +176,10 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final canManageRooms = auth.isOwnerUser ||
+        WorkerPermissions.canManageRooms(auth.currentUser?.role ?? '');
+
     return Scaffold(
       backgroundColor: Colors.grey[50], // Light background for contrast
       appBar: AppBar(
@@ -316,7 +322,7 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
               width: double.infinity,
               height: 55,
               child: ElevatedButton(
-                onPressed: _isCreating ? null : _createRoom,
+                onPressed: !canManageRooms || _isCreating ? null : _createRoom,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
@@ -337,6 +343,14 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                       ),
               ),
             ),
+            if (!canManageRooms)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text(
+                  'Your role cannot create or edit rooms.',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+              ),
             const SizedBox(height: 20),
           ],
         ),

@@ -97,18 +97,13 @@ class HotelDashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    // Determine permissions once to keep build method clean
     final auth = Provider.of<AuthProvider>(context);
     final role = auth.currentUser?.role ?? '';
-    final isManager = role.toLowerCase() == 'manager';
-    final canBook = auth.isOwnerUser ||
-        WorkerPermissions.hasPermission(role, 'bookings') ||
-        WorkerPermissions.hasPermission(role, 'guest_checkin') ||
-        isManager;
-    final canViewService = auth.isOwnerUser ||
-        WorkerPermissions.hasPermission(role, 'guest_checkin') ||
-        WorkerPermissions.canViewInventory(role) ||
-        isManager;
+    final canBook = WorkerPermissions.canManageGuestBookings(role);
+    final canAccessOperations = WorkerPermissions.canManageHotelServices(role) ||
+        WorkerPermissions.canManagePoolBookings(role) ||
+        WorkerPermissions.canManageSales(role) ||
+        WorkerPermissions.canViewInventory(role);
     final canManageStaff =
         auth.isOwnerUser || WorkerPermissions.canManageStaff(role);
 
@@ -229,7 +224,11 @@ class HotelDashboardScreen extends StatelessWidget {
                     style: theme.textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
-                _buildActionGrid(context, canBook, canViewService, canManageStaff),
+                _buildActionGrid(
+                  context,
+                  canBook,
+                  canAccessOperations,
+                ),
                 const SizedBox(height: 30),
               ],
             ),
@@ -487,7 +486,10 @@ class HotelDashboardScreen extends StatelessWidget {
   }
 
   Widget _buildActionGrid(
-      BuildContext context, bool canBook, bool canViewService, bool canManageStaff) {
+    BuildContext context,
+    bool canBook,
+    bool canAccessOperations,
+  ) {
     List<Widget> actions = [];
 
     if (canBook) {
@@ -502,7 +504,7 @@ class HotelDashboardScreen extends StatelessWidget {
 
     // Room, guest, and housekeeping management moved to work page (removed from home)
 
-    if (canViewService) {
+    if (canAccessOperations) {
       actions.add(_buildActionCard(
         context,
         icon: Icons.restaurant_menu,

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/hotel_provider.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
 
@@ -11,6 +13,9 @@ class CheckOutScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<HotelProvider>(context);
+    final auth = context.watch<AuthProvider>();
+    final canManageCheckOut = auth.isOwnerUser ||
+        WorkerPermissions.canManageGuestBookings(auth.currentUser?.role ?? '');
     final activeCheckIns = provider.checkedInReservations
       ..sort((a, b) => a.checkOut.compareTo(b.checkOut));
 
@@ -51,35 +56,94 @@ class CheckOutScreen extends StatelessWidget {
                       floor: 0,
                     );
                 final balance = provider.getReservationBalance(r);
+                final guestSales = provider.getSalesForGuest(r.guestId);
+                final roomSales = provider.getSalesForRoom(r.roomId);
+                final attachedSales = [...guestSales, ...roomSales]
+                  ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
                 return Card(
-                  child: ListTile(
-                    title: Text('${r.guestName} - Room ${room.number}'),
-                    subtitle: Text(
-                      'Checkout: ${DateFormat('MMM d, h:mm a').format(r.checkOut)}\n'
-                      'Balance: ${formatCurrency(balance)} - Payment: ${r.paymentStatus.toUpperCase()}',
-                    ),
-                    isThreeLine: true,
-                    trailing: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                      ),
-                      child: const Text('Check-out'),
-                      onPressed: () async {
-                        await provider.updateReservationStatus(
-                          r.id,
-                          'checked-out',
-                        );
-                        await provider.updatePaymentStatus(r.id, 'paid');
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                '${r.guestName} checked out and payment updated',
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('${r.guestName} - Room ${room.number}'),
+                          subtitle: Text(
+                            'Checkout: ${DateFormat('MMM d, h:mm a').format(r.checkOut)}\n'
+                            'Balance: ${formatCurrency(balance)} - Payment: ${r.paymentStatus.toUpperCase()}',
+                          ),
+                          isThreeLine: true,
+                          trailing: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                            ),
+                            child: const Text('Check-out'),
+                            onPressed: !canManageCheckOut
+                                ? null
+                                : () async {
+                                    await provider.updateReservationStatus(
+                                      r.id,
+                                      'checked-out',
+                                    );
+                                    await provider.updatePaymentStatus(
+                                      r.id,
+                                      'paid',
+                                    );
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            '${r.guestName} checked out and payment updated',
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  },
+                          ),
+                        ),
+                        if (attachedSales.isNotEmpty) ...[
+                          const Divider(),
+                          const Text(
+                            'Attached Orders & Sales',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ...attachedSales.take(3).map(
+                            (sale) => Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.linked_camera_outlined,
+                                    size: 16,
+                                    color: Colors.blueGrey,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      sale.description?.isNotEmpty == true
+                                          ? sale.description!
+                                          : 'Attached sale',
+                                      style: const TextStyle(fontSize: 12.5),
+                                    ),
+                                  ),
+                                  Text(
+                                    formatCurrency(sale.amount),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 12.5,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          );
-                        }
-                      },
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 );

@@ -5,6 +5,22 @@ admin.initializeApp();
 const db = admin.firestore();
 const FieldValue = admin.firestore.FieldValue;
 const GRACE_WINDOW_DAYS = 30;
+async function getKoraConfig() {
+  const doc = await db.collection('secure').doc('secure').get();
+  const data = doc.data() || {};
+  const publicKey = (data.koraPublicKey || '').toString().trim();
+  const secretKey = (data.koraSecretKey || '').toString().trim();
+  const encryptionKey = (data.koraEncryptionKey || '').toString().trim();
+
+  if (!publicKey || !secretKey || !encryptionKey) {
+    throw new functions.https.HttpsError(
+      'failed-precondition',
+      'Kora credentials are missing in secure/secure'
+    );
+  }
+
+  return { publicKey, secretKey, encryptionKey };
+}
 
 function parseFirestoreDate(value) {
   if (!value) return null;
@@ -551,3 +567,126 @@ exports.purgeExpiredDeletedRecords = functions.pubsub
 
     return null;
   });
+
+exports.initializeKoraSubscriptionPayment = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+  const kora = await getKoraConfig();
+
+  const reference = (data.reference || '').toString().trim();
+  const amount = Number(data.amount || 0);
+  const currency = (data.currency || 'NGN').toString().trim().toUpperCase();
+  const email = (data.email || '').toString().trim();
+  const fullName = (data.fullName || '').toString().trim();
+  const redirectUrl = (data.redirectUrl || '').toString().trim();
+
+  if (!reference || !amount || !email || !fullName || !redirectUrl) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing required payment details');
+  }
+
+  const response = await fetch('https://api.korapay.com/merchant/api/v1/charges/initialize', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${kora.secretKey}`,
+    },
+    body: JSON.stringify({
+      amount,
+      currency,
+      reference,
+      redirect_url: redirectUrl,
+      customer: {
+        name: fullName,
+        email,
+      },
+      notification_url: redirectUrl,
+      metadata: {
+        planId: data.planId || null,
+        businessId: data.businessId || null,
+        businessType: data.businessType || null,
+        userId: data.userId || context.auth.uid,
+      },
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error('[initializeKoraSubscriptionPayment] failed', payload);
+    throw new functions.https.HttpsError('internal', payload.message || 'Failed to initialize Kora payment');
+  }
+
+  const checkoutUrl =
+    payload?.data?.checkout_url ||
+    payload?.data?.checkoutUrl ||
+    payload?.data?.link ||
+    payload?.data?.url;
+
+  if (!checkoutUrl) {
+    console.error('[initializeKoraSubscriptionPayment] missing checkout URL', payload);
+    throw new functions.https.HttpsError('internal', 'Kora did not return a checkout URL');
+  }
+
+  return {
+    success: true,
+    checkoutUrl,
+    reference,
+    redirectUrl,
+  };
+});
+
+exports.verifyKoraSubscriptionPayment = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+  const kora = await getKoraConfig();
+
+  const reference = (data.reference || '').toString().trim();
+  if (!reference) {
+    throw new functions.https.HttpsError('invalid-argument', 'Payment reference is required');
+  }
+
+  const response = await fetch(`https://api.korapay.com/merchant/api/v1/charges/${encodeURIComponent(reference)}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${kora.secretKey}`,
+    },
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error('[verifyKoraSubscriptionPayment] failed', payload);
+    throw new functions.https.HttpsError('internal', payload.message || 'Failed to verify Kora payment');
+  }
+
+  const paymentData = payload?.data || {};
+  const rawStatus = (
+    paymentData.status ||
+    paymentData.payment_status ||
+    paymentData.charge_status ||
+    payload.status ||
+    ''
+  )
+    .toString()
+    .toLowerCase();
+
+  const successStatuses = new Set(['success', 'successful', 'paid', 'completed']);
+  const isSuccessful = successStatuses.has(rawStatus);
+
+  return {
+    success: isSuccessful,
+    message: isSuccessful
+      ? 'Payment verified successfully'
+      : (payload.message || 'Payment has not been completed successfully'),
+    reference,
+    status: rawStatus || 'unknown',
+    paymentMethod: (
+      paymentData.payment_method ||
+      paymentData.channel ||
+      paymentData.method ||
+      'kora'
+    ).toString(),
+    raw: payload,
+  };
+});

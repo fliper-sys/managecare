@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../providers/hotel_provider.dart';
 import '../widgets/guest_card.dart';
@@ -203,6 +204,39 @@ class _GuestManagementScreenState extends State<GuestManagementScreen> {
                           )),
                     ],
                   ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.replay_outlined),
+                      label: const Text('Re-check-in Guest'),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.pushNamed(
+                          context,
+                          Routes.hotelBookings,
+                          arguments: {
+                            'prefillGuest': {
+                              'guestName': guest['guestName'],
+                              'guestEmail': guest['guestEmail'],
+                              'guestPhone': guest['guestPhone'],
+                              'guestAddress': guest['guestAddress'],
+                              'guestNationality': guest['guestNationality'],
+                              'guestIdType': guest['guestIdType'],
+                              'guestIdNumber': guest['guestIdNumber'],
+                              'nextOfKinName': guest['nextOfKinName'],
+                              'nextOfKinPhone': guest['nextOfKinPhone'],
+                              'nextOfKinRelationship':
+                                  guest['nextOfKinRelationship'],
+                              'bookingSource': guest['bookingSource'],
+                            },
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ),
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: SizedBox(

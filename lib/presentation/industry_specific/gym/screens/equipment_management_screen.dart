@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/gym_provider.dart';
 
 class EquipmentManagementScreen extends StatefulWidget {
@@ -21,6 +23,11 @@ class _EquipmentManagementScreenState extends State<EquipmentManagementScreen> {
   Widget build(BuildContext context) {
     return Consumer<GymProvider>(
       builder: (context, provider, _) {
+        final auth = context.watch<AuthProvider>();
+        final role = auth.currentUser?.role ?? '';
+        final canManageEquipment = auth.isOwnerUser ||
+            WorkerPermissions.canManageGymBookings(role) ||
+            WorkerPermissions.canManageStaff(role);
         final filteredEquipment = provider.equipment.where((eq) {
           final categoryMatch = _selectedCategory == 'All' || eq.category == _selectedCategory;
           final statusMatch = _selectedStatus == 'All' || eq.status == _selectedStatus;
@@ -107,6 +114,7 @@ class _EquipmentManagementScreenState extends State<EquipmentManagementScreen> {
                                 ],
                               ),
                               trailing: PopupMenuButton<String>(
+                                enabled: canManageEquipment,
                                 onSelected: (action) => _handleEquipmentAction(context, provider, equipment, action),
                                 itemBuilder: (context) => [
                                   const PopupMenuItem(value: 'edit', child: Text('Edit')),
@@ -124,7 +132,9 @@ class _EquipmentManagementScreenState extends State<EquipmentManagementScreen> {
             ],
           ),
           floatingActionButton: FloatingActionButton.extended(
-            onPressed: () => _showAddEquipmentDialog(context, provider),
+            onPressed: canManageEquipment
+                ? () => _showAddEquipmentDialog(context, provider)
+                : null,
             icon: const Icon(Icons.add),
             label: const Text('Add Equipment'),
           ),

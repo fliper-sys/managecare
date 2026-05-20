@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 
 class FrontDeskScreen extends StatelessWidget {
@@ -11,11 +13,18 @@ class FrontDeskScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final canManageBookings = auth.isOwnerUser ||
+        WorkerPermissions.canManageGuestBookings(auth.currentUser?.role ?? '');
     return Consumer<HotelProvider>(
       builder: (context, provider, _) {
         final arrivals = provider.getArrivalsForDate(DateTime.now());
         final departures = provider.getTodayCheckOuts();
         final checkedIn = provider.checkedInReservations;
+        final repeatGuests = provider.guestProfiles
+            .where((guest) => ((guest['reservationCount'] as num?)?.toInt() ?? 0) > 1)
+            .take(3)
+            .toList();
 
         return Scaffold(
           appBar: AppBar(
@@ -58,6 +67,40 @@ class FrontDeskScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               _SectionHeader(
+                title: 'Guest Summary',
+                actionLabel: 'Guest Book',
+                onTap: () => Navigator.pushNamed(context, Routes.hotelGuests),
+              ),
+              const SizedBox(height: 10),
+              if (repeatGuests.isEmpty)
+                const _EmptyTile(message: 'Registered guest summaries will appear here.')
+              else
+                ...repeatGuests.map((guest) {
+                  final reservation = guest['lastReservation'] as Reservation;
+                  final room = provider.getRoomById(reservation.roomId);
+                  final tier = (guest['guestTier'] ?? 'registered')
+                      .toString()
+                      .replaceAll('_', ' ')
+                      .toUpperCase();
+                  return Card(
+                    child: ListTile(
+                      leading: const CircleAvatar(
+                        backgroundColor: Color(0xFFEFF7EE),
+                        child: Icon(Icons.badge_outlined, color: Colors.green),
+                      ),
+                      title: Text(guest['guestName'].toString()),
+                      subtitle: Text(
+                        '$tier • ${guest['reservationCount']} stays • Room ${room?.number ?? reservation.roomId}',
+                      ),
+                      trailing: Text(
+                        '₦${((guest['totalSpend'] as num?)?.toDouble() ?? 0).toStringAsFixed(0)}',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  );
+                }),
+              const SizedBox(height: 20),
+              _SectionHeader(
                 title: 'Today\'s Arrivals',
                 actionLabel: 'Reservations',
                 onTap: () => Navigator.pushNamed(
@@ -83,7 +126,9 @@ class FrontDeskScreen extends StatelessWidget {
                         'Room ${room?.number ?? reservation.roomId} • ${DateFormat('MMM d, h:mm a').format(reservation.checkIn)}',
                       ),
                       trailing: ElevatedButton(
-                        onPressed: () async {
+                        onPressed: !canManageBookings
+                            ? null
+                            : () async {
                           await provider.updateReservationStatus(
                             reservation.id,
                             'checked-in',
@@ -129,7 +174,9 @@ class FrontDeskScreen extends StatelessWidget {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orange,
                         ),
-                        onPressed: () async {
+                        onPressed: !canManageBookings
+                            ? null
+                            : () async {
                           await provider.updateReservationStatus(
                             reservation.id,
                             'checked-out',

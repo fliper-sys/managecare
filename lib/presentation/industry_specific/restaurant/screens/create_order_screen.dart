@@ -136,6 +136,22 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     });
   }
 
+  String _resolveOrderTargetType() {
+    if (_selectedRoomChargeReservationId != null) return 'room';
+    if (_selectedTableId != null) return 'table';
+    return 'takeaway';
+  }
+
+  String? _resolveOrderTargetLabel() {
+    if (_selectedRoomChargeReservationId != null) {
+      return _selectedRoomChargeLabel;
+    }
+    if (_selectedTableNumber != null) {
+      return 'Table $_selectedTableNumber';
+    }
+    return null;
+  }
+
   String _safeIdSuffix(String id) => id.length >= 6 ? id.substring(id.length - 6) : id;
 
   void _showItemOptionsDialog(MenuItem item) async {
@@ -345,8 +361,12 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       paymentMethods: const ['room_charge'],
       paymentBreakdown: const [],
       orderType: 'room-service',
+      orderTargetType: 'room',
+      orderTargetLabel: 'Room ${room?.number ?? reservation.roomId}',
       notes:
           'Charged to Room ${room?.number ?? reservation.roomId} for reservation ${reservation.id}',
+      roomId: reservation.roomId,
+      guestId: reservation.guestId,
     );
 
     try {
@@ -363,6 +383,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         createdByName: auth.currentUser?.fullName,
         metadata: {
           'restaurantOrderId': order.id,
+          'roomId': reservation.roomId,
+          'guestId': reservation.guestId,
           'items': _selectedItems
               .map(
                 (item) => {
@@ -617,6 +639,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         paymentMethods: selectedPaymentMethods,
         paymentBreakdown: paymentBreakdown,
         orderType: _selectedTableId != null ? 'dine-in' : 'takeaway',
+        orderTargetType: _resolveOrderTargetType(),
+        orderTargetLabel: _resolveOrderTargetLabel(),
       );
 
         // Save sale to Firestore
@@ -637,6 +661,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           'orderId': order.id,
           'items': itemsList,
           'tableNumber': order.tableNumber,
+          'roomId': order.roomId,
+          'guestId': order.guestId,
+          'orderTargetType': order.orderTargetType,
+          'orderTargetLabel': order.orderTargetLabel,
           'orderType': order.orderType,
           'subtotal': order.subtotal,
           'tax': order.tax,
@@ -711,6 +739,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           'orderId': order.id,
           'items': itemsList,
           'tableNumber': order.tableNumber,
+          'roomId': order.roomId,
+          'guestId': order.guestId,
+          'orderTargetType': order.orderTargetType,
+          'orderTargetLabel': order.orderTargetLabel,
           'orderType': order.orderType,
           'subtotal': order.subtotal,
           'tax': order.tax,
@@ -799,6 +831,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         paymentMethods: const ['confirmed'],
         paymentBreakdown: const [],
         orderType: _selectedTableId != null ? 'dine-in' : 'takeaway',
+        orderTargetType: _resolveOrderTargetType(),
+        orderTargetLabel: _resolveOrderTargetLabel(),
       );
 
       final firestore = FirebaseFirestore.instance;
@@ -827,6 +861,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         ],
         'category': 'Restaurant',
         'status': 'completed',
+        'roomId': order.roomId,
+        'guestId': order.guestId,
+        'orderTargetType': order.orderTargetType,
+        'orderTargetLabel': order.orderTargetLabel,
         'customerName': order.customerName,
         'customerEmail': order.customerEmail,
         if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
@@ -917,6 +955,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         ],
         'category': 'Restaurant',
         'receiptNumber': receiptNumber,
+        'roomId': order.roomId,
+        'guestId': order.guestId,
+        'orderTargetType': order.orderTargetType,
+        'orderTargetLabel': order.orderTargetLabel,
         'customerName': order.customerName,
         'customerEmail': order.customerEmail,
         if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
@@ -1387,6 +1429,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       status: 'pending',
       paymentStatus: 'pending',
       orderType: 'dine-in',
+      orderTargetType: 'table',
+      orderTargetLabel: _resolveOrderTargetLabel(),
     );
 
     // Add to provider

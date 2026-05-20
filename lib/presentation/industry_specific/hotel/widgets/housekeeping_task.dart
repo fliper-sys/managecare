@@ -4,7 +4,7 @@ class HousekeepingTask extends StatelessWidget {
   final String roomNumber;
   final String taskType;
   final String status;
-  final VoidCallback onComplete;
+  final VoidCallback? onComplete;
 
   const HousekeepingTask({
     super.key,

@@ -258,6 +258,7 @@ class AppRouter {
           businessType: args?['businessType'] as String?,
           businessTier: args?['businessTier'] as String?,
           businessClass: args?['businessClass'] as String?,
+          initialPlanId: args?['initialPlanId'] as String?,
         ));
 
       case '/subscription-status':

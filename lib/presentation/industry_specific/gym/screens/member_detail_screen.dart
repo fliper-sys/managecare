@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/gym_provider.dart';
 import '../../../../widgets/profile_avatar.dart';
 import '../../../../data/models/gym_member_model.dart';
@@ -16,6 +18,13 @@ class MemberDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<GymProvider>(context);
+    final auth = Provider.of<AuthProvider>(context);
+    final role = auth.currentUser?.role ?? '';
+    final canManageMemberships =
+        WorkerPermissions.canManageGymBookings(role) ||
+            WorkerPermissions.canManageStaff(role);
+    final canTrackAttendance =
+        WorkerPermissions.canAttendance(role) || canManageMemberships;
     final member = provider.members.firstWhere(
       (item) => item.id == memberId,
       orElse: () => Member(id: 'n/a', name: 'Unknown', email: '', phone: ''),
@@ -64,7 +73,11 @@ class MemberDetailScreen extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           if (member.membershipExpiry != null) ...[
-            _ExpiryBanner(member: member, provider: provider),
+            _ExpiryBanner(
+              member: member,
+              provider: provider,
+              canManageMemberships: canManageMemberships,
+            ),
             const SizedBox(height: 12),
           ],
           Card(
@@ -86,25 +99,27 @@ class MemberDetailScreen extends StatelessWidget {
                         ),
                       ),
                       ElevatedButton(
-                        onPressed: () async {
-                          final chosen = await showPlanPicker(
-                            context,
-                            provider.plans,
-                          );
-                          if (chosen == null) return;
-                          await provider.assignMembership(
-                            member.id,
-                            chosen.id,
-                            chosen.durationMonths,
-                          );
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Membership assigned'),
-                              ),
-                            );
-                          }
-                        },
+                        onPressed: canManageMemberships
+                            ? () async {
+                                final chosen = await showPlanPicker(
+                                  context,
+                                  provider.plans,
+                                );
+                                if (chosen == null) return;
+                                await provider.assignMembership(
+                                  member.id,
+                                  chosen.id,
+                                  chosen.durationMonths,
+                                );
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Membership assigned'),
+                                    ),
+                                  );
+                                }
+                              }
+                            : null,
                         child: const Text('Assign'),
                       ),
                     ],
@@ -119,27 +134,33 @@ class MemberDetailScreen extends StatelessWidget {
             runSpacing: 12,
             children: [
               ElevatedButton(
-                onPressed: () async {
-                  member.active = !member.active;
-                  await provider.updateMember(member);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          member.active ? 'Checked in' : 'Checked out',
-                        ),
-                      ),
-                    );
-                  }
-                },
+                onPressed: canTrackAttendance
+                    ? () async {
+                        member.active = !member.active;
+                        await provider.updateMember(member);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                member.active ? 'Checked in' : 'Checked out',
+                              ),
+                            ),
+                          );
+                        }
+                      }
+                    : null,
                 child: Text(member.active ? 'Check-out' : 'Check-in'),
               ),
               OutlinedButton(
-                onPressed: () => _showEditDialog(context, provider, member),
+                onPressed: canManageMemberships
+                    ? () => _showEditDialog(context, provider, member)
+                    : null,
                 child: const Text('Edit'),
               ),
               OutlinedButton(
-                onPressed: () => _confirmDelete(context, provider, member),
+                onPressed: WorkerPermissions.canManageStaff(role)
+                    ? () => _confirmDelete(context, provider, member)
+                    : null,
                 child: const Text('Delete'),
               ),
             ],
@@ -238,8 +259,13 @@ class MemberDetailScreen extends StatelessWidget {
 class _ExpiryBanner extends StatelessWidget {
   final Member member;
   final GymProvider provider;
+  final bool canManageMemberships;
 
-  const _ExpiryBanner({required this.member, required this.provider});
+  const _ExpiryBanner({
+    required this.member,
+    required this.provider,
+    required this.canManageMemberships,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -251,16 +277,18 @@ class _ExpiryBanner extends StatelessWidget {
         color: Colors.red,
         icon: Icons.warning,
         text: 'Membership expired ${-daysLeft} day(s) ago',
-        onPressed: () async {
-          final chosen = await showPlanPicker(context, provider.plans);
-          if (chosen != null) {
-            await provider.assignMembership(
-              member.id,
-              chosen.id,
-              chosen.durationMonths,
-            );
-          }
-        },
+        onPressed: canManageMemberships
+            ? () async {
+                final chosen = await showPlanPicker(context, provider.plans);
+                if (chosen != null) {
+                  await provider.assignMembership(
+                    member.id,
+                    chosen.id,
+                    chosen.durationMonths,
+                  );
+                }
+              }
+            : null,
       );
     }
 
@@ -269,16 +297,18 @@ class _ExpiryBanner extends StatelessWidget {
         color: Colors.orange,
         icon: Icons.schedule,
         text: 'Membership expires in $daysLeft day(s)',
-        onPressed: () async {
-          final chosen = await showPlanPicker(context, provider.plans);
-          if (chosen != null) {
-            await provider.assignMembership(
-              member.id,
-              chosen.id,
-              chosen.durationMonths,
-            );
-          }
-        },
+        onPressed: canManageMemberships
+            ? () async {
+                final chosen = await showPlanPicker(context, provider.plans);
+                if (chosen != null) {
+                  await provider.assignMembership(
+                    member.id,
+                    chosen.id,
+                    chosen.durationMonths,
+                  );
+                }
+              }
+            : null,
       );
     }
 
@@ -290,7 +320,7 @@ class _BannerCard extends StatelessWidget {
   final Color color;
   final IconData icon;
   final String text;
-  final Future<void> Function() onPressed;
+  final Future<void> Function()? onPressed;
 
   const _BannerCard({
     required this.color,

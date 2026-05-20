@@ -3,12 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../services/subscription_service.dart';
 import '../../core/utils/datetime_utils.dart';
 import '../../providers/marketer_provider.dart';
-import '../../services/email_service.dart';
 import '../admin_theme.dart';
 
 /// Model for subscription payment
@@ -29,9 +27,10 @@ class SubscriptionPayment {
   final String? receiptPath;
   final String? businessTier; // pro/basic
   final String? businessClass; // tier1/tier2/tier3
-  final String? paymentMethod; // bank_transfer, flutterwave, etc.
-  final String? transactionId; // For Flutterwave transactions
-  final bool isFlutterwavePayment;
+  final String? paymentMethod; // kora, bank_transfer, legacy gateways, etc.
+  final String? transactionId; // Gateway transaction/reference
+  final bool isLegacyGatewayPayment;
+  final bool isKoraPayment;
 
   SubscriptionPayment({
     this.requestId = '',
@@ -52,18 +51,37 @@ class SubscriptionPayment {
     this.businessClass,
     this.paymentMethod,
     this.transactionId,
-    this.isFlutterwavePayment = false,
+    this.isLegacyGatewayPayment = false,
+    this.isKoraPayment = false,
   });
+
+  bool get isGatewayPayment => isKoraPayment || isLegacyGatewayPayment;
+
+  String get providerLabel {
+    if (isKoraPayment) return 'Kora';
+    if (isLegacyGatewayPayment) return 'Legacy Gateway';
+    final method = (paymentMethod ?? '').trim();
+    if (method.isEmpty) return 'Manual';
+    return method
+        .split('_')
+        .where((part) => part.isNotEmpty)
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .join(' ');
+  }
 
   factory SubscriptionPayment.fromFirestore(
     DocumentSnapshot doc,
     Map<String, dynamic> userData,
     Map<String, dynamic> businessData,
   ) {
-    final isFlutterwave = (doc['subscriptionReceiptUrl'] ?? '')
+    final isLegacyGateway = (doc['subscriptionReceiptUrl'] ?? '')
         .toString()
         .toLowerCase()
         .startsWith('flutterwave:');
+    final isKora = (doc['subscriptionReceiptUrl'] ?? '')
+        .toString()
+        .toLowerCase()
+        .startsWith('kora:');
     
     return SubscriptionPayment(
       requestId: doc.id,
@@ -83,10 +101,14 @@ class SubscriptionPayment {
       businessTier: businessData['tier'],
       businessClass: businessData['businessClass'],
       paymentMethod: doc['paymentMethod'],
-      transactionId: isFlutterwave 
-          ? (doc['subscriptionReceiptUrl'] as String).replaceFirst('flutterwave:', '')
-          : null,
-      isFlutterwavePayment: isFlutterwave,
+      transactionId: isLegacyGateway
+          ? (doc['subscriptionReceiptUrl'] as String)
+              .replaceFirst('flutterwave:', '')
+          : isKora
+              ? (doc['subscriptionReceiptUrl'] as String).replaceFirst('kora:', '')
+              : null,
+      isLegacyGatewayPayment: isLegacyGateway,
+      isKoraPayment: isKora,
     );
   }
 
@@ -356,8 +378,10 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
           final amount = (data['amount'] ?? 0).toDouble();
           final receiptUrl = (data['receiptUrl'] as String? ?? '').trim();
 
-          // Check if it's a Flutterwave payment
-          final isFlutterwave = receiptUrl.toLowerCase().startsWith('flutterwave:');
+          // Check if it is a gateway-backed payment.
+          final normalizedReceiptUrl = receiptUrl.toLowerCase();
+          final isFlutterwave = normalizedReceiptUrl.startsWith('flutterwave:');
+          final isKora = normalizedReceiptUrl.startsWith('kora:');
 
           // Determine status for display
           String displayStatus = 'pending';
@@ -388,10 +412,14 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
             businessTier: businessTier,
             businessClass: businessClass,
             paymentMethod: data['paymentMethod'] as String?,
-            transactionId: isFlutterwave 
+            transactionId: isFlutterwave
                 ? receiptUrl.replaceFirst('flutterwave:', '')
-                : (data['transactionId'] as String?),
-            isFlutterwavePayment: isFlutterwave,
+                : isKora
+                    ? receiptUrl.replaceFirst('kora:', '')
+                    : ((data['processorTransactionId'] ??
+                            data['transactionId']) as String?),
+            isLegacyGatewayPayment: isFlutterwave,
+            isKoraPayment: isKora,
           );
 
           // Add payment to appropriate list
@@ -545,7 +573,8 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         'receiptUrl': payment.receiptUrl,
         'transactionId': payment.transactionId,
         'paymentMethod': payment.paymentMethod,
-        'isFlutterwavePayment': payment.isFlutterwavePayment,
+        'isFlutterwavePayment': payment.isLegacyGatewayPayment,
+        'isKoraPayment': payment.isKoraPayment,
         'businessTier': payment.businessTier,
         'businessClass': payment.businessClass,
         'approvedAt': now.toIso8601String(),
@@ -554,7 +583,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         'subscriptionEndDate': endDate.toIso8601String(),
         'subscriptionDurationDays': plan?.durationInDays ?? 30,
         'approvalSource':
-            payment.isFlutterwavePayment ? 'payment_transaction' : 'subscription_request',
+            payment.isGatewayPayment ? 'gateway_transaction' : 'subscription_request',
         'revenueRecognized': true,
         'revenueRecognizedAt': now.toIso8601String(),
         'status': 'approved',
@@ -1399,21 +1428,21 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                         ),
                       ),
                     ),
-                    if (payment.isFlutterwavePayment)
+                    if (payment.isGatewayPayment)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: const Color(0xFF00D084).withOpacity(0.2),
                           borderRadius: BorderRadius.circular(6),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.payment, size: 12, color: Color(0xFF00D084)),
-                            SizedBox(width: 4),
+                            const Icon(Icons.payment, size: 12, color: Color(0xFF00D084)),
+                            const SizedBox(width: 4),
                             Text(
-                              'Flutterwave',
-                              style: TextStyle(
+                              payment.providerLabel,
+                              style: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFF00D084),
@@ -1436,7 +1465,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                 const Divider(),
                 const SizedBox(height: 8),
                 Text(
-                  'Receipt',
+                  payment.isGatewayPayment ? 'Gateway Reference' : 'Receipt',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey[600],
@@ -1444,16 +1473,45 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                if (payment.receiptUrl.isEmpty)
-                  // No receipt - show upload button
-                  ElevatedButton.icon(
-                    onPressed: () => _showReceiptImagePickerOptions(payment),
-                    icon: const Icon(Icons.cloud_upload_outlined, size: 16),
-                    label: const Text('Upload Receipt'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      backgroundColor: const Color(0xFF3B82F6),
-                      foregroundColor: Colors.white,
+                if (payment.isGatewayPayment)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.green.withOpacity(0.35)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.verified_rounded, color: Colors.green, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${payment.providerLabel}: ${payment.transactionId ?? payment.receiptUrl}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else if (payment.receiptUrl.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border:
+                          Border.all(color: Colors.orange.withOpacity(0.35)),
+                    ),
+                    child: const Text(
+                      'Legacy manual request without proof. New subscriptions should be paid through Kora checkout.',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                     ),
                   )
                 else
@@ -2060,9 +2118,9 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                             color: statusColor,
                             icon: statusIcon,
                           ),
-                          if (payment.isFlutterwavePayment)
+                          if (payment.isGatewayPayment)
                             _buildMetaChip(
-                              label: 'Flutterwave',
+                              label: payment.providerLabel,
                               color: const Color(0xFF00D084),
                               icon: Icons.payment_rounded,
                             ),
@@ -2151,7 +2209,9 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                     SizedBox(
                       width: metricWidth,
                       child: _buildMetricTile(
-                        icon: Icons.receipt_long_rounded,
+                        icon: payment.isGatewayPayment
+                            ? Icons.verified_rounded
+                            : Icons.receipt_long_rounded,
                         label: 'Payment Reference',
                         value: payment.transactionId?.isNotEmpty == true
                             ? payment.transactionId!
@@ -2182,13 +2242,17 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                   Row(
                     children: [
                       Icon(
-                        Icons.receipt_rounded,
+                        payment.isGatewayPayment
+                            ? Icons.verified_rounded
+                            : Icons.receipt_rounded,
                         size: 18,
                         color: Theme.of(context).colorScheme.primary,
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        'Receipt Evidence',
+                        payment.isGatewayPayment
+                            ? 'Gateway Verification'
+                            : 'Receipt Evidence',
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           color: context.adminTextPrimary,
@@ -2200,18 +2264,63 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                   Text(
                     payment.receiptUrl.isEmpty
                         ? 'No proof of payment has been uploaded yet.'
-                        : 'Preview the uploaded receipt, download it externally, or replace it with a clearer upload.',
+                        : payment.isGatewayPayment
+                            ? 'This subscription was verified automatically through ${payment.providerLabel}. No receipt upload is required.'
+                            : 'Preview the uploaded receipt, download it externally, or replace it with a clearer upload.',
                     style: TextStyle(
                       color: context.adminTextSecondary,
                       height: 1.4,
                     ),
                   ),
                   const SizedBox(height: 14),
-                  if (payment.receiptUrl.isEmpty)
-                    FilledButton.icon(
-                      onPressed: () => _showReceiptImagePickerOptions(payment),
-                      icon: const Icon(Icons.cloud_upload_outlined, size: 18),
-                      label: const Text('Upload Receipt'),
+                  if (payment.isGatewayPayment)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00D084).withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: const Color(0xFF00D084).withOpacity(0.28),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.lock_person_rounded,
+                            color: Color(0xFF00A86B),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              '${payment.providerLabel} reference: ${payment.transactionId ?? payment.receiptUrl}',
+                              style: TextStyle(
+                                color: context.adminTextPrimary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (payment.receiptUrl.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Colors.orange.withOpacity(0.28),
+                        ),
+                      ),
+                      child: Text(
+                        'Legacy manual request without proof. Ask the owner to retry through Kora checkout.',
+                        style: TextStyle(
+                          color: context.adminTextPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     )
                   else
                     LayoutBuilder(
@@ -2268,15 +2377,6 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                                 size: 16,
                               ),
                               label: const Text('Download'),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () =>
-                                  _showReceiptImagePickerOptions(payment),
-                              icon: const Icon(
-                                Icons.upload_file_rounded,
-                                size: 16,
-                              ),
-                              label: const Text('Replace'),
                             ),
                           ],
                         );
@@ -3216,127 +3316,6 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         );
       },
     );
-  }
-
-  /// Show image picker options for receipt upload (matching profile_screen pattern)
-  void _showReceiptImagePickerOptions(SubscriptionPayment payment) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: context.adminSurface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (sheetContext) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF3B82F6)),
-              title: const Text('Gallery'),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                _pickAndUploadReceiptPhoto(payment);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF3B82F6)),
-              title: const Text('Camera'),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                _pickAndUploadReceiptPhoto(payment, useCamera: true);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Pick and upload receipt photo (matching profile_screen pattern)
-  Future<void> _pickAndUploadReceiptPhoto(SubscriptionPayment payment, {bool useCamera = false}) async {
-    try {
-      final picker = ImagePicker();
-      final xfile = await picker.pickImage(
-        source: useCamera ? ImageSource.camera : ImageSource.gallery,
-        imageQuality: 80,
-      );
-      
-      if (xfile == null) return;
-      
-      final bytes = await xfile.readAsBytes();
-      final filename = 'receipt_${payment.userId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-
-      // Show loading indicator
-      if (!mounted) return;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Container(
-            decoration: BoxDecoration(
-              color: context.adminSurface,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-                Text(
-                  'Uploading receipt...',
-                  style: TextStyle(color: context.adminTextPrimary),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-
-      // Upload using EmailService (matching profile_screen pattern)
-      final url = await EmailService().uploadBytes(bytes, filename);
-
-      if (!mounted) return;
-      Navigator.pop(context); // Close loading dialog
-
-      if (url != null) {
-        final cachebustedUrl = '$url?t=${DateTime.now().millisecondsSinceEpoch}';
-        
-        // Update payment record in Firestore
-        await _firestore.collection('users').doc(payment.userId).update({
-          'subscriptionReceiptUrl': cachebustedUrl,
-        });
-
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Receipt uploaded successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-
-        // Refresh payments to show updated receipt
-        _loadPayments();
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to upload receipt'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error uploading receipt: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 
   /// Get color for business class/tier display

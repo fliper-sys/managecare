@@ -553,7 +553,11 @@ class GymProvider extends ChangeNotifier {
   }
 
   Future<void> assignMembership(
-      String memberId, String planId, int durationMonths) async {
+    String memberId,
+    String planId,
+    int durationMonths, {
+    bool recordPaymentEntry = false,
+  }) async {
     final m = members.firstWhere((x) => x.id == memberId,
         orElse: () => throw Exception('Member not found'));
     m.membershipPlanId = planId;
@@ -561,13 +565,20 @@ class GymProvider extends ChangeNotifier {
         DateTime.now().add(Duration(days: 30 * durationMonths));
     await updateMember(m);
     // Optionally record a payment when assigning a plan (not enforcing)
-    try {
-      final plan = plans.firstWhere((p) => p.id == planId,
-          orElse: () =>
-              MembershipPlan(id: planId, name: 'Plan', pricePerMonth: 0.0));
-      await recordPayment(memberId, plan.pricePerMonth * durationMonths, 'card',
-          planId: planId, note: 'Subscription purchase');
-    } catch (_) {}
+    if (recordPaymentEntry) {
+      try {
+        final plan = plans.firstWhere((p) => p.id == planId,
+            orElse: () =>
+                MembershipPlan(id: planId, name: 'Plan', pricePerMonth: 0.0));
+        await recordPayment(
+          memberId,
+          plan.pricePerMonth * durationMonths,
+          'card',
+          planId: planId,
+          note: 'Subscription purchase',
+        );
+      } catch (_) {}
+    }
     // Schedule expiry notifications using admin-configured thresholds
     try {
       if (businessId != null && m.membershipExpiry != null) {

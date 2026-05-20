@@ -1,24 +1,15 @@
-import 'dart:io';
-import 'dart:typed_data';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/routes.dart';
 import '../../../core/theme/colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
-import '../../../services/payment_service.dart';
-import '../../../services/receipt_upload_service.dart';
+import '../../../services/kora_payment_service.dart';
 import '../../../services/subscription_service.dart';
-import '../../../services/subscription_storage_service.dart';
 import '../../../widgets/loading_indicator.dart';
+import 'kora_checkout_screen.dart';
 
 class SubscriptionPaymentScreen extends StatefulWidget {
   final String userId;
@@ -28,6 +19,7 @@ class SubscriptionPaymentScreen extends StatefulWidget {
   final String? businessType;
   final String? businessTier;
   final String? businessClass;
+  final String? initialPlanId;
 
   const SubscriptionPaymentScreen({
     super.key,
@@ -38,6 +30,7 @@ class SubscriptionPaymentScreen extends StatefulWidget {
     this.businessType,
     this.businessTier,
     this.businessClass,
+    this.initialPlanId,
   });
 
   @override
@@ -46,12 +39,9 @@ class SubscriptionPaymentScreen extends StatefulWidget {
 }
 
 class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
+  final KoraPaymentService _koraPaymentService = KoraPaymentService();
   String _selectedPlanId = '';
   bool _isProcessing = false;
-  File? _selectedReceipt;
-  Uint8List? _selectedReceiptBytes;
-  String? _selectedReceiptName;
-  double _uploadProgress = 0.0;
 
   @override
   void didChangeDependencies() {
@@ -100,12 +90,20 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     if (plans.isEmpty) return;
     if (plans.any((plan) => plan.id == _selectedPlanId)) return;
 
+    final initialPlanId = widget.initialPlanId?.trim() ?? '';
+    if (initialPlanId.isNotEmpty &&
+        plans.any((plan) => plan.id == initialPlanId)) {
+      _selectedPlanId = initialPlanId;
+      return;
+    }
+
     final preferredTier = SubscriptionService.normalizeStoredPlanLevel(
       subscriptionTier: widget.businessTier,
       businessClass: widget.businessClass,
     );
     final preferredPlan = plans.where((plan) => plan.tierId == preferredTier);
-    _selectedPlanId = (preferredPlan.isNotEmpty ? preferredPlan.first : plans.first).id;
+    _selectedPlanId =
+        (preferredPlan.isNotEmpty ? preferredPlan.first : plans.first).id;
   }
 
   SubscriptionPlan? _selectedPlan(BusinessProvider businessProvider) {
@@ -115,25 +113,6 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
       (plan) => plan.id == _selectedPlanId,
       orElse: () => plans.first,
     );
-  }
-
-  bool get _hasSelectedReceipt =>
-      _selectedReceipt != null || _selectedReceiptBytes != null;
-
-  void _setSelectedReceipt({
-    File? receipt,
-    Uint8List? receiptBytes,
-    String? displayName,
-  }) {
-    final resolvedName = (displayName?.trim().isNotEmpty == true)
-        ? displayName!.trim()
-        : (receipt != null ? path.basename(receipt.path) : 'receipt.jpg');
-
-    setState(() {
-      _selectedReceipt = receipt;
-      _selectedReceiptBytes = receiptBytes;
-      _selectedReceiptName = resolvedName;
-    });
   }
 
   @override
@@ -210,7 +189,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Subscriptions are now checked per business, so this purchase applies only to the current business.',
+                          'Kora checkout is now the default subscription payment route. Once payment is verified, this business is activated automatically.',
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.grey[600],
@@ -240,38 +219,11 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                           ),
                         const SizedBox(height: 24),
                         if (selectedPlan != null)
-                          _buildBankDetailsSection(
+                          _buildKoraSection(
                             currency: currency,
                             currencySymbol: currencySymbol,
                             selectedPlan: selectedPlan,
                           ),
-                        const SizedBox(height: 24),
-                        _buildUploadSection(currency),
-                        if (_hasSelectedReceipt) ...[
-                          const SizedBox(height: 16),
-                          _buildReceiptPreview(),
-                        ],
-                        if (_uploadProgress > 0 && _isProcessing) ...[
-                          const SizedBox(height: 16),
-                          LinearProgressIndicator(value: _uploadProgress),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Uploading... ${(_uploadProgress * 100).toInt()}%',
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                        const SizedBox(height: 24),
-                        ElevatedButton(
-                          onPressed: !_hasSelectedReceipt || _isProcessing
-                              ? null
-                              : () => _submitReceipt(currency),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                          ),
-                          child: const Text('Submit Receipt for Approval'),
-                        ),
                       ],
                     ),
                   );
@@ -293,9 +245,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isSelected
-              ? AppColors.primary.withOpacity(0.08)
-              : Colors.white,
+          color: isSelected ? AppColors.primary.withOpacity(0.08) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected ? AppColors.primary : Colors.grey[300]!,
@@ -364,116 +314,11 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     );
   }
 
-  Widget _buildBankDetailsSection({
+  Widget _buildKoraSection({
     required String currency,
     required String currencySymbol,
     required SubscriptionPlan selectedPlan,
   }) {
-    const bankName = 'Moniepoint';
-    const accountName = 'Manage Care Limited';
-    const accountNumber = '5181766595';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.primary),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Transfer Payment Details',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: AppColors.primary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Send $currencySymbol${selectedPlan.price.toStringAsFixed(0)} ($currency) to the account below.',
-          ),
-          const SizedBox(height: 16),
-          _buildDetailRow('Bank Name', bankName),
-          const SizedBox(height: 12),
-          _buildDetailRow('Account Name', accountName),
-          const SizedBox(height: 12),
-          _buildDetailRowWithCopy('Account Number', accountNumber),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child: Text(value),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDetailRowWithCopy(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey[300]!),
-          ),
-          child: Row(
-            children: [
-              Expanded(child: Text(value)),
-              IconButton(
-                onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: value));
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Copied to clipboard')),
-                  );
-                },
-                icon: const Icon(Icons.content_copy, size: 18),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildUploadSection(String currency) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -485,230 +330,157 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'Upload Payment Proof',
+            'Recommended Payment Route',
             style: TextStyle(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           Text(
-            'Use Flutterwave for instant activation, or upload a receipt for manual approval.',
+            'Pay securely with Kora and your subscription will be approved automatically after successful verification.',
             style: TextStyle(color: Colors.grey[600], fontSize: 13),
           ),
           const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: () => _payWithFlutterwave(currency),
-            icon: const Icon(Icons.payment),
-            label: const Text('Pay with Flutterwave'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.teal,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 12),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.grey[300]!),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Summary',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 10),
+                _summaryRow('Plan', selectedPlan.name),
+                const SizedBox(height: 8),
+                _summaryRow(
+                  'Amount',
+                  '$currencySymbol${selectedPlan.price.toStringAsFixed(0)}',
+                ),
+                const SizedBox(height: 8),
+                _summaryRow('Currency', currency),
+                const SizedBox(height: 8),
+                _summaryRow(
+                  'Activation',
+                  'Automatic after successful payment',
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: [
-              _secondaryAction(
-                icon: Icons.camera_alt,
-                label: 'Camera',
-                onPressed: _pickReceiptFromCamera,
-              ),
-              _secondaryAction(
-                icon: Icons.image,
-                label: 'Gallery',
-                onPressed: _pickReceiptFromGallery,
-              ),
-              _secondaryAction(
-                icon: Icons.file_present,
-                label: 'File',
-                onPressed: _pickReceiptFile,
-              ),
-              _secondaryAction(
-                icon: Icons.email,
-                label: 'Upload Only',
-                onPressed: _sendViaEmail,
-              ),
-            ],
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _isProcessing ? null : () => _payWithKora(currency),
+            icon: const Icon(Icons.lock_outline),
+            label: const Text('Pay with Kora'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.black87,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _secondaryAction({
-    required IconData icon,
-    required String label,
-    required VoidCallback onPressed,
-  }) {
-    return SizedBox(
-      width: 160,
-      child: OutlinedButton.icon(
-        onPressed: _isProcessing ? null : onPressed,
-        icon: Icon(icon),
-        label: Text(label),
-      ),
+  Widget _summaryRow(String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 92,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: Colors.grey[600],
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Expanded(child: Text(value)),
+      ],
     );
   }
 
-  Widget _buildReceiptPreview() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.green[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.green),
-      ),
-      child: Column(
-        children: [
-          const Icon(Icons.check_circle, color: Colors.green),
-          const SizedBox(height: 8),
-          Text(
-            _selectedReceiptName ?? 'Selected receipt',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: () => setState(() {
-              _selectedReceipt = null;
-              _selectedReceiptBytes = null;
-              _selectedReceiptName = null;
-            }),
-            child: const Text('Change Receipt'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _payWithFlutterwave(String currency) async {
+  Future<void> _payWithKora(String currency) async {
     final businessProvider = context.read<BusinessProvider>();
     final selectedPlan = _selectedPlan(businessProvider);
     if (selectedPlan == null) {
       _showError('No subscription plan is selected.');
       return;
     }
-
-    final userId = widget.userId;
-    if (userId.isEmpty) {
+    if (widget.userId.isEmpty) {
       _showError('User ID missing. Please log in again.');
+      return;
+    }
+
+    final businessId = _resolveBusinessId(businessProvider);
+    if (businessId.isEmpty) {
+      _showError('No business is linked to this payment yet.');
       return;
     }
 
     setState(() => _isProcessing = true);
 
     try {
-      final publicKey = await PaymentService().getPublicKey();
-      if (publicKey == null || publicKey.isEmpty) {
-        _showError('Payment public key is not configured.');
-        return;
-      }
-
-      final businessId = _resolveBusinessId(businessProvider);
       final businessType = _resolveBusinessType(businessProvider);
-      final txRef = 'sub_${userId}_${DateTime.now().millisecondsSinceEpoch}';
-
-      final paymentResult = await PaymentService().processPayment(
-        context: context,
+      final reference = 'kora_sub_${widget.userId}_${DateTime.now().millisecondsSinceEpoch}';
+      final init = await _koraPaymentService.initializeSubscriptionPayment(
+        reference: reference,
         amount: selectedPlan.price,
         currency: currency,
         email: widget.userEmail,
         fullName: widget.userName,
-        txRef: txRef,
-        publicKey: publicKey,
-        businessId: businessId,
-      );
-
-      if (paymentResult['success'] != true) {
-        _showError(
-          'Payment failed: ${paymentResult['message'] ?? 'Unknown error'}',
-        );
-        return;
-      }
-
-      final transactionId = paymentResult['transactionId'] ?? txRef;
-      final now = DateTime.now();
-      final receiptUrl = 'flutterwave:$transactionId';
-
-      await FirebaseFirestore.instance
-          .collection('subscription_requests')
-          .doc('FLW_${userId}_${now.millisecondsSinceEpoch}')
-          .set({
-        'userId': userId,
-        'businessId': businessId,
-        'businessType': businessType,
-        'planId': selectedPlan.id,
-        'planName': selectedPlan.name,
-        'planTier': selectedPlan.tierId,
-        'planFamily': selectedPlan.businessFamily,
-        'amount': selectedPlan.price,
-        'currency': currency,
-        'userEmail': widget.userEmail,
-        'userName': widget.userName,
-        'receiptUrl': receiptUrl,
-        'status': 'approved',
-        'paymentMethod': 'flutterwave',
-        'paymentProcessor': 'flutterwave',
-        'processorTransactionId': transactionId,
-        'subscriptionStatus': 'approved',
-        'createdAt': now.toIso8601String(),
-        'approvedAt': now.toIso8601String(),
-        'approvedBy': 'system',
-        'updatedAt': now.toIso8601String(),
-      });
-
-      await FirebaseFirestore.instance.collection('payment_transactions').add({
-        'transactionId': transactionId,
-        'businessId': businessId,
-        'userId': userId,
-        'userEmail': widget.userEmail,
-        'userName': widget.userName,
-        'amount': selectedPlan.price,
-        'currency': currency,
-        'method': 'flutterwave',
-        'status': 'completed',
-        'subscriptionPayment': true,
-        'planId': selectedPlan.id,
-        'processorResponse': paymentResult['processorResponse'],
-        'createdAt': now.toIso8601String(),
-      });
-
-      final activated = await SubscriptionService(
-        firestore: FirebaseFirestore.instance,
-      ).activateSubscriptionImmediately(
-        userId: userId,
         planId: selectedPlan.id,
-        receiptUrl: receiptUrl,
-        amount: selectedPlan.price,
-        businessId: businessId.isNotEmpty ? businessId : null,
+        businessId: businessId,
+        userId: widget.userId,
+        businessType: businessType,
       );
 
-      if (!activated) {
-        _showError(
-          'Payment succeeded, but subscription activation did not complete. Please contact support.',
-        );
+      if (!mounted) return;
+      setState(() => _isProcessing = false);
+
+      final checkoutResult =
+          await Navigator.of(context).push<KoraCheckoutResult>(
+        MaterialPageRoute(
+          builder: (_) => KoraCheckoutScreen(
+            checkoutUrl: init.checkoutUrl,
+            redirectUrl: init.redirectUrl,
+          ),
+        ),
+      );
+
+      if (checkoutResult?.completed != true) {
         return;
       }
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Payment successful and subscription activated'),
-          backgroundColor: Colors.green,
-        ),
+      setState(() => _isProcessing = true);
+
+      final verification = await _koraPaymentService.verifySubscriptionPayment(
+        reference: checkoutResult?.reference ?? init.reference,
+        planId: selectedPlan.id,
+        userId: widget.userId,
+        businessId: businessId,
       );
-      Navigator.of(context).pushReplacementNamed(
-        '/subscription-status',
-        arguments: {
-          'userId': userId,
-          'userEmail': widget.userEmail,
-          'userName': widget.userName,
-          'businessId': businessId,
-          'businessType': businessType,
-          'subscriptionPlan': selectedPlan.id,
-          'subscriptionAmount': selectedPlan.price,
-        },
+
+      if (!verification.success) {
+        _showError(verification.message);
+        return;
+      }
+
+      await _finalizeApprovedSubscription(
+        selectedPlan: selectedPlan,
+        businessId: businessId,
+        businessType: businessType,
+        currency: currency,
+        reference: verification.reference,
+        processorResponse: verification.raw,
+        paymentMethod: verification.paymentMethod ?? 'kora',
       );
     } catch (e) {
       _showError('Payment error: $e');
@@ -719,246 +491,99 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     }
   }
 
-  Future<void> _pickReceiptFromCamera() async {
-    try {
-      final image = await ImagePicker().pickImage(
-        source: ImageSource.camera,
-        imageQuality: 80,
-      );
-      if (image != null) {
-        final imageBytes = await image.readAsBytes();
-        _setSelectedReceipt(
-          receipt: !kIsWeb && image.path.isNotEmpty ? File(image.path) : null,
-          receiptBytes: imageBytes,
-          displayName: image.path.isNotEmpty
-              ? path.basename(image.path)
-              : 'camera_receipt.jpg',
-        );
-      }
-    } catch (e) {
-      _showError('Failed to open camera: $e');
-    }
-  }
+  Future<void> _finalizeApprovedSubscription({
+    required SubscriptionPlan selectedPlan,
+    required String businessId,
+    required String businessType,
+    required String currency,
+    required String reference,
+    required Map<String, dynamic> processorResponse,
+    required String paymentMethod,
+  }) async {
+    final now = DateTime.now();
+    final receiptUrl = 'kora:$reference';
 
-  Future<void> _pickReceiptFromGallery() async {
-    try {
-      final image = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 80,
-      );
-      if (image != null) {
-        final imageBytes = await image.readAsBytes();
-        _setSelectedReceipt(
-          receipt: !kIsWeb && image.path.isNotEmpty ? File(image.path) : null,
-          receiptBytes: imageBytes,
-          displayName: image.path.isNotEmpty
-              ? path.basename(image.path)
-              : 'gallery_receipt.jpg',
-        );
-      }
-    } catch (e) {
-      _showError('Failed to open gallery: $e');
-    }
-  }
-
-  Future<void> _pickReceiptFile() async {
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'],
-        withData: true, // Include bytes for web compatibility
-      );
-      if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-        final localFile = !kIsWeb &&
-                file.path != null &&
-                file.path!.isNotEmpty
-            ? File(file.path!)
-            : null;
-
-        if (localFile != null || file.bytes != null) {
-          _setSelectedReceipt(
-            receipt: localFile,
-            receiptBytes: file.bytes,
-            displayName:
-                file.name.isNotEmpty ? file.name : 'receipt.jpg',
-          );
-        } else {
-          _showError('Unable to read the selected receipt file.');
-        }
-      }
-    } catch (e) {
-      _showError('Failed to pick file: $e');
-    }
-  }
-
-  Future<void> _sendViaEmail() async {
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'],
-        withData: true, // Include bytes for web compatibility
-      );
-      if (result == null || result.files.isEmpty) {
-        return;
-      }
-
-      final file = result.files.first;
-      final fileBytes = file.bytes;
-      final fileToUpload = !kIsWeb &&
-              file.path != null &&
-              file.path!.isNotEmpty
-          ? File(file.path!)
-          : null;
-
-      if (fileBytes == null && fileToUpload == null) {
-        _showError('Unable to process selected file');
-        return;
-      }
-
-      final selectedPlan = _selectedPlan(context.read<BusinessProvider>());
-      if (selectedPlan == null) {
-        _showError('No subscription plan is selected.');
-        return;
-      }
-
-      setState(() {
-        _isProcessing = true;
-        _uploadProgress = 0.0;
-      });
-
-      final uploadResult = await SubscriptionStorageService()
-          .uploadSubscriptionProofBytesWithProgress(
-        fileBytes ?? await fileToUpload!.readAsBytes(),
-        file.name.isNotEmpty ? file.name : 'receipt.jpg',
-        widget.userId,
-        selectedPlan.id,
-        onProgress: (progress) {
-          if (mounted) {
-            setState(() => _uploadProgress = progress);
-          }
-        },
-      );
-
-      if (!mounted) return;
-      if (uploadResult.success && uploadResult.downloadUrl != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Receipt uploaded successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        _showError(
-          'Upload failed: ${uploadResult.error ?? 'Unknown error'}',
-        );
-      }
-    } catch (e) {
-      _showError('Upload failed: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-          _uploadProgress = 0.0;
-        });
-      }
-    }
-  }
-
-  Future<void> _submitReceipt(String currency) async {
-    final businessProvider = context.read<BusinessProvider>();
-    final selectedPlan = _selectedPlan(businessProvider);
-    if (!_hasSelectedReceipt) {
-      _showError('Please select a receipt first.');
-      return;
-    }
-    if (selectedPlan == null) {
-      _showError('No subscription plan is selected.');
-      return;
-    }
-    if (widget.userId.isEmpty) {
-      _showError('User ID is missing. Please log in again.');
-      return;
-    }
-
-    setState(() {
-      _isProcessing = true;
-      _uploadProgress = 0.0;
+    await FirebaseFirestore.instance
+        .collection('subscription_requests')
+        .doc('KORA_${widget.userId}_${now.millisecondsSinceEpoch}')
+        .set({
+      'userId': widget.userId,
+      'businessId': businessId,
+      'businessType': businessType,
+      'planId': selectedPlan.id,
+      'planName': selectedPlan.name,
+      'planTier': selectedPlan.tierId,
+      'planFamily': selectedPlan.businessFamily,
+      'amount': selectedPlan.price,
+      'currency': currency,
+      'userEmail': widget.userEmail,
+      'userName': widget.userName,
+      'receiptUrl': receiptUrl,
+      'status': 'approved',
+      'paymentMethod': paymentMethod,
+      'paymentProcessor': 'kora',
+      'processorTransactionId': reference,
+      'subscriptionStatus': 'approved',
+      'createdAt': now.toIso8601String(),
+      'approvedAt': now.toIso8601String(),
+      'approvedBy': 'system',
+      'updatedAt': now.toIso8601String(),
+      'processorResponse': processorResponse,
     });
 
-    try {
-      final businessId = _resolveBusinessId(businessProvider);
-      final businessType = _resolveBusinessType(businessProvider);
+    await FirebaseFirestore.instance.collection('payment_transactions').add({
+      'transactionId': reference,
+      'businessId': businessId,
+      'userId': widget.userId,
+      'userEmail': widget.userEmail,
+      'userName': widget.userName,
+      'amount': selectedPlan.price,
+      'currency': currency,
+      'method': paymentMethod,
+      'provider': 'kora',
+      'status': 'completed',
+      'subscriptionPayment': true,
+      'planId': selectedPlan.id,
+      'processorResponse': processorResponse,
+      'createdAt': now.toIso8601String(),
+    });
 
-      final receiptResult = await ReceiptUploadService().uploadReceipt(
-        userId: widget.userId,
-        businessId: businessId,
-        planId: selectedPlan.id,
-        planName: selectedPlan.name,
-        amount: selectedPlan.price,
-        currency: currency,
-        receiptFile: _selectedReceipt,
-        receiptBytes: _selectedReceiptBytes,
-        receiptFileName: _selectedReceiptName,
-        userEmail: widget.userEmail,
-        userName: widget.userName,
-        onProgress: (progress) {
-          if (mounted) {
-            setState(() => _uploadProgress = progress);
-          }
-        },
+    final activated = await SubscriptionService(
+      firestore: FirebaseFirestore.instance,
+    ).activateSubscriptionImmediately(
+      userId: widget.userId,
+      planId: selectedPlan.id,
+      receiptUrl: receiptUrl,
+      amount: selectedPlan.price,
+      businessId: businessId,
+    );
+
+    if (!activated) {
+      _showError(
+        'Payment succeeded, but subscription activation did not complete. Please contact support.',
       );
-
-      final receiptUrl = receiptResult.receiptUrl;
-      if (receiptUrl == null) {
-        _showError('Receipt upload failed. Please try again.');
-        return;
-      }
-
-      final submitted = await SubscriptionService(
-        firestore: FirebaseFirestore.instance,
-      ).submitManualSubscriptionForApproval(
-        userId: widget.userId,
-        planId: selectedPlan.id,
-        receiptUrl: receiptUrl,
-        amount: selectedPlan.price,
-        currency: currency,
-        userEmail: widget.userEmail,
-        userName: widget.userName,
-        businessId: businessId.isNotEmpty ? businessId : null,
-        existingRequestId: receiptResult.uploadId,
-      );
-
-      if (!submitted) {
-        _showError(
-          'Receipt uploaded, but we could not queue your approval request.',
-        );
-        return;
-      }
-
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(
-        '/subscription-status',
-        arguments: {
-          'userId': widget.userId,
-          'userEmail': widget.userEmail,
-          'userName': widget.userName,
-          'businessId': businessId,
-          'businessType': businessType,
-          'subscriptionPlan': selectedPlan.id,
-          'subscriptionAmount': selectedPlan.price,
-        },
-      );
-    } catch (e) {
-      _showError('Error: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-          _uploadProgress = 0.0;
-        });
-      }
+      return;
     }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Payment successful and subscription activated'),
+        backgroundColor: Colors.green,
+      ),
+    );
+    Navigator.of(context).pushReplacementNamed(
+      '/subscription-status',
+      arguments: {
+        'userId': widget.userId,
+        'userEmail': widget.userEmail,
+        'userName': widget.userName,
+        'businessId': businessId,
+        'businessType': businessType,
+        'subscriptionPlan': selectedPlan.id,
+        'subscriptionAmount': selectedPlan.price,
+      },
+    );
   }
 
   void _showError(String message) {

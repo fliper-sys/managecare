@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/worker_permissions.dart';
 
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 import 'create_room_screen.dart'; // Assumed import based on previous context
@@ -71,6 +73,9 @@ class _RoomListScreenState extends State<RoomListScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<HotelProvider>(context);
+    final auth = context.watch<AuthProvider>();
+    final canManageRooms = auth.isOwnerUser ||
+        WorkerPermissions.canManageRooms(auth.currentUser?.role ?? '');
     List<Room> rooms = provider.rooms;
 
     // Apply filters
@@ -138,14 +143,19 @@ class _RoomListScreenState extends State<RoomListScreen> {
                     itemCount: rooms.length,
                     itemBuilder: (context, index) {
                       final room = rooms[index];
-                      return _buildRoomCard(context, room, provider);
+                      return _buildRoomCard(
+                        context,
+                        room,
+                        provider,
+                        canManageRooms,
+                      );
                     },
                   ),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
+        onPressed: !canManageRooms ? null : () async {
           if (!await _ensureCanCreateRoom()) return;
           if (!mounted) return;
           Navigator.push(
@@ -206,7 +216,12 @@ class _RoomListScreenState extends State<RoomListScreen> {
     );
   }
 
-  Widget _buildRoomCard(BuildContext context, Room room, HotelProvider provider) {
+  Widget _buildRoomCard(
+    BuildContext context,
+    Room room,
+    HotelProvider provider,
+    bool canManageRooms,
+  ) {
     final statusColor = _getStatusColor(room.status);
 
     return Container(
@@ -226,7 +241,7 @@ class _RoomListScreenState extends State<RoomListScreen> {
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
-          onTap: () => _showRoomDetails(context, room, provider),
+          onTap: () => _showRoomDetails(context, room, provider, canManageRooms),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -352,7 +367,12 @@ class _RoomListScreenState extends State<RoomListScreen> {
     }
   }
 
-  void _showRoomDetails(BuildContext context, Room room, HotelProvider provider) {
+  void _showRoomDetails(
+    BuildContext context,
+    Room room,
+    HotelProvider provider,
+    bool canManageRooms,
+  ) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -384,12 +404,13 @@ class _RoomListScreenState extends State<RoomListScreen> {
                 children: [
                    Text('Room ${room.number}', 
                       style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                   IconButton(
-                    icon: const Icon(Icons.edit_outlined),
-                    onPressed: () {
-                      // Navigate to Edit Room (pass room object)
-                    },
-                   )
+                   if (canManageRooms)
+                     IconButton(
+                      icon: const Icon(Icons.edit_outlined),
+                      onPressed: () {
+                        // Reserved for future room edit flow.
+                      },
+                     )
                 ],
               ),
             ),
@@ -445,7 +466,7 @@ class _RoomListScreenState extends State<RoomListScreen> {
                     const SizedBox(height: 30),
                     
                     // Quick Actions
-                    if(room.status == 'available')
+                    if(canManageRooms && room.status == 'available')
                     SizedBox(
                       width: double.infinity,
                       height: 50,
@@ -465,7 +486,7 @@ class _RoomListScreenState extends State<RoomListScreen> {
                         label: const Text('Mark for Maintenance'),
                       ),
                     ),
-                     if(room.status == 'maintenance')
+                     if(canManageRooms && room.status == 'maintenance')
                     SizedBox(
                       width: double.infinity,
                       height: 50,

@@ -5,7 +5,10 @@ import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../providers/hotel_provider.dart';
 
 class PoolBookingsScreen extends StatelessWidget {
   const PoolBookingsScreen({super.key});
@@ -55,12 +58,28 @@ class PoolBookingsScreen extends StatelessWidget {
 
     final customerNameCtrl = TextEditingController();
     final customerPhoneCtrl = TextEditingController();
+    final customerEmailCtrl = TextEditingController();
     final personsCtrl = TextEditingController(text: '1');
     final hoursCtrl = TextEditingController(text: '1');
     final amountCtrl = TextEditingController(text: '0');
     final notesCtrl = TextEditingController();
+    final hotelProvider = context.read<HotelProvider>();
+    final registeredGuests = hotelProvider.guestProfiles;
+    String? selectedGuestKey;
     DateTime bookingDate = DateTime.now();
     TimeOfDay startTime = const TimeOfDay(hour: 12, minute: 0);
+
+    double computeAmount() {
+      final persons = int.tryParse(personsCtrl.text.trim()) ?? 1;
+      final hours = double.tryParse(hoursCtrl.text.trim()) ?? 1.0;
+      final base = persons * hours * 5000;
+      return hotelProvider.calculateTieredHospitalityPrice(
+        base.toDouble(),
+        guestName: customerNameCtrl.text.trim(),
+        guestEmail: customerEmailCtrl.text.trim(),
+        guestPhone: customerPhoneCtrl.text.trim(),
+      );
+    }
 
     final confirmed = await showDialog<bool>(
           context: context,
@@ -71,6 +90,52 @@ class PoolBookingsScreen extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (registeredGuests.isNotEmpty)
+                      DropdownButtonFormField<String>(
+                        value: selectedGuestKey,
+                        decoration: const InputDecoration(
+                          labelText: 'Registered Guest',
+                        ),
+                        items: registeredGuests.map((guest) {
+                          final key = hotelProvider.resolveGuestIdentityKey(
+                            guestName: (guest['guestName'] ?? '').toString(),
+                            guestEmail: (guest['guestEmail'] ?? '').toString(),
+                            guestPhone: (guest['guestPhone'] ?? '').toString(),
+                          );
+                          final tier = (guest['guestTier'] ?? 'registered')
+                              .toString()
+                              .replaceAll('_', ' ')
+                              .toUpperCase();
+                          return DropdownMenuItem(
+                            value: key,
+                            child: Text('${guest['guestName']} • $tier'),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          final guest = registeredGuests.cast<Map<String, dynamic>?>().firstWhere(
+                                (item) =>
+                                    item != null &&
+                                    hotelProvider.resolveGuestIdentityKey(
+                                      guestName: (item['guestName'] ?? '').toString(),
+                                      guestEmail: (item['guestEmail'] ?? '').toString(),
+                                      guestPhone: (item['guestPhone'] ?? '').toString(),
+                                    ) ==
+                                        value,
+                                orElse: () => null,
+                              );
+                          setState(() {
+                            selectedGuestKey = value;
+                            customerNameCtrl.text =
+                                (guest?['guestName'] ?? '').toString();
+                            customerPhoneCtrl.text =
+                                (guest?['guestPhone'] ?? '').toString();
+                            customerEmailCtrl.text =
+                                (guest?['guestEmail'] ?? '').toString();
+                            amountCtrl.text = computeAmount().toStringAsFixed(2);
+                          });
+                        },
+                      ),
+                    if (registeredGuests.isNotEmpty) const SizedBox(height: 12),
                     TextField(
                       controller: customerNameCtrl,
                       decoration:
@@ -81,6 +146,12 @@ class PoolBookingsScreen extends StatelessWidget {
                       keyboardType: TextInputType.phone,
                       decoration:
                           const InputDecoration(labelText: 'Customer Phone'),
+                    ),
+                    TextField(
+                      controller: customerEmailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration:
+                          const InputDecoration(labelText: 'Customer Email'),
                     ),
                     const SizedBox(height: 12),
                     ListTile(
@@ -124,6 +195,9 @@ class PoolBookingsScreen extends StatelessWidget {
                       keyboardType: TextInputType.number,
                       decoration:
                           const InputDecoration(labelText: 'Number of Persons'),
+                      onChanged: (_) => setState(
+                        () => amountCtrl.text = computeAmount().toStringAsFixed(2),
+                      ),
                     ),
                     TextField(
                       controller: hoursCtrl,
@@ -131,6 +205,9 @@ class PoolBookingsScreen extends StatelessWidget {
                           const TextInputType.numberWithOptions(decimal: true),
                       decoration:
                           const InputDecoration(labelText: 'Booked Hours'),
+                      onChanged: (_) => setState(
+                        () => amountCtrl.text = computeAmount().toStringAsFixed(2),
+                      ),
                     ),
                     TextField(
                       controller: amountCtrl,
@@ -176,6 +253,12 @@ class PoolBookingsScreen extends StatelessWidget {
     await _collection(businessId).add({
       'customerName': customerName,
       'customerPhone': customerPhoneCtrl.text.trim(),
+      'customerEmail': customerEmailCtrl.text.trim(),
+      'guestTier': hotelProvider.getGuestTier(
+        guestName: customerNameCtrl.text.trim(),
+        guestEmail: customerEmailCtrl.text.trim(),
+        guestPhone: customerPhoneCtrl.text.trim(),
+      ),
       'bookingDate': Timestamp.fromDate(bookingDate),
       'startTime': startTime.format(context),
       'persons': int.tryParse(personsCtrl.text.trim()) ?? 1,
@@ -209,6 +292,9 @@ class PoolBookingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final business = context.watch<BusinessProvider>().currentBusiness;
     final businessId = business?.id;
+    final auth = context.watch<AuthProvider>();
+    final canManagePoolBookings = auth.isOwnerUser ||
+        WorkerPermissions.canManagePoolBookings(auth.currentUser?.role ?? '');
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F7FB),
@@ -291,6 +377,7 @@ class PoolBookingsScreen extends StatelessWidget {
                                 ),
                               ),
                               PopupMenuButton<String>(
+                                enabled: canManagePoolBookings,
                                 onSelected: (value) => _updateStatus(
                                   context,
                                   businessId,
@@ -343,6 +430,14 @@ class PoolBookingsScreen extends StatelessWidget {
                                   (data['amount'] as num?)?.toDouble() ?? 0.0,
                                 ),
                               ),
+                              if ((data['guestTier'] ?? '').toString().isNotEmpty)
+                                _PoolInfoPill(
+                                  icon: Icons.workspace_premium_outlined,
+                                  label: (data['guestTier'] ?? '')
+                                      .toString()
+                                      .replaceAll('_', ' ')
+                                      .toUpperCase(),
+                                ),
                             ],
                           ),
                           if ((data['notes'] ?? '').toString().isNotEmpty) ...[
@@ -400,7 +495,9 @@ class PoolBookingsScreen extends StatelessWidget {
       floatingActionButton: businessId == null || businessId.isEmpty
           ? null
           : FloatingActionButton.extended(
-              onPressed: () => _showAddBookingDialog(context, businessId),
+              onPressed: canManagePoolBookings
+                  ? () => _showAddBookingDialog(context, businessId)
+                  : null,
               backgroundColor: AppColors.primary,
               icon: const Icon(Icons.add),
               label: const Text('New Pool Booking'),

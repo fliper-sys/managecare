@@ -1,20 +1,34 @@
 class OrderModel {
   final String id;
-  final String tableId;
+  final String? tableId;
+  final String? roomId;
+  final String? guestId;
+  final String attachmentType;
+  final String? attachmentLabel;
   final List<Map<String, dynamic>> items;
   final double total;
   final String status;
 
-  OrderModel(
-      {required this.id,
-      required this.tableId,
-      this.items = const [],
-      required this.total,
-      this.status = 'pending'});
+  OrderModel({
+    required this.id,
+    this.tableId,
+    this.roomId,
+    this.guestId,
+    this.attachmentType = 'table',
+    this.attachmentLabel,
+    this.items = const [],
+    required this.total,
+    this.status = 'pending',
+  });
 
   factory OrderModel.fromJson(Map<String, dynamic> json) => OrderModel(
         id: json['id'] as String? ?? '',
-        tableId: json['tableId'] as String? ?? '',
+        tableId: json['tableId'] as String?,
+        roomId: json['roomId'] as String?,
+        guestId: json['guestId'] as String?,
+        attachmentType: json['attachmentType'] as String? ??
+            ((json['roomId'] as String?)?.isNotEmpty == true ? 'room' : 'table'),
+        attachmentLabel: json['attachmentLabel'] as String?,
         items: (json['items'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map))
                 .toList() ??
@@ -26,6 +40,10 @@ class OrderModel {
   Map<String, dynamic> toJson() => {
         'id': id,
         'tableId': tableId,
+        if (roomId != null) 'roomId': roomId,
+        if (guestId != null) 'guestId': guestId,
+        'attachmentType': attachmentType,
+        if (attachmentLabel != null) 'attachmentLabel': attachmentLabel,
         'items': items,
         'total': total,
         'status': status,

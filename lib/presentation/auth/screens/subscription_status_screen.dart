@@ -157,9 +157,9 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
 
         setState(() {
           _checkingStatus = false;
-          _displayStatus = 'Pending Approval';
+          _displayStatus = 'Payment Pending';
           _statusMessage =
-              'Your subscription is pending admin approval. Please check back shortly.';
+              'Your subscription payment is still pending verification. Please complete the Kora checkout or try again from the subscription screen.';
         });
       },
       onError: (error) {

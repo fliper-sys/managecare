@@ -1,6 +1,12 @@
 /// Worker permissions and role-based access control
 class WorkerPermissions {
   static const Set<String> _fullAccessRoles = {'owner', 'admin', 'sub_admin'};
+  static const Map<String, String> _roleAliases = {
+    'worker': 'staff',
+    'frontdesk': 'receptionist',
+    'front_desk': 'receptionist',
+    'bartender': 'cashier',
+  };
 
   static const Map<String, List<String>> rolePermissions = {
     'cashier': [
@@ -42,7 +48,6 @@ class WorkerPermissions {
       'view_low_stock',
     ],
     'staff': ['sales', 'view_inventory', 'attendance'],
-    'worker': ['sales', 'view_inventory', 'attendance'],
     'pharmacist': [
       'sales',
       'manage_prescriptions',
@@ -60,26 +65,38 @@ class WorkerPermissions {
       'view_low_stock',
     ],
     'waiter': ['sales', 'view_orders', 'table_management'],
-    'receptionist': ['bookings', 'guest_checkin', 'view_inventory'],
-    'frontdesk': ['bookings', 'guest_checkin', 'view_inventory'],
+    'receptionist': [
+      'bookings',
+      'guest_checkin',
+      'view_inventory',
+      'manage_rooms',
+      'manage_guests',
+      'manage_pool_bookings',
+    ],
     'housekeeper': ['room_status', 'maintenance_requests'],
     'hr': ['manage_staff', 'attendance', 'payroll_view'],
     'mechanic': ['job_quotes', 'work_orders', 'parts_management'],
     'beautician': ['appointments', 'services', 'attendance'],
-    'trainer': ['memberships', 'classes', 'attendance'],
+    'trainer': ['memberships', 'classes', 'attendance', 'manage_gym_bookings'],
     'field_officer': ['leads', 'properties', 'viewings'],
   };
 
+  static String normalizeRole(String role) {
+    final normalized = role.trim().toLowerCase();
+    return _roleAliases[normalized] ?? normalized;
+  }
+
   static bool hasPermission(String role, String permission) {
-    if (_fullAccessRoles.contains(role.toLowerCase())) {
+    final normalizedRole = normalizeRole(role);
+    if (_fullAccessRoles.contains(normalizedRole)) {
       return true;
     }
-    final permissions = rolePermissions[role.toLowerCase()] ?? [];
+    final permissions = rolePermissions[normalizedRole] ?? [];
     return permissions.contains(permission);
   }
 
   static List<String> getPermissionsForRole(String role) {
-    return rolePermissions[role.toLowerCase()] ?? [];
+    return rolePermissions[normalizeRole(role)] ?? [];
   }
 
   static bool canManageSales(String role) => hasPermission(role, 'sales');
@@ -99,19 +116,56 @@ class WorkerPermissions {
       hasPermission(role, 'view_sales_history');
 
   static bool canManageStaff(String role) =>
-      _fullAccessRoles.contains(role.toLowerCase()) ||
-      role.toLowerCase() == 'manager' ||
+      _fullAccessRoles.contains(normalizeRole(role)) ||
+      normalizeRole(role) == 'manager' ||
       hasPermission(role, 'manage_staff');
 
   static bool canAccessPayroll(String role) =>
-      _fullAccessRoles.contains(role.toLowerCase()) ||
+      _fullAccessRoles.contains(normalizeRole(role)) ||
       hasPermission(role, 'payroll_view');
 
   static bool canAttendance(String role) => hasPermission(role, 'attendance');
 
   static bool canApplyDiscount(String role) =>
-      _fullAccessRoles.contains(role.toLowerCase()) ||
+      _fullAccessRoles.contains(normalizeRole(role)) ||
       hasPermission(role, 'apply_discount');
+
+  static bool canManageRooms(String role) =>
+      _fullAccessRoles.contains(normalizeRole(role)) ||
+      normalizeRole(role) == 'manager' ||
+      hasPermission(role, 'manage_rooms') ||
+      hasPermission(role, 'room_status');
+
+  static bool canManageGuestBookings(String role) =>
+      _fullAccessRoles.contains(normalizeRole(role)) ||
+      normalizeRole(role) == 'manager' ||
+      hasPermission(role, 'bookings') ||
+      hasPermission(role, 'guest_checkin');
+
+  static bool canManagePoolBookings(String role) =>
+      _fullAccessRoles.contains(normalizeRole(role)) ||
+      normalizeRole(role) == 'manager' ||
+      hasPermission(role, 'manage_pool_bookings');
+
+  static bool canManageHotelServices(String role) =>
+      _fullAccessRoles.contains(normalizeRole(role)) ||
+      normalizeRole(role) == 'manager' ||
+      hasPermission(role, 'guest_checkin') ||
+      hasPermission(role, 'manage_rooms') ||
+      hasPermission(role, 'maintenance_requests');
+
+  static bool canManageHousekeeping(String role) =>
+      _fullAccessRoles.contains(normalizeRole(role)) ||
+      normalizeRole(role) == 'manager' ||
+      hasPermission(role, 'room_status') ||
+      hasPermission(role, 'maintenance_requests') ||
+      hasPermission(role, 'manage_rooms');
+
+  static bool canManageGymBookings(String role) =>
+      _fullAccessRoles.contains(normalizeRole(role)) ||
+      normalizeRole(role) == 'manager' ||
+      hasPermission(role, 'manage_gym_bookings') ||
+      hasPermission(role, 'memberships');
 
   static List<String> getAvailableRoles(String businessType) {
     final rolesByBusiness = <String, List<String>>{
@@ -127,19 +181,17 @@ class WorkerPermissions {
       ],
       'hotel': [
         'receptionist',
-        'frontdesk',
         'waiter',
         'housekeeper',
-        'hr',
         'manager',
+        'cashier',
       ],
       'hospitality': [
         'receptionist',
-        'frontdesk',
         'waiter',
         'housekeeper',
-        'hr',
         'manager',
+        'cashier',
       ],
       'apartment': [
         'receptionist',

@@ -237,6 +237,10 @@ class RestaurantOrder {
   final String businessId;
   final String? tableId;
   final int? tableNumber;
+  final String? roomId;
+  final String? guestId;
+  final String? orderTargetType; // table, room, takeaway, delivery, bar_tab
+  final String? orderTargetLabel;
   final String? customerId;
   final String? customerName;
   final String? customerPhone;
@@ -263,6 +267,10 @@ class RestaurantOrder {
     required this.businessId,
     this.tableId,
     this.tableNumber,
+    this.roomId,
+    this.guestId,
+    this.orderTargetType,
+    this.orderTargetLabel,
     this.customerId,
     this.customerName,
     this.customerPhone,
@@ -290,6 +298,10 @@ class RestaurantOrder {
         businessId: json['businessId'] as String,
         tableId: json['tableId'] as String?,
         tableNumber: json['tableNumber'] as int?,
+        roomId: json['roomId'] as String?,
+        guestId: json['guestId'] as String?,
+        orderTargetType: json['orderTargetType'] as String?,
+        orderTargetLabel: json['orderTargetLabel'] as String?,
         customerId: json['customerId'] as String?,
         customerName: json['customerName'] as String?,
         customerPhone: json['customerPhone'] as String?,
@@ -320,6 +332,10 @@ class RestaurantOrder {
         'businessId': businessId,
         'tableId': tableId,
         'tableNumber': tableNumber,
+        'roomId': roomId,
+        'guestId': guestId,
+        'orderTargetType': orderTargetType,
+        'orderTargetLabel': orderTargetLabel,
         'customerId': customerId,
         'customerName': customerName,
         'customerPhone': customerPhone,
@@ -346,6 +362,10 @@ class RestaurantOrder {
     String? businessId,
     String? tableId,
     int? tableNumber,
+    String? roomId,
+    String? guestId,
+    String? orderTargetType,
+    String? orderTargetLabel,
     String? customerId,
     String? customerName,
     String? customerPhone,
@@ -371,6 +391,10 @@ class RestaurantOrder {
       businessId: businessId ?? this.businessId,
       tableId: tableId ?? this.tableId,
       tableNumber: tableNumber ?? this.tableNumber,
+      roomId: roomId ?? this.roomId,
+      guestId: guestId ?? this.guestId,
+      orderTargetType: orderTargetType ?? this.orderTargetType,
+      orderTargetLabel: orderTargetLabel ?? this.orderTargetLabel,
       customerId: customerId ?? this.customerId,
       customerName: customerName ?? this.customerName,
       customerPhone: customerPhone ?? this.customerPhone,

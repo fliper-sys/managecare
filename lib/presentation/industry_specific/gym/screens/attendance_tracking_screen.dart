@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/gym_provider.dart';
 import '../../../../data/models/gym_member_model.dart';
 
@@ -19,6 +21,13 @@ class _AttendanceTrackingScreenState extends State<AttendanceTrackingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final role = auth.currentUser?.role ?? '';
+    final canManageAttendance =
+        WorkerPermissions.canAttendance(role) ||
+            WorkerPermissions.canManageGymBookings(role) ||
+            WorkerPermissions.canManageStaff(role);
+
     return Consumer<GymProvider>(
       builder: (context, provider, _) {
         final filteredRecords = _getFilteredRecords(provider);
@@ -151,7 +160,13 @@ class _AttendanceTrackingScreenState extends State<AttendanceTrackingScreen> {
                               ),
                               trailing: record.isActive
                                   ? ElevatedButton(
-                                      onPressed: () => _checkOutMember(context, provider, record),
+                                      onPressed: canManageAttendance
+                                          ? () => _checkOutMember(
+                                                context,
+                                                provider,
+                                                record,
+                                              )
+                                          : null,
                                       child: const Text('Check Out'),
                                     )
                                   : IconButton(
@@ -166,7 +181,9 @@ class _AttendanceTrackingScreenState extends State<AttendanceTrackingScreen> {
             ],
           ),
           floatingActionButton: FloatingActionButton.extended(
-            onPressed: () => _showCheckInDialog(context, provider),
+            onPressed: canManageAttendance
+                ? () => _showCheckInDialog(context, provider)
+                : null,
             icon: const Icon(Icons.login),
             label: const Text('Check In'),
           ),

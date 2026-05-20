@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 import '../widgets/housekeeping_task.dart';
 
@@ -17,6 +19,11 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final role = auth.currentUser?.role ?? '';
+    final canManageHousekeeping =
+        WorkerPermissions.canManageHousekeeping(role);
+
     return Consumer<HotelProvider>(
       builder: (context, provider, _) {
         final tasks = provider.serviceOrders.where((order) {
@@ -37,7 +44,9 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
           backgroundColor: Colors.grey[50],
           floatingActionButton: FloatingActionButton.extended(
             backgroundColor: AppColors.primary,
-            onPressed: () => _showNewTaskDialog(context, provider),
+            onPressed: canManageHousekeeping
+                ? () => _showNewTaskDialog(context, provider)
+                : null,
             icon: const Icon(Icons.cleaning_services_outlined),
             label: const Text('Assign Task'),
           ),
@@ -92,12 +101,17 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
                         roomNumber: room?.number ?? task.roomId,
                         taskType: '${task.serviceName} • ${task.priority}',
                         status: task.status,
-                        onComplete: () {
-                          final nextStatus = task.status == 'pending'
-                              ? 'in-progress'
-                              : 'completed';
-                          provider.updateServiceOrderStatus(task.id, nextStatus);
-                        },
+                        onComplete: canManageHousekeeping
+                            ? () {
+                                final nextStatus = task.status == 'pending'
+                                    ? 'in-progress'
+                                    : 'completed';
+                                provider.updateServiceOrderStatus(
+                                  task.id,
+                                  nextStatus,
+                                );
+                              }
+                            : null,
                       ),
                       Card(
                         margin: const EdgeInsets.only(top: 8, bottom: 12),
@@ -123,7 +137,8 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
                                   ),
                                   const SizedBox(width: 8),
                                   TextButton(
-                                    onPressed: task.status == 'completed'
+                                    onPressed: task.status == 'completed' ||
+                                            !canManageHousekeeping
                                         ? null
                                         : () {
                                             provider.updateServiceOrderStatus(

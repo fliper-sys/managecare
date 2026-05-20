@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 import '../../../../services/receipt_manager.dart';
 import '../widgets/folio_widget.dart';
@@ -11,6 +14,9 @@ class BillingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final canManageBilling = auth.isOwnerUser ||
+        WorkerPermissions.canManageGuestBookings(auth.currentUser?.role ?? '');
     return Consumer<HotelProvider>(
       builder: (context, provider, _) {
         final billableReservations = provider
@@ -76,6 +82,10 @@ class BillingScreen extends StatelessWidget {
                   final room = provider.getRoomById(reservation.roomId);
                   final charges = provider.buildFolioCharges(reservation);
                   final total = provider.getReservationBalance(reservation);
+                  final guestSales = provider.getSalesForGuest(reservation.guestId);
+                  final roomSales = provider.getSalesForRoom(reservation.roomId);
+                  final linkedSales = [...guestSales, ...roomSales]
+                    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
                   return Card(
                     margin: const EdgeInsets.only(bottom: 14),
                     child: Padding(
@@ -114,12 +124,55 @@ class BillingScreen extends StatelessWidget {
                             charges: charges,
                             total: total,
                           ),
+                          if (linkedSales.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            const Text(
+                              'Linked Orders & Sales',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            ...linkedSales.take(4).map(
+                              (sale) => Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.receipt_long_outlined,
+                                      size: 16,
+                                      color: Colors.blueGrey,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        sale.description?.isNotEmpty == true
+                                            ? sale.description!
+                                            : 'Attached sale',
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                    ),
+                                    Text(
+                                      formatCurrency(sale.amount),
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 10),
                           Row(
                             children: [
                               Expanded(
                                 child: OutlinedButton(
-                                  onPressed: () async {
+                                  onPressed: !canManageBilling
+                                      ? null
+                                      : () async {
                                     await provider.updatePaymentStatus(
                                       reservation.id,
                                       'partial',
@@ -131,7 +184,9 @@ class BillingScreen extends StatelessWidget {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: ElevatedButton(
-                                  onPressed: () async {
+                                  onPressed: !canManageBilling
+                                      ? null
+                                      : () async {
                                     await provider.updatePaymentStatus(
                                       reservation.id,
                                       'paid',

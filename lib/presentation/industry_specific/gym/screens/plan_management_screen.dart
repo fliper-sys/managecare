@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/gym_provider.dart';
 
 class PlanManagementScreen extends StatelessWidget {
@@ -144,6 +146,9 @@ class PlanManagementScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gymProvider = context.watch<GymProvider>();
+    final auth = context.watch<AuthProvider>();
+    final canManagePlans =
+        WorkerPermissions.canManageStaff(auth.currentUser?.role ?? '');
 
     return Scaffold(
       appBar: AppBar(
@@ -155,7 +160,7 @@ class PlanManagementScreen extends StatelessWidget {
         icon: const Icon(Icons.add),
         label: const Text('Add Plan'),
         backgroundColor: AppColors.primary,
-        onPressed: () => _showEditDialog(context),
+        onPressed: canManagePlans ? () => _showEditDialog(context) : null,
       ),
       body: gymProvider.plans.isEmpty
           ? Center(
@@ -165,7 +170,9 @@ class PlanManagementScreen extends StatelessWidget {
                   const Text('No plans defined'),
                   const SizedBox(height: 8),
                   ElevatedButton(
-                    onPressed: () => _showEditDialog(context),
+                    onPressed: canManagePlans
+                        ? () => _showEditDialog(context)
+                        : null,
                     child: const Text('Create Plan'),
                   ),
                 ],
@@ -206,11 +213,15 @@ class PlanManagementScreen extends StatelessWidget {
                       children: [
                         IconButton(
                           icon: const Icon(Icons.edit),
-                          onPressed: () => _showEditDialog(context, plan: plan),
+                          onPressed: canManagePlans
+                              ? () => _showEditDialog(context, plan: plan)
+                              : null,
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete),
-                          onPressed: () async {
+                          onPressed: !canManagePlans
+                              ? null
+                              : () async {
                             final confirmed = await showDialog<bool>(
                               context: context,
                               builder: (ctx) => AlertDialog(

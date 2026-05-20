@@ -368,14 +368,122 @@ class HotelProvider extends ChangeNotifier {
     return list;
   }
 
+  String resolveGuestIdentityKey({
+    String guestName = '',
+    String guestEmail = '',
+    String guestPhone = '',
+  }) {
+    final normalizedEmail = guestEmail.trim().toLowerCase();
+    if (normalizedEmail.isNotEmpty) return normalizedEmail;
+    final normalizedPhone = guestPhone.trim();
+    if (normalizedPhone.isNotEmpty) return normalizedPhone;
+    return guestName.trim().toLowerCase();
+  }
+
+  Map<String, dynamic>? findGuestProfile({
+    String guestName = '',
+    String guestEmail = '',
+    String guestPhone = '',
+  }) {
+    final key = resolveGuestIdentityKey(
+      guestName: guestName,
+      guestEmail: guestEmail,
+      guestPhone: guestPhone,
+    );
+    if (key.isEmpty) return null;
+    for (final guest in guestProfiles) {
+      final guestKey = resolveGuestIdentityKey(
+        guestName: (guest['guestName'] ?? '').toString(),
+        guestEmail: (guest['guestEmail'] ?? '').toString(),
+        guestPhone: (guest['guestPhone'] ?? '').toString(),
+      );
+      if (guestKey == key) return guest;
+    }
+    return null;
+  }
+
+  String getGuestTier({
+    String guestName = '',
+    String guestEmail = '',
+    String guestPhone = '',
+  }) {
+    final guest = findGuestProfile(
+      guestName: guestName,
+      guestEmail: guestEmail,
+      guestPhone: guestPhone,
+    );
+    if (guest == null) return 'walk_in';
+    final reservationCount = (guest['reservationCount'] as num?)?.toInt() ?? 0;
+    final totalSpend = (guest['totalSpend'] as num?)?.toDouble() ?? 0.0;
+    if (reservationCount >= 10 || totalSpend >= 500000) return 'vip';
+    if (reservationCount >= 5 || totalSpend >= 250000) return 'gold';
+    if (reservationCount >= 2 || totalSpend >= 100000) return 'silver';
+    return 'registered';
+  }
+
+  double getGuestTierDiscountRate({
+    String guestName = '',
+    String guestEmail = '',
+    String guestPhone = '',
+  }) {
+    switch (getGuestTier(
+      guestName: guestName,
+      guestEmail: guestEmail,
+      guestPhone: guestPhone,
+    )) {
+      case 'vip':
+        return 0.15;
+      case 'gold':
+        return 0.10;
+      case 'silver':
+        return 0.05;
+      case 'registered':
+        return 0.03;
+      default:
+        return 0.0;
+    }
+  }
+
+  double calculateTieredHospitalityPrice(
+    double baseAmount, {
+    String guestName = '',
+    String guestEmail = '',
+    String guestPhone = '',
+  }) {
+    final discountRate = getGuestTierDiscountRate(
+      guestName: guestName,
+      guestEmail: guestEmail,
+      guestPhone: guestPhone,
+    );
+    if (discountRate <= 0) return baseAmount;
+    return baseAmount * (1 - discountRate);
+  }
+
+  Map<String, dynamic> buildGuestSummary(Map<String, dynamic> guest) {
+    final tier = getGuestTier(
+      guestName: (guest['guestName'] ?? '').toString(),
+      guestEmail: (guest['guestEmail'] ?? '').toString(),
+      guestPhone: (guest['guestPhone'] ?? '').toString(),
+    );
+    return {
+      ...guest,
+      'guestTier': tier,
+      'tierDiscountRate': getGuestTierDiscountRate(
+        guestName: (guest['guestName'] ?? '').toString(),
+        guestEmail: (guest['guestEmail'] ?? '').toString(),
+        guestPhone: (guest['guestPhone'] ?? '').toString(),
+      ),
+    };
+  }
+
   List<Map<String, dynamic>> get guestProfiles {
     final Map<String, Map<String, dynamic>> guests = {};
     for (final reservation in _reservations) {
-      final key = reservation.guestEmail.trim().isNotEmpty
-          ? reservation.guestEmail.trim().toLowerCase()
-          : reservation.guestPhone.trim().isNotEmpty
-              ? reservation.guestPhone.trim()
-              : reservation.guestName.trim().toLowerCase();
+      final key = resolveGuestIdentityKey(
+        guestName: reservation.guestName,
+        guestEmail: reservation.guestEmail,
+        guestPhone: reservation.guestPhone,
+      );
 
       final current = guests[key];
       final room = getRoomById(reservation.roomId);
@@ -401,7 +509,7 @@ class HotelProvider extends ChangeNotifier {
         'lastReservation': reservation,
         'roomNumber': room?.number ?? '',
       };
-      guests[key] = data;
+      guests[key] = buildGuestSummary(data);
     }
     final list = guests.values.toList();
     list.sort((a, b) {
@@ -538,27 +646,24 @@ class HotelProvider extends ChangeNotifier {
   }
 
   bool _matchesGuestIdentity(Reservation a, Reservation b) {
-    final aEmail = a.guestEmail.trim().toLowerCase();
-    final bEmail = b.guestEmail.trim().toLowerCase();
-    if (aEmail.isNotEmpty && bEmail.isNotEmpty) {
-      return aEmail == bEmail;
-    }
-
-    final aPhone = a.guestPhone.trim();
-    final bPhone = b.guestPhone.trim();
-    if (aPhone.isNotEmpty && bPhone.isNotEmpty) {
-      return aPhone == bPhone;
-    }
-
-    return a.guestName.trim().toLowerCase() == b.guestName.trim().toLowerCase();
+    return resolveGuestIdentityKey(
+          guestName: a.guestName,
+          guestEmail: a.guestEmail,
+          guestPhone: a.guestPhone,
+        ) ==
+        resolveGuestIdentityKey(
+          guestName: b.guestName,
+          guestEmail: b.guestEmail,
+          guestPhone: b.guestPhone,
+        );
   }
 
   String _buildGuestDocumentId(Reservation reservation) {
-    final raw = reservation.guestEmail.trim().isNotEmpty
-        ? reservation.guestEmail.trim().toLowerCase()
-        : reservation.guestPhone.trim().isNotEmpty
-            ? reservation.guestPhone.trim()
-            : reservation.guestName.trim().toLowerCase();
+    final raw = resolveGuestIdentityKey(
+      guestName: reservation.guestName,
+      guestEmail: reservation.guestEmail,
+      guestPhone: reservation.guestPhone,
+    );
     final sanitized = raw.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '_');
     return sanitized.isEmpty ? reservation.id : sanitized;
   }
@@ -645,6 +750,16 @@ class HotelProvider extends ChangeNotifier {
         'reservationCount': relatedReservations.length,
         'checkedInCount': checkedInCount,
         'totalSpend': totalSpend,
+        'guestTier': getGuestTier(
+          guestName: reservation.guestName,
+          guestEmail: reservation.guestEmail,
+          guestPhone: reservation.guestPhone,
+        ),
+        'tierDiscountRate': getGuestTierDiscountRate(
+          guestName: reservation.guestName,
+          guestEmail: reservation.guestEmail,
+          guestPhone: reservation.guestPhone,
+        ),
         'activeReservationId': reservation.id,
         'currentRoomId': reservation.roomId,
         'currentRoomNumber': room?.number,

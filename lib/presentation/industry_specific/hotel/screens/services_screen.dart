@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 
 class HotelServicesScreen extends StatefulWidget {
@@ -17,6 +19,10 @@ class _HotelServicesScreenState extends State<HotelServicesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final role = auth.currentUser?.role ?? '';
+    final canManageServices = WorkerPermissions.canManageHotelServices(role);
+
     return Consumer<HotelProvider>(
       builder: (context, provider, _) {
         var orders = provider.serviceOrders;
@@ -36,7 +42,9 @@ class _HotelServicesScreenState extends State<HotelServicesScreen> {
           backgroundColor: Colors.grey[50],
           floatingActionButton: FloatingActionButton.extended(
             backgroundColor: AppColors.primary,
-            onPressed: () => _showCreateServiceDialog(context, provider),
+            onPressed: canManageServices
+                ? () => _showCreateServiceDialog(context, provider)
+                : null,
             icon: const Icon(Icons.add),
             label: const Text('New Request'),
           ),
@@ -161,12 +169,15 @@ class _HotelServicesScreenState extends State<HotelServicesScreen> {
                               if (order.status == 'pending')
                                 Expanded(
                                   child: OutlinedButton(
-                                    onPressed: () async {
-                                      await provider.updateServiceOrderStatus(
-                                        order.id,
-                                        'in-progress',
-                                      );
-                                    },
+                                    onPressed: canManageServices
+                                        ? () async {
+                                            await provider
+                                                .updateServiceOrderStatus(
+                                              order.id,
+                                              'in-progress',
+                                            );
+                                          }
+                                        : null,
                                     child: const Text('Start'),
                                   ),
                                 ),
@@ -174,12 +185,15 @@ class _HotelServicesScreenState extends State<HotelServicesScreen> {
                               if (order.status != 'completed')
                                 Expanded(
                                   child: ElevatedButton(
-                                    onPressed: () async {
-                                      await provider.updateServiceOrderStatus(
-                                        order.id,
-                                        'completed',
-                                      );
-                                    },
+                                    onPressed: canManageServices
+                                        ? () async {
+                                            await provider
+                                                .updateServiceOrderStatus(
+                                              order.id,
+                                              'completed',
+                                            );
+                                          }
+                                        : null,
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: Colors.green,
                                     ),

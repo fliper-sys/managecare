@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/utils/worker_permissions.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
 
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 import 'package:intl/intl.dart';
 import '../../../../services/receipt_manager.dart';
@@ -35,6 +37,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
   String _roomSearchQuery = '';
   bool _initialized = false;
   bool _isCreatingReservation = false;
+  bool _prefillDialogQueued = false;
+  Map<String, dynamic>? _pendingPrefillGuest;
 
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _roomSearchController = TextEditingController();
@@ -53,6 +57,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
       if (args is Map && args['initialFilter'] is String) {
         _filterStatus = args['initialFilter'] as String;
       }
+      if (args is Map && args['prefillGuest'] is Map) {
+        _pendingPrefillGuest =
+            Map<String, dynamic>.from(args['prefillGuest'] as Map);
+      }
       _initialized = true;
     }
   }
@@ -60,8 +68,27 @@ class _BookingsScreenState extends State<BookingsScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<HotelProvider>(context);
+    final auth = context.watch<AuthProvider>();
+    final canManageBookings = auth.isOwnerUser ||
+        WorkerPermissions.canManageGuestBookings(auth.currentUser?.role ?? '');
     List<Reservation> reservations = provider.reservations;
     List<Room> allRooms = provider.rooms;
+
+    if (_pendingPrefillGuest != null && !_prefillDialogQueued) {
+      _prefillDialogQueued = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final guest = _pendingPrefillGuest;
+        _pendingPrefillGuest = null;
+        if (guest != null) {
+          _showNewReservationDialog(
+            context,
+            provider,
+            prefilledGuest: guest,
+          );
+        }
+      });
+    }
 
     // Apply status filter
     if (_filterStatus != 'all') {
@@ -197,7 +224,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                           subtitle: Text(
                               'Status: ${status[0].toUpperCase()}${status.substring(1)}'),
                           trailing: ElevatedButton(
-                            onPressed: status == 'free'
+                            onPressed: canManageBookings && status == 'free'
                                 ? () => _showNewReservationDialog(
                                     context, provider,
                                     preselectedRoomId: room.id)
@@ -246,7 +273,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
       floatingActionButton: FloatingActionButton.extended(
         backgroundColor: AppColors.primary,
         elevation: 4,
-        onPressed: () => _showNewReservationDialog(context, provider),
+        onPressed: canManageBookings
+            ? () => _showNewReservationDialog(context, provider)
+            : null,
         label: const Text('Book/Check-in',
             style: TextStyle(fontWeight: FontWeight.bold)),
         icon: const Icon(Icons.add),
@@ -1214,19 +1243,43 @@ class _BookingsScreenState extends State<BookingsScreen> {
   }
 
   void _showNewReservationDialog(BuildContext context, HotelProvider provider,
-      {String? preselectedRoomId}) {
+      {String? preselectedRoomId, Map<String, dynamic>? prefilledGuest}) {
+    _prefillDialogQueued = false;
     final _formKey = GlobalKey<FormState>();
-    final guestNameCtrl = TextEditingController();
-    final guestEmailCtrl = TextEditingController();
-    final guestPhoneCtrl = TextEditingController();
-    final guestAddressCtrl = TextEditingController();
-    final guestNationalityCtrl = TextEditingController();
-    final guestIdTypeCtrl = TextEditingController();
-    final guestIdNumberCtrl = TextEditingController();
-    final nextOfKinNameCtrl = TextEditingController();
-    final nextOfKinPhoneCtrl = TextEditingController();
-    final nextOfKinRelationshipCtrl = TextEditingController();
-    final bookingSourceCtrl = TextEditingController(text: 'walk-in');
+    final registeredGuests = provider.guestProfiles;
+    final guestNameCtrl = TextEditingController(
+      text: (prefilledGuest?['guestName'] ?? '').toString(),
+    );
+    final guestEmailCtrl = TextEditingController(
+      text: (prefilledGuest?['guestEmail'] ?? '').toString(),
+    );
+    final guestPhoneCtrl = TextEditingController(
+      text: (prefilledGuest?['guestPhone'] ?? '').toString(),
+    );
+    final guestAddressCtrl = TextEditingController(
+      text: (prefilledGuest?['guestAddress'] ?? '').toString(),
+    );
+    final guestNationalityCtrl = TextEditingController(
+      text: (prefilledGuest?['guestNationality'] ?? '').toString(),
+    );
+    final guestIdTypeCtrl = TextEditingController(
+      text: (prefilledGuest?['guestIdType'] ?? '').toString(),
+    );
+    final guestIdNumberCtrl = TextEditingController(
+      text: (prefilledGuest?['guestIdNumber'] ?? '').toString(),
+    );
+    final nextOfKinNameCtrl = TextEditingController(
+      text: (prefilledGuest?['nextOfKinName'] ?? '').toString(),
+    );
+    final nextOfKinPhoneCtrl = TextEditingController(
+      text: (prefilledGuest?['nextOfKinPhone'] ?? '').toString(),
+    );
+    final nextOfKinRelationshipCtrl = TextEditingController(
+      text: (prefilledGuest?['nextOfKinRelationship'] ?? '').toString(),
+    );
+    final bookingSourceCtrl = TextEditingController(
+      text: (prefilledGuest?['bookingSource'] ?? 'walk-in').toString(),
+    );
     final adultsCtrl = TextEditingController(text: '1');
     final childrenCtrl = TextEditingController(text: '0');
     final requestsCtrl = TextEditingController();
@@ -1238,6 +1291,13 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
     DateTime checkIn = DateTime.now().add(const Duration(days: 1));
     DateTime checkOut = DateTime.now().add(const Duration(days: 2));
+    String? selectedGuestKey = prefilledGuest == null
+        ? null
+        : provider.resolveGuestIdentityKey(
+            guestName: (prefilledGuest['guestName'] ?? '').toString(),
+            guestEmail: (prefilledGuest['guestEmail'] ?? '').toString(),
+            guestPhone: (prefilledGuest['guestPhone'] ?? '').toString(),
+          );
     String? selectedRoomId = preselectedRoomId ??
         (provider.getAvailableRoomsForDates(checkIn, checkOut).isNotEmpty
             ? provider.getAvailableRoomsForDates(checkIn, checkOut).first.id
@@ -1282,6 +1342,66 @@ class _BookingsScreenState extends State<BookingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (registeredGuests.isNotEmpty) ...[
+                          DropdownButtonFormField<String>(
+                            value: selectedGuestKey,
+                            items: registeredGuests.map((guest) {
+                              final key = provider.resolveGuestIdentityKey(
+                                guestName: (guest['guestName'] ?? '').toString(),
+                                guestEmail: (guest['guestEmail'] ?? '').toString(),
+                                guestPhone: (guest['guestPhone'] ?? '').toString(),
+                              );
+                              final tier = (guest['guestTier'] ?? 'registered')
+                                  .toString()
+                                  .replaceAll('_', ' ')
+                                  .toUpperCase();
+                              return DropdownMenuItem(
+                                value: key,
+                                child: Text('${guest['guestName']} • $tier'),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              final guest = registeredGuests.cast<Map<String, dynamic>?>().firstWhere(
+                                    (item) =>
+                                        item != null &&
+                                        provider.resolveGuestIdentityKey(
+                                          guestName: (item['guestName'] ?? '').toString(),
+                                          guestEmail: (item['guestEmail'] ?? '').toString(),
+                                          guestPhone: (item['guestPhone'] ?? '').toString(),
+                                        ) ==
+                                            value,
+                                    orElse: () => null,
+                                  );
+                              setState(() {
+                                selectedGuestKey = value;
+                                guestNameCtrl.text =
+                                    (guest?['guestName'] ?? '').toString();
+                                guestEmailCtrl.text =
+                                    (guest?['guestEmail'] ?? '').toString();
+                                guestPhoneCtrl.text =
+                                    (guest?['guestPhone'] ?? '').toString();
+                                guestAddressCtrl.text =
+                                    (guest?['guestAddress'] ?? '').toString();
+                                guestNationalityCtrl.text =
+                                    (guest?['guestNationality'] ?? '').toString();
+                                guestIdTypeCtrl.text =
+                                    (guest?['guestIdType'] ?? '').toString();
+                                guestIdNumberCtrl.text =
+                                    (guest?['guestIdNumber'] ?? '').toString();
+                                nextOfKinNameCtrl.text =
+                                    (guest?['nextOfKinName'] ?? '').toString();
+                                nextOfKinPhoneCtrl.text =
+                                    (guest?['nextOfKinPhone'] ?? '').toString();
+                                nextOfKinRelationshipCtrl.text =
+                                    (guest?['nextOfKinRelationship'] ?? '').toString();
+                              });
+                            },
+                            decoration: const InputDecoration(
+                              labelText: 'Registered Guest',
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
                         const Text(
                           'Primary Guest',
                           style: TextStyle(
