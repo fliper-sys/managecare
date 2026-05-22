@@ -63,6 +63,9 @@ class KoraPaymentService {
     required String businessId,
     required String userId,
     String? businessType,
+    List<String>? channels,
+    bool recurringEnabled = false,
+    String? recurrenceInterval,
   }) async {
     final callable =
         _functions.httpsCallable('initializeKoraSubscriptionPayment');
@@ -77,6 +80,9 @@ class KoraPaymentService {
       'businessId': businessId,
       'userId': userId,
       'businessType': businessType,
+      'channels': channels,
+      'recurringEnabled': recurringEnabled,
+      'recurrenceInterval': recurrenceInterval,
     });
 
     final data = Map<String, dynamic>.from(response.data as Map);

@@ -41,6 +41,8 @@ class SubscriptionPaymentScreen extends StatefulWidget {
 class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
   final KoraPaymentService _koraPaymentService = KoraPaymentService();
   String _selectedPlanId = '';
+  String _selectedPaymentMethod = 'card';
+  bool _recurringEnabled = false;
   bool _isProcessing = false;
 
   @override
@@ -339,6 +341,8 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
             style: TextStyle(color: Colors.grey[600], fontSize: 13),
           ),
           const SizedBox(height: 16),
+          _buildPaymentMethodSelector(),
+          const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -363,6 +367,15 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                 const SizedBox(height: 8),
                 _summaryRow('Currency', currency),
                 const SizedBox(height: 8),
+                _summaryRow('Payment method', _selectedPaymentMethodLabel),
+                const SizedBox(height: 8),
+                _summaryRow(
+                  'Recurring',
+                  _recurringEnabled
+                      ? 'Enabled with card renewal reminders'
+                      : 'Off',
+                ),
+                const SizedBox(height: 8),
                 _summaryRow(
                   'Activation',
                   'Automatic after successful payment',
@@ -374,7 +387,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
           ElevatedButton.icon(
             onPressed: _isProcessing ? null : () => _payWithKora(currency),
             icon: const Icon(Icons.lock_outline),
-            label: const Text('Pay with Kora'),
+            label: Text('Pay with $_selectedPaymentMethodLabel'),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.black87,
               foregroundColor: Colors.white,
@@ -384,6 +397,112 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildPaymentMethodSelector() {
+    final methods = <_KoraPaymentMethodOption>[
+      const _KoraPaymentMethodOption(
+        id: 'card',
+        label: 'Card',
+        description: 'Best for recurring renewals and instant confirmation.',
+        icon: Icons.credit_card_rounded,
+      ),
+      const _KoraPaymentMethodOption(
+        id: 'bank_transfer',
+        label: 'Bank Transfer / USSD',
+        description: 'Use bank transfer or bank USSD options shown by Kora.',
+        icon: Icons.account_balance_rounded,
+      ),
+      const _KoraPaymentMethodOption(
+        id: 'pay_with_bank',
+        label: 'Pay with Bank',
+        description: 'Authorize payment directly from supported banks.',
+        icon: Icons.account_balance_wallet_rounded,
+      ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Choose payment method',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 10),
+        ...methods.map(
+          (method) => Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: _selectedPaymentMethod == method.id
+                  ? AppColors.primary.withOpacity(0.08)
+                  : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _selectedPaymentMethod == method.id
+                    ? AppColors.primary
+                    : Colors.grey[300]!,
+              ),
+            ),
+            child: RadioListTile<String>(
+              value: method.id,
+              groupValue: _selectedPaymentMethod,
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() {
+                  _selectedPaymentMethod = value;
+                  if (value != 'card') {
+                    _recurringEnabled = false;
+                  }
+                });
+              },
+              secondary: Icon(method.icon, color: AppColors.primary),
+              title: Text(
+                method.label,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: Text(method.description),
+            ),
+          ),
+        ),
+        SwitchListTile.adaptive(
+          value: _recurringEnabled,
+          onChanged: _selectedPaymentMethod == 'card'
+              ? (value) => setState(() => _recurringEnabled = value)
+              : null,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Enable recurring card renewals'),
+          subtitle: Text(
+            _selectedPaymentMethod == 'card'
+                ? 'We will remember your preference and remind you before renewal. You confirm each renewal securely through Kora.'
+                : 'Recurring renewals require card payment.',
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<String> get _selectedKoraChannels {
+    switch (_selectedPaymentMethod) {
+      case 'bank_transfer':
+        return const ['bank_transfer'];
+      case 'pay_with_bank':
+        return const ['pay_with_bank'];
+      case 'card':
+      default:
+        return const ['card'];
+    }
+  }
+
+  String get _selectedPaymentMethodLabel {
+    switch (_selectedPaymentMethod) {
+      case 'bank_transfer':
+        return 'Bank Transfer / USSD';
+      case 'pay_with_bank':
+        return 'Pay with Bank';
+      case 'card':
+      default:
+        return 'Card';
+    }
   }
 
   Widget _summaryRow(String label, String value) {
@@ -442,6 +561,9 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         businessId: businessId,
         userId: widget.userId,
         businessType: businessType,
+        channels: _selectedKoraChannels,
+        recurringEnabled: _recurringEnabled,
+        recurrenceInterval: _recurringEnabled ? 'plan_duration' : null,
       );
 
       if (!mounted) return;
@@ -485,6 +607,8 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         reference: verification.reference,
         processorResponse: verification.raw,
         paymentMethod: verification.paymentMethod ?? 'kora',
+        recurringEnabled: _recurringEnabled,
+        selectedPaymentMethod: _selectedPaymentMethod,
       );
     } catch (e) {
       _showError('Payment error: $e');
@@ -503,6 +627,8 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     required String reference,
     required Map<String, dynamic> processorResponse,
     required String paymentMethod,
+    required bool recurringEnabled,
+    required String selectedPaymentMethod,
   }) async {
     final now = DateTime.now();
     final receiptUrl = 'kora:$reference';
@@ -526,6 +652,9 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
       'status': 'approved',
       'paymentMethod': paymentMethod,
       'paymentProcessor': 'kora',
+      'selectedKoraPaymentMethod': selectedPaymentMethod,
+      'recurringEnabled': recurringEnabled,
+      'recurrenceInterval': recurringEnabled ? 'plan_duration' : null,
       'processorTransactionId': reference,
       'subscriptionStatus': 'approved',
       'createdAt': now.toIso8601String(),
@@ -545,6 +674,8 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
       'currency': currency,
       'method': paymentMethod,
       'provider': 'kora',
+      'selectedKoraPaymentMethod': selectedPaymentMethod,
+      'recurringEnabled': recurringEnabled,
       'status': 'completed',
       'subscriptionPayment': true,
       'planId': selectedPlan.id,
@@ -569,6 +700,15 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
       return;
     }
 
+    if (recurringEnabled) {
+      await _saveRecurringPreference(
+        businessId: businessId,
+        selectedPlan: selectedPlan,
+        currency: currency,
+        reference: reference,
+      );
+    }
+
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -588,6 +728,76 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         'subscriptionAmount': selectedPlan.price,
       },
     );
+  }
+
+  Future<void> _saveRecurringPreference({
+    required String businessId,
+    required SubscriptionPlan selectedPlan,
+    required String currency,
+    required String reference,
+  }) async {
+    final now = DateTime.now();
+    final nextRenewal = now.add(Duration(days: selectedPlan.durationInDays));
+    final recurringData = {
+      'subscriptionRecurringEnabled': true,
+      'subscriptionRecurringProvider': 'kora',
+      'subscriptionRecurringMethod': 'card',
+      'subscriptionRecurringStatus': 'active',
+      'subscriptionRecurringInterval': 'plan_duration',
+      'subscriptionRecurringPlanId': selectedPlan.id,
+      'subscriptionRecurringAmount': selectedPlan.price,
+      'subscriptionRecurringCurrency': currency,
+      'subscriptionRecurringLastReference': reference,
+      'subscriptionRecurringNextRenewalAt': Timestamp.fromDate(nextRenewal),
+      'subscriptionRecurringUpdatedAt': Timestamp.fromDate(now),
+      'subscriptionRecurringReminderSentFor': FieldValue.delete(),
+    };
+
+    await FirebaseFirestore.instance
+        .collection('businesses')
+        .doc(businessId)
+        .set(recurringData, SetOptions(merge: true));
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.userId)
+        .set(recurringData, SetOptions(merge: true));
+
+    await FirebaseFirestore.instance.collection('admin_notifications').add({
+      'type': 'subscription',
+      'title': 'Recurring Renewal Enabled',
+      'message':
+          '${widget.userName} enabled recurring card renewal for ${selectedPlan.name}.',
+      'data': {
+        'userId': widget.userId,
+        'businessId': businessId,
+        'planId': selectedPlan.id,
+        'amount': selectedPlan.price,
+        'currency': currency,
+        'nextRenewalAt': nextRenewal.toIso8601String(),
+        'provider': 'kora',
+      },
+      'isRead': false,
+      'createdAt': Timestamp.fromDate(now),
+    });
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.userId)
+        .collection('notifications')
+        .add({
+      'title': 'Recurring renewal enabled',
+      'body':
+          'Your card renewal preference is active. We will remind you before your next ${selectedPlan.name} renewal.',
+      'type': 'subscription_recurring_enabled',
+      'isRead': false,
+      'createdAt': Timestamp.fromDate(now),
+      'data': {
+        'businessId': businessId,
+        'planId': selectedPlan.id,
+        'nextRenewalAt': nextRenewal.toIso8601String(),
+      },
+    });
   }
 
   void _showError(String message) {
@@ -611,4 +821,18 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     };
     return symbols[currency] ?? currency;
   }
+}
+
+class _KoraPaymentMethodOption {
+  final String id;
+  final String label;
+  final String description;
+  final IconData icon;
+
+  const _KoraPaymentMethodOption({
+    required this.id,
+    required this.label,
+    required this.description,
+    required this.icon,
+  });
 }

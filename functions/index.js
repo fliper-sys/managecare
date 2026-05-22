@@ -59,6 +59,32 @@ function getKoraErrorMessage(payload, fallback) {
   return (payload && payload.message ? payload.message : fallback).toString();
 }
 
+function resolveKoraChannels(rawChannels) {
+  const allowedChannels = new Set(['card', 'bank_transfer', 'pay_with_bank', 'mobile_money']);
+  const channels = Array.isArray(rawChannels)
+    ? rawChannels.map((channel) => channel.toString().trim()).filter(Boolean)
+    : [];
+  const filtered = channels.filter((channel) => allowedChannels.has(channel));
+  return filtered.length > 0 ? filtered : ['card', 'bank_transfer', 'pay_with_bank'];
+}
+
+async function createUserNotification(userId, notification) {
+  if (!userId) return;
+  await db.collection('users').doc(userId).collection('notifications').add({
+    ...notification,
+    isRead: false,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+}
+
+async function createAdminNotification(notification) {
+  await db.collection('admin_notifications').add({
+    ...notification,
+    isRead: false,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+}
+
 function parseFirestoreDate(value) {
   if (!value) return null;
   if (value instanceof admin.firestore.Timestamp) {
@@ -383,8 +409,12 @@ exports.onPaymentTransactionCreate = functions.firestore
 
       const amount = data.amount || 0;
       const businessId = data.businessId;
+      const userId = data.userId;
+      const userName = data.userName || data.userEmail || 'A user';
       const transactionId = data.transactionId || snap.id;
       const method = data.method || '';
+      const isSubscriptionPayment = data.subscriptionPayment === true;
+      const recurringEnabled = data.recurringEnabled === true;
 
       // Load business to find owner(s)
       const businessDoc = await db.collection('businesses').doc(businessId).get();
@@ -397,6 +427,41 @@ exports.onPaymentTransactionCreate = functions.firestore
 
       // If no owners found, nothing to notify
       if (ownerIds.length === 0) return null;
+
+      if (isSubscriptionPayment) {
+        await createAdminNotification({
+          type: 'subscription',
+          title: recurringEnabled
+            ? 'Recurring Subscription Payment Confirmed'
+            : 'Subscription Payment Confirmed',
+          message: `${userName} paid ${Number(amount).toFixed(2)} via ${method || 'Kora'}.`,
+          data: {
+            userId: userId || '',
+            businessId: businessId || '',
+            transactionId: String(transactionId),
+            amount,
+            method,
+            recurringEnabled,
+            provider: data.provider || 'kora',
+          },
+        });
+
+        await createUserNotification(userId, {
+          title: recurringEnabled
+            ? 'Recurring renewal payment confirmed'
+            : 'Subscription payment confirmed',
+          body: `Your subscription payment of ${Number(amount).toFixed(2)} was confirmed.`,
+          type: recurringEnabled
+            ? 'subscription_recurring_payment_confirmed'
+            : 'subscription_payment_confirmed',
+          data: {
+            businessId: businessId || '',
+            transactionId: String(transactionId),
+            amount,
+            method,
+          },
+        });
+      }
 
       // Collect tokens for owners respecting their push preference
       const tokens = [];
@@ -617,6 +682,9 @@ exports.initializeKoraSubscriptionPayment = functions.https.onCall(async (data, 
   const email = (data.email || '').toString().trim();
   const fullName = (data.fullName || '').toString().trim();
   const redirectUrl = (data.redirectUrl || '').toString().trim();
+  const channels = resolveKoraChannels(data.channels);
+  const recurringEnabled = data.recurringEnabled === true;
+  const recurrenceInterval = (data.recurrenceInterval || '').toString().trim();
 
   if (!reference || !amount || !email || !fullName || !redirectUrl) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing required payment details');
@@ -633,6 +701,7 @@ exports.initializeKoraSubscriptionPayment = functions.https.onCall(async (data, 
       amount,
       currency,
       reference,
+      channels,
       redirect_url: redirectUrl,
       customer: {
         name: fullName,
@@ -644,6 +713,9 @@ exports.initializeKoraSubscriptionPayment = functions.https.onCall(async (data, 
         businessId: data.businessId || null,
         businessType: data.businessType || null,
         userId: data.userId || context.auth.uid,
+        selectedChannels: channels,
+        recurringEnabled,
+        recurrenceInterval: recurringEnabled ? (recurrenceInterval || 'plan_duration') : null,
       },
     }),
   });
@@ -732,3 +804,70 @@ exports.verifyKoraSubscriptionPayment = functions.https.onCall(async (data, cont
     raw: payload,
   };
 });
+
+exports.notifyRecurringSubscriptionRenewals = functions.pubsub
+  .schedule('every 24 hours')
+  .timeZone('Africa/Lagos')
+  .onRun(async () => {
+    const now = new Date();
+    const reminderWindowEnd = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    const snap = await db
+      .collection('businesses')
+      .where('subscriptionRecurringEnabled', '==', true)
+      .where('subscriptionRecurringStatus', '==', 'active')
+      .get();
+
+    for (const doc of snap.docs) {
+      const business = doc.data() || {};
+      const nextRenewal = parseFirestoreDate(business.subscriptionRecurringNextRenewalAt);
+      if (!nextRenewal || nextRenewal < now || nextRenewal > reminderWindowEnd) {
+        continue;
+      }
+
+      const reminderKey = nextRenewal.toISOString().slice(0, 10);
+      if (business.subscriptionRecurringReminderSentFor === reminderKey) {
+        continue;
+      }
+
+      const ownerId = business.ownerId || business.userId || '';
+      const planId = business.subscriptionRecurringPlanId || business.subscriptionPlan || '';
+      const amount = business.subscriptionRecurringAmount || business.subscriptionAmount || 0;
+      const currency = business.subscriptionRecurringCurrency || business.currency || 'NGN';
+      const businessName = business.name || doc.id;
+
+      await createAdminNotification({
+        type: 'subscription',
+        title: 'Recurring Renewal Due Soon',
+        message: `${businessName} has a Kora card renewal due on ${reminderKey}.`,
+        data: {
+          businessId: doc.id,
+          ownerId,
+          planId,
+          amount,
+          currency,
+          nextRenewalAt: nextRenewal.toISOString(),
+          provider: 'kora',
+        },
+      });
+
+      await createUserNotification(ownerId, {
+        title: 'Subscription renewal due soon',
+        body: `Your recurring Kora renewal for ${businessName} is due on ${reminderKey}. Open subscriptions to confirm renewal.`,
+        type: 'subscription_recurring_renewal_due',
+        data: {
+          businessId: doc.id,
+          planId,
+          amount,
+          currency,
+          nextRenewalAt: nextRenewal.toISOString(),
+        },
+      });
+
+      await doc.ref.set({
+        subscriptionRecurringReminderSentFor: reminderKey,
+        subscriptionRecurringReminderSentAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+
+    return null;
+  });
