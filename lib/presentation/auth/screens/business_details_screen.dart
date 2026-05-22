@@ -1209,11 +1209,16 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: AppColors.cardShadow,
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
+        boxShadow:
+            theme.brightness == Brightness.dark ? null : AppColors.cardShadow,
       ),
       child: Padding(
         padding: const EdgeInsets.all(20),

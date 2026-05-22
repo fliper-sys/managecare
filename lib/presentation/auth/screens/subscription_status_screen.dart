@@ -231,6 +231,10 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return WillPopScope(
       onWillPop: () async => !_checkingStatus,
       child: Scaffold(
@@ -302,10 +306,10 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
                 const SizedBox(height: 32),
                 Text(
                   _subscriptionApproved ? 'Subscription Approved!' : _displayStatus,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                    color: scheme.onSurface,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -314,7 +318,7 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
                   _statusMessage,
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.grey[600],
+                    color: scheme.onSurface.withOpacity(0.68),
                     height: 1.5,
                   ),
                   textAlign: TextAlign.center,
@@ -323,18 +327,19 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey[300]!),
+                    border: Border.all(color: scheme.outline.withOpacity(0.28)),
                     borderRadius: BorderRadius.circular(12),
-                    color: Colors.grey[50],
+                    color: theme.cardColor,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Subscription Details',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
+                          color: scheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -360,8 +365,10 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.blue[50],
-                    border: Border.all(color: Colors.blue[200]!),
+                    color: Colors.blue.withOpacity(isDark ? 0.14 : 0.08),
+                    border: Border.all(
+                      color: Colors.blue.withOpacity(isDark ? 0.34 : 0.24),
+                    ),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Column(
@@ -438,6 +445,8 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
   }
 
   Widget _buildDetailRow(String label, String value) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -445,16 +454,16 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
           label,
           style: TextStyle(
             fontSize: 14,
-            color: Colors.grey[600],
+            color: scheme.onSurface.withOpacity(0.64),
           ),
         ),
         Flexible(
           child: Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: Colors.black87,
+              color: scheme.onSurface,
             ),
             textAlign: TextAlign.right,
           ),

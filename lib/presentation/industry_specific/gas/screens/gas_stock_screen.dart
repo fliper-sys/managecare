@@ -396,8 +396,14 @@ class _GasStockScreenState extends State<GasStockScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: Theme.of(context).cardColor,
                       borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outline
+                            .withOpacity(0.24),
+                      ),
                     ),
                     child: const Text(
                       'No fuel products found yet. Add petrol, diesel, or gas stock here.',
@@ -468,11 +474,15 @@ class _GasStockStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

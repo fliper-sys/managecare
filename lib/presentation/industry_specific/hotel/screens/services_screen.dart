@@ -368,11 +368,15 @@ class _MetricChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
       ),
       child: Column(
         children: [
@@ -454,13 +458,19 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
       ),
-      child: Text(message, style: TextStyle(color: Colors.grey[600])),
+      child: Text(
+        message,
+        style: TextStyle(color: scheme.onSurface.withOpacity(0.68)),
+      ),
     );
   }
 }

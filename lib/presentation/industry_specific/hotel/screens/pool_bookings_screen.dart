@@ -296,12 +296,15 @@ class PoolBookingsScreen extends StatelessWidget {
     final canManagePoolBookings = auth.isOwnerUser ||
         WorkerPermissions.canManagePoolBookings(auth.currentUser?.role ?? '');
 
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F7FB),
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Pool Bookings'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
+        backgroundColor: theme.appBarTheme.backgroundColor ?? theme.cardColor,
+        foregroundColor: scheme.onSurface,
       ),
       body: businessId == null || businessId.isEmpty
           ? const Center(child: Text('Select a business to continue'))
@@ -360,9 +363,9 @@ class PoolBookingsScreen extends StatelessWidget {
                     return Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: theme.cardColor,
                         borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: Colors.grey.shade200),
+                        border: Border.all(color: scheme.outline.withOpacity(0.24)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,

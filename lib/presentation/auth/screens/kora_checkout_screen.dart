@@ -95,6 +95,8 @@ class _KoraCheckoutScreenState extends State<KoraCheckoutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
     if (kIsWeb) {
       return Scaffold(
         appBar: AppBar(title: const Text('Secure Kora Checkout')),
@@ -126,7 +128,7 @@ class _KoraCheckoutScreenState extends State<KoraCheckoutScreen> {
                   Text(
                     'Complete the payment in the Kora tab, then return here and tap the button below so we can verify it.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey[700]),
+                    style: TextStyle(color: scheme.onSurface.withOpacity(0.70)),
                   ),
                   const SizedBox(height: 24),
                   ElevatedButton.icon(

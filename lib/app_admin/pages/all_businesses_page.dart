@@ -1000,10 +1000,12 @@ class BusinessDetailPage extends StatelessWidget {
                                   }
                                 });
                               },
-                              backgroundColor: Colors.white,
+                              backgroundColor: context.adminSurface,
                               selectedColor: const Color(0xFF3B82F6),
                               labelStyle: TextStyle(
-                                color: isSelected ? Colors.white : Colors.black,
+                                color: isSelected
+                                    ? Colors.white
+                                    : context.adminTextPrimary,
                               ),
                             );
                           }).toList(),
@@ -1149,9 +1151,9 @@ class BusinessDetailPage extends StatelessWidget {
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey[200]!),
+                  border: Border.all(color: context.adminBorder),
                   borderRadius: BorderRadius.circular(8),
-                  color: Colors.white,
+                  color: context.adminSurface,
                 ),
                 child: ListTile(
                   dense: false,

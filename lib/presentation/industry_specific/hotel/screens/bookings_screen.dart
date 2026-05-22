@@ -67,6 +67,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final provider = Provider.of<HotelProvider>(context);
     final auth = context.watch<AuthProvider>();
     final canManageBookings = auth.isOwnerUser ||
@@ -121,14 +123,14 @@ class _BookingsScreenState extends State<BookingsScreen> {
     reservations.sort((a, b) => b.checkIn.compareTo(a.checkIn));
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text(
           'Check-in & Reservations',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
+        backgroundColor: theme.appBarTheme.backgroundColor ?? theme.cardColor,
+        foregroundColor: scheme.onSurface,
         elevation: 0,
         centerTitle: true,
       ),
@@ -136,7 +138,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
         children: [
           // Filter Tabs
           Container(
-            color: Colors.white,
+            color: theme.cardColor,
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -163,7 +165,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 hintText: 'Search guest, email, phone or room...',
                 border:
                     OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                fillColor: Colors.white,
+                fillColor: theme.cardColor,
                 filled: true,
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
@@ -189,7 +191,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 hintText: 'Search room number or type for status...',
                 border:
                     OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                fillColor: Colors.white,
+                fillColor: theme.cardColor,
                 filled: true,
                 suffixIcon: _roomSearchQuery.isNotEmpty
                     ? IconButton(
@@ -374,7 +376,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -530,9 +532,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
         height: MediaQuery.of(context).size.height * 0.85,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(
           children: [
@@ -1313,9 +1315,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
             bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
           child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             child: SingleChildScrollView(

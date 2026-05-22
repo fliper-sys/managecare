@@ -338,7 +338,7 @@ class _WarehousePosScreenState extends State<WarehousePosScreen> {
               // Cart Sidebar
               Container(
                 width: 320,
-                color: Colors.white,
+                color: Theme.of(context).cardColor,
                 child: Column(
                   children: [
                     // Cart Header
@@ -619,13 +619,15 @@ class _ProductCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lowStock = product.quantity < product.reorderLevel;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: lowStock ? Colors.red : AppColors.border,
+          color: lowStock ? Colors.red : scheme.outline.withOpacity(0.24),
           width: lowStock ? 2 : 1,
         ),
       ),
@@ -852,12 +854,14 @@ class _PriceSummary extends StatelessWidget {
         0, (sum, item) => sum + (item.product.wholesalePrice * item.quantity));
     final tax = subtotal * 0.08;
     final total = subtotal + tax;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: AppColors.border),
+        color: theme.cardColor,
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Column(

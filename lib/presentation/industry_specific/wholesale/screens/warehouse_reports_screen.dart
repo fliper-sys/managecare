@@ -385,12 +385,15 @@ class _SuppliersReport extends StatelessWidget {
             final totalSpent = orders.fold<double>(0, (sum, o) => sum + o.total);
             final delivered = orders.where((o) => o.status == 'delivered').length;
 
+            final theme = Theme.of(context);
+            final scheme = theme.colorScheme;
+
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: AppColors.border),
+                color: theme.cardColor,
+                border: Border.all(color: scheme.outline.withOpacity(0.24)),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Column(
@@ -685,12 +688,15 @@ class _InventoryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: AppColors.border),
+        color: theme.cardColor,
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(

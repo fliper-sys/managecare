@@ -170,12 +170,14 @@ class _FilterButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isActive ? color : Colors.white,
+          color: isActive ? color : theme.cardColor,
           border: Border.all(color: color),
           borderRadius: BorderRadius.circular(8),
         ),
@@ -207,12 +209,13 @@ class _OrderCard extends StatelessWidget {
         : order.status == 'preparing'
             ? Colors.blue
             : Colors.green;
+    final theme = Theme.of(context);
 
     return GestureDetector(
       onTap: () => _showOrderDetails(context),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: theme.cardColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: statusColor, width: 2),
           boxShadow: [

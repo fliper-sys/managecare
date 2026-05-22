@@ -194,13 +194,15 @@ class _TransferCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final statusColor = _getStatusColor(transfer.status);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
       ),
       child: ExpansionTile(
         title: Row(

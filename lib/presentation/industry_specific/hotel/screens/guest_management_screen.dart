@@ -34,7 +34,7 @@ class _GuestManagementScreenState extends State<GuestManagementScreen> {
             title: const Text('Guest Management'),
             backgroundColor: AppColors.primary,
           ),
-          backgroundColor: Colors.grey[50],
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           body: Column(
             children: [
               Padding(
@@ -44,7 +44,7 @@ class _GuestManagementScreenState extends State<GuestManagementScreen> {
                     hintText: 'Search by guest name, email or phone',
                     prefixIcon: const Icon(Icons.search),
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor: Theme.of(context).cardColor,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(14),
                       borderSide: BorderSide.none,
@@ -352,11 +352,15 @@ class _InfoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

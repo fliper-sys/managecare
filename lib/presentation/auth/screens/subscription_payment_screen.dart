@@ -119,6 +119,8 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final auth = context.read<AuthProvider>();
     final role = auth.currentUser?.role.toLowerCase();
     if (role == 'worker') {
@@ -128,12 +130,13 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
         ),
-        body: const Center(
+        body: Center(
           child: Padding(
-            padding: EdgeInsets.all(24),
+            padding: const EdgeInsets.all(24),
             child: Text(
               'Subscriptions are managed by business owners.',
               textAlign: TextAlign.center,
+              style: TextStyle(color: scheme.onSurface),
             ),
           ),
         ),
@@ -185,9 +188,10 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                       children: [
                         Text(
                           'Plans for ${businessType.toUpperCase()}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
+                            color: scheme.onSurface,
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -195,7 +199,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                           'Kora checkout is now the default subscription payment route. Once payment is verified, this business is activated automatically.',
                           style: TextStyle(
                             fontSize: 13,
-                            color: Colors.grey[600],
+                            color: scheme.onSurface.withOpacity(0.68),
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -203,12 +207,19 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                           Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
-                              color: Colors.orange[50],
+                              color: Colors.orange.withOpacity(
+                                theme.brightness == Brightness.dark
+                                    ? 0.14
+                                    : 0.08,
+                              ),
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.orange[200]!),
+                              border: Border.all(
+                                color: Colors.orange.withOpacity(0.35),
+                              ),
                             ),
-                            child: const Text(
+                            child: Text(
                               'No plans are configured for this business type yet.',
+                              style: TextStyle(color: scheme.onSurface),
                             ),
                           )
                         else
@@ -242,16 +253,24 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     required String currencySymbol,
     required VoidCallback onTap,
   }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary.withOpacity(0.08) : Colors.white,
+          color: isSelected
+              ? AppColors.primary.withOpacity(isDark ? 0.18 : 0.08)
+              : theme.cardColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? AppColors.primary : Colors.grey[300]!,
+            color: isSelected
+                ? AppColors.primary
+                : scheme.outline.withOpacity(isDark ? 0.42 : 0.24),
             width: isSelected ? 2 : 1,
           ),
         ),
@@ -267,16 +286,17 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                     children: [
                       Text(
                         plan.name,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w700,
+                          color: scheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         plan.tierId.toUpperCase(),
                         style: TextStyle(
-                          color: Colors.grey[600],
+                          color: scheme.onSurface.withOpacity(0.66),
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -297,7 +317,10 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
             const SizedBox(height: 12),
             Text(
               '${plan.durationInDays} days access',
-              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              style: TextStyle(
+                color: scheme.onSurface.withOpacity(0.66),
+                fontSize: 12,
+              ),
             ),
             if (plan.features.isNotEmpty) ...[
               const SizedBox(height: 10),
@@ -306,7 +329,10 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     '- $feature',
-                    style: const TextStyle(fontSize: 12),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurface.withOpacity(0.82),
+                    ),
                   ),
                 ),
               ),
@@ -322,24 +348,34 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     required String currencySymbol,
     required SubscriptionPlan selectedPlan,
   }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: scheme.surfaceContainerHighest.withOpacity(isDark ? 0.34 : 0.62),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[300]!),
+        border: Border.all(color: scheme.outline.withOpacity(0.28)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
+          Text(
             'Recommended Payment Route',
-            style: TextStyle(fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: scheme.onSurface,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             'Pay securely with Kora and your subscription will be approved automatically after successful verification.',
-            style: TextStyle(color: Colors.grey[600], fontSize: 13),
+            style: TextStyle(
+              color: scheme.onSurface.withOpacity(0.68),
+              fontSize: 13,
+            ),
           ),
           const SizedBox(height: 16),
           _buildPaymentMethodSelector(),
@@ -347,16 +383,19 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: theme.cardColor,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.grey[300]!),
+              border: Border.all(color: scheme.outline.withOpacity(0.26)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Summary',
-                  style: TextStyle(fontWeight: FontWeight.w700),
+                  style: TextStyle(
+                    color: scheme.onSurface,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 _summaryRow('Plan', selectedPlan.name),
@@ -390,8 +429,8 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
             icon: const Icon(Icons.lock_outline),
             label: Text('Pay with $_selectedPaymentMethodLabel'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.black87,
-              foregroundColor: Colors.white,
+              backgroundColor: scheme.primary,
+              foregroundColor: scheme.onPrimary,
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
           ),
@@ -401,6 +440,9 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
   }
 
   Widget _buildPaymentMethodSelector() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     final methods = <_KoraPaymentMethodOption>[
       const _KoraPaymentMethodOption(
         id: 'card',
@@ -425,9 +467,12 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Choose payment method',
-          style: TextStyle(fontWeight: FontWeight.w700),
+          style: TextStyle(
+            color: scheme.onSurface,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         const SizedBox(height: 10),
         ...methods.map(
@@ -435,13 +480,13 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
             margin: const EdgeInsets.only(bottom: 8),
             decoration: BoxDecoration(
               color: _selectedPaymentMethod == method.id
-                  ? AppColors.primary.withOpacity(0.08)
-                  : Colors.white,
+                  ? AppColors.primary.withOpacity(isDark ? 0.18 : 0.08)
+                  : theme.cardColor,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: _selectedPaymentMethod == method.id
                     ? AppColors.primary
-                    : Colors.grey[300]!,
+                    : scheme.outline.withOpacity(0.26),
               ),
             ),
             child: RadioListTile<String>(
@@ -459,9 +504,15 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
               secondary: Icon(method.icon, color: AppColors.primary),
               title: Text(
                 method.label,
-                style: const TextStyle(fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  color: scheme.onSurface,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-              subtitle: Text(method.description),
+              subtitle: Text(
+                method.description,
+                style: TextStyle(color: scheme.onSurface.withOpacity(0.68)),
+              ),
             ),
           ),
         ),
@@ -471,11 +522,15 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
               ? (value) => setState(() => _recurringEnabled = value)
               : null,
           contentPadding: EdgeInsets.zero,
-          title: const Text('Enable recurring card renewals'),
+          title: Text(
+            'Enable recurring card renewals',
+            style: TextStyle(color: scheme.onSurface),
+          ),
           subtitle: Text(
             _selectedPaymentMethod == 'card'
                 ? 'We will remember your preference and remind you before renewal. You confirm each renewal securely through Kora.'
                 : 'Recurring renewals require card payment.',
+            style: TextStyle(color: scheme.onSurface.withOpacity(0.68)),
           ),
         ),
       ],
@@ -507,6 +562,8 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
   }
 
   Widget _summaryRow(String label, String value) {
+    final scheme = Theme.of(context).colorScheme;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -515,13 +572,18 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
           child: Text(
             label,
             style: TextStyle(
-              color: Colors.grey[600],
+              color: scheme.onSurface.withOpacity(0.64),
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
           ),
         ),
-        Expanded(child: Text(value)),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(color: scheme.onSurface),
+          ),
+        ),
       ],
     );
   }

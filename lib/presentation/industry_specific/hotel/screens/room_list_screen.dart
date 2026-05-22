@@ -95,12 +95,15 @@ class _RoomListScreenState extends State<RoomListScreen> {
         rooms.sort((a, b) => a.number.compareTo(b.number));
     }
 
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Room Management', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        backgroundColor: theme.appBarTheme.backgroundColor ?? theme.cardColor,
+        foregroundColor: scheme.onSurface,
         elevation: 0,
         centerTitle: true,
         actions: [
@@ -119,7 +122,7 @@ class _RoomListScreenState extends State<RoomListScreen> {
         children: [
           // Modern Filter Bar
           Container(
-            color: Colors.white,
+            color: theme.cardColor,
             padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -227,7 +230,7 @@ class _RoomListScreenState extends State<RoomListScreen> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -379,9 +382,9 @@ class _RoomListScreenState extends State<RoomListScreen> {
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
         height: MediaQuery.of(context).size.height * 0.75,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

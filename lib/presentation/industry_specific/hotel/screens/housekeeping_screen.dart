@@ -84,12 +84,21 @@ class _HousekeepingScreenState extends State<HousekeepingScreen> {
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .outline
+                          .withOpacity(0.24),
+                    ),
                   ),
                   child: Text(
                     'No housekeeping tasks for this filter.',
-                    style: TextStyle(color: Colors.grey[600]),
+                    style: TextStyle(
+                      color:
+                          Theme.of(context).colorScheme.onSurface.withOpacity(0.68),
+                    ),
                   ),
                 )
               else

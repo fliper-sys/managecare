@@ -622,6 +622,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final provider = Provider.of<RetailProvider>(context);
     final auth = Provider.of<AuthProvider>(context);
     final items = provider.cartItems;
@@ -642,7 +644,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Material(
-            color: Theme.of(context).cardColor,
+            color: theme.cardColor,
             elevation: 2,
             borderRadius: BorderRadius.circular(24),
             clipBehavior: Clip.antiAlias,
@@ -704,9 +706,9 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: theme.cardColor,
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.border),
+                        border: Border.all(color: scheme.outline.withOpacity(0.24)),
                       ),
                       child: DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
@@ -827,9 +829,9 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: theme.cardColor,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(color: scheme.outline.withOpacity(0.24)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1008,9 +1010,9 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                         : Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: theme.cardColor,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.border),
+                              border: Border.all(color: scheme.outline.withOpacity(0.24)),
                             ),
                             child: Text(
                               auth.isOwnerUser

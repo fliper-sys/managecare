@@ -68,6 +68,9 @@ class _BusinessOverviewTabState extends State<BusinessOverviewTab> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -155,9 +158,9 @@ class _BusinessOverviewTabState extends State<BusinessOverviewTab> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: theme.cardColor,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.border),
+              border: Border.all(color: scheme.outline.withOpacity(0.24)),
             ),
             child: Column(
               children: [
@@ -268,6 +271,9 @@ class _PeriodSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Row(
       children: ['day', 'week', 'month', 'year'].map((period) {
         final isSelected = selectedPeriod == period;
@@ -277,10 +283,12 @@ class _PeriodSelector extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
-                color: isSelected ? AppColors.primary : Colors.white,
+                color: isSelected ? AppColors.primary : theme.cardColor,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: isSelected ? AppColors.primary : AppColors.border,
+                  color: isSelected
+                      ? AppColors.primary
+                      : scheme.outline.withOpacity(0.24),
                 ),
               ),
               child: Center(
@@ -319,12 +327,15 @@ class _RevenueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -426,12 +437,15 @@ class _ProductItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
       ),
       child: Row(
         children: [
@@ -515,13 +529,15 @@ class _TransactionItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isCompleted = status == 'Completed';
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
       ),
       child: Row(
         children: [

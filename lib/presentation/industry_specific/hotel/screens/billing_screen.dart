@@ -14,6 +14,8 @@ class BillingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final auth = context.watch<AuthProvider>();
     final canManageBilling = auth.isOwnerUser ||
         WorkerPermissions.canManageGuestBookings(auth.currentUser?.role ?? '');
@@ -69,12 +71,13 @@ class BillingScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: theme.cardColor,
                     borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: scheme.outline.withOpacity(0.24)),
                   ),
                   child: Text(
                     'No folios available yet.',
-                    style: TextStyle(color: Colors.grey[600]),
+                    style: TextStyle(color: scheme.onSurface.withOpacity(0.68)),
                   ),
                 )
               else
@@ -263,11 +266,15 @@ class _BillingStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: scheme.outline.withOpacity(0.24)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

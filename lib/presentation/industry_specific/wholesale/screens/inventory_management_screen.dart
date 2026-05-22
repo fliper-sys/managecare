@@ -82,7 +82,7 @@ class _InventoryManagementScreenState extends State<InventoryManagementScreen> {
               // Search & Filter Bar
               Container(
                 padding: const EdgeInsets.all(12),
-                color: Colors.white,
+                color: Theme.of(context).cardColor,
                 child: Column(
                   children: [
                     // Search
@@ -182,12 +182,12 @@ class _InventoryManagementScreenState extends State<InventoryManagementScreen> {
                           return Container(
                             margin: const EdgeInsets.only(bottom: 8),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: Theme.of(context).cardColor,
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: isLowStock
                                     ? Colors.orange
-                                    : AppColors.border,
+                                    : Theme.of(context).colorScheme.outline.withOpacity(0.24),
                                 width: isLowStock ? 2 : 1,
                               ),
                             ),
