@@ -2700,8 +2700,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     final retail = context.watch<RetailProvider>();
     final auth = context.watch<AuthProvider>();
     final currentRole = auth.currentUser?.role ?? '';
-    final canEditSalePrice = WorkerPermissions.canEditPrice(currentRole);
-    final canApplyDiscount = WorkerPermissions.canApplyDiscount(currentRole);
+    final canEditSalePrice =
+        auth.isOwnerUser || WorkerPermissions.canEditPrice(currentRole);
+    final canApplyDiscount =
+        auth.isOwnerUser || WorkerPermissions.canApplyDiscount(currentRole);
     final entries = retail.cartItems.entries.toList();
     final currentProductIds = entries.map((entry) => entry.key.id).toSet();
     _priceOverrides.removeWhere(

@@ -107,10 +107,7 @@ class WorkerPermissions {
   static bool canManageInventory(String role) =>
       hasPermission(role, 'manage_inventory');
 
-  static bool canEditPrice(String role) {
-    final normalizedRole = role.toLowerCase();
-    return _fullAccessRoles.contains(normalizedRole);
-  }
+  static bool canEditPrice(String role) => normalizeRole(role) == 'owner';
 
   static bool canViewAnalytics(String role) =>
       hasPermission(role, 'view_sales_history');
@@ -126,9 +123,10 @@ class WorkerPermissions {
 
   static bool canAttendance(String role) => hasPermission(role, 'attendance');
 
-  static bool canApplyDiscount(String role) =>
-      _fullAccessRoles.contains(normalizeRole(role)) ||
-      hasPermission(role, 'apply_discount');
+  static bool canApplyDiscount(String role) {
+    final normalizedRole = normalizeRole(role);
+    return normalizedRole == 'owner' || normalizedRole == 'manager';
+  }
 
   static bool canManageRooms(String role) =>
       _fullAccessRoles.contains(normalizeRole(role)) ||

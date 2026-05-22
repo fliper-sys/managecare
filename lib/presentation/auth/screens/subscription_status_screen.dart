@@ -243,15 +243,16 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
               ? const []
               : [
                   TextButton(
-                    onPressed: () {
-                      if (Navigator.canPop(context)) {
-                        Navigator.of(context).pop();
-                      } else {
-                        Navigator.of(context).pushReplacementNamed(Routes.login);
-                      }
+                    onPressed: () async {
+                      await context.read<AuthProvider>().logout();
+                      if (!context.mounted) return;
+                      Navigator.of(context).pushNamedAndRemoveUntil(
+                        Routes.login,
+                        (_) => false,
+                      );
                     },
                     child: const Text(
-                      'Skip',
+                      'Logout',
                       style: TextStyle(color: Colors.white),
                     ),
                   ),

@@ -1540,8 +1540,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
 
 
   void _updateItemPrice(int index, double newPrice) {
-    final role = context.read<AuthProvider>().currentUser?.role ?? '';
-    if (!WorkerPermissions.canEditPrice(role)) {
+    final auth = context.read<AuthProvider>();
+    final role = auth.currentUser?.role ?? '';
+    if (!auth.isOwnerUser && !WorkerPermissions.canEditPrice(role)) {
       return;
     }
     if (newPrice < 0) {
@@ -1560,8 +1561,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
   }
 
   void _updateDiscount(double newDiscount) {
-    final role = context.read<AuthProvider>().currentUser?.role ?? '';
-    if (!WorkerPermissions.canApplyDiscount(role)) {
+    final auth = context.read<AuthProvider>();
+    final role = auth.currentUser?.role ?? '';
+    if (!auth.isOwnerUser && !WorkerPermissions.canApplyDiscount(role)) {
       return;
     }
     setState(() {
@@ -1570,8 +1572,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
   }
 
   void _removeItem(int index) {
-    final role = context.read<AuthProvider>().currentUser?.role ?? '';
-    if (!WorkerPermissions.canEditPrice(role)) {
+    final auth = context.read<AuthProvider>();
+    final role = auth.currentUser?.role ?? '';
+    if (!auth.isOwnerUser && !WorkerPermissions.canEditPrice(role)) {
       return;
     }
     setState(() {
@@ -1595,8 +1598,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         '[PostSaleActionSheet] Building UI for orderId: ${widget.orderId}');
     final auth = context.watch<AuthProvider>();
     final currentRole = auth.currentUser?.role ?? '';
-    final canEditPrice = WorkerPermissions.canEditPrice(currentRole);
-    final canApplyDiscount = WorkerPermissions.canApplyDiscount(currentRole);
+    final canEditPrice =
+        auth.isOwnerUser || WorkerPermissions.canEditPrice(currentRole);
+    final canApplyDiscount =
+        auth.isOwnerUser || WorkerPermissions.canApplyDiscount(currentRole);
 
     return Container(
       decoration: const BoxDecoration(

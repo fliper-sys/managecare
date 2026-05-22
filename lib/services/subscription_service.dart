@@ -1245,16 +1245,22 @@ class SubscriptionService {
 
       final now = DateTime.now();
       final isActive = business['isSubscriptionActive'] as bool? ?? false;
+      final status = (business['subscriptionStatus'] ?? '').toString().toLowerCase();
       final endRaw = business['subscriptionEndDate'];
       final endDate = endRaw != null ? parseTimestamp(endRaw) : null;
+      final isTrial = status == 'trial';
       final isValid = isActive &&
-          (endDate == null || isWithinSubscriptionAccessWindow(endDate, now: now));
+          (endDate == null ||
+              (isTrial
+                  ? !normalizeToDate(now).isAfter(normalizeToDate(endDate))
+                  : isWithinSubscriptionAccessWindow(endDate, now: now)));
 
-      if (isActive && endDate != null && !isWithinSubscriptionAccessWindow(endDate, now: now)) {
+      if (isActive && endDate != null && !isValid) {
         await _firestore.collection('businesses').doc(businessId).set({
           'isSubscriptionActive': false,
           'subscriptionStatus': 'expired',
           'subscriptionReviewStatus': 'expired',
+          'subscriptionPaymentRequired': true,
           'updatedAt': now.toIso8601String(),
         }, SetOptions(merge: true));
       }
@@ -1264,7 +1270,7 @@ class SubscriptionService {
           userId: userId,
           businessId: businessId,
           overrideIsActive: isValid,
-          overrideStatus: isValid ? 'approved' : 'expired',
+          overrideStatus: isValid ? (isTrial ? 'trial' : 'approved') : 'expired',
         );
       }
 

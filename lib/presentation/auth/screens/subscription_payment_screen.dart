@@ -151,15 +151,16 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
             TextButton(
               onPressed: _isProcessing
                   ? null
-                  : () {
-                      if (Navigator.canPop(context)) {
-                        Navigator.of(context).pop();
-                      } else {
-                        Navigator.of(context).pushReplacementNamed('/');
-                      }
+                  : () async {
+                      await context.read<AuthProvider>().logout();
+                      if (!context.mounted) return;
+                      Navigator.of(context).pushNamedAndRemoveUntil(
+                        Routes.login,
+                        (_) => false,
+                      );
                     },
               child: const Text(
-                'Skip',
+                'Logout',
                 style: TextStyle(color: Colors.white),
               ),
             ),

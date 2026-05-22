@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:io';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -243,6 +244,9 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
       businessType: widget.businessType,
     );
 
+    final trialStartDate = DateTime.now();
+    final trialEndDate = trialStartDate.add(const Duration(days: 7));
+
     final business = BusinessModel(
       id: 'bus_${DateTime.now().millisecondsSinceEpoch}',
       name: _businessNameController.text.trim(),
@@ -261,8 +265,10 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
       subscriptionTier: _selectedPlanLevel,
       businessClass: _selectedBusinessClass,
       referralEmail: _referralEmailController.text.trim().isEmpty ? null : _referralEmailController.text.trim(),
-      isSubscriptionActive: false,
-      createdAt: DateTime.now(),
+      subscriptionStartDate: trialStartDate,
+      subscriptionEndDate: trialEndDate,
+      isSubscriptionActive: true,
+      createdAt: trialStartDate,
       isActive: true,
       totalWorkers: int.tryParse(_staffCountController.text) ?? 0,
       totalProducts: int.tryParse(_productCountController.text) ?? 0,
@@ -337,6 +343,36 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
       try {
         print('[BusinessDetails] Updating user profile with new business id');
         await authProvider.updateProfile(businessId: business.id, isOwner: true);
+        await FirebaseFirestore.instance
+            .collection('businesses')
+            .doc(business.id)
+            .set({
+          'subscriptionStatus': 'trial',
+          'subscriptionReviewStatus': 'trial',
+          'subscriptionPaymentRequired': false,
+          'subscriptionTrialStartedAt': trialStartDate.toIso8601String(),
+          'subscriptionTrialEndsAt': trialEndDate.toIso8601String(),
+          'subscriptionTrialReminderSentFor': FieldValue.delete(),
+          'updatedAt': trialStartDate.toIso8601String(),
+        }, SetOptions(merge: true));
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(authProvider.currentUser!.id)
+            .set({
+          'hasActiveSubscription': true,
+          'subscriptionPaymentRequired': false,
+          'subscriptionStatus': 'trial',
+          'subscriptionReviewStatus': 'trial',
+          'subscriptionPlan': _selectedPlanLevel,
+          'subscriptionTier': _selectedPlanLevel,
+          'businessClass': _selectedBusinessClass,
+          'subscriptionStartDate': trialStartDate.toIso8601String(),
+          'subscriptionEndDate': trialEndDate.toIso8601String(),
+          'subscriptionTrialStartedAt': trialStartDate.toIso8601String(),
+          'subscriptionTrialEndsAt': trialEndDate.toIso8601String(),
+          'subscriptionTrialReminderSentFor': FieldValue.delete(),
+          'updatedAt': trialStartDate.toIso8601String(),
+        }, SetOptions(merge: true));
         print('[BusinessDetails] updateProfile finished');
       } catch (e) {
         print('[BusinessDetails] updateProfile failed: $e');
@@ -359,20 +395,18 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
     if (!mounted) return;
 
     if (success) {
-      // Redirect to subscription payment flow so each business is paid for individually
-      Navigator.of(context).pushReplacementNamed(
-        Routes.subscriptionPayment,
-        arguments: {
-          'userId': authProvider.currentUser!.id,
-          'userEmail': authProvider.currentUser!.email,
-          'userName': authProvider.currentUser!.fullName,
-          'businessId': business.id,
-          'businessType': widget.businessType,
-          'businessTier': _computedTier,
-          // Pass detected businessClass so subscription screen filters plans
-          'businessClass': _selectedBusinessClass,
-        },
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Your 7-day free trial is active until ${trialEndDate.day}/${trialEndDate.month}/${trialEndDate.year}.',
+          ),
+          backgroundColor: Colors.green,
+        ),
       );
+      final route =
+          BusinessProvider.industryRouteForType(widget.businessType) ??
+              Routes.ownerDashboard;
+      Navigator.of(context).pushNamedAndRemoveUntil(route, (_) => false);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1136,12 +1170,16 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
 
                     // Skip Button
                     TextButton(
-                      onPressed: () {
-                        Navigator.of(context)
-                            .pushReplacementNamed(Routes.ownerDashboard);
+                      onPressed: () async {
+                        await context.read<AuthProvider>().logout();
+                        if (!context.mounted) return;
+                        Navigator.of(context).pushNamedAndRemoveUntil(
+                          Routes.login,
+                          (_) => false,
+                        );
                       },
                       child: Text(
-                        'Skip for now',
+                        'Logout',
                         style: AppTextStyles.body1.copyWith(
                           color: AppColors.textSecondary,
                         ),

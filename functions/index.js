@@ -871,3 +871,71 @@ exports.notifyRecurringSubscriptionRenewals = functions.pubsub
 
     return null;
   });
+
+exports.notifyTrialSubscriptionExpiry = functions.pubsub
+  .schedule('every 24 hours')
+  .timeZone('Africa/Lagos')
+  .onRun(async () => {
+    const now = new Date();
+    const businesses = await db
+      .collection('businesses')
+      .where('subscriptionStatus', '==', 'trial')
+      .where('isSubscriptionActive', '==', true)
+      .get();
+
+    for (const doc of businesses.docs) {
+      const business = doc.data() || {};
+      const trialEnd =
+        parseFirestoreDate(business.subscriptionTrialEndsAt) ||
+        parseFirestoreDate(business.subscriptionEndDate);
+      if (!trialEnd) continue;
+
+      const msLeft = trialEnd.getTime() - now.getTime();
+      const daysLeft = Math.ceil(msLeft / (24 * 60 * 60 * 1000));
+      if (daysLeft !== 3 && daysLeft !== 1) continue;
+
+      const reminderKey = `${daysLeft}d_${trialEnd.toISOString().slice(0, 10)}`;
+      if (business.subscriptionTrialReminderSentFor === reminderKey) {
+        continue;
+      }
+
+      const ownerId = business.ownerId || business.userId || '';
+      const businessName = business.name || doc.id;
+      const title = daysLeft === 1
+        ? 'Free trial ends tomorrow'
+        : 'Free trial ends in 3 days';
+      const body = `${businessName}'s free trial ends in ${daysLeft} day${daysLeft === 1 ? '' : 's'}. Choose a subscription plan to keep using the app.`;
+
+      await createAdminNotification({
+        type: 'subscription',
+        title,
+        message: body,
+        data: {
+          businessId: doc.id,
+          ownerId,
+          businessName,
+          daysLeft,
+          trialEndsAt: trialEnd.toISOString(),
+        },
+      });
+
+      await createUserNotification(ownerId, {
+        title,
+        body,
+        type: 'subscription_trial_ending',
+        data: {
+          businessId: doc.id,
+          businessName,
+          daysLeft,
+          trialEndsAt: trialEnd.toISOString(),
+        },
+      });
+
+      await doc.ref.set({
+        subscriptionTrialReminderSentFor: reminderKey,
+        subscriptionTrialReminderSentAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
+
+    return null;
+  });
