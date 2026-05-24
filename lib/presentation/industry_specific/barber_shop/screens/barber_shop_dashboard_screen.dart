@@ -471,7 +471,7 @@ class _MetricCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.cardColor,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: scheme.outline.withOpacity(0.24)),
+         border: isPrimary ? Border.all(color: color.withOpacity(0.3)) : null,
         boxShadow: [
           BoxShadow(
             color: color.withOpacity(0.08),
@@ -479,7 +479,7 @@ class _MetricCard extends StatelessWidget {
             blurRadius: 12,
           ),
         ],
-        border: isPrimary ? Border.all(color: color.withOpacity(0.3)) : null,
+       
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
