@@ -690,6 +690,17 @@ exports.initializeKoraSubscriptionPayment = functions.https.onCall(async (data, 
     throw new functions.https.HttpsError('invalid-argument', 'Missing required payment details');
   }
   reference = normalizeKoraReference(reference, data.userId || context.auth.uid);
+  const metadata = {
+    planId: data.planId || '',
+    businessId: data.businessId || '',
+    businessType: data.businessType || '',
+    userId: data.userId || context.auth.uid,
+    selectedChannels: channels.join(','),
+    recurringEnabled: recurringEnabled ? 'true' : 'false',
+  };
+  if (recurringEnabled) {
+    metadata.recurrenceInterval = recurrenceInterval || 'plan_duration';
+  }
 
   const response = await fetch('https://api.korapay.com/merchant/api/v1/charges/initialize', {
     method: 'POST',
@@ -708,15 +719,7 @@ exports.initializeKoraSubscriptionPayment = functions.https.onCall(async (data, 
         email,
       },
       notification_url: redirectUrl,
-      metadata: {
-        planId: data.planId || null,
-        businessId: data.businessId || null,
-        businessType: data.businessType || null,
-        userId: data.userId || context.auth.uid,
-        selectedChannels: channels.join(','),
-        recurringEnabled: recurringEnabled ? 'true' : 'false',
-        recurrenceInterval: recurringEnabled ? (recurrenceInterval || 'plan_duration') : '',
-      },
+      metadata,
     }),
   });
 
