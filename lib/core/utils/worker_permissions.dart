@@ -5,7 +5,14 @@ class WorkerPermissions {
     'worker': 'staff',
     'frontdesk': 'receptionist',
     'front_desk': 'receptionist',
+    'front_office': 'receptionist',
+    'guest_services': 'receptionist',
     'bartender': 'cashier',
+    'kitchen': 'chef',
+    'floor_manager': 'supervisor',
+    'captain': 'supervisor',
+    'room_attendant': 'housekeeper',
+    'maintenance': 'maintenance_staff',
   };
 
   static const Map<String, List<String>> rolePermissions = {
@@ -65,15 +72,41 @@ class WorkerPermissions {
       'view_low_stock',
     ],
     'waiter': ['sales', 'view_orders', 'table_management'],
+    'host': ['view_orders', 'table_management', 'bookings'],
+    'runner': ['view_orders', 'table_management'],
+    'supervisor': [
+      'sales',
+      'view_inventory',
+      'view_sales_history',
+      'apply_discount',
+      'manage_menu',
+      'table_management',
+      'view_orders',
+      'view_reports',
+      'view_low_stock',
+      'bookings',
+    ],
     'receptionist': [
       'bookings',
       'guest_checkin',
+      'guest_checkout',
+      'billing',
       'view_inventory',
       'manage_rooms',
       'manage_guests',
       'manage_pool_bookings',
+      'room_service',
     ],
-    'housekeeper': ['room_status', 'maintenance_requests'],
+    'housekeeper': ['room_status', 'maintenance_requests', 'room_service'],
+    'maintenance_staff': ['room_status', 'maintenance_requests'],
+    'night_auditor': [
+      'bookings',
+      'guest_checkin',
+      'guest_checkout',
+      'billing',
+      'view_reports',
+      'view_sales_history',
+    ],
     'hr': ['manage_staff', 'attendance', 'payroll_view'],
     'mechanic': ['job_quotes', 'work_orders', 'parts_management'],
     'beautician': ['appointments', 'services', 'attendance'],
@@ -138,7 +171,13 @@ class WorkerPermissions {
       _fullAccessRoles.contains(normalizeRole(role)) ||
       normalizeRole(role) == 'manager' ||
       hasPermission(role, 'bookings') ||
-      hasPermission(role, 'guest_checkin');
+      hasPermission(role, 'guest_checkin') ||
+      hasPermission(role, 'guest_checkout');
+
+  static bool canManageHospitalityBilling(String role) =>
+      _fullAccessRoles.contains(normalizeRole(role)) ||
+      normalizeRole(role) == 'manager' ||
+      hasPermission(role, 'billing');
 
   static bool canManagePoolBookings(String role) =>
       _fullAccessRoles.contains(normalizeRole(role)) ||
@@ -150,6 +189,7 @@ class WorkerPermissions {
       normalizeRole(role) == 'manager' ||
       hasPermission(role, 'guest_checkin') ||
       hasPermission(role, 'manage_rooms') ||
+      hasPermission(role, 'room_service') ||
       hasPermission(role, 'maintenance_requests');
 
   static bool canManageHousekeeping(String role) =>
@@ -172,24 +212,36 @@ class WorkerPermissions {
       'restaurant': [
         'sub_admin',
         'manager',
+        'supervisor',
+        'host',
         'waiter',
+        'runner',
         'cashier',
         'chef',
         'staff',
       ],
       'hotel': [
         'receptionist',
+        'night_auditor',
+        'supervisor',
         'waiter',
         'housekeeper',
+        'maintenance_staff',
         'manager',
         'cashier',
       ],
       'hospitality': [
         'receptionist',
+        'night_auditor',
+        'supervisor',
+        'host',
         'waiter',
+        'runner',
         'housekeeper',
+        'maintenance_staff',
         'manager',
         'cashier',
+        'chef',
       ],
       'apartment': [
         'receptionist',
@@ -223,9 +275,14 @@ class WorkerPermissions {
       'bartender': 'Bartender',
       'chef': 'Chef',
       'waiter': 'Waiter',
+      'host': 'Host',
+      'runner': 'Runner',
+      'supervisor': 'Supervisor',
       'receptionist': 'Receptionist',
       'frontdesk': 'Front Desk',
       'housekeeper': 'Housekeeper',
+      'maintenance_staff': 'Maintenance Staff',
+      'night_auditor': 'Night Auditor',
       'hr': 'HR',
       'mechanic': 'Mechanic',
       'beautician': 'Beautician',

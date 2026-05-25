@@ -201,6 +201,77 @@ class WorkersProvider with ChangeNotifier {
     }
   }
 
+  /// Soft-remove a worker from a business without deleting the record entirely.
+  /// This is used by owner management flows that detach a worker from the business
+  /// but may keep a historical worker document for audit/reference purposes.
+  Future<void> removeWorkerFromBusiness(
+    String workerId, {
+    required String businessId,
+  }) async {
+    final targetBusinessId = businessId.trim();
+    if (targetBusinessId.isEmpty) {
+      throw ArgumentError('businessId is required to remove a worker');
+    }
+
+    try {
+      await _ensureAuthenticatedSession();
+
+      final now = FieldValue.serverTimestamp();
+      final workerDocRef =
+          FirebaseFirestore.instance.collection('workers').doc(workerId);
+      final userDocRef =
+          FirebaseFirestore.instance.collection('users').doc(workerId);
+
+      // Detach the worker from the business in both collections so all worker
+      // count paths stop treating the record as an active slot.
+      try {
+        await workerDocRef.set({
+          'isActive': false,
+          'businessId': FieldValue.delete(),
+          'role': FieldValue.delete(),
+          'roles': FieldValue.delete(),
+          'updatedAt': now,
+          'removedAt': now,
+        }, SetOptions(merge: true));
+      } catch (e) {
+        print('[WorkersProvider] Failed to detach worker doc: $e');
+        rethrow;
+      }
+
+      try {
+        await userDocRef.set({
+          'isActive': false,
+          'businessId': FieldValue.delete(),
+          'role': FieldValue.delete(),
+          'roles': FieldValue.delete(),
+          'updatedAt': now,
+          'removedAt': now,
+        }, SetOptions(merge: true));
+      } catch (e) {
+        print('[WorkersProvider] Failed to detach user doc: $e');
+      }
+
+      final businessDocRef = FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(targetBusinessId);
+
+      for (final collection in const ['barbers', 'stylists']) {
+        try {
+          await businessDocRef.collection(collection).doc(workerId).delete();
+        } catch (e) {
+          print(
+            '[WorkersProvider] Failed to delete worker from $collection collection: $e',
+          );
+        }
+      }
+
+      await _refreshBusinessScopeAfterMutation(targetBusinessId);
+    } catch (e) {
+      print('[WorkersProvider] removeWorkerFromBusiness failed: $e');
+      rethrow;
+    }
+  }
+
   /// Delete worker from Firestore collections (users, workers, and business-specific collections)
   /// Note: Firebase Auth account deletion cannot be performed from client-side code for security reasons.
   /// This requires server-side implementation (Cloud Functions) to delete the Auth user.
@@ -255,4 +326,3 @@ class WorkersProvider with ChangeNotifier {
     }
   }
 }
-

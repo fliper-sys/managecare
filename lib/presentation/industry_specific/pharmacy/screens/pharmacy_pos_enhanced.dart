@@ -344,14 +344,10 @@ class _PharmacyPOSScreenState extends State<PharmacyPOSScreen> {
     provider
         .addPrescription(patientId, items,
             persist: true, businessId: business?.id, userId: 'pos')
-        .then((_) async {
+        .then((prescription) async {
       // Immediately dispense the prescription
-      final prescriptions = provider.prescriptions;
-      if (prescriptions.isNotEmpty) {
-        final lastPres = prescriptions.first;
-        await provider.dispensePrescription(lastPres.id,
-            persist: true, businessId: business?.id, userId: 'pos');
-      }
+      await provider.dispensePrescription(prescription.id,
+          persist: true, businessId: business?.id, userId: 'pos');
 
       // Record sale in Sales repository
       try {

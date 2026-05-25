@@ -30,7 +30,12 @@ import '../../../../services/pdf_invoice_generator.dart';
 String _safeIdSuffix(String id) => id.length >= 6 ? id.substring(id.length - 6) : id;
 
 class CreateOrderScreen extends StatefulWidget {
-  const CreateOrderScreen({super.key});
+  const CreateOrderScreen({
+    super.key,
+    this.initialRoomChargeReservationId,
+  });
+
+  final String? initialRoomChargeReservationId;
 
   @override
   State<CreateOrderScreen> createState() => _CreateOrderScreenState();
@@ -75,6 +80,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           _menuQuery = _menuSearchController.text.toLowerCase();
         });
       });
+
+      _applyInitialRoomChargeSelection();
     });
   }
 
@@ -134,6 +141,22 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       _selectedTableId = null;
       _selectedTableNumber = null;
     });
+  }
+
+  void _applyInitialRoomChargeSelection() {
+    final reservationId = widget.initialRoomChargeReservationId;
+    if (reservationId == null || reservationId.isEmpty) return;
+    if (_selectedRoomChargeReservationId == reservationId) return;
+
+    final hotelProvider = context.read<hotel.HotelProvider>();
+    final reservation = hotelProvider.getReservationById(reservationId);
+    if (reservation == null) return;
+
+    final room = hotelProvider.getRoomById(reservation.roomId);
+    _selectRoomCharge(
+      reservation,
+      'Room ${room?.number ?? reservation.roomId}',
+    );
   }
 
   String _resolveOrderTargetType() {
@@ -275,12 +298,40 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   Future<void> _deductInventoryForItems(List<OrderItem> items) async {
     try {
       final retail = Provider.of<RetailProvider>(context, listen: false);
+      final restaurant =
+          Provider.of<RestaurantProvider>(context, listen: false);
+      final deductionsByProductId = <String, double>{};
+
       for (final item in items) {
+        final linkedMenuItems = restaurant.menuItems
+            .where((menuItem) => menuItem.id == item.menuItemId)
+            .toList();
+        if (linkedMenuItems.isNotEmpty &&
+            linkedMenuItems.first.ingredients.isNotEmpty) {
+          for (final ingredient in linkedMenuItems.first.ingredients) {
+            if (ingredient.productId.isEmpty) continue;
+            deductionsByProductId.update(
+              ingredient.productId,
+              (current) =>
+                  current + (ingredient.quantityPerPortion * item.quantity),
+              ifAbsent: () => ingredient.quantityPerPortion * item.quantity,
+            );
+          }
+          continue;
+        }
+
         final pid = item.inventoryProductId;
         if (pid == null || pid.isEmpty) continue;
+        deductionsByProductId.update(
+          pid,
+          (current) => current + item.quantity,
+          ifAbsent: () => item.quantity.toDouble(),
+        );
+      }
 
+      for (final entry in deductionsByProductId.entries) {
         final prod = retail.products.firstWhere(
-          (p) => p.id == pid,
+          (p) => p.id == entry.key,
           orElse: () => Product(
             id: '',
             name: '',
@@ -292,7 +343,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         if (prod.id.isEmpty) continue;
 
         final newStock =
-            (prod.stock - item.quantity) < 0 ? 0 : (prod.stock - item.quantity);
+            (prod.stock - entry.value) < 0 ? 0.0 : (prod.stock - entry.value);
         final updated = Product(
           id: prod.id,
           name: prod.name,
@@ -697,37 +748,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         // Add completed order to provider
         await context.read<RestaurantProvider>().createOrder(order);
 
-        // Deduct inventory where applicable
-        try {
-          final retail = Provider.of<RetailProvider>(context, listen: false);
-          for (final item in _selectedItems) {
-            final pid = item.inventoryProductId;
-            if (pid != null && pid.isNotEmpty) {
-              final prod = retail.products.firstWhere((p) => p.id == pid, orElse: () => Product(id: '', name: '', price: 0, stock: 0, category: ''));
-              if (prod.id.isNotEmpty) {
-                final newStock = (prod.stock - item.quantity) < 0 ? 0 : (prod.stock - item.quantity);
-                final updated = Product(
-                  id: prod.id,
-                  name: prod.name,
-                  price: prod.price,
-                  cost: prod.cost,
-                  wholesalePrice: prod.wholesalePrice,
-                  stock: newStock.toDouble() ,
-                  category: prod.category,
-                  imageUrl: prod.imageUrl,
-                  barcode: prod.barcode,
-                  emoji: prod.emoji,
-                  unit: prod.unit,
-                  saleUnit: prod.resolvedSaleUnit,
-                  saleUnitMultiplier: prod.resolvedSaleUnitMultiplier,
-                );
-                await retail.updateProduct(prod.id, updated);
-              }
-            }
-          }
-        } catch (e) {
-          debugPrint('[RestaurantPOS] Inventory deduction during payment failed: $e');
-        }
+        await _deductInventoryForItems(_selectedItems);
 
         // Show receipt and post sale actions
         if (!mounted) return;

@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/colors.dart';
@@ -7,7 +12,9 @@ import '../../../../core/theme/text_styles.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/drink_provider.dart';
+import '../../../../services/pdf_invoice_generator.dart';
 import '../../../../services/receipt_manager.dart';
+import '../../../../services/web_download.dart' as web_download;
 import '../../../../widgets/custom_button.dart';
 
 class BarTabsScreen extends StatefulWidget {
@@ -160,6 +167,129 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
     }
   }
 
+  List<Map<String, dynamic>> _invoiceItems(
+    BarInvoice invoice,
+    DrinkProvider provider,
+  ) {
+    return invoice.lines.map((line) {
+      final drink = provider.getDrinkById(line.drinkId);
+      final name = drink?.name ?? 'Unknown drink';
+      return {
+        'productId': line.drinkId,
+        'name': name,
+        'productName': name,
+        'menuItemName': name,
+        'quantity': line.quantityBottles,
+        'price': line.unitPrice,
+        'unitPrice': line.unitPrice,
+        'subtotal': line.lineTotal(),
+        'total': line.lineTotal(),
+        'selectedOptions': line.modifiers
+            .map((modifier) => {
+                  'choiceName': modifier.name,
+                  'price': modifier.price,
+                })
+            .toList(),
+      };
+    }).toList();
+  }
+
+  Future<Uint8List> _buildInvoicePdf(BarInvoice invoice) {
+    final business = context.read<BusinessProvider>().currentBusiness;
+    final auth = context.read<AuthProvider>();
+    final provider = context.read<DrinkProvider>();
+    final notes = [
+      if ((invoice.customerPhone ?? '').trim().isNotEmpty)
+        'Customer phone: ${invoice.customerPhone!.trim()}',
+      if ((invoice.tableLabel ?? '').trim().isNotEmpty)
+        'Table/Tab: ${invoice.tableLabel!.trim()}',
+      if ((invoice.notes ?? '').trim().isNotEmpty) invoice.notes!.trim(),
+    ].join('\n');
+
+    return PdfInvoiceGenerator.generateInvoicePdfBytes(
+      businessName: business?.name ?? 'Bar',
+      invoiceNumber: invoice.invoiceNumber,
+      invoiceDate: invoice.createdAt,
+      cartItems: _invoiceItems(invoice, provider),
+      subtotal: invoice.subtotal,
+      tax: invoice.tax,
+      discount: invoice.discount,
+      total: invoice.total,
+      customerName: invoice.customerName,
+      customerEmail: invoice.customerEmail,
+      businessAddress: business?.address,
+      businessPhone: business?.phone,
+      businessEmail: business?.email,
+      cashierName: invoice.workerName ?? auth.currentUser?.fullName,
+      businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
+      subscriptionTier: business?.subscriptionTier,
+      businessClass: business?.businessClass,
+      notes: notes.trim().isEmpty ? null : notes,
+    );
+  }
+
+  Future<void> _shareInvoice(BarInvoice invoice) async {
+    try {
+      final pdfBytes = await _buildInvoicePdf(invoice);
+      final filename =
+          PdfInvoiceGenerator.getInvoiceFilename(invoice.invoiceNumber);
+
+      if (kIsWeb) {
+        web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
+      } else {
+        final tempDir = await getTemporaryDirectory();
+        final file = File('${tempDir.path}/$filename');
+        await file.writeAsBytes(pdfBytes);
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: 'Invoice ${invoice.invoiceNumber}',
+          subject: 'Invoice',
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invoice ready: $filename')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invoice share failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _printInvoice(BarInvoice invoice) async {
+    try {
+      final pdfBytes = await _buildInvoicePdf(invoice);
+      final filename =
+          PdfInvoiceGenerator.getInvoiceFilename(invoice.invoiceNumber);
+
+      if (kIsWeb) {
+        await web_download.printPdfBytes(pdfBytes, filename);
+      } else {
+        final tempDir = await getTemporaryDirectory();
+        final file = File('${tempDir.path}/$filename');
+        await file.writeAsBytes(pdfBytes);
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: 'Print invoice ${invoice.invoiceNumber}',
+          subject: 'Print Invoice',
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invoice print action ready: $filename')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Invoice print failed: $e')),
+      );
+    }
+  }
+
   List<BarInvoice> _filterInvoices(List<BarInvoice> invoices) {
     switch (_filter) {
       case 'converted':
@@ -296,6 +426,24 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                   isTotal: true,
                 ),
                 const SizedBox(height: 16),
+                CustomButton(
+                  text: 'Preview / Share Invoice',
+                  backgroundColor: Colors.blue.shade700,
+                  onPressed: () async {
+                    Navigator.of(sheetContext).pop();
+                    await _shareInvoice(invoice);
+                  },
+                ),
+                const SizedBox(height: 8),
+                CustomButton(
+                  text: 'Print Invoice',
+                  type: ButtonType.outlined,
+                  onPressed: () async {
+                    Navigator.of(sheetContext).pop();
+                    await _printInvoice(invoice);
+                  },
+                ),
+                const SizedBox(height: 8),
                 if (invoice.status == 'open') ...[
                   CustomButton(
                     text: 'Edit Invoice',

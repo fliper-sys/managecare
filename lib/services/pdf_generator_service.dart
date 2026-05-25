@@ -217,7 +217,12 @@ class PdfGeneratorService {
               ),
               pw.Padding(
                 padding: const pw.EdgeInsets.all(8),
-                child: pw.Text((item['quantity'] ?? 1).toString()),
+                child: pw.Text(
+                  _formatQuantityWithUnit(
+                    item['quantity'] ?? 1,
+                    unit: _resolveItemUnit(item),
+                  ),
+                ),
               ),
               pw.Padding(
                 padding: const pw.EdgeInsets.all(8),
@@ -234,6 +239,40 @@ class PdfGeneratorService {
         ),
       ],
     );
+  }
+
+  String? _resolveItemUnit(dynamic item) {
+    if (item is! Map) return null;
+    for (final key in const ['saleUnit', 'unit', 'unitName', 'inventoryUnit']) {
+      final value = item[key];
+      if (value == null) continue;
+      final normalized = value.toString().trim();
+      if (normalized.isEmpty || _looksLikeCurrencyToken(normalized)) continue;
+      return normalized;
+    }
+    return null;
+  }
+
+  String _formatQuantityWithUnit(dynamic quantityValue, {String? unit}) {
+    final quantity = quantityValue is num
+        ? quantityValue.toDouble()
+        : double.tryParse(quantityValue.toString()) ?? 1.0;
+    final quantityText = quantity % 1 == 0
+        ? quantity.toInt().toString()
+        : quantity.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
+    final trimmedUnit = unit?.trim() ?? '';
+    if (trimmedUnit.isEmpty) return quantityText;
+    return '$quantityText $trimmedUnit';
+  }
+
+  bool _looksLikeCurrencyToken(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'ngn' ||
+        normalized == 'ngn ' ||
+        normalized == 'naira' ||
+        normalized == '₦' ||
+        normalized == '\$' ||
+        normalized == 'usd';
   }
 
   /// Build report table

@@ -268,6 +268,66 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
     return rawStoreName;
   }
 
+  bool get _hasPharmacyPrescription {
+    final category =
+        (widget.saleData['category'] ?? widget.saleData['type'] ?? '')
+            .toString()
+            .toLowerCase();
+    return category.contains('pharmacy') &&
+        ((widget.saleData['prescriptionId'] ?? '').toString().isNotEmpty);
+  }
+
+  Future<void> _printPharmacyPrescription() async {
+    final provider = context.read<PharmacyProvider>();
+    final business = context.read<BusinessProvider>().currentBusiness;
+    final prescriptionId =
+        (widget.saleData['prescriptionId'] ?? '').toString().trim();
+    if (prescriptionId.isEmpty) {
+      setState(() {
+        _statusMessage = 'No prescription was attached to this sale.';
+        _statusColor = Colors.orange;
+      });
+      return;
+    }
+
+    final matches =
+        provider.prescriptions.where((p) => p.id == prescriptionId).toList();
+    if (matches.isEmpty) {
+      setState(() {
+        _statusMessage = 'Prescription data is not available yet.';
+        _statusColor = Colors.orange;
+      });
+      return;
+    }
+
+    final prescription = matches.first;
+    final patient = provider.getPatientById(prescription.patientId);
+    final itemRows =
+        (widget.saleData['prescriptionItems'] as List<dynamic>? ?? const [])
+            .map((entry) => Map<String, dynamic>.from(entry as Map))
+            .toList();
+
+    await PrescriptionPrintService.printPrescription(
+      context,
+      businessName: business?.name ?? widget.businessName,
+      prescription: prescription,
+      patientName: prescription.patientName ??
+          patient?.name ??
+          (widget.saleData['prescriptionPatientName']?.toString() ??
+              'Walk-in Patient'),
+      itemRows: itemRows,
+      patientAge: provider.calculateAge(
+        patient?.dateOfBirth ?? prescription.patientDateOfBirth,
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _statusMessage = 'Prescription print dialog opened';
+      _statusColor = Colors.green;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -604,6 +664,12 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
 
       final _customFooter = settings?.footerMessage;
       final footerWithPowered = (_customFooter?.isNotEmpty == true) ? '$_customFooter\nPowered by Manage Care' : 'Powered by Manage Care';
+      final tableLabel = (widget.saleData['tableLabel'] ??
+              widget.saleData['tableNo'] ??
+              widget.saleData['tableNumber'] ??
+              widget.saleData['table'])
+          ?.toString()
+          .trim();
 
       // Generate
       if (kIsWeb) {
@@ -624,6 +690,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
           customFooter: footerWithPowered,
           paperWidth: (settings?.paperWidth ?? 58).toString(),
           cashier: cashierName,
+          tableLabel: tableLabel?.isNotEmpty == true ? tableLabel : null,
           poweredByText: footerWithPowered,
           showQrCode: settings?.showQrCode ?? false,
           receiptUrlBase: settings?.receiptUrlBase,
@@ -660,6 +727,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
           customFooter: footerWithPowered,
           paperWidth: (settings?.paperWidth ?? 58).toString(),
           cashier: cashierName,
+          tableLabel: tableLabel?.isNotEmpty == true ? tableLabel : null,
           poweredByText: footerWithPowered,
           showQrCode: settings?.showQrCode ?? false,
           receiptUrlBase: settings?.receiptUrlBase,
@@ -1889,6 +1957,21 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                 ]);
               }),
               const SizedBox(height: 16),
+
+              if (_hasPharmacyPrescription) ...[
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _printPharmacyPrescription,
+                    icon: const Icon(Icons.local_pharmacy),
+                    label: const Text('Print Prescription'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
 
               // Compact payment breakdown preview
               if ((widget.saleData['paymentBreakdown'] as List<dynamic>?)?.isNotEmpty ?? false) ...[

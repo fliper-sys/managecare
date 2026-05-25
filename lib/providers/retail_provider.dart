@@ -541,6 +541,70 @@ class RetailProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  double _readStockQuantity(Map<String, dynamic> data) {
+    final quantityValue = data['quantity'];
+    if (quantityValue is num) return quantityValue.toDouble();
+    final stockValue = data['stock'];
+    if (stockValue is num) return stockValue.toDouble();
+    return double.tryParse(
+          quantityValue?.toString() ?? stockValue?.toString() ?? '',
+        ) ??
+        0.0;
+  }
+
+  DateTime _readTimestamp(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is num) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    return DateTime.tryParse(value?.toString() ?? '') ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  Product _productFromData(String id, Map<String, dynamic> data) {
+    return Product(
+      id: id,
+      name: data['name'] ?? data['item'] ?? '',
+      price: (data['price'] as num?)?.toDouble() ?? 0.0,
+      cost: (data['cost'] as num?)?.toDouble() ?? 0.0,
+      wholesalePrice: (data['wholesalePrice'] as num?)?.toDouble(),
+      stock: _readStockQuantity(data),
+      category: data['category'] ?? 'Uncategorized',
+      imageUrl: data['imageUrl'],
+      barcode: data['barcode'],
+      emoji: data['emoji'] ?? '📦',
+      unit: (data['unit'] ?? 'pc').toString(),
+      saleUnit: (data['saleUnit'] ?? data['unit'] ?? 'pc').toString(),
+      saleUnitMultiplier:
+          (data['saleUnitMultiplier'] as num?)?.toDouble() ?? 1.0,
+    );
+  }
+
+  Product _pickPreferredProduct(
+    Product current,
+    Product candidate, {
+    DateTime? currentUpdatedAt,
+    DateTime? candidateUpdatedAt,
+  }) {
+    final currentHasStock = current.stock > 0;
+    final candidateHasStock = candidate.stock > 0;
+    if (currentHasStock != candidateHasStock) {
+      return candidateHasStock ? candidate : current;
+    }
+    if ((candidate.stock - current.stock).abs() > 0.0001) {
+      return candidate.stock > current.stock ? candidate : current;
+    }
+    if ((candidate.price > 0) != (current.price > 0)) {
+      return candidate.price > 0 ? candidate : current;
+    }
+    if ((candidate.cost > 0) != (current.cost > 0)) {
+      return candidate.cost > 0 ? candidate : current;
+    }
+    final currentStamp = currentUpdatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    final candidateStamp =
+        candidateUpdatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+    return candidateStamp.isAfter(currentStamp) ? candidate : current;
+  }
+
   void switchCart(String cartId) {
     if (!_cartSessions.containsKey(cartId) || cartId == _activeCartId) return;
     _syncActiveCartSnapshot();
@@ -707,8 +771,7 @@ class RetailProvider extends ChangeNotifier {
           price: (data['price'] as num?)?.toDouble() ?? 0.0,
           cost: (data['cost'] as num?)?.toDouble() ?? 0.0,
           wholesalePrice: (data['wholesalePrice'] as num?)?.toDouble(),
-          stock: (data['quantity'] as num?)?.toDouble() ??
-              0.0, // inventory uses 'quantity' field
+          stock: _readStockQuantity(data),
           category: data['category'] ?? 'Uncategorized',
           imageUrl: data['imageUrl'],
           barcode: data['barcode'],
@@ -753,9 +816,7 @@ class RetailProvider extends ChangeNotifier {
                 cost: (raw['cost'] as num?)?.toDouble() ?? 0.0,
                 wholesalePrice:
                     (raw['wholesalePrice'] as num?)?.toDouble(),
-                stock: (raw['quantity'] as num?)?.toDouble() ??
-                    (raw['qty'] as num?)?.toDouble() ??
-                    0.0,
+                stock: _readStockQuantity(raw),
                 category: raw['category'] ?? 'Uncategorized',
                 imageUrl: raw['imageUrl'],
                 barcode: raw['barcode'],
@@ -773,19 +834,35 @@ class RetailProvider extends ChangeNotifier {
         }
       }
 
-      // Merge and dedupe using SKU or name (prefer inventory collection items)
+      // Merge and dedupe using SKU or name. Prefer records with live stock and
+      // richer inventory data so quick sale does not surface stale zero-stock
+      // duplicates ahead of the active product.
       final merged = <String, Product>{};
+      final mergedUpdatedAt = <String, DateTime>{};
       for (final p in documentProducts) {
         final key = (p.barcode ?? '').isNotEmpty
             ? 'sku:${p.barcode}'
             : 'name:${p.name.toLowerCase()}';
-        if (!merged.containsKey(key)) merged[key] = p;
+        if (!merged.containsKey(key)) {
+          merged[key] = p;
+          mergedUpdatedAt[key] = DateTime.fromMillisecondsSinceEpoch(0);
+        }
       }
       for (final p in _products) {
         final key = (p.barcode ?? '').isNotEmpty
             ? 'sku:${p.barcode}'
             : 'name:${p.name.toLowerCase()}';
-        merged[key] = p; // override or set from primary inventory
+        if (!merged.containsKey(key)) {
+          merged[key] = p;
+          mergedUpdatedAt[key] = DateTime.now();
+          continue;
+        }
+        merged[key] = _pickPreferredProduct(
+          merged[key]!,
+          p,
+          currentUpdatedAt: mergedUpdatedAt[key],
+          candidateUpdatedAt: DateTime.now(),
+        );
       }
 
       _products = merged.values.toList();
@@ -1108,11 +1185,19 @@ class RetailProvider extends ChangeNotifier {
       };
       if (storeId != null && storeId.isNotEmpty) data['storeId'] = storeId;
 
-      await _firestore
+      final docRef = await _firestore
           .collection('businesses')
           .doc(_businessId)
           .collection('inventory')
           .add(data);
+
+      await _logProductActivity(
+        productId: docRef.id,
+        action: 'created',
+        productName: product.name,
+        changes: data,
+        storeId: storeId,
+      );
 
       await loadProducts(storeId: storeId);
     } catch (e) {
@@ -1152,6 +1237,14 @@ class RetailProvider extends ChangeNotifier {
           .doc(productId)
           .update(updateData);
 
+      await _logProductActivity(
+        productId: productId,
+        action: 'updated',
+        productName: product.name,
+        changes: updateData,
+        storeId: storeId,
+      );
+
       await loadProducts(storeId: storeId);
     } catch (e) {
       _errorMessage = 'Failed to update product: $e';
@@ -1165,6 +1258,17 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return;
 
     try {
+      final product = _products.firstWhere(
+        (p) => p.id == productId,
+        orElse: () => Product(
+          id: productId,
+          name: 'Unknown product',
+          price: 0,
+          stock: 0,
+          category: 'Unknown',
+        ),
+      );
+
       // Delete from inventory collection (official product storage)
       await _firestore
           .collection('businesses')
@@ -1173,11 +1277,51 @@ class RetailProvider extends ChangeNotifier {
           .doc(productId)
           .delete();
 
+      await _logProductActivity(
+        productId: productId,
+        action: 'deleted',
+        productName: product.name,
+        storeId: storeId,
+      );
+
       await loadProducts(storeId: storeId);
     } catch (e) {
       _errorMessage = 'Failed to delete product: $e';
       notifyListeners();
       debugPrint('Error deleting product: $e');
+    }
+  }
+
+  Future<void> _logProductActivity({
+    required String productId,
+    required String action,
+    required String productName,
+    Map<String, dynamic>? changes,
+    String? storeId,
+  }) async {
+    if (_businessId == null || _businessId!.isEmpty || productId.isEmpty) {
+      return;
+    }
+
+    final payload = <String, dynamic>{
+      'productId': productId,
+      'productName': productName,
+      'action': action,
+      'changes': changes ?? const <String, dynamic>{},
+      'storeId': storeId,
+      'createdAt': FieldValue.serverTimestamp(),
+    };
+
+    try {
+      final businessRef = _firestore.collection('businesses').doc(_businessId);
+      await businessRef
+          .collection('inventory')
+          .doc(productId)
+          .collection('activity')
+          .add(payload);
+      await businessRef.collection('product_activity').add(payload);
+    } catch (e) {
+      debugPrint('[RetailProvider] Product activity log failed: $e');
     }
   }
 
@@ -2084,6 +2228,33 @@ class RetailProvider extends ChangeNotifier {
       debugPrint('[RetailProvider] Error fetching sales history: $e');
       return [];
     }
+  }
+
+  // Fetch a single sale from either the business sales collection or the root
+  // sales collection so receipt reprints can reopen older records reliably.
+  Future<Map<String, dynamic>?> getSaleById(String saleId) async {
+    if (_businessId == null || saleId.trim().isEmpty) return null;
+
+    try {
+      final nestedDoc = await _firestore
+          .collection('businesses')
+          .doc(_businessId)
+          .collection('sales')
+          .doc(saleId)
+          .get();
+      if (nestedDoc.exists) {
+        return {'id': nestedDoc.id, ...(nestedDoc.data() ?? const {})};
+      }
+
+      final rootDoc = await _firestore.collection('sales').doc(saleId).get();
+      if (rootDoc.exists) {
+        return {'id': rootDoc.id, ...(rootDoc.data() ?? const {})};
+      }
+    } catch (e) {
+      debugPrint('[RetailProvider] Error fetching sale by id: $e');
+    }
+
+    return null;
   }
 
   // Paged sales fetch — returns sales plus the last document snapshot (for startAfter)

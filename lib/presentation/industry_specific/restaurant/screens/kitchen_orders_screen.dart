@@ -15,7 +15,7 @@ class KitchenOrdersScreen extends StatefulWidget {
 }
 
 class _KitchenOrdersScreenState extends State<KitchenOrdersScreen> {
-  String _filterStatus = 'pending'; // pending, preparing, ready
+  String _filterStatus = 'pending'; // pending/confirmed, preparing, ready
 
   @override
   void initState() {
@@ -36,7 +36,7 @@ class _KitchenOrdersScreenState extends State<KitchenOrdersScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Kitchen Orders'),
+        title: const Text('Kitchen Workflow'),
         elevation: 0,
         backgroundColor: AppColors.primary,
         actions: [
@@ -46,7 +46,8 @@ class _KitchenOrdersScreenState extends State<KitchenOrdersScreen> {
               child: Consumer<RestaurantProvider>(
                 builder: (context, provider, _) {
                   final pendingCount = provider.orders
-                      .where((o) => o.status == 'pending')
+                      .where((o) =>
+                          o.status == 'pending' || o.status == 'confirmed')
                       .length;
                   return Container(
                     padding:
@@ -73,8 +74,12 @@ class _KitchenOrdersScreenState extends State<KitchenOrdersScreen> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final filteredOrders =
-              provider.orders.where((o) => o.status == _filterStatus).toList();
+          final filteredOrders = provider.orders.where((o) {
+            if (_filterStatus == 'pending') {
+              return o.status == 'pending' || o.status == 'confirmed';
+            }
+            return o.status == _filterStatus;
+          }).toList();
 
           return Column(
             children: [
@@ -204,7 +209,7 @@ class _OrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = order.status == 'pending'
+    final statusColor = order.status == 'pending' || order.status == 'confirmed'
         ? Colors.orange
         : order.status == 'preparing'
             ? Colors.blue
@@ -242,7 +247,8 @@ class _OrderCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    'Table ${order.tableNumber ?? 'N/A'}',
+                    order.orderTargetLabel ??
+                        'Table ${order.tableNumber ?? 'N/A'}',
                     style: AppTextStyles.body2.copyWith(
                       fontWeight: FontWeight.bold,
                       color: Colors.brown.shade700,
@@ -324,7 +330,7 @@ class _OrderCard extends StatelessWidget {
             // Action Buttons
             Row(
               children: [
-                if (order.status == 'pending')
+                if (order.status == 'pending' || order.status == 'confirmed')
                   Expanded(
                     child: CustomButton(
                       text: 'Start Cooking',
@@ -401,7 +407,8 @@ class _OrderCard extends StatelessWidget {
                             vertical: 6,
                           ),
                           decoration: BoxDecoration(
-                            color: order.status == 'pending'
+                            color: order.status == 'pending' ||
+                                    order.status == 'confirmed'
                                 ? Colors.orange
                                 : order.status == 'preparing'
                                     ? Colors.blue
@@ -421,7 +428,8 @@ class _OrderCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Table ${order.tableNumber ?? 'N/A'}',
+                      order.orderTargetLabel ??
+                          'Table ${order.tableNumber ?? 'N/A'}',
                       style: AppTextStyles.body2.copyWith(
                         color: AppColors.textSecondary,
                       ),

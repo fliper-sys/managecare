@@ -77,7 +77,9 @@ class ProcurementRepository {
         final invSnap = await tx.get(invRef);
         final invData = invSnap.data() as Map<String, dynamic>? ?? {};
         final existingQuantity =
-            (invData['quantity'] as num?)?.toDouble() ?? 0.0;
+            (invData['quantity'] as num?)?.toDouble() ??
+                (invData['stock'] as num?)?.toDouble() ??
+                0.0;
         final existingCost =
             ((invData['averageCost'] ?? invData['cost'] ?? invData['lastProcurementCost'])
                     as num?)
@@ -94,6 +96,7 @@ class ProcurementRepository {
           invRef,
           {
             'quantity': _normalizeStoredQuantity(updatedQuantity),
+            'stock': _normalizeStoredQuantity(updatedQuantity),
             'cost': weightedCost,
             'averageCost': weightedCost,
             'lastProcurementCost': cost,

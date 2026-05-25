@@ -15,7 +15,11 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
   static const List<String> _availableSections = [
     'kitchen',
     'waiter',
+    'host',
+    'runner',
     'cashier',
+    'reservations',
+    'room_service',
     'staff',
   ];
 
@@ -27,6 +31,9 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
     'view_orders',
     'view_reports',
     'view_low_stock',
+    'bookings',
+    'view_inventory',
+    'manage_staff',
   ];
 
   @override
@@ -83,7 +90,13 @@ class _ManageStaffScreenState extends State<ManageStaffScreen> {
                       child: Text('Sub Admin'),
                     ),
                     DropdownMenuItem(value: 'manager', child: Text('Manager')),
+                    DropdownMenuItem(
+                      value: 'supervisor',
+                      child: Text('Supervisor'),
+                    ),
+                    DropdownMenuItem(value: 'host', child: Text('Host')),
                     DropdownMenuItem(value: 'waiter', child: Text('Waiter')),
+                    DropdownMenuItem(value: 'runner', child: Text('Runner')),
                     DropdownMenuItem(value: 'cashier', child: Text('Cashier')),
                     DropdownMenuItem(value: 'chef', child: Text('Chef')),
                     DropdownMenuItem(value: 'staff', child: Text('Staff')),

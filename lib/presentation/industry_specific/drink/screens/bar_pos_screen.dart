@@ -17,11 +17,17 @@ import '../../../../data/models/customer_model.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../services/subscription_service.dart';
 import '../../../../widgets/custom_button.dart';
+import '../../../../providers/hotel_provider.dart' as hotel;
 
 class BarPosScreenDrink extends StatefulWidget {
   final String? invoiceId;
+  final String? initialRoomChargeReservationId;
 
-  const BarPosScreenDrink({super.key, this.invoiceId});
+  const BarPosScreenDrink({
+    super.key,
+    this.invoiceId,
+    this.initialRoomChargeReservationId,
+  });
 
   @override
   State<BarPosScreenDrink> createState() => _BarPosScreenDrinkState();
@@ -36,6 +42,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
   CustomerModel? _selectedCustomer;
   String? _editingInvoiceId;
   String? _editingInvoiceNumber;
+  String? _selectedRoomChargeReservationId;
+  String? _selectedRoomChargeLabel;
   final TextEditingController _tableLabelController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
 
@@ -56,16 +64,20 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         final retail = Provider.of<RetailProvider>(context, listen: false);
         final auth = Provider.of<AuthProvider>(context, listen: false);
         final customers = Provider.of<CustomerProvider>(context, listen: false);
+        final drinkProvider = Provider.of<DrinkProvider>(context, listen: false);
         final businessId = _resolveBusinessId();
         if (retail.stores.isEmpty) retail.loadStores();
         if (businessId.isNotEmpty) {
           customers.setBusinessId(businessId);
+          drinkProvider.setBusinessId(businessId);
+          drinkProvider.loadSavedBarTables();
         }
         if (customers.customers.isEmpty && !customers.isLoading) {
           customers.loadCustomers();
         }
         _selectedStoreId = auth.currentUser?.storeId;
         _loadInvoiceDraftIfNeeded();
+        _applyInitialRoomChargeSelection();
       } catch (_) {}
     });
   }
@@ -114,16 +126,204 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
           );
         })
         .whereType<OrderLine>()
-        .toList();
+      .toList();
+  }
+
+  Future<void> _updateBarCustomerHistory({
+    required String businessId,
+    required CustomerModel customer,
+    required List<OrderLine> lines,
+    required DrinkProvider provider,
+  }) async {
+    final customerRef = FirebaseFirestore.instance
+        .collection('businesses')
+        .doc(businessId)
+        .collection('customers')
+        .doc(customer.id);
+    final snapshot = await customerRef.get();
+    final data = snapshot.data() ?? const <String, dynamic>{};
+    final commonPurchases =
+        Map<String, dynamic>.from(data['barCommonPurchases'] as Map? ?? {});
+
+    for (final line in lines) {
+      final drink = provider.getDrinkById(line.drinkId);
+      final current = Map<String, dynamic>.from(
+        commonPurchases[line.drinkId] as Map? ?? const <String, dynamic>{},
+      );
+      commonPurchases[line.drinkId] = {
+        'drinkId': line.drinkId,
+        'name': drink?.name ?? current['name'] ?? line.drinkId,
+        'quantity': ((current['quantity'] as num?)?.toInt() ?? 0) +
+            line.quantityBottles,
+        'lastPurchasedAt': DateTime.now().toIso8601String(),
+      };
+    }
+
+    await customerRef.set({
+      if (_tableLabelController.text.trim().isNotEmpty)
+        'preferredBarTable': _tableLabelController.text.trim(),
+      if (commonPurchases.isNotEmpty) 'barCommonPurchases': commonPurchases,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   String _resolvedCustomerName() =>
       _selectedCustomer?.name ?? 'Walk-in Customer';
 
   String _resolvedInvoiceType() {
+    if (_selectedRoomChargeReservationId != null) return 'room_charge';
     if (_tableLabelController.text.trim().isNotEmpty) return 'table';
     if (_selectedCustomer != null) return 'tab';
     return 'invoice';
+  }
+
+  String _saveDraftActionLabel() {
+    if (_selectedRoomChargeReservationId != null) return 'Charge To Room';
+    if (_editingInvoiceNumber != null) return 'Update In Tabs & Invoices';
+
+    switch (_resolvedInvoiceType()) {
+      case 'table':
+        return 'Save Table Tab';
+      case 'tab':
+        return 'Save Customer Tab';
+      case 'invoice':
+      default:
+        return 'Save To Tabs & Invoices';
+    }
+  }
+
+  String _checkoutActionLabel() {
+    if (_editingInvoiceNumber != null) {
+      return 'Convert To Sale';
+    }
+    return 'Complete Sale Now';
+  }
+
+  void _applyInitialRoomChargeSelection() {
+    final reservationId = widget.initialRoomChargeReservationId;
+    if (reservationId == null || reservationId.isEmpty) return;
+    if (_selectedRoomChargeReservationId == reservationId) return;
+
+    final hotelProvider = Provider.of<hotel.HotelProvider>(context, listen: false);
+    final reservation = hotelProvider.getReservationById(reservationId);
+    if (reservation == null) return;
+
+    final room = hotelProvider.getRoomById(reservation.roomId);
+    setState(() {
+      _selectedRoomChargeReservationId = reservation.id;
+      _selectedRoomChargeLabel = 'Room ${room?.number ?? reservation.roomId}';
+      _selectedCustomer = null;
+      _tableLabelController.clear();
+    });
+  }
+
+  void _selectRoomCharge(hotel.Reservation reservation, String roomLabel) {
+    setState(() {
+      _selectedRoomChargeReservationId = reservation.id;
+      _selectedRoomChargeLabel = roomLabel;
+      _selectedCustomer = null;
+      _tableLabelController.clear();
+    });
+  }
+
+  Future<void> _chargeOrderToRoom(DrinkProvider provider) async {
+    if (_cart.isEmpty || _selectedRoomChargeReservationId == null) return;
+
+    final hotelProvider = Provider.of<hotel.HotelProvider>(context, listen: false);
+    final reservation =
+        hotelProvider.getReservationById(_selectedRoomChargeReservationId!);
+    if (reservation == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selected room booking could not be found')),
+      );
+      return;
+    }
+
+    final room = hotelProvider.getRoomById(reservation.roomId);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final businessId = _resolveBusinessId();
+    if (businessId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Business ID not found')),
+      );
+      return;
+    }
+
+    provider.setBusinessId(businessId);
+
+    final lines = _buildOrderLines(provider);
+    if (lines.isEmpty) return;
+
+    final itemsList = lines.map((line) {
+      final drink = provider.getDrinkById(line.drinkId);
+      return {
+        'drinkId': line.drinkId,
+        'productName': drink?.name ?? 'Unknown',
+        'quantity': line.quantityBottles,
+        'unitPrice': line.unitPrice,
+        'total': line.lineTotal(),
+      };
+    }).toList();
+
+    final totalAmount =
+        lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
+
+    try {
+      provider.createOrder(
+        Order(
+          id: 'room_charge_${DateTime.now().millisecondsSinceEpoch}',
+          lines: lines,
+          status: 'served',
+        ),
+      );
+
+      await hotelProvider.addReservationCharge(
+        reservationId: reservation.id,
+        description:
+            'Bar order (${lines.fold<int>(0, (sum, line) => sum + line.quantityBottles)} item${lines.fold<int>(0, (sum, line) => sum + line.quantityBottles) == 1 ? '' : 's'})',
+        amount: totalAmount,
+        category: 'mini_bar',
+        source: 'bar_room_charge',
+        sourceOrderId: 'bar_room_${DateTime.now().millisecondsSinceEpoch}',
+        createdById: authProvider.currentUser?.id,
+        createdByName: authProvider.currentUser?.fullName,
+        metadata: {
+          'roomId': reservation.roomId,
+          'guestId': reservation.guestId,
+          'guestName': reservation.guestName,
+          'items': itemsList,
+          if (_notesController.text.trim().isNotEmpty)
+            'notes': _notesController.text.trim(),
+        },
+      );
+
+      _clearCart();
+      _notesController.clear();
+
+      if (!mounted) return;
+      setState(() {
+        _selectedRoomChargeReservationId = null;
+        _selectedRoomChargeLabel = null;
+        _showCart = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Order charged to Room ${room?.number ?? reservation.roomId} for hotel checkout',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[BarPOS] Room charge error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to charge order to room: $e')),
+      );
+    }
   }
 
   void _loadInvoiceDraftIfNeeded() {
@@ -213,6 +413,158 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
             child: const Text('Close'),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<bool> _ensureCanManageSavedTables({
+    required bool isNew,
+  }) async {
+    final businessProvider = context.read<BusinessProvider>();
+    final access = await businessProvider.canAccessFeatureEnhanced(
+      'basic_sales',
+      context: 'bar_manage_tables',
+    );
+
+    if (!mounted) return false;
+    if (!(access['ok'] as bool? ?? false)) {
+      await _showBlockedDialog(
+        title: 'Subscription required',
+        message: businessProvider.getSubscriptionBlockedMessage(
+          feature: 'basic_sales',
+        ),
+      );
+      return false;
+    }
+
+    if (isNew) {
+      final currentCount = context.read<DrinkProvider>().savedBarTables.length;
+      if (!businessProvider.isWithinLimit('bar_tables', currentCount)) {
+        await _showBlockedDialog(
+          title: 'Table limit reached',
+          message: businessProvider.getLimitReachedMessage('bar_tables'),
+        );
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  Future<void> _showSavedTableManager() async {
+    final provider = context.read<DrinkProvider>();
+    final controller = TextEditingController();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          Future<void> addTable() async {
+            final label = controller.text.trim();
+            if (label.isEmpty) return;
+            if (!await _ensureCanManageSavedTables(isNew: true)) return;
+
+            final duplicate = provider.savedBarTables.any(
+              (table) => table.trim().toLowerCase() == label.toLowerCase(),
+            );
+            if (duplicate) {
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('$label already exists')),
+              );
+              return;
+            }
+
+            try {
+              await provider.addSavedBarTable(label);
+              controller.clear();
+              setSheetState(() {});
+            } catch (e) {
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Failed to save table: $e')),
+              );
+            }
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 16,
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Manage Saved Tables',
+                    style: AppTextStyles.heading5.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: controller,
+                          decoration: const InputDecoration(
+                            labelText: 'Table label',
+                            hintText: 'e.g. Table 4, VIP Booth',
+                            border: OutlineInputBorder(),
+                          ),
+                          onSubmitted: (_) => addTable(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: addTable,
+                        child: const Text('Add'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (provider.savedBarTables.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text('No saved bar tables yet.'),
+                    )
+                  else
+                    SizedBox(
+                      height: 260,
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: provider.savedBarTables.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (_, index) {
+                          final table = provider.savedBarTables[index];
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(table),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () async {
+                                await provider.deleteSavedBarTable(table);
+                                if (_tableLabelController.text.trim().toLowerCase() ==
+                                    table.toLowerCase()) {
+                                  setState(() => _tableLabelController.clear());
+                                }
+                                setSheetState(() {});
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -379,6 +731,15 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
   Future<void> _saveInvoice(DrinkProvider provider) async {
     if (_cart.isEmpty) return;
+    if (_selectedRoomChargeReservationId != null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Use "Charge to Room" to add this order to the guest folio'),
+        ),
+      );
+      return;
+    }
     if (!await _ensureBarOperationAllowed(
       provider,
       contextName: 'bar_save_invoice',
@@ -469,6 +830,10 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
   Future<void> _checkout(DrinkProvider provider) async {
     if (_cart.isEmpty) return;
+    if (_selectedRoomChargeReservationId != null) {
+      await _chargeOrderToRoom(provider);
+      return;
+    }
     if (!await _ensureBarOperationAllowed(
       provider,
       contextName: 'bar_checkout',
@@ -628,6 +993,12 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         try {
           await Provider.of<CustomerProvider>(context, listen: false)
               .updateCustomerAfterPurchase(_selectedCustomer!.id, totalAmount);
+          await _updateBarCustomerHistory(
+            businessId: businessId,
+            customer: _selectedCustomer!,
+            lines: lines,
+            provider: provider,
+          );
         } catch (e) {
           debugPrint('[BarPOS] Failed to update customer stats: $e');
         }
@@ -667,7 +1038,10 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         'finalAmount': totalAmount,
         'paymentMethod': paymentMethod,
         'timestamp': DateTime.now().toIso8601String(),
+        'customerId': _selectedCustomer?.id,
         'customerName': _resolvedCustomerName(),
+        'customerEmail': _selectedCustomer?.email,
+        'customerPhone': _selectedCustomer?.phone,
         if (_tableLabelController.text.trim().isNotEmpty)
           'tableLabel': _tableLabelController.text.trim(),
         if (_tableLabelController.text.trim().isNotEmpty)
@@ -816,7 +1190,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         elevation: 2,
         actions: [
           IconButton(
-            tooltip: 'Tabs & Invoices',
+            tooltip: 'Open Tabs & Invoices',
             onPressed: () => Navigator.pushNamed(context, Routes.drinkTabs),
             icon: const Icon(Icons.receipt_long),
           ),
@@ -1138,6 +1512,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
   }
 
   Widget _buildCartView(DrinkProvider provider) {
+    final hotelProvider = context.watch<hotel.HotelProvider>();
+    final roomChargeReservations = [...hotelProvider.checkedInReservations]
+      ..sort((a, b) => a.checkOut.compareTo(b.checkOut));
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       clipBehavior: Clip.none,
@@ -1311,6 +1688,155 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
             const SizedBox(height: 24),
 
+            if (roomChargeReservations.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Charge To Current Room Booking',
+                      style: AppTextStyles.subtitle1.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: roomChargeReservations.map((reservation) {
+                        final room = hotelProvider.getRoomById(reservation.roomId);
+                        final roomLabel =
+                            'Room ${room?.number ?? reservation.roomId}';
+                        final isSelected =
+                            _selectedRoomChargeReservationId == reservation.id;
+                        return GestureDetector(
+                          onTap: () => _selectRoomCharge(reservation, roomLabel),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? Colors.brown.shade700
+                                  : AppColors.surface,
+                              border: Border.all(
+                                color: isSelected
+                                    ? Colors.brown.shade700
+                                    : AppColors.border,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  roomLabel,
+                                  style: AppTextStyles.body1.copyWith(
+                                    color: isSelected
+                                        ? Colors.white
+                                        : AppColors.textPrimary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  reservation.guestName,
+                                  style: AppTextStyles.caption.copyWith(
+                                    color: isSelected
+                                        ? Colors.white70
+                                        : AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    if (_selectedRoomChargeLabel != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        'Selected: $_selectedRoomChargeLabel',
+                        style: AppTextStyles.caption.copyWith(
+                          color: Colors.brown.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+
+            if (_selectedRoomChargeReservationId == null) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Saved Bar Tables',
+                            style: AppTextStyles.subtitle1.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: _showSavedTableManager,
+                          icon: const Icon(Icons.settings_outlined),
+                          label: const Text('Manage'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (provider.savedBarTables.isEmpty)
+                      Text(
+                        'Create reusable table labels for faster order entry.',
+                        style: AppTextStyles.caption.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      )
+                    else
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: provider.savedBarTables.map((table) {
+                          final selected = _tableLabelController.text.trim().toLowerCase() ==
+                              table.toLowerCase();
+                          return ChoiceChip(
+                            label: Text(table),
+                            selected: selected,
+                            onSelected: (_) {
+                              setState(() {
+                                _tableLabelController.text =
+                                    selected ? '' : table;
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+
             Consumer<CustomerProvider>(
               builder: (context, customerProvider, _) {
                 return Container(
@@ -1332,6 +1858,23 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         value: _selectedCustomer?.id,
+                        onChanged: _selectedRoomChargeReservationId == null
+                            ? (value) {
+                                setState(() {
+                                  if (value == null || value.isEmpty) {
+                                    _selectedCustomer = null;
+                                  } else {
+                                    try {
+                                      _selectedCustomer = customerProvider.customers.firstWhere(
+                                        (customer) => customer.id == value,
+                                      );
+                                    } catch (_) {
+                                      _selectedCustomer = null;
+                                    }
+                                  }
+                                });
+                              }
+                            : null,
                         decoration: const InputDecoration(
                           labelText: 'Customer / Tab owner',
                           border: OutlineInputBorder(),
@@ -1348,28 +1891,14 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                             ),
                           ),
                         ],
-                        onChanged: (value) {
-                          setState(() {
-                            if (value == null || value.isEmpty) {
-                              _selectedCustomer = null;
-                            } else {
-                              try {
-                                _selectedCustomer =
-                                    customerProvider.customers.firstWhere(
-                                  (customer) => customer.id == value,
-                                );
-                              } catch (_) {
-                                _selectedCustomer = null;
-                              }
-                            }
-                          });
-                        },
+                        // Removed duplicate onChanged
                       ),
                       const SizedBox(height: 8),
                       Row(
                         children: [
                           TextButton.icon(
-                            onPressed: customerProvider.isLoading
+                            onPressed: customerProvider.isLoading ||
+                                    _selectedRoomChargeReservationId != null
                                 ? null
                                 : () {
                                     final businessId = _resolveBusinessId();
@@ -1382,7 +1911,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                           ),
                           const Spacer(),
                           TextButton.icon(
-                            onPressed: () async {
+                            onPressed: _selectedRoomChargeReservationId != null
+                                ? null
+                                : () async {
                               final created = await _showCreateCustomerDialog();
                               if (!mounted || created == null) return;
                               setState(() => _selectedCustomer = created);
@@ -1408,6 +1939,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                       const SizedBox(height: 12),
                       TextField(
                         controller: _tableLabelController,
+                        enabled: _selectedRoomChargeReservationId == null,
                         decoration: const InputDecoration(
                           labelText: 'Table number or tab label',
                           hintText: 'e.g. Table 4, Lounge Left',
@@ -1470,29 +2002,33 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
             // Action Buttons
             CustomButton(
-              text: _editingInvoiceNumber == null
-                  ? 'Save Invoice / Open Tab'
-                  : 'Update Open Invoice',
-              backgroundColor: Colors.brown.shade700,
-              onPressed: () => _saveInvoice(
-                Provider.of<DrinkProvider>(context, listen: false),
+              text: _saveDraftActionLabel(),
+              backgroundColor: _selectedRoomChargeReservationId != null
+                  ? Colors.brown.shade700
+                  : Colors.brown.shade700,
+              onPressed: _selectedRoomChargeReservationId != null
+                  ? () => _chargeOrderToRoom(
+                        Provider.of<DrinkProvider>(context, listen: false),
+                      )
+                  : () => _saveInvoice(
+                        Provider.of<DrinkProvider>(context, listen: false),
+                      ),
+            ),
+            const SizedBox(height: 8),
+            if (_selectedRoomChargeReservationId == null) ...[
+              CustomButton(
+                text: _checkoutActionLabel(),
+                backgroundColor: Colors.green.shade600,
+                onPressed: () async {
+                  await _checkout(
+                      Provider.of<DrinkProvider>(context, listen: false));
+                  if (mounted) {
+                    setState(() => _showCart = false);
+                  }
+                },
               ),
-            ),
-            const SizedBox(height: 8),
-            CustomButton(
-              text: _editingInvoiceNumber == null
-                  ? 'Proceed to Payment'
-                  : 'Convert Tab to Sale',
-              backgroundColor: Colors.green.shade600,
-              onPressed: () async {
-                await _checkout(
-                    Provider.of<DrinkProvider>(context, listen: false));
-                if (mounted) {
-                  setState(() => _showCart = false);
-                }
-              },
-            ),
-            const SizedBox(height: 8),
+              const SizedBox(height: 8),
+            ],
             CustomButton(
               text: 'Clear Order',
               backgroundColor: Colors.red.shade400,
@@ -1517,6 +2053,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                             _selectedCustomer = null;
                             _editingInvoiceId = null;
                             _editingInvoiceNumber = null;
+                            _selectedRoomChargeReservationId = null;
+                            _selectedRoomChargeLabel = null;
                           });
                           Navigator.pop(context);
                           setState(() => _showCart = false);

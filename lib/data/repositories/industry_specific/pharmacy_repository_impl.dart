@@ -235,13 +235,23 @@ class PharmacyRepositoryImpl {
       data['category'] = 'Pharmacy';
       data['emoji'] = data['emoji'] ?? '💊';
       data['sku'] = drug.id;
-      data['cost'] = extraData?['cost'] ?? 0.0;
-      data['price'] = extraData?['price'] ?? 0.0;
-      data['quantity'] = extraData?['quantity'] ?? 0;
+      final resolvedCost =
+          extraData?['cost'] ?? extraData?['costPrice'] ?? drug.costPrice;
+      final resolvedPrice = extraData?['price'] ?? drug.price;
+      final resolvedQuantity = extraData?['quantity'] ?? drug.quantity;
+      data['batch'] = drug.manufacturer;
+      data['manufacturer'] = drug.manufacturer;
+      data['cost'] = resolvedCost;
+      data['costPrice'] = resolvedCost;
+      data['buyingPrice'] = resolvedCost;
+      data['price'] = resolvedPrice;
+      data['quantity'] = resolvedQuantity;
+      data['stock'] = resolvedQuantity;
       data['unit'] = 'unit';
       data['minStock'] = 10;
       data['trackExpiry'] = true;
-      data['createdAt'] = DateTime.now().toIso8601String();
+      data['createdAt'] =
+          data['createdAt'] ?? DateTime.now().toIso8601String();
       data['updatedAt'] = DateTime.now().toIso8601String();
 
       if (drug.id.isNotEmpty) {
@@ -258,6 +268,27 @@ class PharmacyRepositoryImpl {
             .collection('inventory')
             .add(data);
       }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchTreatments({String? businessId}) async {
+    try {
+      if (businessId == null || businessId.isEmpty) {
+        return [];
+      }
+      final snapshot = await _firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('treatments')
+          .get();
+      return snapshot.docs
+          .map((d) => {
+                ...(d.data() as Map<String, dynamic>? ?? {}),
+                'id': d.id,
+              })
+          .toList();
     } catch (e) {
       rethrow;
     }
@@ -348,6 +379,27 @@ class PharmacyRepositoryImpl {
             .collection('treatments')
             .add(data);
       }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> updateTreatment(
+    String treatmentId,
+    Map<String, dynamic> updates, {
+    required String businessId,
+  }) async {
+    try {
+      if (businessId.isEmpty || treatmentId.isEmpty) return;
+      await _firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('treatments')
+          .doc(treatmentId)
+          .set({
+        ...updates,
+        'updatedAt': DateTime.now().toIso8601String(),
+      }, SetOptions(merge: true));
     } catch (e) {
       rethrow;
     }

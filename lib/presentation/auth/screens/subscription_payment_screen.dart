@@ -41,7 +41,7 @@ class SubscriptionPaymentScreen extends StatefulWidget {
 class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
   final KoraPaymentService _koraPaymentService = KoraPaymentService();
   String _selectedPlanId = '';
-  String _selectedPaymentMethod = 'card';
+  String _selectedPaymentMethod = 'bank_transfer';
   bool _recurringEnabled = false;
   bool _isProcessing = false;
 
@@ -445,22 +445,10 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     final isDark = theme.brightness == Brightness.dark;
     final methods = <_KoraPaymentMethodOption>[
       const _KoraPaymentMethodOption(
-        id: 'card',
-        label: 'Card',
-        description: 'Best for recurring renewals and instant confirmation.',
-        icon: Icons.credit_card_rounded,
-      ),
-      const _KoraPaymentMethodOption(
         id: 'bank_transfer',
         label: 'Bank Transfer / USSD',
         description: 'Use bank transfer or bank USSD options shown by Kora.',
         icon: Icons.account_balance_rounded,
-      ),
-      const _KoraPaymentMethodOption(
-        id: 'pay_with_bank',
-        label: 'Pay with Bank',
-        description: 'Authorize payment directly from supported banks.',
-        icon: Icons.account_balance_wallet_rounded,
       ),
     ];
 
@@ -496,9 +484,7 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
                 if (value == null) return;
                 setState(() {
                   _selectedPaymentMethod = value;
-                  if (value != 'card') {
-                    _recurringEnabled = false;
-                  }
+                  _recurringEnabled = false;
                 });
               },
               secondary: Icon(method.icon, color: AppColors.primary),
@@ -518,18 +504,14 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
         ),
         SwitchListTile.adaptive(
           value: _recurringEnabled,
-          onChanged: _selectedPaymentMethod == 'card'
-              ? (value) => setState(() => _recurringEnabled = value)
-              : null,
+          onChanged: null,
           contentPadding: EdgeInsets.zero,
           title: Text(
             'Enable recurring card renewals',
             style: TextStyle(color: scheme.onSurface),
           ),
           subtitle: Text(
-            _selectedPaymentMethod == 'card'
-                ? 'We will remember your preference and remind you before renewal. You confirm each renewal securely through Kora.'
-                : 'Recurring renewals require card payment.',
+            'Recurring renewals require card payments, which are not enabled for NGN on this Kora account yet.',
             style: TextStyle(color: scheme.onSurface.withOpacity(0.68)),
           ),
         ),
@@ -541,11 +523,8 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     switch (_selectedPaymentMethod) {
       case 'bank_transfer':
         return const ['bank_transfer'];
-      case 'pay_with_bank':
-        return const ['pay_with_bank'];
-      case 'card':
       default:
-        return const ['card'];
+        return const ['bank_transfer'];
     }
   }
 
@@ -553,11 +532,8 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     switch (_selectedPaymentMethod) {
       case 'bank_transfer':
         return 'Bank Transfer / USSD';
-      case 'pay_with_bank':
-        return 'Pay with Bank';
-      case 'card':
       default:
-        return 'Card';
+        return 'Bank Transfer / USSD';
     }
   }
 

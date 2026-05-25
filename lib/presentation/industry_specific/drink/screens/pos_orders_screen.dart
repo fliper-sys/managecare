@@ -32,9 +32,14 @@ class _POSOrdersScreenState extends State<POSOrdersScreen> {
     final provider = Provider.of<DrinkProvider>(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('POS / Orders'),
+        title: const Text('Open Orders'),
         backgroundColor: Colors.brown,
         actions: [
+          IconButton(
+            tooltip: 'Tabs & Invoices',
+            icon: const Icon(Icons.receipt_long),
+            onPressed: () => Navigator.pushNamed(context, Routes.drinkTabs),
+          ),
           IconButton(
             tooltip: 'Orders history',
             icon: const Icon(Icons.history),

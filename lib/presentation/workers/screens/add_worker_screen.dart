@@ -66,6 +66,39 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
     return (1000 + (DateTime.now().millisecondsSinceEpoch % 9000)).toString();
   }
 
+  Future<bool> _workerEmailExists(
+    String normalizedEmail, {
+    String? businessId,
+  }) async {
+    final firestore = FirebaseFirestore.instance;
+    final trimmedBusinessId = businessId?.trim() ?? '';
+
+    Future<bool> _hasMatch(
+      String collection, {
+      required String field,
+    }) async {
+      final query = await firestore
+          .collection(collection)
+          .where(field, isEqualTo: normalizedEmail)
+          .limit(5)
+          .get();
+
+      for (final doc in query.docs) {
+        final data = doc.data();
+        final docBusinessId = (data['businessId'] ?? '').toString().trim();
+        if (trimmedBusinessId.isEmpty || docBusinessId == trimmedBusinessId) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    if (await _hasMatch('workers', field: 'emailLowercase')) return true;
+    if (await _hasMatch('workers', field: 'email')) return true;
+    if (await _hasMatch('users', field: 'email')) return true;
+    return false;
+  }
+
   @override
   void dispose() {
     _fullNameController.dispose();
@@ -189,6 +222,15 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
       if (duplicateWorkerExists) {
         throw Exception('A worker with this email already exists.');
       }
+      final duplicateWorkerInStore = await _workerEmailExists(
+        normalizedEmail,
+        businessId: businessId,
+      );
+      if (duplicateWorkerInStore) {
+        throw Exception(
+          'A worker login with this email already exists for this business.',
+        );
+      }
 
       // Prepare password (owner may supply it) or generate a temporary one
       var password = _passwordController.text.trim();
@@ -254,6 +296,13 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
         final repo =
             AuthRepositoryImpl(firebaseAuth: fb_auth.FirebaseAuth.instance);
         await repo.createOrUpdateUser(worker);
+      } on fb_auth.FirebaseAuthException catch (e) {
+        if (e.code == 'email-already-in-use') {
+          throw Exception(
+            'This email is already linked to an existing worker login.',
+          );
+        }
+        rethrow;
       } catch (e) {
         if (authAccountCreated && tempAuth?.currentUser != null) {
           try {

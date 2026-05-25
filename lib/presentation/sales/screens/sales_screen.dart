@@ -504,8 +504,9 @@ class _SalesScreenState extends State<SalesScreen>
       }
 
       final auth = Provider.of<AuthProvider>(context, listen: false);
-      final business =
-          Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+      final businessProvider =
+          Provider.of<BusinessProvider>(context, listen: false);
+      final business = businessProvider.currentBusiness;
       final customerProvider =
           Provider.of<CustomerProvider>(context, listen: false);
       final selectedCustomer = customerProvider.selectedCustomer;
@@ -514,6 +515,25 @@ class _SalesScreenState extends State<SalesScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Business information is not available yet.'),
+          ),
+        );
+        return;
+      }
+
+      final access = await businessProvider.canAccessFeatureEnhanced(
+        'basic_sales',
+        context: 'retail_invoice_generation',
+        userRole: auth.currentUser?.role,
+      );
+      if (!(access['ok'] as bool? ?? false)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              businessProvider.getSubscriptionBlockedMessage(
+                feature: 'basic_sales',
+              ),
+            ),
           ),
         );
         return;
@@ -1926,6 +1946,11 @@ class _ProductsGrid extends StatelessWidget {
             SearchUtils.calculateRelevanceScore(a.name, a.barcode, searchQuery);
         final scoreB =
             SearchUtils.calculateRelevanceScore(b.name, b.barcode, searchQuery);
+        final stockBoostA = a.stock > 0 ? 1 : 0;
+        final stockBoostB = b.stock > 0 ? 1 : 0;
+        if (stockBoostA != stockBoostB) {
+          return stockBoostB.compareTo(stockBoostA);
+        }
         return scoreB.compareTo(scoreA); // Higher score first
       });
     }

@@ -744,12 +744,22 @@ class AppRouter {
         return _buildRoute(const FrontDeskScreen());
 
       case Routes.hotelRestaurant:
+        final args = settings.arguments as Map<String, dynamic>?;
+        final reservationId = args?['reservationId']?.toString();
+        if (reservationId != null && reservationId.isNotEmpty) {
+          return _buildRoute(
+            CreateOrderScreen(
+              initialRoomChargeReservationId: reservationId,
+            ),
+          );
+        }
         return _buildRoute(const RestaurantDashboardScreen());
 
       case Routes.hotelBar:
         final args = settings.arguments as Map<String, dynamic>?;
         return _buildRoute(BarPosScreenDrink(
           invoiceId: args?['invoiceId']?.toString(),
+          initialRoomChargeReservationId: args?['reservationId']?.toString(),
         ));
 
       case Routes.hotelGuests:
@@ -781,6 +791,7 @@ class AppRouter {
         final args = settings.arguments as Map<String, dynamic>?;
         return _buildRoute(BarPosScreenDrink(
           invoiceId: args?['invoiceId']?.toString(),
+          initialRoomChargeReservationId: args?['reservationId']?.toString(),
         ));
 
       case Routes.drinkTabs:
@@ -843,7 +854,12 @@ class AppRouter {
         return _buildRoute(const RestaurantDashboardScreen());
 
       case Routes.restaurantMenu:
-        return _buildRoute(const CreateOrderScreen());
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(
+          CreateOrderScreen(
+            initialRoomChargeReservationId: args?['reservationId']?.toString(),
+          ),
+        );
 
       case Routes.restaurantManageMenu:
         return _buildRoute(const ManageMenuScreen());

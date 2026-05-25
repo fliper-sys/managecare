@@ -54,6 +54,43 @@ class _ManageMenuScreenState extends State<ManageMenuScreen> {
     return null;
   }
 
+  String _serializeIngredients(List<MenuIngredient> ingredients) {
+    return ingredients
+        .map((ingredient) =>
+            '${ingredient.productName}:${ingredient.quantityPerPortion}')
+        .join(', ');
+  }
+
+  List<MenuIngredient> _parseIngredients(String raw, List<Product> products) {
+    return raw
+        .split(',')
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty)
+        .map((entry) {
+          final parts = entry.split(':');
+          final name = parts.first.trim();
+          final quantity = parts.length > 1
+              ? double.tryParse(parts.sublist(1).join(':').trim()) ?? 1.0
+              : 1.0;
+          Product? matched;
+          for (final product in products) {
+            if (product.name.toLowerCase() == name.toLowerCase()) {
+              matched = product;
+              break;
+            }
+          }
+          return MenuIngredient(
+            productId:
+                matched?.id ?? name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_'),
+            productName: matched?.name ?? name,
+            quantityPerPortion: quantity <= 0 ? 1.0 : quantity,
+            unit: matched?.unit ?? 'unit',
+            unitCost: matched?.cost ?? 0.0,
+          );
+        })
+        .toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -138,6 +175,9 @@ class _ManageMenuScreenState extends State<ManageMenuScreen> {
     final costCtrl = TextEditingController(text: item?.cost?.toString() ?? '0');
     final prepCtrl = TextEditingController(text: item?.preparationTime.toString() ?? '15');
     final descCtrl = TextEditingController(text: item?.description ?? '');
+    final ingredientsCtrl = TextEditingController(
+      text: _serializeIngredients(item?.ingredients ?? const []),
+    );
     final soupCtrl = TextEditingController(
       text: _serializeOptionChoices(
         _findOption(item?.options ?? const [], 'Soup / Stew')?.choices ?? const [],
@@ -184,6 +224,14 @@ class _ManageMenuScreenState extends State<ManageMenuScreen> {
                     onChanged: (v) => setInnerState(() => selectedProductId = v),
                     decoration: const InputDecoration(labelText: 'Link Inventory Product (optional)'),
                   ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: ingredientsCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Ingredients / Supplies per portion',
+                    helperText: 'Use product:quantity. Example: Rice:0.5, Chicken:1',
+                  ),
+                ),
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -251,6 +299,13 @@ class _ManageMenuScreenState extends State<ManageMenuScreen> {
               final cost = double.tryParse(costCtrl.text.trim());
               final prep = int.tryParse(prepCtrl.text.trim()) ?? 15;
               final desc = descCtrl.text.trim();
+              final ingredients =
+                  _parseIngredients(ingredientsCtrl.text, retail.products);
+              final ingredientCost = ingredients.fold<double>(
+                0.0,
+                (sum, ingredient) =>
+                    sum + (ingredient.unitCost * ingredient.quantityPerPortion),
+              );
               final options = <MenuOption>[
                 if (soupCtrl.text.trim().isNotEmpty)
                   MenuOption(
@@ -300,12 +355,13 @@ class _ManageMenuScreenState extends State<ManageMenuScreen> {
                 name: name,
                 category: category,
                 price: price,
-                cost: cost,
+                cost: (cost != null && cost > 0) ? cost : ingredientCost,
                 description: desc.isEmpty ? null : desc,
                 preparationTime: prep,
                 available: item?.available ?? true,
                 inventoryProductId: selectedProductId,
                 options: options,
+                ingredients: ingredients,
               );
 
               try {
@@ -313,7 +369,26 @@ class _ManageMenuScreenState extends State<ManageMenuScreen> {
                 if (isNew) {
                   await provider.addMenuItem(newItem);
                 } else {
-                  await provider.updateMenuItem(item.id, newItem);
+                  await provider.updateMenuItem(
+                    item.id,
+                    MenuItem(
+                      id: item.id,
+                      name: newItem.name,
+                      category: newItem.category,
+                      price: newItem.price,
+                      cost: newItem.cost,
+                      description: newItem.description,
+                      available: newItem.available,
+                      preparationTime: newItem.preparationTime,
+                      imageUrl: item.imageUrl,
+                      rating: item.rating,
+                      reviewCount: item.reviewCount,
+                      inventoryProductId: newItem.inventoryProductId,
+                      inventoryStock: item.inventoryStock,
+                      options: newItem.options,
+                      ingredients: newItem.ingredients,
+                    ),
+                  );
                 }
                 if (mounted) Navigator.pop(ctx);
               } catch (e) {
@@ -367,7 +442,10 @@ class _ManageMenuScreenState extends State<ManageMenuScreen> {
                         return Card(
                           child: ListTile(
                             title: Text(m.name, style: AppTextStyles.body1),
-                            subtitle: Text('${m.category} • ${formatCurrency(m.price)} • Cost: ${m.cost != null ? formatCurrency(m.cost!) : '—'}'),
+                            subtitle: Text(
+                              '${m.category} - ${formatCurrency(m.price)} - Cost: ${m.cost != null ? formatCurrency(m.cost!) : 'N/A'}'
+                              '${m.ingredients.isEmpty ? '' : ' - ${m.ingredients.length} supplies linked'}',
+                            ),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [

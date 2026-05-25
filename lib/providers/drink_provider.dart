@@ -374,6 +374,7 @@ class DrinkProvider extends ChangeNotifier {
   final List<Order> orders = [];
   final List<BarInvoice> invoices = [];
   final List<Shift> shifts = [];
+  final List<String> savedBarTables = [];
 
   DrinkProvider({this.repository}) {
     _initSampleData();
@@ -381,6 +382,93 @@ class DrinkProvider extends ChangeNotifier {
 
   void setBusinessId(String businessId) {
     _businessId = businessId;
+  }
+
+  String _barTableDocId(String label) {
+    final normalized = label.trim().toLowerCase();
+    final safe = normalized.replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    return safe.replaceAll(RegExp(r'_+'), '_').replaceAll(RegExp(r'^_|_$'), '');
+  }
+
+  Future<void> loadSavedBarTables() async {
+    if (_businessId == null || _businessId!.isEmpty) return;
+
+    try {
+      final snapshot = await _firestore
+          .collection('businesses')
+          .doc(_businessId)
+          .collection('barTables')
+          .orderBy('label')
+          .get();
+
+      savedBarTables
+        ..clear()
+        ..addAll(
+          snapshot.docs
+              .map((doc) => (doc.data()['label'] ?? '').toString().trim())
+              .where((label) => label.isNotEmpty),
+        );
+      notifyListeners();
+    } catch (e) {
+      if (kDebugMode) {
+        print('DrinkProvider.loadSavedBarTables error: $e');
+      }
+    }
+  }
+
+  Future<void> addSavedBarTable(String label) async {
+    final businessId = _businessId;
+    final trimmed = label.trim();
+    if (businessId == null || businessId.isEmpty) {
+      throw StateError('Business ID not found');
+    }
+    if (trimmed.isEmpty) {
+      throw StateError('Table label is required');
+    }
+
+    final exists = savedBarTables.any(
+      (table) => table.trim().toLowerCase() == trimmed.toLowerCase(),
+    );
+    if (!exists) {
+      savedBarTables.add(trimmed);
+      savedBarTables.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      notifyListeners();
+    }
+
+    await _firestore
+        .collection('businesses')
+        .doc(businessId)
+        .collection('barTables')
+        .doc(_barTableDocId(trimmed))
+        .set({
+      'label': trimmed,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> deleteSavedBarTable(String label) async {
+    final businessId = _businessId;
+    final trimmed = label.trim();
+    if (businessId == null || businessId.isEmpty || trimmed.isEmpty) return;
+
+    savedBarTables.removeWhere(
+      (table) => table.trim().toLowerCase() == trimmed.toLowerCase(),
+    );
+    notifyListeners();
+
+    try {
+      await _firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('barTables')
+          .doc(_barTableDocId(trimmed))
+          .delete();
+    } catch (e) {
+      if (kDebugMode) {
+        print('DrinkProvider.deleteSavedBarTable error: $e');
+      }
+    }
   }
 
   /// Initialize the provider with a persistence-backed repository.
@@ -905,7 +993,10 @@ class DrinkProvider extends ChangeNotifier {
 
     final now = DateTime.now();
     final subtotal = lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
-    final total = subtotal + tax - discount;
+    final safeTax = tax < 0 ? 0.0 : tax;
+    final safeDiscount = discount < 0 ? 0.0 : discount;
+    final total =
+        (subtotal + safeTax - safeDiscount).clamp(0.0, double.infinity).toDouble();
     final invoice = BarInvoice(
       id: 'bar_invoice_${now.microsecondsSinceEpoch}',
       businessId: businessId,
@@ -923,8 +1014,8 @@ class DrinkProvider extends ChangeNotifier {
       notes: notes,
       lines: lines,
       subtotal: subtotal,
-      tax: tax,
-      discount: discount,
+      tax: safeTax,
+      discount: safeDiscount,
       total: total,
       createdAt: now,
       workerId: workerId,
@@ -974,6 +1065,10 @@ class DrinkProvider extends ChangeNotifier {
     // For invoice updates, stock will be deducted when converted to sale
     final subtotal =
         lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
+    final safeTax = tax < 0 ? 0.0 : tax;
+    final safeDiscount = discount < 0 ? 0.0 : discount;
+    final total =
+        (subtotal + safeTax - safeDiscount).clamp(0.0, double.infinity).toDouble();
     final updatedInvoice = BarInvoice(
       id: invoice.id,
       businessId: invoice.businessId,
@@ -990,9 +1085,9 @@ class DrinkProvider extends ChangeNotifier {
       notes: notes,
       lines: lines,
       subtotal: subtotal,
-      tax: tax,
-      discount: discount,
-      total: subtotal + tax - discount,
+      tax: safeTax,
+      discount: safeDiscount,
+      total: total,
       createdAt: invoice.createdAt,
       workerId: workerId ?? invoice.workerId,
       workerName: workerName ?? invoice.workerName,
@@ -1159,7 +1254,12 @@ class DrinkProvider extends ChangeNotifier {
     }
 
     if (invoice.customerId != null && invoice.customerId!.isNotEmpty) {
-      await _updateCustomerAfterSale(invoice.customerId!, invoice.total);
+      await _updateCustomerAfterSale(
+        invoice.customerId!,
+        invoice.total,
+        tableLabel: invoice.tableLabel,
+        lines: invoice.lines,
+      );
     }
 
     notifyListeners();
@@ -1176,6 +1276,9 @@ class DrinkProvider extends ChangeNotifier {
       'paymentMethod': paymentMethod,
       'timestamp': DateTime.now().toIso8601String(),
       'customerName': invoice.customerName,
+      'customerId': invoice.customerId,
+      'customerEmail': invoice.customerEmail,
+      'customerPhone': invoice.customerPhone,
       'tableLabel': invoice.tableLabel,
       'invoiceId': invoice.id,
       'invoiceNumber': invoice.invoiceNumber,
@@ -1202,7 +1305,11 @@ class DrinkProvider extends ChangeNotifier {
   }
 
   Future<void> _updateCustomerAfterSale(
-      String customerId, double purchaseAmount) async {
+    String customerId,
+    double purchaseAmount, {
+    String? tableLabel,
+    List<OrderLine> lines = const [],
+  }) async {
     if (_businessId == null || _businessId!.isEmpty) return;
 
     final customerRef = _firestore
@@ -1221,12 +1328,31 @@ class DrinkProvider extends ChangeNotifier {
     final newTotalSpent = previousSpent + purchaseAmount;
     final newAverageOrderValue =
         newTransactionCount == 0 ? 0.0 : newTotalSpent / newTransactionCount;
+    final commonPurchases =
+        Map<String, dynamic>.from(data['barCommonPurchases'] as Map? ?? {});
+    for (final line in lines) {
+      final drink = getDrinkById(line.drinkId);
+      final key = line.drinkId;
+      final current = Map<String, dynamic>.from(
+        commonPurchases[key] as Map? ?? const <String, dynamic>{},
+      );
+      commonPurchases[key] = {
+        'drinkId': line.drinkId,
+        'name': drink?.name ?? current['name'] ?? line.drinkId,
+        'quantity': ((current['quantity'] as num?)?.toInt() ?? 0) +
+            line.quantityBottles,
+        'lastPurchasedAt': DateTime.now().toIso8601String(),
+      };
+    }
 
     await customerRef.set({
       'totalTransactions': newTransactionCount,
       'totalSpent': newTotalSpent,
       'averageOrderValue': newAverageOrderValue,
       'lastPurchaseDate': FieldValue.serverTimestamp(),
+      if ((tableLabel ?? '').trim().isNotEmpty)
+        'preferredBarTable': tableLabel!.trim(),
+      if (commonPurchases.isNotEmpty) 'barCommonPurchases': commonPurchases,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -1363,4 +1489,3 @@ class DrinkProvider extends ChangeNotifier {
     }
   }
 }
-

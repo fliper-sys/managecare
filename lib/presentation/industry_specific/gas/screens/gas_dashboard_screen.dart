@@ -277,11 +277,12 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                                       context, Routes.gasStock)
                                   .then((_) => _loadMetrics())),
                           _OperationCard(
-                              title: 'POS / Sales',
+                              title: 'Shop POS',
                               icon: Icons.point_of_sale,
                               color: Colors.indigo,
                               onTap: () => Navigator.pushNamed(
-                                  context, Routes.salesReport)),
+                                      context, Routes.sales)
+                                  .then((_) => _loadMetrics())),
                           _OperationCard(
                               title: 'Procurement',
                               icon: Icons.shopping_bag_outlined,

@@ -57,8 +57,12 @@ class AuthProvider with ChangeNotifier {
   }
 
   bool get isWorkerUser {
-    final role = _currentUser?.role.toLowerCase() ?? '';
-    return role == 'worker' || role == 'staff' || role == 'cashier';
+    final user = _currentUser;
+    if (user == null) return false;
+    if (user.isOwner) return false;
+    final role = user.role.toLowerCase().trim();
+    if (role == 'admin') return false;
+    return true;
   }
 
   bool get isOwnerUser {

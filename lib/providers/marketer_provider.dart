@@ -8,6 +8,7 @@ import '../core/utils/datetime_utils.dart';
 import '../data/models/user_model.dart';
 import '../models/marketer_analytics_model.dart';
 import '../models/marketer_model.dart';
+import '../services/subscription_service.dart';
 
 /// Provider for managing App Marketers
 class MarketerProvider extends ChangeNotifier {
@@ -97,6 +98,35 @@ class MarketerProvider extends ChangeNotifier {
 
   String _sanitizeLedgerId(String value) {
     return value.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+  }
+
+  String _resolveDetectedTier(Map<String, dynamic> businessData) {
+    final seededTier = SubscriptionService.normalizeStoredPlanLevel(
+      subscriptionTier: businessData['subscriptionTier']?.toString(),
+      businessClass: businessData['businessClass']?.toString(),
+    );
+    final products = businessData['productCount'] is num
+        ? (businessData['productCount'] as num).toInt()
+        : int.tryParse(businessData['productCount']?.toString() ?? '') ?? 0;
+    final staff = businessData['staffCount'] is num
+        ? (businessData['staffCount'] as num).toInt()
+        : int.tryParse(businessData['staffCount']?.toString() ?? '') ?? 0;
+    final monthlyRevenue = businessData['monthlyRevenue'] is num
+        ? (businessData['monthlyRevenue'] as num).toDouble()
+        : double.tryParse(businessData['monthlyRevenue']?.toString() ?? '') ??
+            0.0;
+
+    final detectedFromMetrics = SubscriptionService.detectTier(
+      products: products,
+      staff: staff,
+      monthlyIncome: monthlyRevenue,
+      businessType: businessData['businessType']?.toString(),
+    );
+
+    return SubscriptionService.normalizeStoredPlanLevel(
+      subscriptionTier: seededTier,
+      businessClass: detectedFromMetrics,
+    );
   }
 
   ReferralRecord? _pickPrimaryReferral(List<ReferralRecord> referrals) {
@@ -1564,6 +1594,7 @@ class MarketerProvider extends ChangeNotifier {
       final userData = userDoc.data()!;
       final businessName = businessData['businessName'] as String;
       final businessType = businessData['businessType'] as String;
+      final detectedTier = _resolveDetectedTier(businessData);
       final businessPhone =
           (businessData['phone'] as String?)?.trim().isNotEmpty == true
               ? (businessData['phone'] as String).trim()
@@ -1585,13 +1616,14 @@ class MarketerProvider extends ChangeNotifier {
         'phoneNumber': userPhone,
         'address': businessData['address'],
         'landmark': businessData['landmark'],
-        'businessClass': businessData['businessClass'] ?? 'tier1',
-        'businessTier': businessData['businessTier'] ?? 'tier1',
+        'businessClass': detectedTier,
+        'businessTier': detectedTier,
         'subscriptionPlan': null, // To be set by owner during subscription selection
-        'subscriptionTier': businessData['subscriptionTier'] ?? 'tier1',
+        'subscriptionTier': detectedTier,
         'productCount': businessData['productCount'] ?? 0,
         'staffCount': businessData['staffCount'] ?? 0,
         'monthlyRevenue': businessData['monthlyRevenue'] ?? 0.0,
+        'detectedTierSource': 'marketer_auto_detection',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'isActive': true,
@@ -1641,6 +1673,55 @@ class MarketerProvider extends ChangeNotifier {
       return true;
     } catch (e) {
       _errorMessage = 'Error registering business: $e';
+      print(_errorMessage);
+      notifyListeners();
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> updateRewardConfig({
+    required int monthlyTargetSubscriptions,
+    required double targetBonusAmount,
+    required double rank1BonusAmount,
+    required double rank2BonusAmount,
+    required double rank3BonusAmount,
+    required double subscriptionCommissionRate,
+    required int expiryWarningDays,
+  }) async {
+    try {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      await _firestore.collection('system').doc('admin_settings').set({
+        'marketerMonthlyTarget': monthlyTargetSubscriptions,
+        'marketerTargetBonusAmount': targetBonusAmount,
+        'marketerRank1BonusAmount': rank1BonusAmount,
+        'marketerRank2BonusAmount': rank2BonusAmount,
+        'marketerRank3BonusAmount': rank3BonusAmount,
+        'marketerSubscriptionCommissionRate': subscriptionCommissionRate,
+        'marketerExpiryWarningDays': expiryWarningDays,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': _auth.currentUser?.uid,
+      }, SetOptions(merge: true));
+
+      _rewardConfig = MarketerRewardConfig(
+        monthlyTargetSubscriptions: monthlyTargetSubscriptions,
+        targetBonusAmount: targetBonusAmount,
+        rank1BonusAmount: rank1BonusAmount,
+        rank2BonusAmount: rank2BonusAmount,
+        rank3BonusAmount: rank3BonusAmount,
+        subscriptionCommissionRate: subscriptionCommissionRate,
+        expiryWarningDays: expiryWarningDays,
+      );
+
+      await fetchMarketingOverview();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Error updating marketer reward settings: $e';
       print(_errorMessage);
       notifyListeners();
       return false;

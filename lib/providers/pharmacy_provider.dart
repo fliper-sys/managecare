@@ -15,6 +15,7 @@ class Drug {
   DateTime expiry;
   int stock;
   double price; // Price per unit
+  double costPrice; // Buying price per unit
   final List<Map<String, dynamic>> prescriptions; // [{ageRange: '8-12', intensity: '1-3', dosage: '2 tablets daily'}, ...]
 
   Drug({
@@ -24,6 +25,7 @@ class Drug {
     required this.expiry,
     required this.stock,
     this.price = 0.0,
+    this.costPrice = 0.0,
     this.prescriptions = const [],
   });
 }
@@ -193,6 +195,7 @@ class PharmacyProvider extends ChangeNotifier {
         expiry: DateTime.now().add(Duration(days: 30 + i * 10)),
         stock: 50 - i * 4,
         price: 5.0 + (i * 2.5), // Add price
+        costPrice: 3.0 + i,
       ),
     ));
 
@@ -263,6 +266,8 @@ class PharmacyProvider extends ChangeNotifier {
                 'expiry': d.expiry.toIso8601String(),
                 'stock': d.stock,
                 'price': d.price,
+                'costPrice': d.costPrice,
+                'prescriptions': d.prescriptions,
               })
           .toList();
       await box.put('drugs', data);
@@ -284,6 +289,12 @@ class PharmacyProvider extends ChangeNotifier {
             expiry: parseTimestamp(m['expiry']),
             stock: (m['stock'] as num).toInt(),
             price: (m['price'] as num).toDouble(),
+            costPrice:
+                ((m['costPrice'] ?? m['cost']) as num?)?.toDouble() ?? 0.0,
+            prescriptions:
+                (m['prescriptions'] as List<dynamic>? ?? const [])
+                    .map((entry) => Map<String, dynamic>.from(entry as Map))
+                    .toList(),
           );
         }));
       notifyListeners();
@@ -503,6 +514,8 @@ class PharmacyProvider extends ChangeNotifier {
               expiry: d.expiryDate,
               stock: (d.quantity),
               price: (d.price),
+              costPrice: d.costPrice,
+              prescriptions: d.prescriptions,
             )));
 
       final remotePres =
@@ -575,6 +588,31 @@ class PharmacyProvider extends ChangeNotifier {
                   additionalNotes: p.additionalNotes,
                 )));
 
+      final remoteTreatments =
+          await _repository!.fetchTreatments(businessId: businessId);
+      _treatments
+        ..clear()
+        ..addAll(remoteTreatments.map((t) => Treatment(
+              id: (t['id'] as String?) ?? '',
+              patientId: (t['patientId'] as String?) ?? '',
+              name: (t['name'] as String?) ?? '',
+              drugName: (t['drugName'] as String?) ?? '',
+              dosage: (t['dosage'] as String?) ?? '',
+              frequencyPerDay: (t['frequencyPerDay'] as num?)?.toInt() ?? 1,
+              durationDays: (t['durationDays'] as num?)?.toInt() ?? 1,
+              startDate: parseTimestamp(t['startDate']),
+              endDate: parseTimestamp(
+                t['endDate'] ??
+                    t['startDate'] ??
+                    DateTime.now().toIso8601String(),
+              ),
+              isActive: t['isActive'] != false,
+              administeredDates:
+                  (t['administeredDates'] as List<dynamic>? ?? const [])
+                      .map((e) => parseTimestamp(e))
+                      .toList(),
+            )));
+
       // persist to local cache
       await _saveLocalDrugs();
       await _saveLocalPrescriptions();
@@ -600,6 +638,7 @@ class PharmacyProvider extends ChangeNotifier {
       await _loadLocalDrugs();
       await _loadLocalPrescriptions();
       await _loadLocalPatients();
+      await _loadLocalTreatments();
     }
   }
 
@@ -611,6 +650,36 @@ class PharmacyProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  dm.DrugModel _toDrugModel(Drug drug) {
+    return dm.DrugModel(
+      id: drug.id,
+      name: drug.name,
+      manufacturer: drug.batch,
+      dosageForm: '',
+      strength: '',
+      expiryDate: drug.expiry,
+      quantity: drug.stock,
+      price: drug.price,
+      costPrice: drug.costPrice,
+      prescriptions: drug.prescriptions,
+    );
+  }
+
+  Future<void> _syncDrugToRepository(Drug drug, {String? businessId}) async {
+    if (_repository == null) return;
+    await _repository!.syncDrug(
+      _toDrugModel(drug),
+      businessId: businessId,
+      extraData: {
+        'quantity': drug.stock,
+        'price': drug.price,
+        'cost': drug.costPrice,
+        'costPrice': drug.costPrice,
+        'prescriptions': drug.prescriptions,
+      },
+    );
+  }
+
   void addDrug(Drug drug, {bool persist = false, String? businessId}) {
     _drugs.add(drug);
     notifyListeners();
@@ -619,19 +688,7 @@ class PharmacyProvider extends ChangeNotifier {
     _saveLocalDrugs();
 
     if (persist && _repository != null) {
-      // convert to DrugModel and sync
-      final model = dm.DrugModel(
-        id: drug.id,
-        name: drug.name,
-        manufacturer: drug.batch,
-        dosageForm: '',
-        strength: '',
-        expiryDate: drug.expiry,
-      );
-      // map to inventory field names expected by backend
-      _repository!.syncDrug(model,
-          businessId: businessId,
-          extraData: {'quantity': drug.stock, 'price': drug.price});
+      _syncDrugToRepository(drug, businessId: businessId);
     }
   }
 
@@ -646,16 +703,7 @@ class PharmacyProvider extends ChangeNotifier {
     await _saveLocalDrugs();
 
     if (persist && _repository != null) {
-      final model = dm.DrugModel(
-          id: d.id,
-          name: d.name,
-          manufacturer: d.batch,
-          dosageForm: '',
-          strength: '',
-          expiryDate: d.expiry);
-      // include inventory quantity using 'quantity' key expected by repo
-      await _repository!.syncDrug(model,
-          businessId: businessId, extraData: {'quantity': newStock, 'price': d.price});
+      await _syncDrugToRepository(d, businessId: businessId);
     }
   }
 
@@ -666,19 +714,10 @@ class PharmacyProvider extends ChangeNotifier {
     if (idx == -1) return;
     _drugs[idx] = updated;
     notifyListeners();
+    await _saveLocalDrugs();
 
     if (persist && _repository != null) {
-      final model = dm.DrugModel(
-        id: updated.id,
-        name: updated.name,
-        manufacturer: updated.batch,
-        dosageForm: '',
-        strength: '',
-        expiryDate: updated.expiry,
-      );
-      await _repository!.syncDrug(model,
-          businessId: businessId,
-          extraData: {'stock': updated.stock, 'price': updated.price});
+      await _syncDrugToRepository(updated, businessId: businessId);
     }
   }
 
@@ -899,15 +938,7 @@ class PharmacyProvider extends ChangeNotifier {
 
       // optionally sync drug stocks
       for (final d in _drugs) {
-        final model = dm.DrugModel(
-            id: d.id,
-            name: d.name,
-            manufacturer: d.batch,
-            dosageForm: '',
-            strength: '',
-            expiryDate: d.expiry);
-        await _repository!.syncDrug(model,
-            businessId: businessId, extraData: {'quantity': d.stock, 'price': d.price});
+        await _syncDrugToRepository(d, businessId: businessId);
       }
     }
   }
@@ -915,14 +946,7 @@ class PharmacyProvider extends ChangeNotifier {
   Future<void> syncDrugInventory({String? businessId}) async {
     if (_repository == null) return;
     for (final d in _drugs) {
-      final model = dm.DrugModel(
-          id: d.id,
-          name: d.name,
-          manufacturer: d.batch,
-          dosageForm: '',
-          strength: '',
-          expiryDate: d.expiry);
-      await _repository!.syncDrug(model, businessId: businessId);
+      await _syncDrugToRepository(d, businessId: businessId);
     }
     notifyListeners();
   }
@@ -1059,6 +1083,8 @@ class PharmacyProvider extends ChangeNotifier {
                 expiry: d.expiryDate,
                 stock: d.quantity,
                 price: d.price,
+                costPrice: d.costPrice,
+                prescriptions: d.prescriptions,
               ))
           .toList();
     } catch (_) {
@@ -1083,6 +1109,9 @@ class PharmacyProvider extends ChangeNotifier {
         'dateOfBirth': patient.dateOfBirth,
         'age': calculateAge(patient.dateOfBirth),
         'prescriptionCount': prescriptionCount,
+        'activeTreatmentCount': getActivePatientTreatments(patient.id).length,
+        'completedTreatmentCount':
+            getPatientTreatmentHistory(patient.id).length,
         'lastPrescriptionDate':
             _prescriptions.where((p) => p.patientId == patient.id).isEmpty
                 ? null
@@ -1092,6 +1121,17 @@ class PharmacyProvider extends ChangeNotifier {
                         null,
                         (prev, p) => prev == null || p.createdAt.isAfter(prev)
                             ? p.createdAt
+                            : prev),
+        'lastTreatmentDate': _treatments.where((t) => t.patientId == patient.id)
+                .isEmpty
+            ? null
+            : _treatments
+                .where((t) => t.patientId == patient.id)
+                .fold<DateTime?>(
+                    null,
+                    (prev, t) =>
+                        prev == null || t.startDate.isAfter(prev)
+                            ? t.startDate
                             : prev),
       };
     }).toList();
@@ -1353,8 +1393,10 @@ class PharmacyProvider extends ChangeNotifier {
 
     drug.price = newPrice;
     notifyListeners();
+    await _saveLocalDrugs();
 
     if (persist && _repository != null) {
+      await _syncDrugToRepository(drug, businessId: businessId);
       await _repository!.logAudit({
         'action': 'price_updated',
         'drugId': drugId,
@@ -1417,6 +1459,18 @@ class PharmacyProvider extends ChangeNotifier {
     await _saveLocalTreatments();
 
     if (persist && _repository != null) {
+      final bid = businessId ?? _businessId;
+      if (bid != null && bid.isNotEmpty) {
+        await _repository!.updateTreatment(
+          treatmentId,
+          {
+            'administeredDates': treatment.administeredDates
+                .map((d) => d.toIso8601String())
+                .toList(),
+          },
+          businessId: bid,
+        );
+      }
       await _repository!.logAudit({
         'action': 'treatment_dose_administered',
         'treatmentId': treatmentId,
@@ -1439,6 +1493,17 @@ class PharmacyProvider extends ChangeNotifier {
     await _saveLocalTreatments();
 
     if (persist && _repository != null) {
+      final bid = businessId ?? _businessId;
+      if (bid != null && bid.isNotEmpty) {
+        await _repository!.updateTreatment(
+          treatmentId,
+          {
+            'isActive': false,
+            'endDate': treatment.endDate.toIso8601String(),
+          },
+          businessId: bid,
+        );
+      }
       await _repository!.logAudit({
         'action': 'treatment_completed',
         'treatmentId': treatmentId,

@@ -27,6 +27,7 @@ import '../../../providers/retail_provider.dart';
 import 'package:business_manager/presentation/industry_specific/salon/providers/salon_provider.dart';
 import '../../industry_specific/realestate/providers/real_estate_provider.dart';
 import '../../../services/analytics_service.dart';
+import '../../../services/business_restriction_service.dart';
 import '../../../data/models/business_model.dart';
 import '../../../data/repositories/analytics_repository_impl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -459,6 +460,46 @@ class _HomeTabState extends State<_HomeTab> {
     _lastBusinessId = businessProvider.currentBusiness?.id;
     _lastBusinessType =
         businessProvider.currentBusiness?.businessType.toLowerCase();
+  }
+
+  Future<void> _openSupportWhatsApp() async {
+    final businessProvider = context.read<BusinessProvider>();
+    final authProvider = context.read<AuthProvider>();
+    final business = businessProvider.currentBusiness;
+
+    final restrictionService = BusinessRestrictionService();
+    final restrictionState = await restrictionService.getRestrictionState(
+      userId: authProvider.currentUser?.id,
+      businessId: business?.id,
+    );
+
+    final supportWhatsapp = restrictionState?.customerCareWhatsapp ?? '';
+    if (supportWhatsapp.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Customer support contact is not available right now.'),
+        ),
+      );
+      return;
+    }
+
+    final url = restrictionService.buildWhatsAppUrl(
+      supportWhatsapp,
+      message:
+          'Hello, I need support for ${business?.name ?? 'my business'} on Manage Care.',
+    );
+    final uri = Uri.tryParse(url);
+
+    if (uri != null && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      return;
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Could not open WhatsApp right now.')),
+    );
   }
 
   @override
@@ -1126,7 +1167,7 @@ class _HomeTabState extends State<_HomeTab> {
                           subtitle: 'Take customer order',
                           icon: Icons.restaurant_menu,
                           color: AppColors.restaurant,
-                          route: Routes.restaurantOrders,
+                          route: Routes.restaurantMenu,
                         ),
                       );
                       actions.insert(
@@ -2509,8 +2550,18 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildActionCard(_QuickActionItem item, int index, bool isDark) {
+    final handleTap = () {
+      if (item.opensSupportWhatsapp) {
+        _openSupportWhatsApp();
+        return;
+      }
+      if (item.route != null) {
+        Navigator.pushNamed(context, item.route!);
+      }
+    };
+
     return GestureDetector(
-      onTap: () => Navigator.pushNamed(context, item.route),
+      onTap: handleTap,
       child: Container(
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
@@ -2532,7 +2583,7 @@ class _HomeTabState extends State<_HomeTab> {
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: () => Navigator.pushNamed(context, item.route),
+            onTap: handleTap,
             borderRadius: BorderRadius.circular(16),
             splashColor: item.color.withOpacity(isDark ? 0.2 : 0.1),
             child: Padding(
@@ -2654,7 +2705,7 @@ class _HomeTabState extends State<_HomeTab> {
     }
   }
 
-  static List<_QuickActionItem> _getQuickActionItems([String? businessType]) {
+  List<_QuickActionItem> _getQuickActionItems([String? businessType]) {
     final type = (businessType?.toLowerCase() ?? 'retail')
         .replaceAll('_', '') // Remove underscores
         .replaceAll(' ', ''); // Remove spaces
@@ -2709,6 +2760,13 @@ class _HomeTabState extends State<_HomeTab> {
         icon: Icons.notifications_rounded,
         color: Colors.red,
         route: Routes.notifications,
+      ),
+      _QuickActionItem(
+        title: 'Support',
+        subtitle: 'Contact care',
+        icon: Icons.support_agent_rounded,
+        color: Colors.green,
+        opensSupportWhatsapp: true,
       ),
     ];
 
@@ -3165,18 +3223,18 @@ class _HomeTabState extends State<_HomeTab> {
             route: Routes.restaurantWaiters,
           ),
           _QuickActionItem(
-            title: 'New Sale',
-            subtitle: 'Create transaction',
-            icon: Icons.point_of_sale_rounded,
+            title: 'New Order',
+            subtitle: 'Take restaurant orders',
+            icon: Icons.post_add_rounded,
             color: Colors.green,
-            route: Routes.sales,
+            route: Routes.restaurantMenu,
           ),
           _QuickActionItem(
-            title: 'Inventory',
-            subtitle: 'Beverage stock',
-            icon: Icons.inventory_2_rounded,
+            title: 'Orders History',
+            subtitle: 'Track service and checkout',
+            icon: Icons.receipt_long_rounded,
             color: Colors.green,
-            route: Routes.inventory,
+            route: Routes.restaurantOrders,
           ),
           ...commonItems,
         ];
@@ -3232,20 +3290,6 @@ class _HomeTabState extends State<_HomeTab> {
             icon: Icons.history_rounded,
             color: const Color.fromARGB(255, 0, 60, 150),
             route: Routes.procurementHistory,
-          ),
-          _QuickActionItem(
-            title: 'Menu',
-            subtitle: 'Cocktail menu',
-            icon: Icons.menu_book_rounded,
-            color: Colors.purple,
-            route: Routes.drinkMenu,
-          ),
-          _QuickActionItem(
-            title: 'Bottle Tracking',
-            subtitle: 'Track bottles',
-            icon: Icons.liquor_rounded,
-            color: Colors.orange,
-            route: Routes.drinkBottleTracking,
           ),
           ...commonItems,
         ];
@@ -3662,13 +3706,15 @@ class _QuickActionItem {
   final String subtitle;
   final IconData icon;
   final Color color;
-  final String route;
+  final String? route;
+  final bool opensSupportWhatsapp;
 
   _QuickActionItem({
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.color,
-    required this.route,
+    this.route,
+    this.opensSupportWhatsapp = false,
   });
 }

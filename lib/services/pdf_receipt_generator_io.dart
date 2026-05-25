@@ -26,6 +26,7 @@ class PdfReceiptGenerator {
     required String? customFooter,
     required String paperWidth,
     String? cashier,
+    String? tableLabel,
     String? poweredByText,
     bool showQrCode = false,
     String? receiptUrlBase,
@@ -54,6 +55,7 @@ class PdfReceiptGenerator {
       customFooter: customFooter,
       paperWidth: paperWidth,
       cashier: cashier,
+      tableLabel: tableLabel,
       poweredByText: poweredByText,
       showQrCode: showQrCode,
       receiptUrlBase: receiptUrlBase,
@@ -89,6 +91,7 @@ class PdfReceiptGenerator {
     required String? customFooter,
     required String paperWidth,
     String? cashier,
+    String? tableLabel,
     String? poweredByText,
     bool showQrCode = false,
     String? receiptUrlBase,
@@ -173,6 +176,7 @@ class PdfReceiptGenerator {
                 receiptNumber: receiptNumber,
                 receiptDate: receiptDate,
                 cashier: cashier,
+                tableLabel: tableLabel,
                 customerName: safeCustomer,
                 customerEmail: customerEmail,
               ),
@@ -330,6 +334,7 @@ class PdfReceiptGenerator {
     required String receiptNumber,
     required DateTime receiptDate,
     required String? cashier,
+    required String? tableLabel,
     required String customerName,
     required String? customerEmail,
   }) {
@@ -374,6 +379,13 @@ class PdfReceiptGenerator {
             label: 'Cashier',
             value: (cashier ?? '').trim().isEmpty ? 'Staff' : cashier!.trim(),
           ),
+          if ((tableLabel ?? '').trim().isNotEmpty)
+            _metaRow(
+              labelStyle: labelStyle,
+              valueStyle: valueStyle,
+              label: 'Table',
+              value: tableLabel!.trim(),
+            ),
           _metaRow(
             labelStyle: labelStyle,
             valueStyle: valueStyle,
@@ -426,12 +438,7 @@ class PdfReceiptGenerator {
             children: items.map((item) {
               final name = _resolveItemName(item);
               final qty = _toDouble(item['quantity'] ?? item['qty'] ?? 1);
-              final unit = (item['unit'] ??
-                      item['uom'] ??
-                      item['saleUnit'] ??
-                      item['inventoryUnit'] ??
-                      '')
-                  .toString();
+              final unit = _resolveItemUnit(item);
               final unitPrice = _toDouble(
                 item['price'] ?? item['unitPrice'] ?? item['unit_price'] ?? 0,
               );
@@ -691,6 +698,23 @@ class PdfReceiptGenerator {
     return 'Item';
   }
 
+  static String _resolveItemUnit(Map<String, dynamic> item) {
+    for (final key in const [
+      'unit',
+      'uom',
+      'saleUnit',
+      'unitName',
+      'inventoryUnit',
+    ]) {
+      final value = item[key];
+      if (value == null) continue;
+      final normalized = value.toString().trim();
+      if (normalized.isEmpty || _looksLikeCurrencyToken(normalized)) continue;
+      return normalized;
+    }
+    return '';
+  }
+
   static double _toDouble(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse(value.toString()) ?? 0.0;
@@ -751,5 +775,15 @@ class PdfReceiptGenerator {
 
   static String _money(double value, String symbol) {
     return '$symbol${value.toStringAsFixed(2)}';
+  }
+
+  static bool _looksLikeCurrencyToken(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'ngn' ||
+        normalized == 'ngn ' ||
+        normalized == 'naira' ||
+        normalized == '₦' ||
+        normalized == '\$' ||
+        normalized == 'usd';
   }
 }

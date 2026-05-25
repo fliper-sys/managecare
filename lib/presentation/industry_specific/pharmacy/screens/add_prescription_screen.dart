@@ -43,6 +43,22 @@ class _AddPrescriptionScreenState extends State<AddPrescriptionScreen> {
     return provider.getPatientById(_patientId!);
   }
 
+  List<Map<String, dynamic>> _recommendedRules(Drug drug, int? patientAge) {
+    if (drug.prescriptions.isEmpty) return const [];
+    if (patientAge == null) return drug.prescriptions;
+    final matched = drug.prescriptions.where((rule) {
+      final raw = (rule['ageRange'] ?? '').toString().trim();
+      if (raw.isEmpty) return true;
+      final parts = raw.split('-').map((e) => e.trim()).toList();
+      if (parts.length != 2) return true;
+      final min = int.tryParse(parts[0]);
+      final max = int.tryParse(parts[1]);
+      if (min == null || max == null) return true;
+      return patientAge >= min && patientAge <= max;
+    }).toList();
+    return matched.isEmpty ? drug.prescriptions : matched;
+  }
+
   Future<void> _createPatient() async {
     final nameC = TextEditingController();
     final phoneC = TextEditingController();
@@ -357,7 +373,12 @@ class _AddPrescriptionScreenState extends State<AddPrescriptionScreen> {
                 itemBuilder: (context, idx) {
                   final drug = provider.drugs[idx];
                   final qty = _selected[drug.id] ?? 0;
+                  final recommendations =
+                      _recommendedRules(drug, patientAge).take(2).toList();
                   return ListTile(
+                    leading: recommendations.isNotEmpty
+                        ? const Icon(Icons.medical_information_outlined)
+                        : null,
                     title: Text(drug.name),
                     subtitle: Text(
                       'Stock: ${drug.stock} • ₦${drug.price.toStringAsFixed(2)}',

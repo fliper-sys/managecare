@@ -527,7 +527,7 @@ class HotelDashboardScreen extends StatelessWidget {
         icon: Icons.local_bar_outlined,
         label: 'Bar',
         color: Colors.indigo,
-        onTap: () => Navigator.pushNamed(context, Routes.sales),
+        onTap: () => Navigator.pushNamed(context, Routes.hotelBar),
       ));
 
       actions.add(_buildActionCard(
@@ -554,23 +554,6 @@ class HotelDashboardScreen extends StatelessWidget {
         onTap: () => Navigator.pushNamed(context, Routes.hotelPoolBookings),
       ));
 
-      actions.add(_buildActionCard(
-        context,
-        icon: Icons.inventory_2_outlined,
-        label: 'Inventory',
-        color: Colors.green,
-        onTap: () => Navigator.pushNamed(context, Routes.inventory),
-      ));
-
-      // Add Procurement History quick action
-      actions.add(_buildActionCard(
-        context,
-        icon: Icons.history,
-        label: 'Procurement History',
-        color: Colors.brown,
-        onTap: () => Navigator.pushNamed(context, Routes.procurementHistory),
-      ));
-
       // Add Printer Settings quick action
       actions.add(_buildActionCard(
         context,
@@ -580,14 +563,6 @@ class HotelDashboardScreen extends StatelessWidget {
         onTap: () => Navigator.pushNamed(context, Routes.printerSettings),
       ));
 
-      // Add Advanced Analytics quick action
-      actions.add(_buildActionCard(
-        context,
-        icon: Icons.analytics_outlined,
-        label: 'Advanced Analytics',
-        color: Colors.deepPurple,
-        onTap: () => Navigator.pushNamed(context, Routes.advancedAnalytics),
-      ));
     }
 
     // Use GridView for cleaner layout

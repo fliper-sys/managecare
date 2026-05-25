@@ -273,13 +273,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         .trim();
     var displayName = baseName.isEmpty ? 'Item' : baseName;
 
-    final unit = (item['saleUnit'] ??
-            item['unit'] ??
-            item['uom'] ??
-            item['inventoryUnit'] ??
-            '')
-        .toString()
-        .trim();
+    final unit = _resolveItemUnit(item);
     if (unit.isNotEmpty) {
       final normalizedName = displayName.toLowerCase();
       final normalizedUnit = unit.toLowerCase();
@@ -316,6 +310,33 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   String _trimTrailingZeros(String text) {
     if (!text.contains('.')) return text;
     return text.replaceFirst(RegExp(r'\.?0+$'), '');
+  }
+
+  String _resolveItemUnit(Map<String, dynamic> item) {
+    for (final key in const [
+      'saleUnit',
+      'unit',
+      'uom',
+      'unitName',
+      'inventoryUnit',
+    ]) {
+      final value = item[key];
+      if (value == null) continue;
+      final normalized = value.toString().trim();
+      if (normalized.isEmpty || _looksLikeCurrencyToken(normalized)) continue;
+      return normalized;
+    }
+    return '';
+  }
+
+  bool _looksLikeCurrencyToken(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'ngn' ||
+        normalized == 'ngn ' ||
+        normalized == 'naira' ||
+        normalized == '₦' ||
+        normalized == '\$' ||
+        normalized == 'usd';
   }
 
   String _formatQuantity(dynamic quantityValue, {String unit = ''}) {
@@ -411,7 +432,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
       );
       final qtyDisplay = _formatQuantity(
         item['quantityRaw'] ?? item['quantity'] ?? item['qty'] ?? 1,
-        unit: (item['unit'] ?? item['uom'] ?? '').toString(),
+        unit: _resolveItemUnit(item),
       );
       buffer.writeln('${_displayReceiptItemName(item)} x$qtyDisplay');
       buffer.writeln(
@@ -1865,7 +1886,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
           );
           final qtyDisplay = _formatQuantity(
             item['quantityRaw'] ?? item['quantity'] ?? item['qty'] ?? 1,
-            unit: (item['unit'] ?? item['uom'] ?? '').toString(),
+            unit: _resolveItemUnit(item),
           );
 
           return Container(

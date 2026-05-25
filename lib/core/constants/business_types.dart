@@ -152,7 +152,6 @@ class BusinessTypes {
         'Beverage Inventory',
         'Bottle Tracking',
         'Bar Tabs',
-        'Cocktail Menu',
         'Pour Size Tracking',
       ],
     ),

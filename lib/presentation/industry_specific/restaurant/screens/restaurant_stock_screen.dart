@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
@@ -19,6 +20,17 @@ class RestaurantStockScreen extends StatefulWidget {
 class _RestaurantStockScreenState extends State<RestaurantStockScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
+
+  bool _isSupplyProduct(Product product) {
+    final category = product.category.toLowerCase();
+    return category.contains('raw') ||
+        category.contains('ingredient') ||
+        category.contains('supply') ||
+        category.contains('kitchen') ||
+        category.contains('food');
+  }
+
+  bool _isLowStock(Product product) => product.stock <= 5;
 
   @override
   void initState() {
@@ -172,6 +184,13 @@ class _RestaurantStockScreenState extends State<RestaurantStockScreen> {
   Widget build(BuildContext context) {
     return Consumer2<RestaurantProvider, RetailProvider>(
       builder: (context, restaurant, retail, _) {
+        final role = context.watch<AuthProvider>().currentUser?.role ?? '';
+        final canViewLowStock = WorkerPermissions.hasPermission(
+              role,
+              'view_low_stock',
+            ) ||
+            WorkerPermissions.canManageInventory(role);
+        final canManageInventory = WorkerPermissions.canManageInventory(role);
         final products = retail.products
             .where((product) {
               if (_query.isEmpty) return true;
@@ -180,6 +199,25 @@ class _RestaurantStockScreenState extends State<RestaurantStockScreen> {
             })
             .toList()
           ..sort((a, b) => a.name.compareTo(b.name));
+        final supplyProducts = products.where(_isSupplyProduct).toList();
+        final resaleProducts =
+            products.where((product) => !_isSupplyProduct(product)).toList();
+        final lowSupplyProducts =
+            supplyProducts.where(_isLowStock).toList();
+        final menuShortages = restaurant.menuItems.where((item) {
+          if (!item.available) return true;
+          final linkedStock = item.inventoryStock;
+          if (linkedStock != null && linkedStock <= 0) return true;
+          for (final ingredient in item.ingredients) {
+            final matches =
+                retail.products.where((p) => p.id == ingredient.productId);
+            if (matches.isNotEmpty &&
+                matches.first.stock < ingredient.quantityPerPortion) {
+              return true;
+            }
+          }
+          return false;
+        }).toList();
 
         final wasteRecords = restaurant.wasteRecords.take(8).toList();
         final totalStockCount = products.fold<double>(
@@ -286,6 +324,46 @@ class _RestaurantStockScreenState extends State<RestaurantStockScreen> {
                   }),
                   const SizedBox(height: 20),
                 ],
+                if (canViewLowStock) ...[
+                  const Text('Menu Shortages', style: AppTextStyles.heading5),
+                  const SizedBox(height: 12),
+                  if (menuShortages.isEmpty)
+                    const _InlineNotice(
+                      text: 'No menu shortages detected from linked stock.',
+                    )
+                  else
+                    ...menuShortages.map(
+                      (item) => Card(
+                        child: ListTile(
+                          leading: const CircleAvatar(
+                            child: Icon(Icons.restaurant_menu),
+                          ),
+                          title: Text(item.name),
+                          subtitle: Text(
+                            item.ingredients.isEmpty
+                                ? 'Linked stock unavailable or item marked unavailable'
+                                : item.ingredients
+                                    .map((ingredient) =>
+                                        '${ingredient.productName}: ${ingredient.quantityPerPortion} ${ingredient.unit}/portion')
+                                    .join(', '),
+                          ),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 20),
+                  const Text('Supply Shortages', style: AppTextStyles.heading5),
+                  const SizedBox(height: 12),
+                  if (lowSupplyProducts.isEmpty)
+                    const _InlineNotice(text: 'No low supply stock right now.')
+                  else
+                    ...lowSupplyProducts.map(
+                      (product) => _stockTile(
+                        product,
+                        canManageInventory: canManageInventory,
+                      ),
+                    ),
+                  const SizedBox(height: 20),
+                ],
                 const Text('Inventory', style: AppTextStyles.heading5),
                 const SizedBox(height: 12),
                 if (products.isEmpty)
@@ -321,11 +399,12 @@ class _RestaurantStockScreenState extends State<RestaurantStockScreen> {
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                            OutlinedButton.icon(
-                              onPressed: () => _openWasteDialog(product),
-                              icon: const Icon(Icons.remove_circle_outline),
-                              label: const Text('Log Loss'),
-                            ),
+                            if (canManageInventory)
+                              OutlinedButton.icon(
+                                onPressed: () => _openWasteDialog(product),
+                                icon: const Icon(Icons.remove_circle_outline),
+                                label: const Text('Log Loss'),
+                              ),
                           ],
                         ),
                       ),
@@ -336,6 +415,35 @@ class _RestaurantStockScreenState extends State<RestaurantStockScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _stockTile(Product product, {required bool canManageInventory}) {
+    return Card(
+      child: ListTile(
+        title: Text(product.name),
+        subtitle: Text(
+          '${product.category} - ${product.stock.toStringAsFixed(2)} ${product.unit}',
+        ),
+        trailing: Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Text(
+              formatCurrency(product.price),
+              style: AppTextStyles.body2.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (canManageInventory)
+              OutlinedButton.icon(
+                onPressed: () => _openWasteDialog(product),
+                icon: const Icon(Icons.remove_circle_outline),
+                label: const Text('Log Loss'),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -378,6 +486,28 @@ class _StockStat extends StatelessWidget {
           Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
         ],
       ),
+    );
+  }
+}
+
+class _InlineNotice extends StatelessWidget {
+  const _InlineNotice({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withOpacity(0.24),
+        ),
+      ),
+      child: Text(text),
     );
   }
 }

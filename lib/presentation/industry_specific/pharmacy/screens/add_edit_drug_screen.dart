@@ -20,6 +20,7 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
   late TextEditingController _batchController;
   late TextEditingController _stockController;
   late TextEditingController _priceController;
+  late TextEditingController _costPriceController;
   DateTime _expiry = DateTime.now().add(const Duration(days: 365));
   final List<Map<String, dynamic>> _prescriptions = [];
 
@@ -42,6 +43,8 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
     _stockController = TextEditingController(text: d?.stock.toString() ?? '0');
     _priceController = TextEditingController(
         text: d != null ? d.price.toStringAsFixed(2) : '0.00');
+    _costPriceController = TextEditingController(
+        text: d != null ? d.costPrice.toStringAsFixed(2) : '0.00');
     _expiry = d?.expiry ?? _expiry;
     _prescriptions.addAll(d?.prescriptions ?? []);
   }
@@ -52,6 +55,7 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
     _batchController.dispose();
     _stockController.dispose();
     _priceController.dispose();
+    _costPriceController.dispose();
     super.dispose();
   }
 
@@ -64,6 +68,7 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
     final batch = _batchController.text.trim();
     final stock = int.tryParse(_stockController.text.trim()) ?? 0;
     final price = double.tryParse(_priceController.text.trim()) ?? 0.0;
+    final costPrice = double.tryParse(_costPriceController.text.trim()) ?? 0.0;
 
     if (widget.drug == null) {
       final newDrug = Drug(
@@ -73,6 +78,7 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
         expiry: _expiry,
         stock: stock,
         price: price,
+        costPrice: costPrice,
         prescriptions: _prescriptions,
       );
 
@@ -86,6 +92,7 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
         expiry: _expiry,
         stock: stock,
         price: price,
+        costPrice: costPrice,
         prescriptions: _prescriptions,
       );
       await provider.updateDrug(updated, persist: provider.hasRemote, businessId: businessId);
@@ -199,6 +206,13 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(labelText: 'Price per Unit'),
                 validator: (v) => (double.tryParse(v ?? '') == null) ? 'Enter a valid price' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _costPriceController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Buying Price per Unit'),
+                validator: (v) => (double.tryParse(v ?? '') == null) ? 'Enter a valid buying price' : null,
               ),
               const SizedBox(height: 12),
               Row(

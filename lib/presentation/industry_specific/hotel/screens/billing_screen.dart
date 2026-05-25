@@ -18,7 +18,9 @@ class BillingScreen extends StatelessWidget {
     final scheme = theme.colorScheme;
     final auth = context.watch<AuthProvider>();
     final canManageBilling = auth.isOwnerUser ||
-        WorkerPermissions.canManageGuestBookings(auth.currentUser?.role ?? '');
+        WorkerPermissions.canManageHospitalityBilling(
+          auth.currentUser?.role ?? '',
+        );
     return Consumer<HotelProvider>(
       builder: (context, provider, _) {
         final billableReservations = provider

@@ -558,7 +558,9 @@ class PdfInvoiceGenerator {
     ]) {
       final value = item[key];
       if (value != null && value.toString().trim().isNotEmpty) {
-        return value.toString().trim();
+        final normalized = value.toString().trim();
+        if (_looksLikeCurrencyToken(normalized)) continue;
+        return normalized;
       }
     }
     return null;
@@ -579,11 +581,8 @@ class PdfInvoiceGenerator {
     String? pricingMode,
   }) {
     final parts = <String>[
-      '${_displayQty(quantity)} x ${_money(unitPrice, symbol)}',
+      '${_displayQty(quantity, unit: unit)} x ${_money(unitPrice, symbol)}',
     ];
-    if (unit != null && unit.isNotEmpty) {
-      parts.add(unit);
-    }
     if (pricingMode != null && pricingMode.isNotEmpty) {
       final label =
           pricingMode[0].toUpperCase() + pricingMode.substring(1).toLowerCase();
@@ -592,13 +591,26 @@ class PdfInvoiceGenerator {
     return parts.join(' - ');
   }
 
-  static String _displayQty(double quantity) {
-    return quantity % 1 == 0
+  static String _displayQty(double quantity, {String? unit}) {
+    final quantityText = quantity % 1 == 0
         ? quantity.toInt().toString()
         : quantity.toStringAsFixed(quantity % 1 == 0 ? 0 : 2);
+    final trimmedUnit = unit?.trim() ?? '';
+    if (trimmedUnit.isEmpty) return quantityText;
+    return '$quantityText $trimmedUnit';
   }
 
   static String _money(double value, String symbol) {
     return '$symbol${value.toStringAsFixed(2)}';
+  }
+
+  static bool _looksLikeCurrencyToken(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'ngn' ||
+        normalized == 'ngn ' ||
+        normalized == 'naira' ||
+        normalized == '₦' ||
+        normalized == '\$' ||
+        normalized == 'usd';
   }
 }

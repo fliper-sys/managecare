@@ -162,6 +162,8 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                     final patient = patients[index];
                     final prescriptionCount =
                         patient['prescriptionCount'] as int;
+                    final activeTreatmentCount =
+                        patient['activeTreatmentCount'] as int? ?? 0;
 
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 8),
@@ -186,9 +188,19 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                                     : Colors.grey,
                               ),
                             ),
+                            if (activeTreatmentCount > 0)
+                              Text(
+                                'Active treatments: $activeTreatmentCount',
+                                style: TextStyle(color: Colors.blueGrey[700]),
+                              ),
                             if (patient['lastPrescriptionDate'] != null)
                               Text(
                                 'Last Rx: ${(patient['lastPrescriptionDate'] as DateTime).toString().split(' ')[0]}',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            if (patient['lastTreatmentDate'] != null)
+                              Text(
+                                'Last treatment: ${(patient['lastTreatmentDate'] as DateTime).toString().split(' ')[0]}',
                                 style: const TextStyle(fontSize: 12),
                               ),
                           ],
@@ -244,7 +256,12 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                 if (patient['address'] != null && (patient['address'] as String).isNotEmpty)
                   _buildDetailRow('Address', patient['address'] as String),
                 if (patient['dateOfBirth'] != null)
-                  _buildDetailRow('Age', '${(patient['dateOfBirth'] as DateTime).year == 1970 ? 'N/A' : DateTime.now().year - (patient['dateOfBirth'] as DateTime).year}'),
+                  _buildDetailRow(
+                    'Age',
+                    (provider.calculateAge(patient['dateOfBirth'] as DateTime?)
+                            ?.toString()) ??
+                        'N/A',
+                  ),
                 if (patient['allergies'] != null && (patient['allergies'] as String).isNotEmpty)
                   _buildDetailRow('Allergies', patient['allergies'] as String),
                 if (patient['bloodType'] != null && (patient['bloodType'] as String).isNotEmpty)
@@ -254,6 +271,10 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                 _buildDetailRow('ID', patient['id'] as String),
                 _buildDetailRow(
                     'Total Prescriptions', '${patient['prescriptionCount']}'),
+                _buildDetailRow(
+                    'Active Treatments', '${patient['activeTreatmentCount'] ?? 0}'),
+                _buildDetailRow(
+                    'Completed Treatments', '${patient['completedTreatmentCount'] ?? 0}'),
                 const SizedBox(height: 16),
                 const TabBar(
                   tabs: [

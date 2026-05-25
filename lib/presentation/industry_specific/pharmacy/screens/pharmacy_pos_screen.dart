@@ -387,7 +387,7 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
       }
 
       // Add prescription record for tracking (persist to remote and local cache)
-      await provider.addPrescription(
+      final prescription = await provider.addPrescription(
           'WALKIN',
           items.map((e) => {'drugId': e['drugId'], 'qty': e['qty']}).toList(),
           patientName: customerName,
@@ -450,6 +450,19 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
         'paymentMethod': paymentMethod,
         'date': DateTime.now().toIso8601String(),
         'customer': {'name': customerName ?? 'Walk-in', 'email': null},
+        'category': 'Pharmacy',
+        'prescriptionId': prescription.id,
+        'prescriptionPatientName':
+            prescription.patientName ?? customerName ?? 'Walk-in',
+        'prescriptionCreatedAt':
+            prescription.createdAt.toIso8601String(),
+        'prescriptionItems': items
+            .map((e) => {
+                  'drugId': e['drugId'],
+                  'name': e['productName'],
+                  'qty': e['qty'],
+                })
+            .toList(),
       };
 
       // Show receipt actions

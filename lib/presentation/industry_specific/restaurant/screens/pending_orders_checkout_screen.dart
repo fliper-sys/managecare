@@ -89,6 +89,73 @@ class _PendingOrdersAndCheckoutScreenState
     return null;
   }
 
+  Future<void> _deductInventoryForOrder(RestaurantOrder order) async {
+    final retail = Provider.of<RetailProvider>(context, listen: false);
+    final restaurant = Provider.of<RestaurantProvider>(context, listen: false);
+    final deductionsByProductId = <String, double>{};
+
+    for (final item in order.items) {
+      final linkedMenuItems = restaurant.menuItems
+          .where((menuItem) => menuItem.id == item.menuItemId)
+          .toList();
+
+      if (linkedMenuItems.isNotEmpty &&
+          linkedMenuItems.first.ingredients.isNotEmpty) {
+        for (final ingredient in linkedMenuItems.first.ingredients) {
+          if (ingredient.productId.isEmpty) continue;
+          deductionsByProductId.update(
+            ingredient.productId,
+            (current) =>
+                current + (ingredient.quantityPerPortion * item.quantity),
+            ifAbsent: () => ingredient.quantityPerPortion * item.quantity,
+          );
+        }
+        continue;
+      }
+
+      final pid = item.inventoryProductId;
+      if (pid == null || pid.isEmpty) continue;
+      deductionsByProductId.update(
+        pid,
+        (current) => current + item.quantity,
+        ifAbsent: () => item.quantity.toDouble(),
+      );
+    }
+
+    for (final entry in deductionsByProductId.entries) {
+      final prod = retail.products.firstWhere(
+        (p) => p.id == entry.key,
+        orElse: () => Product(
+          id: '',
+          name: '',
+          price: 0,
+          stock: 0,
+          category: '',
+        ),
+      );
+      if (prod.id.isEmpty) continue;
+
+      final newStock =
+          (prod.stock - entry.value) < 0 ? 0.0 : (prod.stock - entry.value);
+      final updated = Product(
+        id: prod.id,
+        name: prod.name,
+        price: prod.price,
+        cost: prod.cost,
+        wholesalePrice: prod.wholesalePrice,
+        stock: newStock,
+        category: prod.category,
+        imageUrl: prod.imageUrl,
+        barcode: prod.barcode,
+        emoji: prod.emoji,
+        unit: prod.unit,
+        saleUnit: prod.resolvedSaleUnit,
+        saleUnitMultiplier: prod.resolvedSaleUnitMultiplier,
+      );
+      await retail.updateProduct(prod.id, updated);
+    }
+  }
+
   void _showPaymentConfirmation(BuildContext context, RestaurantOrder order) {
     showDialog(
       context: context,
@@ -603,34 +670,9 @@ class _PendingOrdersAndCheckoutScreenState
             ],
           );
 
-      // Attempt to deduct inventory where menu items map to inventory products
+      // Attempt to deduct linked raw supplies or fallback inventory products.
       try {
-        final retail = Provider.of<RetailProvider>(context, listen: false);
-        for (final item in order.items) {
-          final pid = item.inventoryProductId;
-          if (pid != null && pid.isNotEmpty) {
-            final prod = retail.products.firstWhere((p) => p.id == pid, orElse: () => Product(id: '', name: '', price: 0, stock: 0, category: ''));
-            if (prod.id.isNotEmpty) {
-              final newStock = (prod.stock - item.quantity) < 0 ? 0 : (prod.stock - item.quantity);
-              final updated = Product(
-                id: prod.id,
-                name: prod.name,
-                price: prod.price,
-                cost: prod.cost.toDouble(),
-                wholesalePrice: prod.wholesalePrice,
-                stock: newStock.toDouble(),
-                category: prod.category,
-                imageUrl: prod.imageUrl,
-                barcode: prod.barcode,
-                emoji: prod.emoji,
-                unit: prod.unit,
-                saleUnit: prod.resolvedSaleUnit,
-                saleUnitMultiplier: prod.resolvedSaleUnitMultiplier,
-              );
-              await retail.updateProduct(prod.id, updated);
-            }
-          }
-        }
+        await _deductInventoryForOrder(order);
       } catch (e) {
         debugPrint('[RestaurantPOS] Inventory deduction failed: $e');
       }
@@ -710,7 +752,7 @@ class _PendingOrdersAndCheckoutScreenState
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Pending Orders & Checkout'),
+        title: const Text('Orders History & Checkout'),
         elevation: 0,
         backgroundColor: Colors.transparent,
       ),
@@ -718,7 +760,9 @@ class _PendingOrdersAndCheckoutScreenState
         builder: (context, provider, _) {
           final unpaidOrders = provider.pendingPaymentOrders;
           final pendingOrders =
-              unpaidOrders.where((o) => o.status == 'pending').toList();
+              unpaidOrders
+                  .where((o) => o.status == 'pending' || o.status == 'confirmed')
+                  .toList();
           final preparingOrders =
               unpaidOrders.where((o) => o.status == 'preparing').toList();
           final readyOrders =
@@ -813,7 +857,7 @@ class _PendingOrdersAndCheckoutScreenState
                   child: Row(
                     children: [
                       _OrderStatusBadge(
-                        label: 'Orders History',
+                        label: 'Active Unpaid',
                         count: unpaidOrders.length,
                         color: AppColors.error,
                       ),
@@ -1064,11 +1108,27 @@ class _PendingOrdersAndCheckoutScreenState
             ),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: AsyncCustomButton(
-              text: 'Process Payment',
-              onPressed: selectedOrder != null
-                  ? () async => _processCheckout(context)
-                  : null,
+            child: Column(
+              children: [
+                if (selectedOrder?.status == 'ready') ...[
+                  CustomButton(
+                    text: 'Mark Served',
+                    backgroundColor: Colors.deepPurple,
+                    onPressed: () async {
+                      final order = selectedOrder;
+                      if (order == null) return;
+                      await provider.updateOrderStatus(order.id, 'served');
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                AsyncCustomButton(
+                  text: 'Process Payment',
+                  onPressed: selectedOrder != null
+                      ? () async => _processCheckout(context)
+                      : null,
+                ),
+              ],
             ),
           ),
         ],
@@ -1179,6 +1239,10 @@ class _PendingOrdersAndCheckoutScreenState
         return AppColors.primary;
       case 'ready':
         return AppColors.success;
+      case 'served':
+        return Colors.deepPurple;
+      case 'confirmed':
+        return AppColors.warning;
       default:
         return AppColors.textSecondary;
     }

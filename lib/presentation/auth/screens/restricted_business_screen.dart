@@ -20,11 +20,19 @@ class RestrictedBusinessScreen extends StatelessWidget {
   });
 
   Future<void> _openWhatsApp(BuildContext context) async {
-    if (customerCareWhatsapp.trim().isEmpty) return;
+    final supportPhone = customerCareWhatsapp.trim();
+    if (supportPhone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Support contact is not configured. Please contact admin.'),
+        ),
+      );
+      return;
+    }
 
     final service = BusinessRestrictionService();
     final url = service.buildWhatsAppUrl(
-      customerCareWhatsapp,
+      supportPhone,
       message:
           'Hello, my business account for $businessName is restricted and I need support.',
     );
@@ -107,21 +115,23 @@ class RestrictedBusinessScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  if (customerCareWhatsapp.trim().isNotEmpty) ...[
-                    CustomButton(
-                      text: 'Contact Customer Care on WhatsApp',
-                      onPressed: () => _openWhatsApp(context),
+                  CustomButton(
+                    text: customerCareWhatsapp.trim().isEmpty
+                        ? 'Contact Admin Support'
+                        : 'Contact Customer Care on WhatsApp',
+                    onPressed: () => _openWhatsApp(context),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    customerCareWhatsapp.trim().isEmpty
+                        ? 'Support contact is not configured for this business yet.'
+                        : 'Support contact: $customerCareWhatsapp',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF475569),
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Support contact: $customerCareWhatsapp',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF475569),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
+                  ),
+                  const SizedBox(height: 20),
                   OutlinedButton.icon(
                     onPressed: () {
                       Navigator.of(context).pushReplacementNamed(Routes.splash);

@@ -65,7 +65,7 @@ function resolveKoraChannels(rawChannels) {
     ? rawChannels.map((channel) => channel.toString().trim()).filter(Boolean)
     : [];
   const filtered = channels.filter((channel) => allowedChannels.has(channel));
-  return filtered.length > 0 ? filtered : ['card', 'bank_transfer', 'pay_with_bank'];
+  return filtered.length > 0 ? filtered : ['bank_transfer'];
 }
 
 async function createUserNotification(userId, notification) {
@@ -693,13 +693,13 @@ exports.initializeKoraSubscriptionPayment = functions.https.onCall(async (data, 
   const metadata = {
     planId: data.planId || '',
     businessId: data.businessId || '',
-    businessType: data.businessType || '',
     userId: data.userId || context.auth.uid,
-    selectedChannels: channels.join(','),
     recurringEnabled: recurringEnabled ? 'true' : 'false',
   };
   if (recurringEnabled) {
     metadata.recurrenceInterval = recurrenceInterval || 'plan_duration';
+  } else {
+    metadata.selectedChannels = channels.join(',');
   }
 
   const response = await fetch('https://api.korapay.com/merchant/api/v1/charges/initialize', {

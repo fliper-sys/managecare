@@ -130,13 +130,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
     final baseName = (_resolveProductName(context, item)).trim();
     var displayName = baseName.isEmpty ? 'Item' : baseName;
 
-    final unit = (item['saleUnit'] ??
-            item['unit'] ??
-            item['uom'] ??
-            item['inventoryUnit'] ??
-            '')
-        .toString()
-        .trim();
+    final unit = _resolveItemUnit(item);
     if (unit.isNotEmpty) {
       final normalizedName = displayName.toLowerCase();
       final normalizedUnit = unit.toLowerCase();
@@ -158,6 +152,33 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
     }
 
     return displayName;
+  }
+
+  String _resolveItemUnit(Map<String, dynamic> item) {
+    for (final key in const [
+      'saleUnit',
+      'unit',
+      'uom',
+      'unitName',
+      'inventoryUnit',
+    ]) {
+      final value = item[key];
+      if (value == null) continue;
+      final normalized = value.toString().trim();
+      if (normalized.isEmpty || _looksLikeCurrencyToken(normalized)) continue;
+      return normalized;
+    }
+    return '';
+  }
+
+  bool _looksLikeCurrencyToken(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'ngn' ||
+        normalized == 'ngn ' ||
+        normalized == 'naira' ||
+        normalized == '₦' ||
+        normalized == '\$' ||
+        normalized == 'usd';
   }
 
   Future<String?> _promptForEmail(BuildContext ctx, {String? initial}) async {
@@ -625,10 +646,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
         'name': _displaySaleItemName(normalized),
         'quantity': normalized['quantity'] ?? 1,
         'price': (normalized['price'] ?? normalized['unitPrice'] ?? 0.0),
-        'unit': normalized['saleUnit'] ??
-            normalized['unit'] ??
-            normalized['uom'] ??
-            normalized['inventoryUnit'],
+        'unit': _resolveItemUnit(normalized),
         'pricingMode': normalized['pricingMode'] ?? normalized['priceType'],
       };
     }).toList();

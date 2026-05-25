@@ -13,6 +13,57 @@ import '../providers/restaurant_provider.dart';
 class RestaurantDashboardScreen extends StatelessWidget {
   const RestaurantDashboardScreen({super.key});
 
+  Map<String, String> _buildInsights(RestaurantProvider provider) {
+    final mealCounts = <String, int>{};
+    final mealMargin = <String, double>{};
+    final waiterCounts = <String, int>{};
+    final tableCounts = <String, int>{};
+    final menuCostById = {
+      for (final item in provider.menuItems) item.id: item.cost ?? 0.0,
+    };
+
+    for (final order in provider.orders) {
+      if (order.status == 'cancelled') continue;
+      final tableKey = order.orderTargetLabel ??
+          (order.tableNumber != null ? 'Table ${order.tableNumber}' : 'Walk-in');
+      tableCounts[tableKey] = (tableCounts[tableKey] ?? 0) + 1;
+
+      String? waiterName;
+      for (final server in provider.servers) {
+        if (server.id == order.assignedWaiterId && server.name.isNotEmpty) {
+          waiterName = server.name;
+          break;
+        }
+      }
+      if (waiterName != null) {
+        waiterCounts[waiterName] = (waiterCounts[waiterName] ?? 0) + 1;
+      }
+
+      for (final item in order.items) {
+        mealCounts[item.menuItemName] =
+            (mealCounts[item.menuItemName] ?? 0) + item.quantity;
+        final baseCost = menuCostById[item.menuItemId] ?? 0.0;
+        mealMargin[item.menuItemName] =
+            (mealMargin[item.menuItemName] ?? 0.0) +
+                ((item.price - baseCost) * item.quantity);
+      }
+    }
+
+    String topLabel<T extends num>(Map<String, T> source, String fallback) {
+      if (source.isEmpty) return fallback;
+      final sorted = source.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      return sorted.first.key;
+    }
+
+    return {
+      'topMeal': topLabel(mealCounts, 'No sales yet'),
+      'bestMarginMeal': topLabel(mealMargin, 'No margin data'),
+      'topWaiter': topLabel(waiterCounts, 'Unassigned'),
+      'busiestTable': topLabel(tableCounts, 'No table activity'),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -66,7 +117,9 @@ class RestaurantDashboardScreen extends StatelessWidget {
       body: Consumer<RestaurantProvider>(
         builder: (context, provider, _) {
           final pendingOrders =
-              provider.orders.where((o) => o.status == 'pending').length;
+              provider.orders
+                  .where((o) => o.status == 'pending' || o.status == 'confirmed')
+                  .length;
           final completedOrders =
               provider.orders.where((o) => o.status == 'completed').toList();
           final totalOrders = provider.orders.length;
@@ -79,6 +132,7 @@ class RestaurantDashboardScreen extends StatelessWidget {
                   ) /
                   completedOrders.length
               : 0.0;
+          final insights = _buildInsights(provider);
 
           const lowThreshold = 5;
           final lowStockItems = provider.menuItems
@@ -142,6 +196,17 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         SizedBox(
                           width: statusCardWidth,
                           child: _LiveStatusCard(
+                            title: 'Awaiting Payment',
+                            value:
+                                '${provider.pendingPaymentOrders.where((o) => o.status == 'ready' || o.status == 'served').length}',
+                            icon: Icons.payments_outlined,
+                            color: Colors.deepPurple,
+                            isSecondary: true,
+                          ),
+                        ),
+                        SizedBox(
+                          width: statusCardWidth,
+                          child: _LiveStatusCard(
                             title: 'Avg. Value',
                             value: formatCurrency(avgOrderValue),
                             icon: Icons.analytics,
@@ -182,10 +247,10 @@ class RestaurantDashboardScreen extends StatelessWidget {
                             WorkerPermissions.canManageSales(role)) {
                           actions.add(
                             _ActionTile(
-                              icon: Icons.menu_book,
+                              icon: Icons.post_add,
                               color: AppColors.primary,
-                              label: 'View Menu',
-                              subtitle: 'Browse current items',
+                              label: 'New Order',
+                              subtitle: 'Take a dine-in or takeaway order',
                               onTap: () => Navigator.pushNamed(
                                 context,
                                 Routes.restaurantMenu,
@@ -333,13 +398,13 @@ class RestaurantDashboardScreen extends StatelessWidget {
                             WorkerPermissions.hasPermission(role, 'sales')) {
                           actions.add(
                             _ActionTile(
-                              icon: Icons.point_of_sale,
+                              icon: Icons.receipt_long,
                               color: Colors.blue,
-                              label: 'POS',
-                              subtitle: 'Open point of sale',
+                              label: 'Orders History',
+                              subtitle: 'Track service flow and checkout',
                               onTap: () => Navigator.pushNamed(
                                 context,
-                                Routes.sales,
+                                Routes.restaurantOrders,
                               ),
                             ),
                           );
@@ -449,6 +514,48 @@ class RestaurantDashboardScreen extends StatelessWidget {
                       const SizedBox(height: 12),
                       ...lowStockItems.map((item) => _LowStockCard(item: item)),
                     ],
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: theme.cardColor,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.white.withOpacity(0.08)
+                              : Colors.grey.shade200,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Service Insights', style: AppTextStyles.heading5),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              _InsightChip(
+                                label: 'Top Meal',
+                                value: insights['topMeal'] as String,
+                              ),
+                              _InsightChip(
+                                label: 'Best Margin',
+                                value: insights['bestMarginMeal'] as String,
+                              ),
+                              _InsightChip(
+                                label: 'Top Waiter',
+                                value: insights['topWaiter'] as String,
+                              ),
+                              _InsightChip(
+                                label: 'Busiest Table',
+                                value: insights['busiestTable'] as String,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(height: 24),
                     Container(
                       padding: const EdgeInsets.all(20),
@@ -839,6 +946,38 @@ class _SummaryStat extends StatelessWidget {
               fontSize: 11,
               color: isDark ? Colors.grey.shade400 : Colors.grey,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InsightChip extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _InsightChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      constraints: const BoxConstraints(minWidth: 160),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.03) : Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.withOpacity(0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: AppTextStyles.caption),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w700),
           ),
         ],
       ),

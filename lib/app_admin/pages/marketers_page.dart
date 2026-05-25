@@ -118,6 +118,16 @@ class _MarketersPageState extends State<MarketersPage> {
                             icon: const Icon(Icons.person_add_alt_1_rounded),
                             label: const Text('Create'),
                           ),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            onPressed: () => _showRewardConfigDialog(marketerProv),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white70),
+                            ),
+                            icon: const Icon(Icons.tune_rounded),
+                            label: const Text('Rewards'),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 20),
@@ -186,6 +196,8 @@ class _MarketersPageState extends State<MarketersPage> {
                   const SizedBox(height: 18),
                   _buildLeaderboardCard(leaderboard),
                 ],
+                const SizedBox(height: 18),
+                _buildRewardConfigCard(marketerProv),
                 const SizedBox(height: 20),
                 if (marketerProv.isLoading && marketerProv.marketers.isEmpty)
                   const Padding(
@@ -367,6 +379,98 @@ class _MarketersPageState extends State<MarketersPage> {
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRewardConfigCard(MarketerProvider marketerProv) {
+    final config = marketerProv.rewardConfig;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: context.adminCardDecoration(
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Reward Configuration',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: context.adminTextPrimary,
+                  ),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => _showRewardConfigDialog(marketerProv),
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: const Text('Edit'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Commission, target, podium bonus, and expiry follow-up settings now live here for super admin control.',
+            style: TextStyle(
+              color: context.adminTextSecondary,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _buildMiniMetric(
+                label: 'Monthly target',
+                value: config.monthlyTargetSubscriptions.toString(),
+                color: const Color(0xFF2563EB),
+              ),
+              _buildMiniMetric(
+                label: 'Commission',
+                value:
+                    '${(config.subscriptionCommissionRate * 100).toStringAsFixed(0)}%',
+                color: const Color(0xFF0F766E),
+              ),
+              _buildMiniMetric(
+                label: 'Target bonus',
+                value: formatCurrency(config.targetBonusAmount),
+                color: const Color(0xFFEA580C),
+              ),
+              _buildMiniMetric(
+                label: 'Expiry warning',
+                value: '${config.expiryWarningDays} days',
+                color: const Color(0xFF7C3AED),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildTag(
+                Icons.looks_one_rounded,
+                '1st ${formatCurrency(config.rank1BonusAmount)}',
+                const Color(0xFFEA580C),
+              ),
+              _buildTag(
+                Icons.looks_two_rounded,
+                '2nd ${formatCurrency(config.rank2BonusAmount)}',
+                const Color(0xFF2563EB),
+              ),
+              _buildTag(
+                Icons.looks_3_rounded,
+                '3rd ${formatCurrency(config.rank3BonusAmount)}',
+                const Color(0xFF7C3AED),
+              ),
+            ],
           ),
         ],
       ),
@@ -671,6 +775,149 @@ class _MarketersPageState extends State<MarketersPage> {
           fontWeight: FontWeight.w700,
           fontSize: 12,
         ),
+      ),
+    );
+  }
+
+  void _showRewardConfigDialog(MarketerProvider provider) {
+    final config = provider.rewardConfig;
+    final monthlyTargetCtrl = TextEditingController(
+      text: config.monthlyTargetSubscriptions.toString(),
+    );
+    final commissionCtrl = TextEditingController(
+      text: (config.subscriptionCommissionRate * 100).toStringAsFixed(0),
+    );
+    final targetBonusCtrl = TextEditingController(
+      text: config.targetBonusAmount.toStringAsFixed(0),
+    );
+    final rank1Ctrl = TextEditingController(
+      text: config.rank1BonusAmount.toStringAsFixed(0),
+    );
+    final rank2Ctrl = TextEditingController(
+      text: config.rank2BonusAmount.toStringAsFixed(0),
+    );
+    final rank3Ctrl = TextEditingController(
+      text: config.rank3BonusAmount.toStringAsFixed(0),
+    );
+    final expiryCtrl = TextEditingController(
+      text: config.expiryWarningDays.toString(),
+    );
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Marketer reward settings'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: monthlyTargetCtrl,
+                keyboardType: TextInputType.number,
+                decoration:
+                    const InputDecoration(labelText: 'Monthly target'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: commissionCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Commission rate (%)',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: targetBonusCtrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration:
+                    const InputDecoration(labelText: 'Target bonus amount'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: rank1Ctrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration:
+                    const InputDecoration(labelText: '1st place bonus'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: rank2Ctrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration:
+                    const InputDecoration(labelText: '2nd place bonus'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: rank3Ctrl,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration:
+                    const InputDecoration(labelText: '3rd place bonus'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: expiryCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Expiry warning days',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final monthlyTarget =
+                  int.tryParse(monthlyTargetCtrl.text.trim()) ?? 0;
+              final commissionRate =
+                  (double.tryParse(commissionCtrl.text.trim()) ?? 0) / 100.0;
+              final targetBonus =
+                  double.tryParse(targetBonusCtrl.text.trim()) ?? 0.0;
+              final rank1 = double.tryParse(rank1Ctrl.text.trim()) ?? 0.0;
+              final rank2 = double.tryParse(rank2Ctrl.text.trim()) ?? 0.0;
+              final rank3 = double.tryParse(rank3Ctrl.text.trim()) ?? 0.0;
+              final expiryDays = int.tryParse(expiryCtrl.text.trim()) ?? 0;
+
+              final ok = await context.read<MarketerProvider>().updateRewardConfig(
+                    monthlyTargetSubscriptions: monthlyTarget <= 0 ? 1 : monthlyTarget,
+                    targetBonusAmount: targetBonus,
+                    rank1BonusAmount: rank1,
+                    rank2BonusAmount: rank2,
+                    rank3BonusAmount: rank3,
+                    subscriptionCommissionRate:
+                        commissionRate < 0 ? 0 : commissionRate,
+                    expiryWarningDays: expiryDays <= 0 ? 1 : expiryDays,
+                  );
+              if (!context.mounted) return;
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    ok
+                        ? 'Marketer reward settings updated'
+                        : (context.read<MarketerProvider>().errorMessage ??
+                            'Unable to update marketer reward settings'),
+                  ),
+                ),
+              );
+            },
+            child: const Text('Save'),
+          ),
+        ],
       ),
     );
   }

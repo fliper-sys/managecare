@@ -571,22 +571,15 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
 
   Future<void> _removeWorker(String workerId, String? businessId) async {
     try {
-      // Mark as inactive in workers collection
-      await FirebaseFirestore.instance
-          .collection('workers')
-          .doc(workerId)
-          .update({'isActive': false, 'updatedAt': FieldValue.serverTimestamp()});
-
-      // Update in users collection
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(workerId)
-          .update({'businessId': FieldValue.delete(), 'role': FieldValue.delete(), 'updatedAt': FieldValue.serverTimestamp()});
-
       final targetBusinessId = businessId?.trim() ?? '';
       if (targetBusinessId.isNotEmpty) {
-        await context.read<WorkersProvider>().refreshForBusiness(targetBusinessId);
+        await context.read<WorkersProvider>().removeWorkerFromBusiness(
+              workerId,
+              businessId: targetBusinessId,
+            );
         await context.read<BusinessProvider>().refreshBusinessStats(targetBusinessId);
+      } else {
+        throw StateError('Business context is missing for this worker.');
       }
 
       if (mounted) {

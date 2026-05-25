@@ -70,6 +70,43 @@ class MenuOption {
       };
 }
 
+class MenuIngredient {
+  final String productId;
+  final String productName;
+  final double quantityPerPortion;
+  final String unit;
+  final double unitCost;
+
+  const MenuIngredient({
+    required this.productId,
+    required this.productName,
+    required this.quantityPerPortion,
+    this.unit = 'unit',
+    this.unitCost = 0.0,
+  });
+
+  factory MenuIngredient.fromJson(Map<String, dynamic> json) => MenuIngredient(
+        productId: (json['productId'] ?? '').toString(),
+        productName: (json['productName'] ?? json['name'] ?? '').toString(),
+        quantityPerPortion:
+            (json['quantityPerPortion'] as num?)?.toDouble() ??
+                (json['quantity'] as num?)?.toDouble() ??
+                0.0,
+        unit: (json['unit'] ?? 'unit').toString(),
+        unitCost: (json['unitCost'] as num?)?.toDouble() ??
+            (json['cost'] as num?)?.toDouble() ??
+            0.0,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'productId': productId,
+        'productName': productName,
+        'quantityPerPortion': quantityPerPortion,
+        'unit': unit,
+        'unitCost': unitCost,
+      };
+}
+
 class MenuItem {
   final String id;
   final String name;
@@ -85,6 +122,7 @@ class MenuItem {
   final String? inventoryProductId; // link to inventory product if available
   final int? inventoryStock;
   final List<MenuOption> options;
+  final List<MenuIngredient> ingredients;
 
   MenuItem({
     required this.id,
@@ -101,13 +139,15 @@ class MenuItem {
     this.inventoryProductId,
     this.inventoryStock,
     this.options = const [],
+    this.ingredients = const [],
   });
 
   factory MenuItem.fromJson(Map<String, dynamic> json) => MenuItem(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        category: json['category'] as String,
-        price: (json['price'] as num).toDouble(),
+        id: (json['id'] ?? '').toString(),
+        name: (json['name'] ?? json['menuItemName'] ?? json['productName'] ?? '')
+            .toString(),
+        category: (json['category'] ?? 'Menu').toString(),
+        price: (json['price'] as num?)?.toDouble() ?? 0.0,
         cost: (json['cost'] as num?)?.toDouble(),
         description: json['description'] as String?,
         available: json['available'] as bool? ?? true,
@@ -119,6 +159,11 @@ class MenuItem {
         inventoryStock: json['inventoryStock'] as int?,
         options: (json['options'] as List<dynamic>?)
                 ?.map((e) => MenuOption.fromJson(e as Map<String, dynamic>))
+                .toList() ??
+            [],
+        ingredients: (json['ingredients'] as List<dynamic>?)
+                ?.map((e) =>
+                    MenuIngredient.fromJson(Map<String, dynamic>.from(e as Map)))
                 .toList() ??
             [],
       );
@@ -138,6 +183,7 @@ class MenuItem {
         'inventoryProductId': inventoryProductId,
         'inventoryStock': inventoryStock,
         'options': options.map((o) => o.toJson()).toList(),
+        'ingredients': ingredients.map((ingredient) => ingredient.toJson()).toList(),
       };
 }
 
@@ -165,13 +211,31 @@ class OrderItem {
   });
 
   factory OrderItem.fromJson(Map<String, dynamic> json) => OrderItem(
-        id: json['id'] as String,
-        menuItemId: json['menuItemId'] as String,
-        menuItemName: json['menuItemName'] as String,
-        price: (json['price'] as num).toDouble(),
-        quantity: json['quantity'] as int,
+        id: (json['id'] ?? '').toString(),
+        menuItemId:
+            (json['menuItemId'] ?? json['productId'] ?? json['itemId'] ?? '')
+                .toString(),
+        menuItemName: (json['menuItemName'] ??
+                json['name'] ??
+                json['productName'] ??
+                json['itemName'] ??
+                'Item')
+            .toString(),
+        price: (json['price'] as num?)?.toDouble() ??
+            (json['unitPrice'] as num?)?.toDouble() ??
+            0.0,
+        quantity: (json['quantity'] as num?)?.toInt() ??
+            (json['qty'] as num?)?.toInt() ??
+            1,
         specialInstructions: json['specialInstructions'] as String?,
-        subtotal: (json['subtotal'] as num).toDouble(),
+        subtotal: (json['subtotal'] as num?)?.toDouble() ??
+            (json['total'] as num?)?.toDouble() ??
+            (((json['price'] as num?)?.toDouble() ??
+                    (json['unitPrice'] as num?)?.toDouble() ??
+                    0.0) *
+                ((json['quantity'] as num?)?.toDouble() ??
+                    (json['qty'] as num?)?.toDouble() ??
+                    1.0)),
         inventoryProductId: json['inventoryProductId'] as String?,
         selectedOptions: (json['selectedOptions'] as List<dynamic>?)
                 ?.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>))
@@ -957,12 +1021,31 @@ class RestaurantProvider extends ChangeNotifier {
   Future<void> updateMenuItem(String id, MenuItem updatedItem) async {
     final index = _menuItems.indexWhere((item) => item.id == id);
     if (index != -1) {
+      final itemToStore = updatedItem.id.isEmpty
+          ? MenuItem(
+              id: id,
+              name: updatedItem.name,
+              category: updatedItem.category,
+              price: updatedItem.price,
+              cost: updatedItem.cost,
+              description: updatedItem.description,
+              available: updatedItem.available,
+              preparationTime: updatedItem.preparationTime,
+              imageUrl: updatedItem.imageUrl,
+              rating: updatedItem.rating,
+              reviewCount: updatedItem.reviewCount,
+              inventoryProductId: updatedItem.inventoryProductId,
+              inventoryStock: updatedItem.inventoryStock,
+              options: updatedItem.options,
+              ingredients: updatedItem.ingredients,
+            )
+          : updatedItem;
       if (_businessId.isNotEmpty) {
-        final data = updatedItem.toJson();
+        final data = itemToStore.toJson();
         data['businessId'] = _businessId;
         await FirebaseFirestore.instance.collection('restaurant_menu').doc(id).set(data, SetOptions(merge: true));
       }
-      _menuItems[index] = updatedItem;
+      _menuItems[index] = itemToStore;
       await _persistMenuCache();
       notifyListeners();
     }

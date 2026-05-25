@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/constants/routes.dart';
 
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/hotel_provider.dart';
@@ -713,9 +714,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                         icon: const Icon(Icons.add_shopping_cart),
                                         label: const Text('Attach Sale/Order'),
                                         onPressed: () {
-                                          // TODO: Implement attach sale/order dialog
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('Attach Sale/Order dialog coming soon!')),
+                                          _showAttachOrderOptions(
+                                            context,
+                                            reservation: reservation,
                                           );
                                         },
                                       ),
@@ -1176,6 +1177,65 @@ class _BookingsScreenState extends State<BookingsScreen> {
           'Added ${formatCurrency(amount)} to ${reservation.guestName}\'s folio',
         ),
       ),
+    );
+  }
+
+  Future<void> _showAttachOrderOptions(
+    BuildContext context, {
+    required Reservation reservation,
+  }) async {
+    if (reservation.status != 'checked-in') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Only checked-in guests can have food or drink orders charged to their room',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final selection = await showModalBottomSheet<String>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.restaurant_menu),
+              title: const Text('Add Restaurant Order'),
+              subtitle: const Text('Charge food orders to this room booking'),
+              onTap: () => Navigator.of(sheetContext).pop('restaurant'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.local_bar),
+              title: const Text('Add Bar Order'),
+              subtitle: const Text('Charge drinks to this room booking'),
+              onTap: () => Navigator.of(sheetContext).pop('bar'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: const Text('Cancel'),
+              onTap: () => Navigator.of(sheetContext).pop(),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (!context.mounted || selection == null) return;
+
+    Navigator.of(context).pop();
+
+    final route = selection == 'bar'
+        ? Routes.hotelBar
+        : Routes.hotelRestaurant;
+
+    await Navigator.of(context).pushNamed(
+      route,
+      arguments: {
+        'reservationId': reservation.id,
+      },
     );
   }
 
