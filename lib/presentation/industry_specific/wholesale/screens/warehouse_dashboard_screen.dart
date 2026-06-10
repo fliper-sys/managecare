@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/utils/formatters.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../core/constants/routes.dart' show Routes;
 import '../../../../providers/auth_provider.dart';
 import '../providers/wholesale_provider.dart';
@@ -262,6 +263,12 @@ class _WarehouseDashboardScreenState extends State<WarehouseDashboardScreen>
                                   context,
                                   Routes.wholesaleReports,
                                 ),
+                              ),
+                              _OperationCard(
+                                title: 'Customer Care',
+                                icon: Icons.support_agent_rounded,
+                                color: Colors.green,
+                                onTap: () => WhatsAppUtils.openCustomerSupport(context),
                               ),
                               _OperationCard(
                                 title: 'Manage Warehouses',

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/constants/routes.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 import '../providers/restaurant_provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
@@ -234,6 +235,16 @@ class RestaurantDashboardScreen extends StatelessWidget {
                       ),
                     );
                   }
+
+                  actions.add(
+                    _ActionTile(
+                      icon: Icons.support_agent_rounded,
+                      color: Colors.green,
+                      label: 'Customer Care',
+                      subtitle: 'Chat on WhatsApp',
+                      onTap: () => WhatsAppUtils.openCustomerSupport(context),
+                    ),
+                  );
 
                   if (actions.isEmpty) {
                     return Container(

@@ -1,7 +1,7 @@
 name: business_manager
 description: A comprehensive business management app for multiple industries
 publish_to: 'none'
-version: 1.0.35+35
+version: 1.0.37+37
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

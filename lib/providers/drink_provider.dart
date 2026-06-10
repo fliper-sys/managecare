@@ -191,6 +191,27 @@ class BarInvoice {
       lines.fold<int>(0, (sum, line) => sum + line.quantityBottles);
 
   factory BarInvoice.fromJson(Map<String, dynamic> json) {
+    final parsedLines = (json['lines'] as List<dynamic>?)
+            ?.map((item) =>
+                OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
+            .toList() ??
+        (json['items'] as List<dynamic>?)
+                ?.map((item) =>
+                    OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
+                .toList() ??
+            const <OrderLine>[];
+    final calculatedSubtotal =
+        parsedLines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
+    final storedSubtotal = _readDrinkDouble(json['subtotal']);
+    final tax = _readDrinkDouble(json['tax']);
+    final discount = _readDrinkDouble(json['discount']);
+    final subtotal = storedSubtotal > 0 ? storedSubtotal : calculatedSubtotal;
+    final storedTotal = _readDrinkDouble(
+      json['total'] ?? json['totalAmount'] ?? json['finalAmount'],
+    );
+    final calculatedTotal =
+        (subtotal + tax - discount).clamp(0.0, double.infinity).toDouble();
+
     return BarInvoice(
       id: (json['id'] ?? '').toString(),
       businessId: (json['businessId'] ?? '').toString(),
@@ -203,19 +224,11 @@ class BarInvoice {
       customerEmail: json['customerEmail']?.toString(),
       tableLabel: json['tableLabel']?.toString(),
       notes: json['notes']?.toString(),
-      lines: (json['lines'] as List<dynamic>?)
-              ?.map((item) =>
-                  OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
-              .toList() ??
-          (json['items'] as List<dynamic>?)
-                  ?.map((item) =>
-                      OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
-                  .toList() ??
-              const [],
-      subtotal: _readDrinkDouble(json['subtotal']),
-      tax: _readDrinkDouble(json['tax']),
-      discount: _readDrinkDouble(json['discount']),
-      total: _readDrinkDouble(json['total']),
+      lines: parsedLines,
+      subtotal: subtotal,
+      tax: tax,
+      discount: discount,
+      total: storedTotal > 0 ? storedTotal : calculatedTotal,
       createdAt: _parseDrinkDateOrNow(json['createdAt']),
       convertedAt: _parseDrinkNullableDate(json['convertedAt']),
       linkedSaleId: json['linkedSaleId']?.toString(),

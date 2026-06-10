@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../providers/gym_provider.dart';
 import '../../../../core/constants/routes.dart';
@@ -357,6 +358,21 @@ class GymDashboardScreen extends StatelessWidget {
                         ),
                       ));
                     }
+
+                    if (actions.isNotEmpty) {
+                      actions.add(const SizedBox(width: 12));
+                    }
+                    actions.add(Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.support_agent_rounded),
+                        label: const Text('Customer Care'),
+                        onPressed: () => WhatsAppUtils.openCustomerSupport(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ));
 
                     if (actions.isEmpty) {
                       return const Center(

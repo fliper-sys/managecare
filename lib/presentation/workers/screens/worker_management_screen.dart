@@ -216,6 +216,12 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                     name: (worker['name'] ?? worker['fullName'] ?? 'Worker')
                         as String,
                     role: (worker['role'] as String?) ?? 'staff',
+                    permissions: (worker['permissions'] as List<dynamic>?)
+                            ?.map((permission) => permission.toString())
+                            .toList() ??
+                        WorkerPermissions.getPermissionsForRole(
+                          (worker['role'] as String?) ?? 'staff',
+                        ),
                     status:
                         (worker['isActive'] == true) ? 'Active' : 'Off-duty',
                     businessId: business?.id,
@@ -343,6 +349,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     required String workerId,
     required String name,
     required String role,
+    required List<String> permissions,
     required String status,
     String? businessId,
     String? businessType,
@@ -393,7 +400,13 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                 onSelected: (value) {
                   switch (value) {
                     case 'edit':
-                      _showEditWorkerDialog(workerId, name, role, businessId);
+                      _showEditWorkerDialog(
+                        workerId,
+                        name,
+                        role,
+                        permissions,
+                        businessId,
+                      );
                       break;
                     case 'view_details':
                       _navigateToWorkerDetails(workerId, businessId, businessType);
@@ -406,7 +419,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                 itemBuilder: (context) => [
                   const PopupMenuItem(
                     value: 'edit',
-                    child: Text('Edit Role'),
+                    child: Text('Edit Permissions'),
                   ),
                   const PopupMenuItem(
                     value: 'view_details',
@@ -467,32 +480,84 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     }
   }
 
-  void _showEditWorkerDialog(String workerId, String name, String currentRole, String? businessId) {
+  void _showEditWorkerDialog(
+    String workerId,
+    String name,
+    String currentRole,
+    List<String> currentPermissions,
+    String? businessId,
+  ) {
     final businessProvider = context.read<BusinessProvider>();
     final businessType = businessProvider.currentBusiness?.businessType ?? 'retail';
     final availableRoles = WorkerPermissions.getAvailableRoles(businessType);
+    final allPermissions = WorkerPermissions.getAllPermissions();
 
     String selectedRole = currentRole;
+    final selectedPermissions = <String>{
+      ...currentPermissions,
+      if (currentPermissions.isEmpty)
+        ...WorkerPermissions.getPermissionsForRole(currentRole),
+    };
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: Text('Edit Role for $name'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Select new role:'),
-              const SizedBox(height: 16),
-              ...availableRoles.map((role) => RadioListTile<String>(
-                title: Text(WorkerPermissions.getRoleDisplayName(role)),
-                value: role,
-                groupValue: selectedRole,
-                onChanged: (value) {
-                  setState(() => selectedRole = value!);
-                },
-              )),
-            ],
+          title: Text('Edit Permissions for $name'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Role'),
+                  ),
+                  const SizedBox(height: 8),
+                  ...availableRoles.map((role) => RadioListTile<String>(
+                        title: Text(WorkerPermissions.getRoleDisplayName(role)),
+                        value: role,
+                        groupValue: selectedRole,
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() {
+                            selectedRole = value;
+                            selectedPermissions
+                              ..clear()
+                              ..addAll(
+                                  WorkerPermissions.getPermissionsForRole(value));
+                          });
+                        },
+                      )),
+                  const Divider(),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Permissions'),
+                  ),
+                  const SizedBox(height: 8),
+                  ...allPermissions.map(
+                    (permission) => CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      value: selectedPermissions.contains(permission),
+                      title: Text(
+                        permission.replaceAll('_', ' ').toUpperCase(),
+                      ),
+                      onChanged: (checked) {
+                        setState(() {
+                          if (checked == true) {
+                            selectedPermissions.add(permission);
+                          } else {
+                            selectedPermissions.remove(permission);
+                          }
+                        });
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
           actions: [
             TextButton(
@@ -501,9 +566,12 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
             ),
             TextButton(
               onPressed: () async {
-                if (selectedRole != currentRole) {
-                  await _updateWorkerRole(workerId, selectedRole, businessId);
-                }
+                await _updateWorkerRole(
+                  workerId,
+                  selectedRole,
+                  businessId,
+                  selectedPermissions.toList()..sort(),
+                );
                 Navigator.of(context).pop();
                 this.setState(() {}); // Refresh the list
               },
@@ -515,23 +583,34 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     );
   }
 
-  Future<void> _updateWorkerRole(String workerId, String newRole, String? businessId) async {
+  Future<void> _updateWorkerRole(
+    String workerId,
+    String newRole,
+    String? businessId,
+    List<String> permissions,
+  ) async {
     try {
+      final updateData = {
+        'role': newRole,
+        'permissions': permissions,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
       // Update in workers collection
       await FirebaseFirestore.instance
           .collection('workers')
           .doc(workerId)
-          .update({'role': newRole, 'updatedAt': FieldValue.serverTimestamp()});
+          .update(updateData);
 
       // Also update in users collection if exists
       await FirebaseFirestore.instance
           .collection('users')
           .doc(workerId)
-          .update({'role': newRole, 'updatedAt': FieldValue.serverTimestamp()});
+          .update(updateData);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Worker role updated successfully')),
+          const SnackBar(content: Text('Worker permissions updated in real time')),
         );
       }
     } catch (e) {

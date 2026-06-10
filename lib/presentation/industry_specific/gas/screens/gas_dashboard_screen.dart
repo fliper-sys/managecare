@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/retail_provider.dart';
 
@@ -296,6 +297,11 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                               color: Colors.teal,
                               onTap: () => Navigator.pushNamed(
                                   context, Routes.printerSettings)),
+                          _OperationCard(
+                              title: 'Customer Care',
+                              icon: Icons.support_agent_rounded,
+                              color: Colors.green,
+                              onTap: () => WhatsAppUtils.openCustomerSupport(context)),
                           _OperationCard(
                               title: 'History',
                               icon: Icons.history,

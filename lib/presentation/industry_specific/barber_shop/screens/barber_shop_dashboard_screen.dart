@@ -5,6 +5,7 @@ import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../providers/auth_provider.dart';
 import '../providers/barber_shop_provider.dart';
 
@@ -313,6 +314,13 @@ class _BarberShopDashboardScreenState extends State<BarberShopDashboardScreen>
                               icon: Icons.print,
                               color: Colors.teal,
                               onTap: () => Navigator.pushNamed(context, Routes.printerSettings),
+                            ),
+                            const SizedBox(width: 12),
+                            _QuickActionButton(
+                              label: 'Customer Care',
+                              icon: Icons.support_agent_rounded,
+                              color: Colors.green,
+                              onTap: () => WhatsAppUtils.openCustomerSupport(context),
                             ),
                           ],
                         ),

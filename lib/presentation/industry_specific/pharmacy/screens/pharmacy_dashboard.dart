@@ -4,6 +4,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/constants/routes.dart';
@@ -315,6 +316,13 @@ class _PharmacyDashboardState extends State<PharmacyDashboard> {
                           icon: Icons.print,
                           color: Colors.teal,
                         ),
+                      ));
+
+                      widgets.add(_ActionCard(
+                        title: 'Customer Care',
+                        icon: Icons.support_agent_rounded,
+                        color: Colors.green,
+                        onTap: () => WhatsAppUtils.openCustomerSupport(context),
                       ));
 
                       }
@@ -661,11 +669,13 @@ class _ActionCard extends StatelessWidget {
   final String title;
   final IconData icon;
   final Color color;
+  final VoidCallback? onTap;
 
   const _ActionCard({
     required this.title,
     required this.icon,
     required this.color,
+    this.onTap,
   });
 
   @override
@@ -673,17 +683,22 @@ class _ActionCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.cardColor,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: scheme.outline.withOpacity(0.24)),
-        boxShadow:
-            theme.brightness == Brightness.dark ? null : AppColors.cardShadow,
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
+        child: Container(
+          decoration: BoxDecoration(
+            color: theme.cardColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: scheme.outline.withOpacity(0.24)),
+            boxShadow:
+                theme.brightness == Brightness.dark ? null : AppColors.cardShadow,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -700,7 +715,7 @@ class _ActionCard extends StatelessWidget {
           ),
         ],
       ),
-    );
+    )));
   }
 }
 

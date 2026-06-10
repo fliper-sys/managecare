@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/constants/routes.dart';
+import '../../../core/config.dart';
 import '../../../core/constants/business_types.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -473,7 +474,11 @@ class _HomeTabState extends State<_HomeTab> {
       businessId: business?.id,
     );
 
-    final supportWhatsapp = restrictionState?.customerCareWhatsapp ?? '';
+    final supportWhatsapp = (restrictionState?.customerCareWhatsapp ?? '')
+            .trim()
+            .isNotEmpty
+        ? restrictionState!.customerCareWhatsapp ?? AppConfig.ownerWhatsappNumber
+        : AppConfig.ownerWhatsappNumber;
     if (supportWhatsapp.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

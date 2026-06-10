@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
+import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -12,8 +13,12 @@ import '../../../../core/theme/text_styles.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/drink_provider.dart';
+import '../../../../providers/receipt_settings_provider.dart';
+import '../../../../services/esc_pos_receipt_generator.dart';
 import '../../../../services/pdf_invoice_generator.dart';
 import '../../../../services/receipt_manager.dart';
+import '../../../../services/thermal_printer_manager.dart';
+import '../../../../services/thermal_printing_service.dart';
 import '../../../../services/web_download.dart' as web_download;
 import '../../../../widgets/custom_button.dart';
 
@@ -268,24 +273,179 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
       if (kIsWeb) {
         await web_download.printPdfBytes(pdfBytes, filename);
       } else {
-        final tempDir = await getTemporaryDirectory();
-        final file = File('${tempDir.path}/$filename');
-        await file.writeAsBytes(pdfBytes);
-        await Share.shareXFiles(
-          [XFile(file.path)],
-          text: 'Print invoice ${invoice.invoiceNumber}',
-          subject: 'Print Invoice',
+        await Printing.layoutPdf(
+          name: filename,
+          onLayout: (_) async => pdfBytes,
         );
       }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Invoice print action ready: $filename')),
+        SnackBar(content: Text('Invoice print dialog opened: $filename')),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Invoice print failed: $e')),
+      );
+    }
+  }
+
+  List<ReceiptLineItem> _thermalInvoiceItems(BarInvoice invoice) {
+    final provider = context.read<DrinkProvider>();
+    return invoice.lines.map((line) {
+      final drink = provider.getDrinkById(line.drinkId);
+      return ReceiptLineItem(
+        name: drink?.name ?? 'Unknown drink',
+        quantity: line.quantityBottles.toDouble(),
+        unitPrice: line.unitPrice,
+        total: line.lineTotal(),
+        unit: 'bottle',
+      );
+    }).toList();
+  }
+
+  Uint8List _buildThermalInvoiceSlip(BarInvoice invoice, int paperWidth) {
+    final business = context.read<BusinessProvider>().currentBusiness;
+    final auth = context.read<AuthProvider>();
+    final notes = [
+      if ((invoice.customerPhone ?? '').trim().isNotEmpty)
+        'Phone: ${invoice.customerPhone!.trim()}',
+      if ((invoice.tableLabel ?? '').trim().isNotEmpty)
+        'Table/Tab: ${invoice.tableLabel!.trim()}',
+      if ((invoice.notes ?? '').trim().isNotEmpty) invoice.notes!.trim(),
+    ].join('\n');
+
+    return EscPosReceiptGenerator.generateReceipt(
+      businessName: business?.name ?? 'Bar',
+      receiptNumber: invoice.invoiceNumber,
+      receiptDate: invoice.createdAt,
+      items: _thermalInvoiceItems(invoice),
+      subtotal: invoice.subtotal,
+      tax: invoice.tax,
+      discount: invoice.discount,
+      total: invoice.total,
+      paymentMethod: invoice.status == 'converted' ? 'Paid' : 'Pending',
+      customerName: invoice.customerName,
+      cashier: invoice.workerName ?? auth.currentUser?.fullName,
+      storeAddress: business?.address,
+      storeTelephone: business?.phone,
+      notes: notes.trim().isEmpty ? 'Bar invoice slip' : notes,
+      currencySymbol: 'NGN ',
+      paperWidth: paperWidth,
+    );
+  }
+
+  Future<bool> _connectBluetoothPrinter(ThermalPrintingService service) async {
+    await service.initialize();
+    final settings =
+        context.read<ReceiptSettingsProvider>().receiptSettings;
+    final defaultMac = settings?.defaultPrinterMac;
+    final devices = await service.getAvailablePrinters();
+
+    if (devices.isEmpty && (defaultMac == null || defaultMac.isEmpty)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No Bluetooth printer found. Pair a printer first.'),
+          ),
+        );
+      }
+      return false;
+    }
+
+    ThermalPrinterDevice? selected;
+    if (defaultMac != null && defaultMac.isNotEmpty) {
+      selected = devices.firstWhere(
+        (device) => device.address == defaultMac,
+        orElse: () => ThermalPrinterDevice(
+          address: defaultMac,
+          name: defaultMac,
+          type: 'bluetooth',
+        ),
+      );
+    } else if (devices.length == 1) {
+      selected = devices.first;
+    } else {
+      final choice = await showDialog<String?>(
+        context: context,
+        builder: (ctx) => SimpleDialog(
+          title: const Text('Select Bluetooth Printer'),
+          children: devices
+              .map(
+                (device) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, device.address),
+                  child: Text(
+                    device.name.isNotEmpty ? device.name : device.address,
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      );
+      if (choice == null) return false;
+      selected = devices.firstWhere((device) => device.address == choice);
+    }
+
+    final connected = await service.connectToPrinter(selected);
+    if (!connected && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to connect to printer.')),
+      );
+    }
+    return connected;
+  }
+
+  Future<void> _printInvoiceBluetooth(BarInvoice invoice) async {
+    if (kIsWeb) {
+      await _printInvoice(invoice);
+      return;
+    }
+
+    try {
+      final permissionsOk =
+          await ThermalPrintingService.ensureBluetoothPermissions();
+      if (!permissionsOk) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bluetooth permission was denied.')),
+        );
+        return;
+      }
+
+      final settings =
+          context.read<ReceiptSettingsProvider>().receiptSettings;
+      final paperWidth = settings?.paperWidth ?? 58;
+      final service = ThermalPrintingService();
+      final connected = await _connectBluetoothPrinter(service);
+      if (!connected) return;
+
+      final status = await service.printerManager.checkPrinterStatus();
+      if (status != PrinterStatus.connected) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Printer is not connected.')),
+        );
+        return;
+      }
+
+      final slipBytes = _buildThermalInvoiceSlip(invoice, paperWidth);
+      final printed = await service.printRawBytes(slipBytes);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            printed
+                ? 'Bluetooth invoice slip printed.'
+                : 'Bluetooth invoice print failed.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Bluetooth invoice print failed: $e')),
       );
     }
   }
@@ -441,6 +601,15 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                   onPressed: () async {
                     Navigator.of(sheetContext).pop();
                     await _printInvoice(invoice);
+                  },
+                ),
+                const SizedBox(height: 8),
+                CustomButton(
+                  text: 'Print Invoice (Bluetooth)',
+                  type: ButtonType.outlined,
+                  onPressed: () async {
+                    Navigator.of(sheetContext).pop();
+                    await _printInvoiceBluetooth(invoice);
                   },
                 ),
                 const SizedBox(height: 8),

@@ -4,6 +4,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 
 import '../../../../core/constants/routes.dart';
 import '../../../../providers/hotel_provider.dart';
@@ -564,6 +565,14 @@ class HotelDashboardScreen extends StatelessWidget {
       ));
 
     }
+
+    actions.add(_buildActionCard(
+      context,
+      icon: Icons.support_agent_rounded,
+      label: 'Customer Care',
+      color: Colors.green,
+      onTap: () => WhatsAppUtils.openCustomerSupport(context),
+    ));
 
     // Use GridView for cleaner layout
     return GridView.count(

@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:printing/printing.dart';
 import '../../../services/thermal_printer_manager.dart';
 import '../../../services/thermal_printing_service.dart';
 import '../../../services/esc_pos_receipt_generator.dart';
@@ -416,6 +417,169 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
     _editableTax = (widget.saleData['tax'] as num?)?.toDouble() ?? 0.0;
   }
 
+  double _toDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value.replaceAll(',', '')) ?? 0.0;
+    return 0.0;
+  }
+
+  double _saleItemQuantity(Map<String, dynamic> item) =>
+      _toDouble(item['quantity'] ?? item['qty'] ?? 1);
+
+  double _saleItemUnitPrice(Map<String, dynamic> item) =>
+      _toDouble(item['unitPrice'] ?? item['price'] ?? item['sellingPrice']);
+
+  double _saleItemTotal(Map<String, dynamic> item) {
+    final explicitTotal = _toDouble(item['total'] ?? item['subtotal'] ?? item['lineTotal']);
+    if (explicitTotal > 0) return explicitTotal;
+    return _saleItemQuantity(item) * _saleItemUnitPrice(item);
+  }
+
+  List<Map<String, dynamic>> _invoiceCartItems() {
+    return (widget.saleData['items'] as List? ?? []).map((item) {
+      final map = item is Map<String, dynamic>
+          ? Map<String, dynamic>.from(item)
+          : item is Map
+              ? Map<String, dynamic>.from(item)
+              : <String, dynamic>{};
+      final quantity = _saleItemQuantity(map);
+      final unitPrice = _saleItemUnitPrice(map);
+      final lineTotal = _saleItemTotal(map);
+      final name = map['name'] ?? map['productName'] ?? map['menuItemName'] ?? 'Item';
+
+      return {
+        'productId': map['productId'] ?? map['id'] ?? '',
+        'productName': name,
+        'menuItemName': name,
+        'name': name,
+        'quantity': quantity,
+        'price': unitPrice,
+        'unitPrice': unitPrice,
+        'subtotal': lineTotal,
+        'total': lineTotal,
+        'specialInstructions': map['specialInstructions'],
+        'selectedOptions': map['selectedOptions'] ?? [],
+      };
+    }).toList();
+  }
+
+  double _invoiceSubtotal() {
+    final explicitSubtotal = _toDouble(widget.saleData['subtotal']);
+    if (explicitSubtotal > 0) return explicitSubtotal;
+    return _invoiceCartItems().fold<double>(
+      0.0,
+      (sum, item) => sum + _toDouble(item['total']),
+    );
+  }
+
+  double _invoiceTax() => _toDouble(widget.saleData['tax']);
+
+  double _invoiceDiscount() => _toDouble(widget.saleData['discount']);
+
+  double _invoiceTotal() {
+    final explicitTotal =
+        _toDouble(widget.saleData['total'] ?? widget.saleData['finalAmount']);
+    if (explicitTotal > 0) return explicitTotal;
+    final total = _invoiceSubtotal() + _invoiceTax() - _invoiceDiscount();
+    return total < 0 ? 0.0 : total;
+  }
+
+  List<ReceiptLineItem> _invoiceReceiptLineItems() {
+    return _invoiceCartItems().map((item) {
+      return ReceiptLineItem(
+        name: (item['name'] ?? item['productName'] ?? 'Item').toString(),
+        quantity: _toDouble(item['quantity']),
+        unitPrice: _toDouble(item['unitPrice'] ?? item['price']),
+        total: _toDouble(item['total']),
+      );
+    }).toList();
+  }
+
+  Uint8List _buildThermalInvoiceBytes({
+    required int paperWidth,
+    String? copyLabel,
+  }) {
+    final auth = context.read<AuthProvider>();
+    final business = context.read<BusinessProvider>().currentBusiness;
+    final invoiceNumber =
+        'INV-${widget.orderId ?? DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+    final customerName = (widget.saleData['customerName'] ??
+            (widget.saleData['customer'] is Map
+                ? widget.saleData['customer']['name']
+                : null))
+        ?.toString();
+
+    return EscPosReceiptGenerator.generateReceipt(
+      businessName: widget.businessName,
+      receiptNumber: invoiceNumber,
+      receiptDate: DateTime.now(),
+      items: _invoiceReceiptLineItems(),
+      subtotal: _invoiceSubtotal(),
+      tax: _invoiceTax(),
+      discount: _invoiceDiscount(),
+      total: _invoiceTotal(),
+      paymentMethod: _getPaymentMethod(widget.saleData),
+      customerName: customerName,
+      cashier: auth.currentUser?.fullName,
+      storeName: _receiptStoreName(),
+      storeAddress: business?.address,
+      storeTelephone: business?.phone,
+      notes: 'Invoice slip',
+      currencySymbol: 'NGN ',
+      paperWidth: paperWidth,
+      copyLabel: copyLabel,
+    );
+  }
+
+  Future<void> _printBluetoothInvoice() async {
+    final selectedWidth = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Invoice Paper Width'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, 58),
+            child: const Text('58mm thermal slip'),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, 80),
+            child: const Text('80mm thermal slip'),
+          ),
+        ],
+      ),
+    );
+
+    if (selectedWidth == null) return;
+
+    final thermalPrefs =
+        Provider.of<ReceiptSettingsProvider>(context, listen: false)
+            .receiptPreferences;
+    final copiesRaw = thermalPrefs['copies'];
+    final copies = (copiesRaw is int && copiesRaw > 0) ? copiesRaw : 1;
+    final receipts = <Uint8List>[];
+
+    for (var i = 0; i < copies; i++) {
+      receipts.add(
+        _buildThermalInvoiceBytes(
+          paperWidth: selectedWidth,
+          copyLabel: _copyLabelForReceipt(i, copies),
+        ),
+      );
+    }
+
+    setState(() {
+      _isPrinting = true;
+      _statusMessage = 'Preparing Bluetooth invoice print...';
+      _statusColor = Colors.grey;
+    });
+
+    await _handleBluetoothPrintBytes(receipts, selectedWidth);
+
+    if (mounted) {
+      setState(() => _isPrinting = false);
+    }
+  }
+
   Future<void> _generateInvoice() async {
     if (_isEmailing) return; // Reuse the loading state
     setState(() {
@@ -437,16 +601,11 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         return;
       }
 
-      // Convert sale items to invoice format
-      final invoiceItems = (widget.saleData['items'] as List? ?? []).map((item) {
-        return {
-          'productId': item['productId'] ?? item['id'] ?? '',
-          'productName': item['productName'] ?? item['name'] ?? 'Item',
-          'quantity': item['quantity'] ?? 1,
-          'unitPrice': item['unitPrice'] ?? item['price'] ?? 0.0,
-          'total': item['total'] ?? ((item['quantity'] ?? 1) * (item['unitPrice'] ?? item['price'] ?? 0.0)),
-        };
-      }).toList();
+      final invoiceItems = _invoiceCartItems();
+      final subtotal = _invoiceSubtotal();
+      final tax = _invoiceTax();
+      final discount = _invoiceDiscount();
+      final total = _invoiceTotal();
 
       // Create invoice data
       final invoiceData = {
@@ -457,10 +616,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         'customerPhone': widget.saleData['customerPhone'],
         'invoiceNumber': 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
         'items': invoiceItems,
-        'subtotal': widget.saleData['subtotal'] ?? widget.saleData['total'] ?? 0.0,
-        'tax': widget.saleData['tax'] ?? 0.0,
-        'discount': widget.saleData['discount'] ?? 0.0,
-        'total': widget.saleData['total'] ?? widget.saleData['finalAmount'] ?? 0.0,
+        'subtotal': subtotal,
+        'tax': tax,
+        'discount': discount,
+        'total': total,
         'status': 'sent', // Mark as sent since it's generated after sale
         'createdAt': FieldValue.serverTimestamp(),
         'createdBy': auth.currentUser?.id,
@@ -503,33 +662,11 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
       final business = businessProvider.currentBusiness;
       final auth = Provider.of<AuthProvider>(context, listen: false);
 
-      // Convert sale items to cart items format
-      final cartItems = (widget.saleData['items'] as List? ?? []).map((item) {
-        if (item is Map<String, dynamic>) {
-          return {
-            'menuItemName': item['name'] ?? item['productName'] ?? 'Item',
-            'name': item['name'] ?? item['productName'] ?? 'Item',
-            'quantity': item['quantity'] ?? 1,
-            'price': item['price'] ?? item['unitPrice'] ?? 0.0,
-            'unitPrice': item['price'] ?? item['unitPrice'] ?? 0.0,
-            'subtotal': item['total'] ?? ((item['quantity'] ?? 1) * (item['price'] ?? item['unitPrice'] ?? 0.0)),
-            'total': item['total'] ?? ((item['quantity'] ?? 1) * (item['price'] ?? item['unitPrice'] ?? 0.0)),
-            'specialInstructions': item['specialInstructions'],
-            'selectedOptions': item['selectedOptions'] ?? [],
-          };
-        }
-        return {
-          'menuItemName': 'Item',
-          'name': 'Item',
-          'quantity': 1,
-          'price': 0.0,
-          'unitPrice': 0.0,
-          'subtotal': 0.0,
-          'total': 0.0,
-          'specialInstructions': null,
-          'selectedOptions': [],
-        };
-      }).toList();
+      final cartItems = _invoiceCartItems();
+      final subtotal = _invoiceSubtotal();
+      final tax = _invoiceTax();
+      final discount = _invoiceDiscount();
+      final total = _invoiceTotal();
 
       final invoiceNumber = 'INV-${widget.orderId ?? DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
 
@@ -538,10 +675,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         invoiceNumber: invoiceNumber,
         invoiceDate: DateTime.now(), // Use current date for invoice
         cartItems: cartItems,
-        subtotal: (widget.saleData['subtotal'] ?? 0.0).toDouble(),
-        tax: (widget.saleData['tax'] ?? 0.0).toDouble(),
-        discount: (widget.saleData['discount'] ?? 0.0).toDouble(),
-        total: (widget.saleData['total'] ?? widget.saleData['finalAmount'] ?? 0.0).toDouble(),
+        subtotal: subtotal,
+        tax: tax,
+        discount: discount,
+        total: total,
         customerName: (widget.saleData['customerName'] ?? widget.saleData['customer']?['name'] ?? 'Customer').toString(),
         customerEmail: widget.customerEmail,
         businessAddress: business?.address,
@@ -579,6 +716,75 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         _statusMessage = 'Error generating PDF invoice: $e';
         _statusColor = Colors.red;
       });
+    }
+  }
+
+  Future<void> _printPdfInvoice() async {
+    if (_isPrinting) return;
+    setState(() {
+      _isPrinting = true;
+      _statusMessage = 'Preparing invoice print...';
+      _statusColor = Colors.grey;
+    });
+
+    try {
+      final businessProvider =
+          Provider.of<BusinessProvider>(context, listen: false);
+      final business = businessProvider.currentBusiness;
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+      final invoiceNumber =
+          'INV-${widget.orderId ?? DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+
+      final pdfBytes = await PdfInvoiceGenerator.generateInvoicePdfBytes(
+        businessName: widget.businessName,
+        invoiceNumber: invoiceNumber,
+        invoiceDate: DateTime.now(),
+        cartItems: _invoiceCartItems(),
+        subtotal: _invoiceSubtotal(),
+        tax: _invoiceTax(),
+        discount: _invoiceDiscount(),
+        total: _invoiceTotal(),
+        customerName: (widget.saleData['customerName'] ??
+                (widget.saleData['customer'] is Map
+                    ? widget.saleData['customer']['name']
+                    : null) ??
+                'Customer')
+            .toString(),
+        customerEmail: widget.customerEmail,
+        businessAddress: business?.address,
+        businessPhone: business?.phone,
+        businessEmail: business?.email,
+        cashierName: auth.currentUser?.fullName,
+        businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
+        subscriptionTier: business?.subscriptionTier,
+        businessClass: business?.businessClass,
+      );
+      final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
+
+      if (kIsWeb) {
+        await web_download.printPdfBytes(pdfBytes, filename);
+      } else {
+        await Printing.layoutPdf(
+          name: filename,
+          onLayout: (_) async => pdfBytes,
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = 'Invoice print dialog opened';
+        _statusColor = Colors.green;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _statusMessage = 'Invoice print failed: $e';
+        _statusColor = Colors.red;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isPrinting = false);
+      }
     }
   }
 
@@ -1667,9 +1873,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
     final auth = context.watch<AuthProvider>();
     final currentRole = auth.currentUser?.role ?? '';
     final canEditPrice =
-        auth.isOwnerUser || WorkerPermissions.canEditPrice(currentRole);
+      auth.isOwnerUser || WorkerPermissions.canEditPrice(currentRole);
     final canApplyDiscount =
-        auth.isOwnerUser || WorkerPermissions.canApplyDiscount(currentRole);
+      auth.isOwnerUser || WorkerPermissions.canApplyDiscount(currentRole);
 
     return Container(
       decoration: const BoxDecoration(
@@ -2043,6 +2249,18 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                   ],
                 ),
                 const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _isPrinting ? null : _printBluetoothInvoice,
+                    icon: const Icon(Icons.print_rounded),
+                    label: const Text('Print Invoice (Bluetooth)'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange.shade700,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
               ] else if (!_pdfGenerating && _pdfFile == null && _pdfBytes == null && widget.pdfFuture == null) ...[
                 // Offer explicit Generate PDF actions when no background generation was started
                 Row(
@@ -2064,7 +2282,28 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
                       ),
                     ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _isPrinting ? null : _printPdfInvoice,
+                        icon: const Icon(Icons.print),
+                        label: const Text('Print Invoice'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
+                      ),
+                    ),
                   ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _isPrinting ? null : _printBluetoothInvoice,
+                    icon: const Icon(Icons.print_rounded),
+                    label: const Text('Print Invoice (Bluetooth)'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange.shade700,
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 12),
               ],

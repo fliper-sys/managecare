@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/colors.dart';
+import '../../../core/config.dart';
 import '../../../core/utils/worker_permissions.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../core/constants/routes.dart';
@@ -15,21 +17,6 @@ class WorkerDashboardScreen extends StatefulWidget {
 }
 
 class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
-  late String _currentRole;
-  late List<String> _permissions;
-
-  @override
-  void initState() {
-    super.initState();
-    _initializeWorkerRole();
-  }
-
-  void _initializeWorkerRole() {
-    final user = context.read<AuthProvider>().currentUser;
-    _currentRole = user?.role ?? 'worker';
-    _permissions = WorkerPermissions.getPermissionsForRole(_currentRole);
-  }
-
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
@@ -44,6 +31,14 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
 
     final businessName =
         businessProvider.currentBusiness?.name ?? 'Unknown Business';
+    final currentRole = user.role;
+    final permissions =
+        WorkerPermissions.getEffectivePermissions(currentRole, user.permissions);
+    bool can(String permission) => WorkerPermissions.hasEffectivePermission(
+          currentRole,
+          user.permissions,
+          permission,
+        );
 
     return Scaffold(
       appBar: AppBar(
@@ -77,7 +72,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${WorkerPermissions.getRoleDisplayName(_currentRole)} at $businessName',
+                    '${WorkerPermissions.getRoleDisplayName(currentRole)} at $businessName',
                     style: const TextStyle(
                       fontSize: 14,
                       color: Colors.white70,
@@ -107,7 +102,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
                     children: [
-                      if (WorkerPermissions.canManageSales(_currentRole))
+                      if (can('sales'))
                         _buildActionCard(
                           context,
                           'Sales',
@@ -115,7 +110,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                           AppColors.primary,
                           () => _navigateToSales(context),
                         ),
-                      if (WorkerPermissions.canViewInventory(_currentRole))
+                      if (can('view_inventory'))
                         _buildActionCard(
                           context,
                           'Inventory',
@@ -123,7 +118,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                           Colors.orange,
                           () => _navigateToInventory(context),
                         ),
-                      if (WorkerPermissions.canAttendance(_currentRole))
+                      if (can('attendance'))
                         _buildActionCard(
                           context,
                           'Attendance',
@@ -132,29 +127,34 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                           () => _navigateToAttendance(context),
                         ),
                       // Hotel-specific management quick actions
-                      _buildActionCard(
-                        context,
-                        'Room Management',
-                        Icons.bed_outlined,
-                        Colors.brown,
-                        () => Navigator.pushNamed(context, Routes.hotelRooms),
-                      ),
-                      _buildActionCard(
-                        context,
-                        'Guest Management',
-                        Icons.people_outline,
-                        Colors.indigo,
-                        () => Navigator.pushNamed(context, Routes.hotelGuests),
-                      ),
-                      _buildActionCard(
-                        context,
-                        'Housekeeping',
-                        Icons.cleaning_services,
-                        Colors.teal,
-                        () => Navigator.pushNamed(context, Routes.hotelHousekeeping),
-                      ),
-                      if (WorkerPermissions.hasPermission(
-                          _currentRole, 'manage_prescriptions'))
+                      if (can('manage_rooms') || can('room_status'))
+                        _buildActionCard(
+                          context,
+                          'Room Management',
+                          Icons.bed_outlined,
+                          Colors.brown,
+                          () => Navigator.pushNamed(context, Routes.hotelRooms),
+                        ),
+                      if (can('manage_guests') ||
+                          can('guest_checkin') ||
+                          can('guest_checkout'))
+                        _buildActionCard(
+                          context,
+                          'Guest Management',
+                          Icons.people_outline,
+                          Colors.indigo,
+                          () => Navigator.pushNamed(context, Routes.hotelGuests),
+                        ),
+                      if (can('room_service') || can('maintenance_requests'))
+                        _buildActionCard(
+                          context,
+                          'Housekeeping',
+                          Icons.cleaning_services,
+                          Colors.teal,
+                          () => Navigator.pushNamed(
+                              context, Routes.hotelHousekeeping),
+                        ),
+                      if (can('manage_prescriptions'))
                         _buildActionCard(
                           context,
                           'Prescriptions',
@@ -162,8 +162,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                           Colors.blue,
                           () => _navigateToPrescriptions(context),
                         ),
-                      if (WorkerPermissions.hasPermission(
-                          _currentRole, 'view_orders'))
+                      if (can('view_orders'))
                         _buildActionCard(
                           context,
                           'Orders',
@@ -172,7 +171,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                           () => _navigateToOrders(context),
                         ),
                       // Quick access to Menu for restaurant workers
-                      if (WorkerPermissions.hasPermission(_currentRole, 'view_orders') &&
+                      if (can('view_orders') &&
                           Provider.of<BusinessProvider>(context, listen: false).currentBusiness?.businessType == 'restaurant')
                         _buildActionCard(
                           context,
@@ -181,8 +180,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                           Colors.teal,
                           () => Navigator.pushNamed(context, Routes.restaurantMenu),
                         ),
-                      if (WorkerPermissions.hasPermission(
-                          _currentRole, 'appointments'))
+                      if (can('appointments'))
                         _buildActionCard(
                           context,
                           'Appointments',
@@ -196,6 +194,13 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                         Icons.print,
                         Colors.teal,
                         () => Navigator.pushNamed(context, Routes.printerSettings),
+                      ),
+                      _buildActionCard(
+                        context,
+                        'Customer Support',
+                        Icons.support_agent,
+                        Colors.green,
+                        () => _openCustomerSupport(context),
                       ),
                     ],
                   ),
@@ -212,7 +217,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                   _buildActivitySummary(),
                   const SizedBox(height: 24),
                   // Permissions Info
-                  _buildPermissionsCard(),
+                  _buildPermissionsCard(permissions),
                 ],
               ),
             ),
@@ -298,7 +303,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
     );
   }
 
-  Widget _buildPermissionsCard() {
+  Widget _buildPermissionsCard(List<String> permissions) {
     return Card(
       color: Colors.blue.shade50,
       child: Padding(
@@ -317,7 +322,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: _permissions
+              children: permissions
                   .map(
                     (permission) => Chip(
                       label:
@@ -367,6 +372,27 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
   void _navigateToAppointments(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Navigate to Appointments Screen')),
+    );
+  }
+
+  Future<void> _openCustomerSupport(BuildContext context) async {
+    const supportPhone = AppConfig.ownerWhatsappNumber;
+    final businessName =
+        context.read<BusinessProvider>().currentBusiness?.name ?? 'my business';
+    final message = Uri.encodeComponent(
+      'Hello, I need support for $businessName on Manage Care.',
+    );
+    final phoneDigits = supportPhone.replaceAll(RegExp(r'[^0-9]'), '');
+    final uri = Uri.parse('https://wa.me/$phoneDigits?text=$message');
+
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      return;
+    }
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Could not open customer support.')),
     );
   }
 }

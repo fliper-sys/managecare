@@ -455,6 +455,8 @@ class AuthProvider with ChangeNotifier {
               updatedUser.fullName != _currentUser?.fullName ||
               updatedUser.email != _currentUser?.email ||
               updatedUser.role != _currentUser?.role ||
+              updatedUser.permissions.join(',') !=
+                  _currentUser?.permissions.join(',') ||
               updatedUser.businessId != _currentUser?.businessId ||
               updatedUser.businessType != _currentUser?.businessType ||
               updatedUser.storeId != _currentUser?.storeId ||

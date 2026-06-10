@@ -5,6 +5,7 @@ class UserModel {
   final String fullName;
   final String? photoUrl;
   final String role;
+  final List<String> permissions;
   final String? phoneNumber;
   final String? address;
   final String? jobTitle;
@@ -38,6 +39,7 @@ class UserModel {
     required this.fullName,
     this.photoUrl,
     required this.role,
+    this.permissions = const [],
     this.phoneNumber,
     this.address,
     this.jobTitle,
@@ -154,6 +156,11 @@ class UserModel {
       fullName: json['fullName'] ?? json['name'] ?? '',
       photoUrl: json['photoUrl'],
       role: json['role'] ?? 'staff',
+      permissions: (json['permissions'] as List<dynamic>?)
+              ?.map((permission) => permission.toString())
+              .where((permission) => permission.trim().isNotEmpty)
+              .toList() ??
+          const [],
       phoneNumber: json['phoneNumber']?.toString() ?? json['phone']?.toString(),
       address: json['address']?.toString(),
       jobTitle: json['jobTitle']?.toString(),
@@ -191,6 +198,7 @@ class UserModel {
       'fullName': fullName,
       'photoUrl': photoUrl,
       'role': role,
+      'permissions': permissions,
       'phoneNumber': phoneNumber,
       'address': address,
       'jobTitle': jobTitle,
@@ -224,6 +232,7 @@ class UserModel {
     String? fullName,
     String? photoUrl,
     String? role,
+    List<String>? permissions,
     String? phoneNumber,
     String? address,
     String? jobTitle,
@@ -255,6 +264,7 @@ class UserModel {
       fullName: fullName ?? this.fullName,
       photoUrl: photoUrl ?? this.photoUrl,
       role: role ?? this.role,
+      permissions: permissions ?? this.permissions,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       address: address ?? this.address,
       jobTitle: jobTitle ?? this.jobTitle,

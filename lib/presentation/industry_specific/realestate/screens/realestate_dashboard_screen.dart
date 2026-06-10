@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/constants/routes.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/utils/context_extensions.dart';
 import '../../../../providers/auth_provider.dart';
@@ -437,16 +438,19 @@ class _RealestateDashboardScreenState extends State<RealestateDashboardScreen> {
   Widget _buildQuickActionsGrid() {
     final items = [
       _buildActionCard(context, 'Properties', Icons.apartment, Colors.blue,
-          Routes.realEstateProperties, 0),
+          () => Navigator.pushNamed(context, Routes.realEstateProperties)),
       _buildActionCard(context, 'Add Property', Icons.add_business_outlined,
-          Colors.teal, Routes.realEstateAddProperty, 4),
+          Colors.teal, () => Navigator.pushNamed(context, Routes.realEstateAddProperty)),
       _buildActionCard(context, 'Tenants', Icons.people, Colors.green,
-          Routes.realEstateTenants, 1),
+          () => Navigator.pushNamed(context, Routes.realEstateTenants)),
       _buildActionCard(context, 'Rent Collection', Icons.account_balance_wallet,
-          Colors.purple, Routes.realEstateRentCollection, 2),
+          Colors.purple, () => Navigator.pushNamed(context, Routes.realEstateRentCollection)),
       _buildActionCard(context, 'Maintenance', Icons.build, Colors.orange,
-          Routes.realEstateMaintenance, 3),
-      _buildActionCard(context, 'Printer Settings', Icons.print, Colors.teal, Routes.printerSettings, 5),
+          () => Navigator.pushNamed(context, Routes.realEstateMaintenance)),
+      _buildActionCard(context, 'Printer Settings', Icons.print, Colors.teal,
+          () => Navigator.pushNamed(context, Routes.printerSettings)),
+      _buildActionCard(context, 'Customer Care', Icons.support_agent_rounded, Colors.green,
+          () => WhatsAppUtils.openCustomerSupport(context)),
     ];
 
     return GridView.count(
@@ -683,11 +687,10 @@ Widget _buildActionCard(
   String label,
   IconData icon,
   Color color,
-  String route,
-  int index,
+  VoidCallback onTap,
 ) {
   return GestureDetector(
-    onTap: () => Navigator.pushNamed(context, route),
+    onTap: onTap,
     child: Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
@@ -714,7 +717,7 @@ Widget _buildActionCard(
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => Navigator.pushNamed(context, route),
+          onTap: onTap,
           borderRadius: BorderRadius.circular(12),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -746,8 +749,8 @@ Widget _buildActionCard(
     ),
   )
       .animate()
-      .fade(duration: 500.ms, delay: Duration(milliseconds: index * 100))
-      .scale(duration: 500.ms, delay: Duration(milliseconds: index * 100));
+      .fade(duration: 500.ms)
+      .scale(duration: 500.ms);
 }
 
 Widget _buildRecentActivitySection(BuildContext context, RealEstateProvider provider) {

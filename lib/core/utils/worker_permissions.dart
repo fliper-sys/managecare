@@ -128,8 +128,47 @@ class WorkerPermissions {
     return permissions.contains(permission);
   }
 
+  static bool hasEffectivePermission(
+    String role,
+    List<String> customPermissions,
+    String permission,
+  ) {
+    final normalizedRole = normalizeRole(role);
+    if (_fullAccessRoles.contains(normalizedRole)) {
+      return true;
+    }
+    final normalizedCustomPermissions =
+        customPermissions.map((p) => p.trim()).where((p) => p.isNotEmpty);
+    return normalizedCustomPermissions.contains(permission);
+  }
+
+  static List<String> getEffectivePermissions(
+    String role,
+    List<String> customPermissions,
+  ) {
+    final normalizedRole = normalizeRole(role);
+    if (_fullAccessRoles.contains(normalizedRole)) {
+      return rolePermissions.values.expand((p) => p).toSet().toList()..sort();
+    }
+    if (customPermissions.isNotEmpty) {
+      final permissions =
+          customPermissions.map((p) => p.trim()).where((p) => p.isNotEmpty).toSet().toList();
+      permissions.sort();
+      return permissions;
+    }
+    final permissions = List<String>.from(getPermissionsForRole(role));
+    permissions.sort();
+    return permissions;
+  }
+
   static List<String> getPermissionsForRole(String role) {
     return rolePermissions[normalizeRole(role)] ?? [];
+  }
+
+  static List<String> getAllPermissions() {
+    final permissions = rolePermissions.values.expand((p) => p).toSet().toList();
+    permissions.sort();
+    return permissions;
   }
 
   static bool canManageSales(String role) => hasPermission(role, 'sales');
@@ -140,7 +179,10 @@ class WorkerPermissions {
   static bool canManageInventory(String role) =>
       hasPermission(role, 'manage_inventory');
 
-  static bool canEditPrice(String role) => normalizeRole(role) == 'owner';
+  static bool canEditPrice(String role) {
+    final normalizedRole = normalizeRole(role);
+    return normalizedRole == 'owner' || normalizedRole == 'manager';
+  }
 
   static bool canViewAnalytics(String role) =>
       hasPermission(role, 'view_sales_history');

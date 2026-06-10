@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 
 import '../../../../providers/agri_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -294,6 +295,7 @@ class _AgriDashboardScreenState extends State<AgriDashboardScreen>
       {'icon': Icons.storefront, 'label': 'Suppliers', 'color': const Color(0xFF00ACC1), 'onTap': () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SuppliersScreen()))},
       {'icon': Icons.inventory, 'label': 'Inputs', 'color': const Color(0xFF26A69A), 'onTap': () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InputInventoryScreen()))},
       {'icon': Icons.print, 'label': 'Printer Settings', 'color': const Color(0xFF009688), 'onTap': () => Navigator.pushNamed(context, Routes.printerSettings)},
+      {'icon': Icons.support_agent_rounded, 'label': 'Customer Care', 'color': Colors.green, 'onTap': () => WhatsAppUtils.openCustomerSupport(context)},
     ];
 
     return LayoutBuilder(builder: (context, constraints) {

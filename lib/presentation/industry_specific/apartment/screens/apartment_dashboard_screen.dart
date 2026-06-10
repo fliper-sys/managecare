@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../data/models/apartment_model.dart';
 import '../../../../data/models/booking_model.dart';
 import '../../../../data/models/unit_model.dart';
@@ -525,6 +526,13 @@ class _ApartmentDashboardScreenState extends State<ApartmentDashboardScreen> {
                     icon: Icons.sync_rounded,
                     color: Colors.deepPurple,
                     onTap: _loadData,
+                  ),
+                  _ActionCard(
+                    width: isWide ? (MediaQuery.of(context).size.width - 56) / 2 : double.infinity,
+                    label: 'Customer Care',
+                    icon: Icons.support_agent_rounded,
+                    color: Colors.green,
+                    onTap: () => WhatsAppUtils.openCustomerSupport(context),
                   ),
                 ],
               ),

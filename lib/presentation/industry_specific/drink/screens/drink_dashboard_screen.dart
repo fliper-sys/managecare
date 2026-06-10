@@ -9,6 +9,7 @@ import '../../../../providers/business_provider.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../services/analytics_service.dart';
 import 'worker_onboarding_screen.dart';
@@ -922,6 +923,12 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                   color: Colors.indigo,
                   onTap: () => Navigator.pushNamed(context, Routes.drinkInventory),
                 ),
+              _ActionTile(
+                icon: Icons.support_agent_rounded,
+                label: 'Customer Care',
+                color: Colors.green,
+                onTap: () => WhatsAppUtils.openCustomerSupport(context),
+              ),
             ],
           ),
           const SizedBox(height: 12),

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../providers/auto_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/auth_provider.dart';
@@ -202,6 +203,13 @@ class _AutoDashboardScreenState extends State<AutoDashboardScreen> {
                           label: 'Printer Settings', 
                           color: Colors.purple,
                           onTap: () => Navigator.pushNamed(context, Routes.printerSettings),
+                        ),
+                        const SizedBox(width: 12),
+                        _QuickActionBtn(
+                          icon: Icons.support_agent_rounded,
+                          label: 'Customer Care',
+                          color: Colors.green,
+                          onTap: () => WhatsAppUtils.openCustomerSupport(context),
                         ),
                       ],
                     ),

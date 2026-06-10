@@ -8,6 +8,7 @@ import '../../../../core/utils/worker_permissions.dart';
 import '../../../../core/access_control.dart';
 import '../../../../core/constants/routes.dart' show Routes;
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 
 
 class RetailDashboard extends StatefulWidget {
@@ -392,6 +393,13 @@ class _RetailDashboardState extends State<RetailDashboard>
         add(Icons.bar_chart, 'Reports', Routes.retailStoreReports, Colors.teal);
       }
     }
+
+    items.add(_QuickActionCard(
+      icon: Icons.support_agent_rounded,
+      label: 'Customer Care',
+      color: Colors.green,
+      onTap: () => WhatsAppUtils.openCustomerSupport(context),
+    ));
     return items;
   }
 }

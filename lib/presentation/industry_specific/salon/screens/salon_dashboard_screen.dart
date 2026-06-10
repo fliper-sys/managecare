@@ -6,6 +6,7 @@ import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../providers/auth_provider.dart';
 import '../providers/salon_provider.dart';
 
@@ -227,6 +228,12 @@ class _SalonDashboardScreenState extends State<SalonDashboardScreen> {
                           icon: Icons.point_of_sale,
                           label: 'POS',
                           onTap: () => Navigator.pushNamed(context, Routes.sales),
+                        ),
+                        const SizedBox(width: 12),
+                        _QuickActionButton(
+                          icon: Icons.support_agent_rounded,
+                          label: 'Customer Care',
+                          onTap: () => WhatsAppUtils.openCustomerSupport(context),
                         ),
                         const SizedBox(width: 12),
                         _QuickActionButton(
