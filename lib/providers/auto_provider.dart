@@ -58,6 +58,15 @@ class Part {
 class Job {
   final String id;
   final String vehicleId;
+  final String? customerId;
+  final String? assignedWorkerId;
+  final String? assignedWorkerName;
+  final String? description;
+  final double workmanshipRate;
+  final double workmanshipAmount;
+  String commissionStatus;
+  DateTime? commissionApprovedAt;
+  String? commissionApprovedBy;
   DateTime createdAt;
   DateTime? completedAt;
   String status; // pending, in-progress, completed, invoiced
@@ -69,6 +78,15 @@ class Job {
   Job({
     required this.id,
     required this.vehicleId,
+    this.customerId,
+    this.assignedWorkerId,
+    this.assignedWorkerName,
+    this.description,
+    this.workmanshipRate = 0.0,
+    this.workmanshipAmount = 0.0,
+    this.commissionStatus = 'pending',
+    this.commissionApprovedAt,
+    this.commissionApprovedBy,
     required this.createdAt,
     this.completedAt,
     this.status = 'pending',
@@ -170,12 +188,24 @@ class AutoProvider extends ChangeNotifier {
 
             final vehicleId = o['vehicleId'] as String? ?? o['vehicle']?['id'] as String? ?? '';
             final total = (o['totalCost'] as num?)?.toDouble() ?? (o['total'] as num?)?.toDouble() ?? 0.0;
+            final workmanshipRate = (o['workmanshipRate'] as num?)?.toDouble() ?? (o['bonusPercent'] as num?)?.toDouble() ?? 0.0;
+            final workmanshipAmount = (o['workmanshipAmount'] as num?)?.toDouble() ?? (o['workmanshipValue'] as num?)?.toDouble() ?? 0.0;
+            final commissionStatus = (o['commissionStatus'] as String?)?.toLowerCase() ?? 'pending';
 
             jobs.add(Job(
               id: o['id'] as String? ?? '',
               vehicleId: vehicleId,
+              customerId: o['customerId'] as String? ?? o['clientId'] as String?,
+              assignedWorkerId: o['assignedWorkerId'] as String? ?? o['workerId'] as String?,
+              assignedWorkerName: o['assignedWorkerName'] as String? ?? o['workerName'] as String?,
+              description: o['description'] as String? ?? o['notes'] as String?,
+              workmanshipRate: workmanshipRate,
+              workmanshipAmount: workmanshipAmount,
+              commissionStatus: commissionStatus,
+              commissionApprovedAt: parseTimestamp(o['commissionApprovedAt']),
+              commissionApprovedBy: o['commissionApprovedBy'] as String?,
               createdAt: created,
-              completedAt: null,
+              completedAt: parseTimestamp(o['completedAt']),
               status: (o['status'] as String?)?.toLowerCase() ?? 'pending',
               tasks: [],
               usedParts: [],
@@ -272,6 +302,14 @@ class AutoProvider extends ChangeNotifier {
       Job(
         id: 'j1',
         vehicleId: 'v1',
+        assignedWorkerId: 'w1',
+        assignedWorkerName: 'Alex Mechanic',
+        description: 'Replace brake pads and inspect rotors.',
+        workmanshipRate: 5,
+        workmanshipAmount: 2500,
+        commissionStatus: 'approved',
+        commissionApprovedAt: DateTime.now().subtract(const Duration(days: 1)),
+        commissionApprovedBy: 'admin',
         createdAt: DateTime.now().subtract(const Duration(days: 2)),
         completedAt: DateTime.now().subtract(const Duration(days: 1)),
         status: 'completed',
@@ -282,6 +320,12 @@ class AutoProvider extends ChangeNotifier {
       Job(
         id: 'j2',
         vehicleId: 'v2',
+        assignedWorkerId: 'w2',
+        assignedWorkerName: 'Tunde Electrician',
+        description: 'Electrical diagnosis and sensor scan.',
+        workmanshipRate: 3,
+        workmanshipAmount: 1800,
+        commissionStatus: 'pending',
         createdAt: DateTime.now(),
         status: 'in-progress',
         tasks: [services[2]],
@@ -377,7 +421,7 @@ class AutoProvider extends ChangeNotifier {
             id: o['id'] as String? ?? '',
             vehicleId: vehicleId,
             createdAt: created,
-            completedAt: null,
+            completedAt: parseTimestamp(o['completedAt']),
             status: (o['status'] as String?)?.toLowerCase() ?? 'pending',
             tasks: [],
             usedParts: [],
@@ -444,7 +488,7 @@ class AutoProvider extends ChangeNotifier {
 
   // Jobs
   /// Create a job and ensure totals are calculated and timestamps set.
-  void createJob(Job job) {
+  Future<void> createJob(Job job) async {
     // prevent duplicate job ids
     if (jobs.any((j) => j.id == job.id)) {
       throw Exception('Job with id ${job.id} already exists');
@@ -453,6 +497,15 @@ class AutoProvider extends ChangeNotifier {
     final jd = Job(
       id: job.id,
       vehicleId: job.vehicleId,
+      customerId: job.customerId,
+      assignedWorkerId: job.assignedWorkerId,
+      assignedWorkerName: job.assignedWorkerName,
+      description: job.description,
+      workmanshipRate: job.workmanshipRate,
+      workmanshipAmount: job.workmanshipAmount,
+      commissionStatus: job.commissionStatus,
+      commissionApprovedAt: job.commissionApprovedAt,
+      commissionApprovedBy: job.commissionApprovedBy,
       createdAt: job.createdAt,
       completedAt: job.completedAt,
       status: job.status,
@@ -465,7 +518,7 @@ class AutoProvider extends ChangeNotifier {
     // compute totals from tasks and parts
     final tasksCost = jd.tasks.fold<double>(0.0, (s, t) => s + t.laborCost);
     final partsCost = jd.usedParts.fold<double>(0.0, (s, p) => s + (p.cost * p.quantity));
-    jd.totalCost = tasksCost + partsCost;
+    jd.totalCost = tasksCost + partsCost + jd.workmanshipAmount;
 
     // Deduct used parts from inventory if applicable
     for (final used in jd.usedParts) {
@@ -479,6 +532,50 @@ class AutoProvider extends ChangeNotifier {
     }
 
     jobs.add(jd);
+    final businessId = _businessId?.trim();
+    if (businessId != null && businessId.isNotEmpty) {
+      try {
+        await FirebaseFirestore.instance.collection('serviceOrders').doc(jd.id).set({
+          'id': jd.id,
+          'businessId': businessId,
+          'vehicleId': jd.vehicleId,
+          'customerId': jd.customerId,
+          'assignedWorkerId': jd.assignedWorkerId,
+          'assignedWorkerName': jd.assignedWorkerName,
+          'description': jd.description,
+          'workmanshipRate': jd.workmanshipRate,
+          'workmanshipAmount': jd.workmanshipAmount,
+          'commissionStatus': jd.commissionStatus,
+          'commissionApprovedAt': jd.commissionApprovedAt,
+          'commissionApprovedBy': jd.commissionApprovedBy,
+          'status': jd.status,
+          'notes': jd.notes,
+          'totalCost': jd.totalCost,
+          'createdAt': jd.createdAt,
+          'completedAt': jd.completedAt,
+          'tasks': jd.tasks
+              .map((task) => {
+                    'id': task.id,
+                    'name': task.name,
+                    'laborCost': task.laborCost,
+                    'estimatedMinutes': task.estimatedDuration.inMinutes,
+                  })
+              .toList(),
+          'usedParts': jd.usedParts
+              .map((part) => {
+                    'id': part.id,
+                    'name': part.name,
+                    'quantity': part.quantity,
+                    'cost': part.cost,
+                  })
+              .toList(),
+        }, SetOptions(merge: true));
+      } catch (e) {
+        if (kDebugMode) {
+          print('[AutoProvider] Failed to persist created job: $e');
+        }
+      }
+    }
     notifyListeners();
   }
 
@@ -500,18 +597,131 @@ class AutoProvider extends ChangeNotifier {
   }
 
   /// Safely update job status. Returns true if update occurred, false if not found.
-  bool updateJobStatus(String jobId, String newStatus) {
+  Future<bool> updateJobStatus(String jobId, String newStatus) async {
     try {
       final job = jobs.firstWhere((j) => j.id == jobId);
       job.status = newStatus;
       if (newStatus == 'completed') {
         job.completedAt = DateTime.now();
       }
+      final businessId = _businessId?.trim();
+      if (businessId != null && businessId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('serviceOrders').doc(jobId).set({
+          'status': newStatus,
+          'completedAt': job.completedAt,
+          if (newStatus == 'completed') 'commissionStatus': 'pending',
+          'updatedAt': DateTime.now(),
+        }, SetOptions(merge: true));
+      }
       notifyListeners();
       return true;
     } catch (_) {
       return false;
     }
+  }
+
+  Future<bool> approveCommission(String jobId, {String? approvedBy}) async {
+    try {
+      final job = jobs.firstWhere((j) => j.id == jobId);
+      job.commissionStatus = 'approved';
+      job.commissionApprovedAt = DateTime.now();
+      job.commissionApprovedBy = approvedBy;
+
+      final businessId = _businessId?.trim();
+      if (businessId != null && businessId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('serviceOrders').doc(jobId).set({
+          'commissionStatus': 'approved',
+          'commissionApprovedAt': job.commissionApprovedAt,
+          'commissionApprovedBy': approvedBy,
+          'updatedAt': DateTime.now(),
+        }, SetOptions(merge: true));
+      }
+
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> markCommissionPaid(String jobId, {String? approvedBy}) async {
+    try {
+      final job = jobs.firstWhere((j) => j.id == jobId);
+      job.commissionStatus = 'paid';
+      job.commissionApprovedAt ??= DateTime.now();
+      job.commissionApprovedBy ??= approvedBy;
+
+      final businessId = _businessId?.trim();
+      if (businessId != null && businessId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('serviceOrders').doc(jobId).set({
+          'commissionStatus': 'paid',
+          'commissionApprovedAt': job.commissionApprovedAt,
+          'commissionApprovedBy': job.commissionApprovedBy,
+          'commissionPaidAt': DateTime.now(),
+          'updatedAt': DateTime.now(),
+        }, SetOptions(merge: true));
+      }
+
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  List<Job> getJobsForWorker(String workerId) {
+    final normalizedWorkerId = workerId.trim();
+    if (normalizedWorkerId.isEmpty) return [];
+    return jobs.where((job) {
+      final assignedId = (job.assignedWorkerId ?? '').trim();
+      return assignedId == normalizedWorkerId;
+    }).toList();
+  }
+
+  double getWorkerEarnings(String workerId) {
+    return getJobsForWorker(workerId).fold<double>(
+      0.0,
+      (sum, job) => sum + job.workmanshipAmount,
+    );
+  }
+
+  double getWorkerApprovedEarnings(String workerId) {
+    return getJobsForWorker(workerId)
+        .where((job) =>
+            job.commissionStatus == 'approved' || job.commissionStatus == 'paid')
+        .fold<double>(0.0, (sum, job) => sum + job.workmanshipAmount);
+  }
+
+  double getWorkerPendingEarnings(String workerId) {
+    return getJobsForWorker(workerId)
+        .where((job) => job.commissionStatus == 'pending')
+        .fold<double>(0.0, (sum, job) => sum + job.workmanshipAmount);
+  }
+
+  double getWorkerCompletionRate(String workerId) {
+    final assigned = getJobsForWorker(workerId);
+    if (assigned.isEmpty) return 0.0;
+    final completed = assigned.where((job) {
+      final status = job.status.toLowerCase();
+      return status == 'completed' || status == 'invoiced';
+    }).length;
+    return completed / assigned.length * 100.0;
+  }
+
+  double getWorkerEfficiency(String workerId) {
+    final assigned = getJobsForWorker(workerId);
+    if (assigned.isEmpty) return 0.0;
+    final completed = assigned.where((job) {
+      final status = job.status.toLowerCase();
+      return status == 'completed' || status == 'invoiced';
+    }).length;
+    final totalHours = assigned.fold<double>(
+      0.0,
+      (sum, job) =>
+          sum + DateTime.now().difference(job.createdAt).inHours.clamp(1, 720).toDouble(),
+    );
+    if (totalHours <= 0) return 0.0;
+    return (completed / totalHours) * 100.0;
   }
 
   /// Add a service task to a job. Throws if the job is not found.

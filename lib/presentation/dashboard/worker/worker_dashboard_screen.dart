@@ -12,7 +12,7 @@ import '../../industry_specific/hotel/screens/hotel_dashboard_screen.dart';
 import '../../industry_specific/agri/screens/agri_dashboard_screen.dart';
 import '../../industry_specific/salon/screens/salon_dashboard_screen.dart';
 import '../../industry_specific/gym/screens/gym_dashboard_screen.dart';
-import '../../industry_specific/auto/screens/auto_dashboard_screen.dart';
+import '../../industry_specific/auto/screens/worker_jobs_screen.dart';
 import '../../industry_specific/realestate/screens/realestate_dashboard_screen.dart'
     as re;
 import '../../industry_specific/pharmacy/screens/pharmacy_dashboard.dart';
@@ -302,7 +302,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
       case 'auto':
       case 'auto repair':
         print('[WorkerDashboard] Showing Auto Dashboard');
-        dashboard = const AutoDashboardScreen();
+        dashboard = const AutoWorkerJobsScreen();
         break;
       case 'realestate':
       case 'real estate':

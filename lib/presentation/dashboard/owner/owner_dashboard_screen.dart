@@ -1087,16 +1087,6 @@ class _HomeTabState extends State<_HomeTab> {
                           route: Routes.autoCreateServiceOrder,
                         ),
                       );
-                      actions.insert(
-                        1,
-                        _QuickActionItem(
-                          title: 'Parts Inventory',
-                          subtitle: 'Manage auto parts',
-                          icon: Icons.settings,
-                          color: AppColors.auto,
-                          route: Routes.autoPartsInventory,
-                        ),
-                      );
                     } else if (businessType.contains('salon')) {
                       // Salon specific actions
                       actions.insert(

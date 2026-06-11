@@ -67,9 +67,9 @@ class _AutoDashboardScreenState extends State<AutoDashboardScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.people_outline, color: Colors.white),
-            tooltip: 'Manage Workers',
-            onPressed: () => Navigator.pushNamed(context, Routes.workers),
+            icon: const Icon(Icons.settings_outlined, color: Colors.white),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.pushNamed(context, Routes.settings),
           ),
           const SizedBox(width: 8),
         ],
