@@ -79,6 +79,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
   late double _editableDiscount;
   late double _editableTax;
 
+  // Invoice prompt state
+  bool _invoiceDialogShown = false;
+  bool _autoGeneratingInvoice = false;
+
   // Resolve payment method from various possible sale map keys and normalize
   String _getPaymentMethod(Map<String, dynamic> data) {
     if (data.isEmpty) return 'Cash';
@@ -334,6 +338,11 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
     super.initState();
     debugPrint(
         '[PostSaleActionSheet] Initialized with orderId: ${widget.orderId}');
+
+    // Auto-generate invoice and show print/share dialog
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoGenerateAndPromptInvoice();
+    });
 
     // Listen for background PDF generation if provided
     if (widget.pdfFuture != null) {
@@ -1865,6 +1874,231 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
     return subtotal - _editableDiscount + _editableTax;
   }
 
+  /// Auto-generate invoice PDF and show print/share dialog
+  Future<void> _autoGenerateAndPromptInvoice() async {
+    if (_invoiceDialogShown || _autoGeneratingInvoice) return;
+    
+    setState(() => _autoGeneratingInvoice = true);
+
+    try {
+      final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
+      final business = businessProvider.currentBusiness;
+      final auth = Provider.of<AuthProvider>(context, listen: false);
+
+      if (business == null || !mounted) {
+        setState(() => _autoGeneratingInvoice = false);
+        return;
+      }
+
+      // Generate invoice PDF
+      final invoiceNumber =
+          'INV-${widget.orderId ?? DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+
+      final pdfBytes = await PdfInvoiceGenerator.generateInvoicePdfBytes(
+        businessName: widget.businessName,
+        invoiceNumber: invoiceNumber,
+        invoiceDate: DateTime.now(),
+        cartItems: _invoiceCartItems(),
+        subtotal: _invoiceSubtotal(),
+        tax: _invoiceTax(),
+        discount: _invoiceDiscount(),
+        total: _invoiceTotal(),
+        customerName: (widget.saleData['customerName'] ??
+                (widget.saleData['customer'] is Map
+                    ? widget.saleData['customer']['name']
+                    : null) ??
+                'Customer')
+            .toString(),
+        customerEmail: widget.customerEmail,
+        businessAddress: business.address,
+        businessPhone: business.phone,
+        businessEmail: business.email,
+        cashierName: auth.currentUser?.fullName,
+        businessLogoUrl: business.photoUrl ?? business.logoUrl,
+        subscriptionTier: business.subscriptionTier,
+        businessClass: business.businessClass,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _pdfBytes = pdfBytes;
+        _pdfGenerating = false;
+        _autoGeneratingInvoice = false;
+        _invoiceDialogShown = true;
+      });
+
+      // Show print/share dialog
+      if (mounted) {
+        _showInvoicePrintShareDialog(invoiceNumber, pdfBytes);
+      }
+    } catch (e) {
+      debugPrint('[PostSaleActionSheet] Error auto-generating invoice: $e');
+      if (mounted) {
+        setState(() {
+          _autoGeneratingInvoice = false;
+          _invoiceDialogShown = true;
+        });
+      }
+    }
+  }
+
+  /// Show dialog asking user to print or share the invoice
+  Future<void> _showInvoicePrintShareDialog(
+      String invoiceNumber, Uint8List pdfBytes) async {
+    if (!mounted) return;
+
+    final action = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Invoice Generated'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Invoice #: $invoiceNumber'),
+            const SizedBox(height: 16),
+            const Text(
+              'What would you like to do with this invoice?',
+              style: TextStyle(fontSize: 14),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'skip'),
+            child: const Text('Skip'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, 'share'),
+            child: const Text('Share'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange.shade700,
+            ),
+            onPressed: () => Navigator.pop(ctx, 'print'),
+            child: const Text('Print'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+
+    // Handle user selection
+    if (action == 'print') {
+      await _handleInvoicePrint(pdfBytes, invoiceNumber);
+    } else if (action == 'share') {
+      await _handleInvoiceShare(pdfBytes, invoiceNumber);
+    }
+    // Note: Sale is NOT marked as completed here - user can still share/print
+    // without completing the sale. Sale will be completed when they click "Done"
+  }
+
+  /// Handle invoice printing
+  Future<void> _handleInvoicePrint(
+      Uint8List pdfBytes, String invoiceNumber) async {
+    if (_isPrinting) return;
+    setState(() => _isPrinting = true);
+
+    try {
+      if (kIsWeb) {
+        await web_download.printPdfBytes(pdfBytes, invoiceNumber);
+        if (mounted) {
+          setState(() {
+            _statusMessage = 'Print dialog opened';
+            _statusColor = Colors.green;
+          });
+        }
+      } else {
+        await Printing.layoutPdf(
+          name: invoiceNumber,
+          onLayout: (_) async => pdfBytes,
+        );
+        if (mounted) {
+          setState(() {
+            _statusMessage = 'Print dialog opened';
+            _statusColor = Colors.green;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('[PostSaleActionSheet] Print error: $e');
+      if (mounted) {
+        setState(() {
+          _statusMessage = 'Print failed: $e';
+          _statusColor = Colors.red;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isPrinting = false);
+      }
+    }
+  }
+
+  /// Handle invoice sharing
+  Future<void> _handleInvoiceShare(
+      Uint8List pdfBytes, String invoiceNumber) async {
+    if (_isSharing) return;
+    setState(() => _isSharing = true);
+
+    try {
+      final filename =
+          PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
+
+      if (kIsWeb) {
+        web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
+        if (mounted) {
+          setState(() {
+            _statusMessage = 'Invoice downloaded';
+            _statusColor = Colors.green;
+          });
+        }
+      } else {
+        final tempDir = await getTemporaryDirectory();
+        final file = File('${tempDir.path}/$filename');
+        await file.writeAsBytes(pdfBytes);
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          text: 'Invoice: $invoiceNumber',
+          subject: 'Invoice $invoiceNumber',
+        );
+        if (mounted) {
+          setState(() {
+            _statusMessage = 'Invoice shared';
+            _statusColor = Colors.green;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('[PostSaleActionSheet] Share error: $e');
+      if (mounted) {
+        setState(() {
+          _statusMessage = 'Share failed: $e';
+          _statusColor = Colors.red;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSharing = false);
+      }
+    }
+  }
+
+  /// Mark the sale as completed in the system
+  void _markSaleCompleted() {
+    try {
+      // Update sale status to completed
+      if (widget.saleData['status'] == 'draft') {
+        widget.saleData['status'] = 'completed';
+      }
+      debugPrint('[PostSaleActionSheet] Sale marked as completed');
+    } catch (e) {
+      debugPrint('[PostSaleActionSheet] Error marking sale as completed: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2355,7 +2589,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () {
+                    _markSaleCompleted();
+                    Navigator.pop(context);
+                  },
                   child: const Text('Done'),
                 ),
               ),

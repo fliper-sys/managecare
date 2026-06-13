@@ -1,12 +1,18 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/pharmacy_provider.dart';
 import '../../../providers/retail_provider.dart' show Product;
+import '../../../services/web_download.dart' as web_download;
 import '../../../widgets/loading_indicator.dart';
 
 class ProductDetailsScreen extends StatefulWidget {
@@ -438,15 +444,18 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   // Helper: Extract product quantity from sale
-  int _extractProductQuantityFromSale(Map<String, dynamic> saleData) {
+  int _extractProductQuantityFromSale(
+    Map<String, dynamic> saleData,
+    Product product,
+  ) {
     final items = (saleData['items'] as List?) ?? [];
     int totalQty = 0;
     
     for (var item in items) {
       if (item is Map) {
-        final itemProductId = item['productId'] ?? item['product_id'] ?? item['id'];
-        if (itemProductId == widget.productId) {
-          final qty = item['quantity'] ?? item['qty'] ?? item['quantitySold'] ?? 0;
+        final normalized = Map<String, dynamic>.from(item);
+        if (_saleItemMatchesProduct(normalized, product)) {
+          final qty = normalized['quantity'] ?? normalized['qty'] ?? normalized['quantitySold'] ?? 0;
           totalQty += (qty is num) ? qty.toInt() : int.tryParse(qty.toString()) ?? 0;
         }
       }
@@ -466,14 +475,220 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     return double.tryParse(total.toString()) ?? 0.0;
   }
 
-  // Build Sales History Tab
+  bool _saleItemMatchesProduct(Map<String, dynamic> item, Product product) {
+    final productId = widget.productId.trim().toLowerCase();
+    final productName = product.name.trim().toLowerCase();
+    final productBarcode = (product.barcode ?? '').trim().toLowerCase();
+
+    final itemProductId = (item['productId'] ??
+            item['product_id'] ??
+            item['id'] ??
+            item['productIdStr'] ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    final itemName = (item['productName'] ?? item['name'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    final itemBarcode = (item['barcode'] ?? '').toString().trim().toLowerCase();
+    final itemSku = (item['sku'] ?? '').toString().trim().toLowerCase();
+
+    final directMatches = <String>{
+      productId,
+      productName,
+      productBarcode,
+    }.where((value) => value.isNotEmpty).toSet();
+
+    final itemValues = <String>{
+      itemProductId,
+      itemName,
+      itemBarcode,
+      itemSku,
+    };
+
+    if (directMatches.any(itemValues.contains)) return true;
+
+    if (productId.isNotEmpty && itemProductId.isNotEmpty) {
+      if (itemProductId.contains(productId) || productId.contains(itemProductId)) {
+        return true;
+      }
+    }
+
+    if (productName.isNotEmpty && itemName.isNotEmpty) {
+      if (itemName.contains(productName) || productName.contains(itemName)) {
+        return true;
+      }
+    }
+
+    if (productBarcode.isNotEmpty && itemBarcode.isNotEmpty) {
+      if (itemBarcode.contains(productBarcode) || productBarcode.contains(itemBarcode)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _saleContainsProduct(Map<String, dynamic> saleData, Product product) {
+    final items = (saleData['items'] as List?) ?? [];
+    for (final item in items) {
+      if (item is Map<String, dynamic> && _saleItemMatchesProduct(item, product)) {
+        return true;
+      }
+      if (item is Map) {
+        final normalized = Map<String, dynamic>.from(item);
+        if (_saleItemMatchesProduct(normalized, product)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  Future<List<Map<String, dynamic>>> _loadProductSalesHistory(
+    String businessId,
+    Product product,
+  ) async {
+    final combined = <String, Map<String, dynamic>>{};
+
+    Future<void> addDocs(QuerySnapshot snapshot) async {
+      for (final doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        if (!_saleContainsProduct(data, product)) continue;
+        combined[doc.id] = {'id': doc.id, ...data};
+      }
+    }
+
+    try {
+      await addDocs(await FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(businessId)
+          .collection('sales')
+          .get());
+    } catch (e) {
+      debugPrint('[ProductDetailsScreen] Nested sales load failed: $e');
+    }
+
+    try {
+      await addDocs(await FirebaseFirestore.instance
+          .collection('sales')
+          .where('businessId', isEqualTo: businessId)
+          .get());
+    } catch (e) {
+      debugPrint('[ProductDetailsScreen] Root sales load failed: $e');
+    }
+
+    final records = combined.values.toList();
+    records.sort((left, right) {
+      final leftTime = _parseTimestamp(left['createdAt'] ?? left['timestamp']).millisecondsSinceEpoch;
+      final rightTime = _parseTimestamp(right['createdAt'] ?? right['timestamp']).millisecondsSinceEpoch;
+      return rightTime.compareTo(leftTime);
+    });
+    return records;
+  }
+
+  String _escapeCsv(String value) {
+    final escaped = value.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+
+  String _buildProductSalesCsv(List<Map<String, dynamic>> sales, Product product) {
+    final buffer = StringBuffer();
+    buffer.writeln([
+      'Sale ID',
+      'Date',
+      'Product',
+      'Quantity',
+      'Unit Price',
+      'Line Total',
+      'Payment Method',
+      'Receipt Number',
+    ].join(','));
+
+    for (final sale in sales) {
+      final timestamp = _parseTimestamp(sale['createdAt'] ?? sale['timestamp']);
+      final items = (sale['items'] as List?) ?? [];
+      for (final item in items) {
+        if (item is! Map) continue;
+        final normalized = Map<String, dynamic>.from(item);
+        if (!_saleItemMatchesProduct(normalized, product)) continue;
+
+        final qty = (normalized['quantity'] ?? normalized['qty'] ?? normalized['quantitySold'] ?? 0);
+        final unitPrice = (normalized['unitPrice'] ?? normalized['price'] ?? normalized['sellingPrice'] ?? 0);
+        final lineTotal = (normalized['total'] ?? normalized['amount'] ?? 0);
+
+        buffer.writeln([
+          _escapeCsv(sale['id']?.toString() ?? ''),
+          _escapeCsv(DateFormat('yyyy-MM-dd HH:mm:ss').format(timestamp)),
+          _escapeCsv(product.name),
+          _escapeCsv(qty.toString()),
+          _escapeCsv(unitPrice.toString()),
+          _escapeCsv(lineTotal.toString()),
+          _escapeCsv(sale['paymentMethod']?.toString() ?? ''),
+          _escapeCsv(sale['receiptNumber']?.toString() ?? ''),
+        ].join(','));
+      }
+    }
+
+    return buffer.toString();
+  }
+
+  Future<void> _exportProductSalesHistory(
+    String businessId,
+    Product product,
+  ) async {
+    try {
+      final sales = await _loadProductSalesHistory(businessId, product);
+      if (sales.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No sales history found for this product')),
+        );
+        return;
+      }
+
+      final csv = _buildProductSalesCsv(sales, product);
+      final bytes = Uint8List.fromList(utf8.encode(csv));
+      final fileName =
+          '${product.name.replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_')}_sales_history.csv';
+
+      if (kIsWeb) {
+        web_download.downloadBytes(bytes, fileName, 'text/csv');
+      } else {
+        await Share.shareXFiles([
+          XFile.fromData(
+            bytes,
+            name: fileName,
+            mimeType: 'text/csv',
+          ),
+        ],
+            text: 'Product sales history for ${product.name}');
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Sales history exported for ${product.name}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to export product sales history: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+    // Build Sales History Tab
   Widget _buildSalesHistoryTab(String businessId, Product product) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Date Range Picker
           Card(
             elevation: 0,
             color: AppColors.background,
@@ -505,35 +720,28 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             ),
           ),
           const SizedBox(height: 20),
-
-          // Quick Stats
-          _buildSalesQuickStats(),
+          _buildSalesQuickStats(businessId, product),
           const SizedBox(height: 20),
-
-          // Sales History List
-          _buildSalesHistoryList(),
+          _buildSalesHistoryList(businessId, product),
         ],
       ),
     );
   }
 
-  // Build Sales Quick Stats
-  Widget _buildSalesQuickStats() {
-    final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
-    final businessId = businessProvider.currentBusiness?.id ?? '';
-    
+  Widget _buildSalesQuickStats(String businessId, Product product) {
     return FutureBuilder<Map<String, dynamic>>(
-      future: _calculateSalesStats(businessId),
+      future: _calculateSalesStats(businessId, product),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        
-        final stats = snapshot.data ?? {'totalUnits': 0, 'revenue': 0.0, 'margin': 0.0};
-        final totalUnits = stats['totalUnits'] as int;
-        final revenue = stats['revenue'] as double;
-        final margin = stats['margin'] as double;
-        
+
+        final stats = snapshot.data ?? {'totalUnits': 0, 'revenue': 0.0, 'margin': 0.0, 'historyCount': 0};
+        final totalUnits = stats["totalUnits"] as int;
+        final revenue = stats["revenue"] as double;
+        final margin = stats["margin"] as double;
+        final historyCount = stats["historyCount"] as int;
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -569,13 +777,17 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 ),
               ],
             ),
+            const SizedBox(height: 10),
+            Text(
+              'Loaded from $historyCount sale record(s)',
+              style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
+            ),
           ],
         );
       },
     );
   }
 
-  // Build Stat Card
   Widget _buildStatCard({
     required IconData icon,
     required String label,
@@ -607,97 +819,63 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     );
   }
 
-  // Build Sales History List
-  Widget _buildSalesHistoryList() {
-    final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
-    final businessId = businessProvider.currentBusiness?.id ?? '';
-    final NumberFormat currencyFormat = NumberFormat.currency(locale: 'en_US', symbol: '₦');
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Sales Records', style: AppTextStyles.heading5),
-        const SizedBox(height: 12),
-        StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('businesses')
-              .doc(businessId)
-              .collection('sales')
-              .limit(100)
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            
-            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return const Center(
-                child: Text('No sales records found'),
-              );
-            }
-            
-            // Filter for sales containing this product
-            final salesWithProduct = snapshot.data!.docs.where((doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              final items = (data['items'] as List?) ?? [];
-              
-              return items.any((item) {
-                if (item is! Map) return false;
-                
-                // Try multiple field names for product ID
-                final itemProductId = item['productId'] ?? 
-                                     item['product_id'] ?? 
-                                     item['id'];
-                
-                // Check for exact match or fuzzy match
-                final isMatch = itemProductId == widget.productId || 
-                               (itemProductId is String && widget.productId.isNotEmpty && 
-                                (itemProductId.contains(widget.productId) || 
-                                 widget.productId.contains(itemProductId)));
-                
-                return isMatch;
-              });
-            }).toList();
-            
-            // Apply date range filter
-            final filtered = salesWithProduct.where((doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              final timestamp = _parseTimestamp(data['createdAt'] ?? data['timestamp']);
-              
-              if (_dateRange == null) return true;
-              
-              return !timestamp.isBefore(_dateRange!.start) && 
-                     !timestamp.isAfter(_dateRange!.end);
-            }).toList();
-            
-            // Sort by timestamp descending
-            filtered.sort((a, b) {
-              final aTime = _parseTimestamp((a.data() as Map<String, dynamic>)['createdAt'] ?? (a.data() as Map<String, dynamic>)['timestamp']);
-              final bTime = _parseTimestamp((b.data() as Map<String, dynamic>)['createdAt'] ?? (b.data() as Map<String, dynamic>)['timestamp']);
-              return bTime.compareTo(aTime);
-            });
-            
-            if (filtered.isEmpty) {
-              return const Center(
-                child: Text('No sales records found for this product'),
-              );
-            }
-            
-            return ListView.builder(
+  Widget _buildSalesHistoryList(String businessId, Product product) {
+    final NumberFormat currencyFormat = NumberFormat.currency(locale: "en_US", symbol: "₦");
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _loadProductSalesHistory(businessId, product),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return Text(
+            "Failed to load sales history: ${snapshot.error}",
+            style: AppTextStyles.body2.copyWith(color: AppColors.error),
+          );
+        }
+
+        final sales = snapshot.data ?? const [];
+        final filtered = sales.where((sale) {
+          if (_dateRange == null) return true;
+          final timestamp = _parseTimestamp(sale["createdAt"] ?? sale["timestamp"]);
+          return !timestamp.isBefore(_dateRange!.start) && !timestamp.isAfter(_dateRange!.end);
+        }).toList();
+
+        if (sales.isEmpty) {
+          return const Center(child: Text("No sales records found for this product"));
+        }
+
+        if (filtered.isEmpty) {
+          return const Center(child: Text("No sales records found in the selected range"));
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text("Sales Records", style: AppTextStyles.heading5),
+                ),
+                IconButton(
+                  tooltip: "Download product sales history",
+                  icon: const Icon(Icons.download_outlined),
+                  onPressed: () => _exportProductSalesHistory(businessId, product),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ListView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: filtered.length,
               itemBuilder: (context, index) {
-                final saleDoc = filtered[index];
-                final saleData = saleDoc.data() as Map<String, dynamic>;
-                
-                final timestamp = _parseTimestamp(saleData['createdAt'] ?? saleData['timestamp']);
-                final formattedDate = DateFormat('MMM dd, yyyy').format(timestamp);
-                
-                final totalAmount = (saleData['finalAmount'] ?? 
-                                    saleData['totalAmount'] ?? 
-                                    saleData['total'] ?? 0) as num;
-                
+                final saleData = filtered[index];
+                final timestamp = _parseTimestamp(saleData["createdAt"] ?? saleData["timestamp"]);
+                final formattedDate = DateFormat("MMM dd, yyyy").format(timestamp);
+                final totalAmount = (saleData["finalAmount"] ?? saleData["totalAmount"] ?? saleData["total"] ?? 0) as num;
+
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
                   child: Padding(
@@ -712,11 +890,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                             color: AppColors.primary.withOpacity(0.1),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(
-                            Icons.shopping_bag,
-                            color: AppColors.primary,
-                            size: 20,
-                          ),
+                          child: const Icon(Icons.shopping_bag, color: AppColors.primary, size: 20),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -724,42 +898,37 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Sale #${saleDoc.id.substring(0, 8).toUpperCase()}',
-                                style: AppTextStyles.body2.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                                "Sale #${(saleData["id"] ?? "").toString().substring(0, 8).toUpperCase()}",
+                                style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.bold),
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Total: ${currencyFormat.format(totalAmount)}',
+                                "Total: ${currencyFormat.format(totalAmount)}",
                                 style: AppTextStyles.caption,
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Qty: ${_extractProductQuantityFromSale(saleData)} units',
-                                style: AppTextStyles.caption
-                                    .copyWith(color: AppColors.success),
+                                "Qty: ${_extractProductQuantityFromSale(saleData, product)} units",
+                                style: AppTextStyles.caption.copyWith(color: AppColors.success),
                               ),
                               const SizedBox(height: 4),
                               Text(
                                 formattedDate,
-                                style: AppTextStyles.caption
-                                    .copyWith(color: AppColors.textSecondary),
+                                style: AppTextStyles.caption.copyWith(color: AppColors.textSecondary),
                               ),
                             ],
                           ),
                         ),
-                        const Icon(Icons.arrow_forward_ios,
-                            size: 16, color: AppColors.textSecondary),
+                        const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
                       ],
                     ),
                   ),
                 );
               },
-            );
-          },
-        ),
-      ],
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -1021,109 +1190,66 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   }
 
   // Calculate sales statistics
-  Future<Map<String, dynamic>> _calculateSalesStats(String businessId) async {
+  Future<Map<String, dynamic>> _calculateSalesStats(
+    String businessId,
+    Product product,
+  ) async {
     try {
-      debugPrint('[_calculateSalesStats] Starting for product: ${widget.productId}');
-      
-      // Try with createdAt first, fall back to no ordering if it fails
-      QuerySnapshot snapshot;
-      try {
-        snapshot = await FirebaseFirestore.instance
-            .collection('businesses')
-            .doc(businessId)
-            .collection('sales')
-            .orderBy('createdAt', descending: true)
-            .limit(100)
-            .get();
-      } catch (e) {
-        debugPrint('[_calculateSalesStats] createdAt query failed, trying without orderBy: $e');
-        // Fall back to no ordering if createdAt doesn't exist
-        snapshot = await FirebaseFirestore.instance
-            .collection('businesses')
-            .doc(businessId)
-            .collection('sales')
-            .limit(100)
-            .get();
-      }
-      
-      debugPrint('[_calculateSalesStats] Found ${snapshot.docs.length} sales documents');
-      
+      final sales = await _loadProductSalesHistory(businessId, product);
+      final relevantSales = sales.where((sale) {
+        if (_dateRange == null) return true;
+        final timestamp = _parseTimestamp(sale['createdAt'] ?? sale['timestamp']);
+        return !timestamp.isBefore(_dateRange!.start) &&
+            !timestamp.isAfter(_dateRange!.end);
+      }).toList();
       int totalUnits = 0;
       double productRevenue = 0.0;
       double productCost = 0.0;
-      
-      for (var doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>?;
-        if (data == null) continue;
-        
-        final items = (data['items'] as List?) ?? [];
-        debugPrint('[_calculateSalesStats] Sale ${doc.id} has ${items.length} items');
-        
-        for (var item in items) {
+
+      for (final sale in relevantSales) {
+        final items = (sale['items'] as List?) ?? [];
+        for (final item in items) {
           if (item is! Map) continue;
-          
-          // Try multiple field names for product ID
-          final itemProductId = item['productId'] ?? 
-                               item['product_id'] ?? 
-                               item['id'] ?? 
-                               item['productName'];
-          
-          debugPrint('[_calculateSalesStats] Checking item: itemProductId="$itemProductId" (${itemProductId.runtimeType}), widget.productId="${widget.productId}" (${widget.productId.runtimeType})');
-          
-          // Check for exact match or if widget.productId is contained in itemProductId
-          final isExactMatch = itemProductId == widget.productId;
-          final isContainMatch = itemProductId is String && widget.productId.isNotEmpty && 
-                                (itemProductId.contains(widget.productId) || 
-                                 widget.productId.contains(itemProductId));
-          final isMatch = isExactMatch || isContainMatch;
-          
-          debugPrint('[_calculateSalesStats] exactMatch=$isExactMatch, containMatch=$isContainMatch, finalMatch=$isMatch');
-          
-          if (isMatch) {
-            debugPrint('[_calculateSalesStats] MATCH FOUND!');
-            
-            final qty = item['quantity'] ?? item['qty'] ?? item['quantitySold'] ?? 0;
-            final qtyInt = (qty is num) ? qty.toInt() : int.tryParse(qty.toString()) ?? 0;
-            totalUnits += qtyInt;
-            debugPrint('[_calculateSalesStats] Added qty: $qtyInt, total now: $totalUnits');
-            
-            final itemTotal = item['total'] ?? 
-                             item['price'] ?? 
-                             (item['quantity'] != null && item['unitPrice'] != null 
-                               ? item['quantity'] * item['unitPrice'] 
-                               : 0);
-            final totalVal = (itemTotal is num) ? itemTotal.toDouble() : 
-                            double.tryParse(itemTotal.toString()) ?? 0.0;
-            productRevenue += totalVal;
-            debugPrint('[_calculateSalesStats] Added revenue: $totalVal, total now: $productRevenue');
-            
-            final itemCost = item['cost'] ?? 
-                            item['unitCost'] ??
-                            (item['quantity'] != null && item['unitCost'] != null 
-                              ? item['quantity'] * item['unitCost'] 
-                              : 0);
-            final costVal = (itemCost is num) ? itemCost.toDouble() : 
-                           double.tryParse(itemCost.toString()) ?? 0.0;
-            productCost += costVal;
-            debugPrint('[_calculateSalesStats] Added cost: $costVal, total now: $productCost');
-          }
+          final normalized = Map<String, dynamic>.from(item);
+          if (!_saleItemMatchesProduct(normalized, product)) continue;
+
+          final qty = normalized['quantity'] ?? normalized['qty'] ?? normalized['quantitySold'] ?? 0;
+          totalUnits += (qty is num) ? qty.toInt() : int.tryParse(qty.toString()) ?? 0;
+
+          final itemTotal = normalized['total'] ??
+              normalized['price'] ??
+              (normalized['quantity'] != null && normalized['unitPrice'] != null
+                  ? normalized['quantity'] * normalized['unitPrice']
+                  : 0);
+          productRevenue += (itemTotal is num) ? itemTotal.toDouble() : double.tryParse(itemTotal.toString()) ?? 0.0;
+
+          final itemCost = normalized['cost'] ??
+              normalized['unitCost'] ??
+              (normalized['quantity'] != null && normalized['unitCost'] != null
+                  ? normalized['quantity'] * normalized['unitCost']
+                  : 0);
+          productCost += (itemCost is num) ? itemCost.toDouble() : double.tryParse(itemCost.toString()) ?? 0.0;
         }
       }
-      
-      debugPrint('[_calculateSalesStats] FINAL - Product: ${widget.productId}, Units: $totalUnits, Revenue: $productRevenue, Cost: $productCost');
-      
-      final margin = (productRevenue > 0) 
+
+      final margin = productRevenue > 0
           ? (((productRevenue - productCost) / productRevenue) * 100)
           : 0.0;
-      
+
       return {
         'totalUnits': totalUnits,
         'revenue': productRevenue,
         'margin': margin,
+        'historyCount': relevantSales.length,
       };
     } catch (e) {
       debugPrint('[_calculateSalesStats] ERROR: $e');
-      return {'totalUnits': 0, 'revenue': 0.0, 'margin': 0.0};
+      return {
+        'totalUnits': 0,
+        'revenue': 0.0,
+        'margin': 0.0,
+        'historyCount': 0,
+      };
     }
   }
 

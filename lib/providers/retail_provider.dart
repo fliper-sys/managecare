@@ -552,6 +552,75 @@ class RetailProvider extends ChangeNotifier {
         0.0;
   }
 
+  Future<DocumentReference<Map<String, dynamic>>?> _resolveInventoryDocRef(
+    Product product, {
+    String? storeId,
+  }) async {
+    if (_businessId == null || _businessId!.isEmpty) return null;
+
+    final inventory = _firestore
+        .collection('businesses')
+        .doc(_businessId)
+        .collection('inventory');
+
+    Future<DocumentReference<Map<String, dynamic>>?> tryDoc(String docId) async {
+      if (docId.isEmpty) return null;
+      final ref = inventory.doc(docId);
+      final snap = await ref.get();
+      if (snap.exists) return ref;
+      return null;
+    }
+
+    final direct = await tryDoc(product.id);
+    if (direct != null) return direct;
+
+    final barcode = (product.barcode ?? '').trim();
+    if (barcode.isNotEmpty) {
+      try {
+        final snap = await inventory.where('barcode', isEqualTo: barcode).limit(1).get();
+        if (snap.docs.isNotEmpty) return snap.docs.first.reference;
+      } catch (_) {}
+    }
+
+    final name = product.name.trim();
+    if (name.isNotEmpty) {
+      try {
+        final snap = await inventory.where('name', isEqualTo: name).limit(1).get();
+        if (snap.docs.isNotEmpty) return snap.docs.first.reference;
+      } catch (_) {}
+    }
+
+    if (storeId != null && storeId.isNotEmpty) {
+      try {
+        final snap = await inventory
+            .where('storeId', isEqualTo: storeId)
+            .where('name', isEqualTo: name)
+            .limit(1)
+            .get();
+        if (snap.docs.isNotEmpty) return snap.docs.first.reference;
+      } catch (_) {}
+    }
+
+    return null;
+  }
+
+  Future<void> _writeInventoryStock(
+    Product product,
+    double newStock, {
+    String? storeId,
+  }) async {
+    final ref = await _resolveInventoryDocRef(product, storeId: storeId);
+    if (ref == null) {
+      throw Exception('Inventory record not found for ${product.name}');
+    }
+
+    await ref.update({
+      'quantity': newStock,
+      'stock': newStock,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   DateTime _readTimestamp(dynamic value) {
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
@@ -1653,12 +1722,7 @@ class RetailProvider extends ChangeNotifier {
                   entry.value;
           final newQuantity =
               (product.stock - stockReduction).clamp(0.0, 999999.0);
-          await _firestore
-              .collection('businesses')
-              .doc(_businessId)
-              .collection('inventory')
-              .doc(entry.key)
-              .update({'quantity': newQuantity});
+          await _writeInventoryStock(product, newQuantity, storeId: storeId);
 
           // Notify if stock is low (use integer for notifications)
           if (newQuantity < 10) {
@@ -1781,19 +1845,48 @@ class RetailProvider extends ChangeNotifier {
           await dbHelper.insert('sale_items', item);
 
           // Update local inventory record
-          final inv = await dbHelper.query('inventory', where: 'id = ? AND businessId = ?', whereArgs: [e.key, _businessId]);
+          final inv = await dbHelper.query(
+            'inventory',
+            where: '(id = ? OR barcode = ? OR name = ?) AND businessId = ?',
+            whereArgs: [
+              e.key,
+              product.barcode ?? '',
+              product.name,
+              _businessId,
+            ],
+            limit: 1,
+          );
           if (inv.isNotEmpty) {
             final currentQty = (inv.first['quantity'] as num).toDouble();
             final newQty = (currentQty - (saleUnitMultiplier * e.value))
                 .clamp(0, 999999);
-            await dbHelper.update('inventory', {'quantity': newQty, 'syncStatus': 'pending'}, where: 'id = ? AND businessId = ?', whereArgs: [e.key, _businessId]);
+            await dbHelper.update(
+              'inventory',
+              {
+                'quantity': newQty,
+                'stock': newQty,
+                'syncStatus': 'pending',
+                'updatedAt': DateTime.now().toIso8601String(),
+              },
+              where: '(id = ? OR barcode = ? OR name = ?) AND businessId = ?',
+              whereArgs: [
+                e.key,
+                product.barcode ?? '',
+                product.name,
+                _businessId,
+              ],
+            );
           } else {
             await dbHelper.insert('inventory', {
               'id': e.key,
               'businessId': _businessId!,
               'name': product.name,
               'unitPrice': product.price,
+              'barcode': product.barcode,
               'quantity': (0 - (saleUnitMultiplier * e.value))
+                  .toDouble()
+                  .clamp(0, 999999),
+              'stock': (0 - (saleUnitMultiplier * e.value))
                   .toDouble()
                   .clamp(0, 999999),
               'createdAt': DateTime.now().toIso8601String(),
@@ -1929,7 +2022,7 @@ class RetailProvider extends ChangeNotifier {
 
     // Update inventory quantity (allow decimal quantities)
     final newQty = (product.stock.toDouble() - qty).clamp(0.0, 999999.0);
-    await _firestore.collection('businesses').doc(_businessId).collection('inventory').doc(product.id).update({'quantity': newQty});
+    await _writeInventoryStock(product, newQty);
 
     // Notify if low stock
     if (newQty < 10) {
@@ -2457,6 +2550,7 @@ class RetailProvider extends ChangeNotifier {
 
       await productRef.update({
         'quantity': FieldValue.increment(quantity),
+        'stock': FieldValue.increment(quantity),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 

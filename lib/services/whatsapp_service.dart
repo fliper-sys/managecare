@@ -19,6 +19,95 @@ class WhatsAppService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final NotificationAndEmailService _logger = NotificationAndEmailService();
 
+  double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value.replaceAll(',', '')) ?? 0.0;
+    return 0.0;
+  }
+
+  double _saleItemQuantity(Map<String, dynamic> item) {
+    final quantity = _readDouble(item['quantity']);
+    if (quantity > 0) return quantity;
+    final qty = _readDouble(item['qty']);
+    if (qty > 0) return qty;
+    final multiplier = _readDouble(item['saleUnitMultiplier']);
+    if (multiplier > 0) return multiplier;
+    return 1.0;
+  }
+
+  String _saleItemModeLabel(Map<String, dynamic> item) {
+    final mode = (item['pricingMode'] ??
+            item['saleMode'] ??
+            item['saleUnit'] ??
+            item['pricingType'])
+        ?.toString()
+        .toLowerCase()
+        .trim();
+    final multiplier = _readDouble(item['saleUnitMultiplier']);
+    if (mode != null && mode.isNotEmpty) {
+      if (mode.contains('whole') || mode.contains('bulk')) return 'Wholesale';
+      if (mode.contains('retail')) return 'Retail';
+      if (mode.contains('service')) return 'Service';
+      return mode[0].toUpperCase() + mode.substring(1);
+    }
+    if (multiplier > 1) return 'Wholesale';
+    return 'Retail';
+  }
+
+  Future<double> _saleItemCostPerUnit(
+    String businessId,
+    Map<String, dynamic> item,
+  ) async {
+    final directCandidates = [
+      item['costPrice'],
+      item['cost'],
+      item['unitCost'],
+      item['purchasePrice'],
+      item['inventoryCost'],
+    ];
+    for (final candidate in directCandidates) {
+      final value = _readDouble(candidate);
+      if (value > 0) return value;
+    }
+
+    final inventoryId = (item['productId'] ??
+            item['inventoryId'] ??
+            item['itemId'] ??
+            item['skuId'])
+        ?.toString()
+        .trim();
+
+    if (inventoryId!.isNotEmpty) {
+      try {
+        final invDoc = await _firestore
+            .collection('businesses')
+            .doc(businessId)
+            .collection('inventory')
+            .doc(inventoryId)
+            .get();
+        if (invDoc.exists) {
+          final inv = invDoc.data();
+          final nestedCandidates = [
+            inv?['costPrice'],
+            inv?['cost'],
+            inv?['unitCost'],
+            inv?['purchasePrice'],
+            inv?['inventoryCost'],
+            (inv?['product'] as Map<String, dynamic>?)?['costPrice'],
+            (inv?['product'] as Map<String, dynamic>?)?['cost'],
+            (inv?['product'] as Map<String, dynamic>?)?['unitCost'],
+          ];
+          for (final candidate in nestedCandidates) {
+            final value = _readDouble(candidate);
+            if (value > 0) return value;
+          }
+        }
+      } catch (_) {}
+    }
+
+    return 0.0;
+  }
+
   /// Send a text notification to the business owner for a new order.
   /// If `to` is omitted, this will try to read `ownerWhatsappNumber` from
   /// the business document.
@@ -308,11 +397,12 @@ class WhatsAppService {
           ? AppConfig.whatsappAccessToken
           : null;
 
-      // Build recipients list (supports ownerWhatsappNumbers or single ownerWhatsappNumber)
       List<String> recipients = [];
       if (settings['ownerWhatsappNumbers'] != null) {
         final raw = settings['ownerWhatsappNumbers'];
-        if (raw is List) recipients = raw.map((e) => e.toString()).toList();
+        if (raw is List) {
+          recipients = raw.map((e) => e.toString()).toList();
+        }
       } else if ((settings['ownerWhatsappNumber'] as String?) != null) {
         recipients = [(settings['ownerWhatsappNumber'] as String)];
       } else if (to != null) {
@@ -334,7 +424,6 @@ class WhatsAppService {
         return false;
       }
 
-      // Query recent transactions
       final txQuery = await _firestore
           .collection('payment_transactions')
           .where('businessId', isEqualTo: businessId)
@@ -358,21 +447,20 @@ class WhatsAppService {
       final businessName = data['name'] ?? 'Your business';
       String message;
       if (txs.isEmpty) {
-        message = 'No recent transactions found for "$businessName".'
-            '\nWe will email you a detailed report if available.';
+        message = 'No recent transactions found for "$businessName".\n'
+            'We will email you a detailed report if available.';
       } else {
-        // accounting summary
         double totalAmount = 0.0;
         final statusCounts = <String, int>{};
         for (final tx in txs) {
-          totalAmount += double.tryParse(tx['amount'].toString()) ?? 0.0;
+          totalAmount += _readDouble(tx['amount']);
           final st = (tx['status'] ?? 'unknown').toString();
           statusCounts[st] = (statusCounts[st] ?? 0) + 1;
         }
 
-        // Compute profit: sum of sales totals - sum of cost price * qty (COGS)
         double sampledSalesTotal = 0.0;
         double sampledCostTotal = 0.0;
+        int wholesaleLineCount = 0;
         try {
           final salesSnapshot = await _firestore
               .collection('businesses')
@@ -383,75 +471,79 @@ class WhatsAppService {
               .get();
 
           for (final sDoc in salesSnapshot.docs) {
-            final s = sDoc.data();
-            final items = (s['items'] as List<dynamic>?) ?? [];
-            for (final it in items) {
-              final qty = (it['quantity'] as num?)?.toDouble() ?? (it['qty'] as num?)?.toDouble() ?? 0.0;
-              final unitPrice = (it['unitPrice'] as num?)?.toDouble() ?? (it['price'] as num?)?.toDouble() ?? 0.0;
-              sampledSalesTotal += unitPrice * qty;
+            final sale = sDoc.data();
+            final items = (sale['items'] as List<dynamic>?) ?? [];
+            final saleTotal = _readDouble(sale['totalAmount']) > 0
+                ? _readDouble(sale['totalAmount'])
+                : _readDouble(sale['finalAmount']) > 0
+                    ? _readDouble(sale['finalAmount'])
+                    : _readDouble(sale['total']);
+            sampledSalesTotal += saleTotal;
 
-              final pid = (it['productId'] as String?) ?? '';
-              double costPrice = 0.0;
-              if (pid.isNotEmpty) {
-                try {
-                  final invDoc = await _firestore
-                      .collection('businesses')
-                      .doc(businessId)
-                      .collection('inventory')
-                      .doc(pid)
-                      .get();
-                  if (invDoc.exists) {
-                    final inv = invDoc.data();
-                    costPrice = (inv?['costPrice'] as num?)?.toDouble() ?? (inv?['unitCost'] as num?)?.toDouble() ?? 0.0;
-                  }
-                } catch (_) {}
+            for (final rawItem in items) {
+              if (rawItem is! Map) continue;
+              final item = Map<String, dynamic>.from(rawItem as Map);
+              final quantity = _saleItemQuantity(item);
+              final costPerUnit = await _saleItemCostPerUnit(businessId, item);
+              sampledCostTotal += costPerUnit * quantity;
+
+              final mode = _saleItemModeLabel(item).toLowerCase();
+              if (mode.contains('whole') || mode.contains('bulk') || _readDouble(item['saleUnitMultiplier']) > 1) {
+                wholesaleLineCount++;
               }
-
-              sampledCostTotal += costPrice * qty;
             }
           }
         } catch (e) {
           print('[WhatsAppService] Failed to compute profit from sales: $e');
         }
 
-        final profitSampled = sampledSalesTotal - sampledCostTotal;
+        final grossProfit = sampledSalesTotal - sampledCostTotal;
+        final grossMargin = sampledSalesTotal > 0 ? (grossProfit / sampledSalesTotal) * 100 : 0.0;
 
         final lines = <String>[];
         for (var i = 0; i < txs.length && i < limit; i++) {
           final tx = txs[i];
-          final amt = double.tryParse(tx['amount'].toString()) ?? 0.0;
+          final amt = _readDouble(tx['amount']);
           final dateStr = (tx['createdAt'] != null && tx['createdAt'].toString().isNotEmpty)
               ? parseTimestamp(tx['createdAt']).toLocal().toString().split('.').first
               : '';
-          final who = (tx['cashier'] as String?)?.toString() ?? (tx['email'] as String?)?.toString() ?? '';
-          lines.add('${i + 1}. ₦${amt.toStringAsFixed(2)} • ${tx['status']} • $dateStr${who.isNotEmpty ? ' • $who' : ''}');
+          final who = (tx['cashier'] as String?)?.toString() ??
+              (tx['email'] as String?)?.toString() ??
+              '';
+          lines.add('${i + 1}. \u20A6${amt.toStringAsFixed(2)} \u2022 ${tx['status']} \u2022 $dateStr${who.isNotEmpty ? ' \u2022 $who' : ''}');
         }
 
-        final statusSummary = statusCounts.entries.map((e) => '${e.key}: ${e.value}').join(', ');
+        final statusSummary = statusCounts.entries
+            .map((e) => '${e.key}: ${e.value}')
+            .join(', ');
 
-        message = 'Daily transactions (showing up to ${limit}) for "$businessName"\n'
-          'Total (sampled): ₦${totalAmount.toStringAsFixed(2)} • Transactions: ${txs.length}\n'
-          'Status breakdown: $statusSummary\n'
-          'Profit (sampled): ₦${profitSampled.toStringAsFixed(2)}\n\n'
-          '${lines.join('\n')}\n\nNote: Transaction IDs are omitted for privacy. A detailed report (including IDs) has been emailed to the owner.';
+        message = 'Daily transactions (showing up to $limit) for "$businessName"\n'
+            'Total (sampled): \u20A6${totalAmount.toStringAsFixed(2)} \u2022 Transactions: ${txs.length}\n'
+            'Status breakdown: $statusSummary\n'
+            'Gross profit (sampled): \u20A6${grossProfit.toStringAsFixed(2)}\n'
+            'Gross margin: ${grossMargin.toStringAsFixed(1)}%\n'
+            'Wholesale lines: $wholesaleLineCount\n\n'
+            '${lines.join('\n')}\n\n'
+            'Note: Transaction IDs are omitted for privacy. A detailed report (including IDs) has been emailed to the owner.';
       }
 
       final url = Uri.parse('https://graph.facebook.com/v17.0/$phoneNumberId/messages');
 
-      // Optional webhook: POST the full transaction payload (best-effort)
       if (webhookUrl != null && webhookUrl.isNotEmpty) {
         try {
           final hookBody = jsonEncode({
             'businessId': businessId,
             'businessName': businessName,
             'date': DateTime.now().toIso8601String(),
-            'total': txs.fold<double>(0.0, (s, t) => s + (double.tryParse(t['amount'].toString()) ?? 0.0)),
+            'total': txs.fold<double>(0.0, (sum, tx) => sum + _readDouble(tx['amount'])),
             'count': txs.length,
             'transactions': txs,
           });
-          // Fire-and-forget (include optional hook token header)
           final hookHeaders = {'Content-Type': 'application/json'};
-          final hookToken = (settings['dailyReportWebhookToken'] as String?) ?? (AppConfig.dailyReportHookToken.isNotEmpty ? AppConfig.dailyReportHookToken : null);
+          final hookToken = (settings['dailyReportWebhookToken'] as String?) ??
+              (AppConfig.dailyReportHookToken.isNotEmpty
+                  ? AppConfig.dailyReportHookToken
+                  : null);
           if (hookToken != null && hookToken.isNotEmpty) {
             hookHeaders['X-Hook-Token'] = hookToken;
           }
@@ -468,9 +560,9 @@ class WhatsAppService {
       }
 
       bool anySuccess = false;
-      for (var rawRecipient in recipients) {
+      for (final rawRecipient in recipients) {
         try {
-          var r = rawRecipient.replaceAll(RegExp(r'[^0-9]'), '');
+          final r = rawRecipient.replaceAll(RegExp(r'[^0-9]'), '');
           if (r.isEmpty) continue;
 
           final body = jsonEncode({
@@ -480,12 +572,14 @@ class WhatsAppService {
             'text': {'body': message}
           });
 
-          final resp = await http.post(url,
-              headers: {
-                'Authorization': 'Bearer $accessToken',
-                'Content-Type': 'application/json'
-              },
-              body: body);
+          final resp = await http.post(
+            url,
+            headers: {
+              'Authorization': 'Bearer $accessToken',
+              'Content-Type': 'application/json'
+            },
+            body: body,
+          );
 
           final success = resp.statusCode >= 200 && resp.statusCode < 300;
           anySuccess = anySuccess || success;
@@ -510,7 +604,6 @@ class WhatsAppService {
         }
       }
 
-      // Send detailed email to owner (best-effort)
       try {
         String? ownerEmail;
         if (data['ownerEmail'] != null && data['ownerEmail'].toString().isNotEmpty) {
@@ -524,7 +617,9 @@ class WhatsAppService {
 
         if (ownerEmail != null && ownerEmail.isNotEmpty) {
           final emailService = EmailService();
-          final txSummary = txs.map((t) => '${t['transactionId']} - ₦${double.tryParse(t['amount'].toString())?.toStringAsFixed(2) ?? '0.00'} - ${t['status']} - ${t['createdAt']}').join('\n');
+          final txSummary = txs
+              .map((t) => '${t['transactionId']} - \u20A6${_readDouble(t['amount']).toStringAsFixed(2)} - ${t['status']} - ${t['createdAt']}')
+              .join('\n');
           await emailService.sendTemplateEmail(
             'daily_transactions',
             ownerEmail,
@@ -544,12 +639,13 @@ class WhatsAppService {
     } catch (e) {
       try {
         await _logger.logNotificationEvent(
-            businessId: businessId,
-            type: 'transactions_summary',
-            channel: 'whatsapp',
-            recipient: 'unknown',
-            success: false,
-            errorMessage: e.toString());
+          businessId: businessId,
+          type: 'transactions_summary',
+          channel: 'whatsapp',
+          recipient: 'unknown',
+          success: false,
+          errorMessage: e.toString(),
+        );
       } catch (_) {}
       return false;
     }

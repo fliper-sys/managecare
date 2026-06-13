@@ -146,9 +146,8 @@ class ReportsProvider extends ChangeNotifier {
       item['inventoryCost'],
     ];
     for (final candidate in directCandidates) {
-      if (candidate is num) {
-        return candidate.toDouble();
-      }
+      final parsed = _toDouble(candidate);
+      if (parsed != null) return parsed;
     }
 
     final nestedProduct = item['product'];
@@ -160,9 +159,8 @@ class ReportsProvider extends ChangeNotifier {
         nestedProduct['averageCost'],
       ];
       for (final candidate in nestedCandidates) {
-        if (candidate is num) {
-          return candidate.toDouble();
-        }
+        final parsed = _toDouble(candidate);
+        if (parsed != null) return parsed;
       }
     }
 
@@ -178,6 +176,15 @@ class ReportsProvider extends ChangeNotifier {
       return 0.0;
     }
     return inventoryCostMap[productId] ?? 0.0;
+  }
+
+  double? _toDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final cleaned = value.replaceAll(RegExp(r'[^0-9.\-]'), '');
+      return double.tryParse(cleaned);
+    }
+    return null;
   }
 
   /// Helper to extract error message from wrapped or unwrapped exceptions
@@ -3231,6 +3238,136 @@ class ReportsProvider extends ChangeNotifier {
       'profit': netProfit, // net profit (backwards compatible)
       'netProfitMargin': profitMargin,
       'profitMargin': profitMargin,
+    };
+  }
+
+  Map<String, dynamic> getFinancialDeepDive() {
+    final summary = getFinancialSummary();
+    final startDate = _financialStartDate;
+    final endDate = _financialEndDate.add(const Duration(days: 1));
+    final inventoryCostMap = Map<String, double>.from(_inventoryCostCache);
+
+    final sales = <Map<String, dynamic>>[];
+    double calculatedRevenue = 0.0;
+    double calculatedCogs = 0.0;
+
+    for (final doc in _latestSalesDocs) {
+      final data = doc.data();
+      final saleDate = _parseDate(data['createdAt'] ?? data['timestamp']);
+      if (saleDate.isBefore(startDate) || !saleDate.isBefore(endDate)) {
+        continue;
+      }
+
+      final items = (data['items'] as List?) ?? [];
+      final itemRows = <Map<String, dynamic>>[];
+      double saleRevenue = 0.0;
+      double saleCogs = 0.0;
+
+      for (final rawItem in items) {
+        if (rawItem is! Map) continue;
+        final item = Map<String, dynamic>.from(rawItem);
+        final quantity = _toDouble(
+              item['inventoryQuantity'] ??
+                  item['quantity'] ??
+                  item['qty'] ??
+                  item['soldQty'] ??
+                  1,
+            ) ??
+            0.0;
+        final unitPrice = _toDouble(
+              item['unitPrice'] ??
+                  item['price'] ??
+                  item['sellingPrice'] ??
+                  item['amount'] ??
+                  0,
+            ) ??
+            0.0;
+        final costPerUnit = _resolveItemCost(item, inventoryCostMap);
+        final lineRevenue = unitPrice * quantity;
+        final lineCogs = costPerUnit * quantity;
+        final saleMode = (item['pricingMode'] ?? item['saleMode'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+
+        saleRevenue += lineRevenue;
+        saleCogs += lineCogs;
+
+        itemRows.add({
+          'name': (item['name'] ?? item['productName'] ?? 'Item').toString(),
+          'productId': (item['productId'] ?? item['id'] ?? '').toString(),
+          'quantity': quantity,
+          'unitPrice': unitPrice,
+          'costPerUnit': costPerUnit,
+          'revenue': lineRevenue,
+          'cogs': lineCogs,
+          'saleUnit': (item['saleUnit'] ?? item['unit'] ?? '').toString(),
+          'inventoryQuantity': _toDouble(item['inventoryQuantity']) ?? quantity,
+          'pricingMode': saleMode.isEmpty ? 'retail' : saleMode,
+          'isWholesale': saleMode == 'wholesale',
+        });
+      }
+
+      calculatedRevenue += saleRevenue;
+      calculatedCogs += saleCogs;
+
+      sales.add({
+        'id': doc.id,
+        'date': saleDate,
+        'receiptNumber': (data['receiptNumber'] ?? '').toString(),
+        'customerName': (data['customerName'] ?? 'Walk-in').toString(),
+        'paymentMethod': (data['paymentMethod'] ?? 'cash').toString(),
+        'revenue': saleRevenue,
+        'cogs': saleCogs,
+        'grossProfit': saleRevenue - saleCogs,
+        'grossMargin': saleRevenue == 0 ? 0.0 : ((saleRevenue - saleCogs) / saleRevenue) * 100,
+        'items': itemRows,
+        'isWholesale': itemRows.any((item) => item['isWholesale'] == true),
+      });
+    }
+
+    sales.sort((left, right) =>
+        (right['date'] as DateTime).compareTo(left['date'] as DateTime));
+
+    final expenses = <Map<String, dynamic>>[];
+    double operatingExpenses = 0.0;
+    for (final doc in _latestExpensesDocs) {
+      final data = doc.data();
+      final expenseDate = _parseDate(data['date'] ?? data['createdAt'] ?? data['timestamp']);
+      if (expenseDate.isBefore(startDate) || !expenseDate.isBefore(endDate)) {
+        continue;
+      }
+
+      final amount = _toDouble(data['amount'] ?? data['value'] ?? 0) ?? 0.0;
+      operatingExpenses += amount;
+      expenses.add({
+        'id': doc.id,
+        'date': expenseDate,
+        'amount': amount,
+        'category': (data['category'] ?? 'Expense').toString(),
+        'description': (data['description'] ?? data['note'] ?? '').toString(),
+      });
+    }
+
+    return {
+      'summary': summary,
+      'sales': sales,
+      'expenses': expenses,
+      'calculatedRevenue': calculatedRevenue,
+      'calculatedCogs': calculatedCogs,
+      'operatingExpenses': operatingExpenses,
+      'netProfit': calculatedRevenue - calculatedCogs - operatingExpenses,
+      'grossProfit': calculatedRevenue - calculatedCogs,
+      'grossMargin': calculatedRevenue == 0
+          ? 0.0
+          : ((calculatedRevenue - calculatedCogs) / calculatedRevenue) * 100,
+      'netMargin': calculatedRevenue == 0
+          ? 0.0
+          : ((calculatedRevenue - calculatedCogs - operatingExpenses) /
+                  calculatedRevenue) *
+              100,
+      'startDate': startDate,
+      'endDate': _financialEndDate,
     };
   }
 

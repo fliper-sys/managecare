@@ -21,6 +21,7 @@ import '../../industry_specific/salon/providers/salon_provider.dart';
 import '../../../services/email_service.dart';
 import '../../../data/repositories/auth_repository_impl.dart';
 import '../../../data/repositories/worker_repository_impl.dart';
+import '../../../core/utils/worker_permissions.dart';
 import '../../../widgets/loading_indicator.dart';
 import '../widgets/permission_selector.dart';
 
@@ -85,6 +86,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
       for (final doc in query.docs) {
         final data = doc.data();
+        final isActive = data['isActive'];
+        if (isActive is bool && !isActive) continue;
         final docBusinessId = (data['businessId'] ?? '').toString().trim();
         if (trimmedBusinessId.isEmpty || docBusinessId == trimmedBusinessId) {
           return true;
@@ -133,6 +136,18 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           'hr',
           'staff',
         ];
+      case 'auto':
+      case 'auto repair':
+      case 'autorepair':
+        return [
+          'manager',
+          'mechanic',
+          'electrician',
+          'body_technician',
+          'painter',
+          'valucnizer',
+          'staff',
+        ];
       default:
         return ['manager', 'cashier', 'staff', 'assistant'];
     }
@@ -169,6 +184,13 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
         .split(' ')
         .map((p) => p.isEmpty ? p : '${p[0].toUpperCase()}${p.substring(1)}')
         .join(' ');
+  }
+
+  String _roleDescription(String role) {
+    final description = WorkerPermissions.getRoleDescription(role);
+    return description.isEmpty
+        ? 'Assigned to ${_readableRole(role).toLowerCase()} duties.'
+        : description;
   }
 
   Future<void> _handleAddWorker() async {
@@ -654,6 +676,11 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Role', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Choose one or more roles for this worker.',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                    ),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -673,6 +700,74 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                           }),
                         );
                       }).toList(),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.primary.withOpacity(0.15),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Role details',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ...roles.map((role) {
+                            final selected = _selectedRoles.contains(role);
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    selected
+                                        ? Icons.check_circle
+                                        : Icons.info_outline,
+                                    size: 18,
+                                    color: selected
+                                        ? AppColors.primary
+                                        : Colors.grey,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _readableRole(role),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          _roleDescription(role),
+                                          style: TextStyle(
+                                            color: Colors.grey.shade700,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
                     ),
                   ],
                 );

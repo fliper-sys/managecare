@@ -13,6 +13,7 @@ import '../../../providers/reports_provider.dart';
 import '../../../services/financial_report_pdf_service.dart';
 import '../../../core/constants/routes.dart';
 import '../../../core/utils/formatters.dart';
+import 'financial_breakdown_screen.dart';
 import '../widgets/date_range_picker.dart';
 import '../widgets/report_card.dart';
 import '../widgets/report_theme.dart';
@@ -300,6 +301,17 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
         iconTheme: IconThemeData(color: Theme.of(context).iconTheme.color),
         actions: [
           IconButton(
+            icon: const Icon(Icons.analytics_outlined),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const FinancialBreakdownScreen(),
+                ),
+              );
+            },
+            tooltip: 'Open detailed breakdown',
+          ),
+          IconButton(
             icon: const Icon(Icons.info_outline),
             onPressed: _showProfitHelpDialog,
             tooltip: 'What is Gross vs Net profit?',
@@ -395,6 +407,69 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(18),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const FinancialBreakdownScreen(),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            AppColors.primary.withOpacity(0.14),
+                            AppColors.info.withOpacity(0.10),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: AppColors.primary.withOpacity(0.20),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.12),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.analytics_outlined,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Open detailed breakdown',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'See revenue, COGS, expenses, and profit calculations in detail.',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right),
+                        ],
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 12),
 

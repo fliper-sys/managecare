@@ -1010,18 +1010,9 @@ class _HomeTabState extends State<_HomeTab> {
                       );
                     } else if (businessType.contains('retail')) {
                       // Retail specific actions
+                     
                       actions.insert(
                         0,
-                        _QuickActionItem(
-                          title: 'Quick Sale',
-                          subtitle: 'Fast checkout',
-                          icon: Icons.point_of_sale,
-                          color: AppColors.retail,
-                          route: Routes.retailPos,
-                        ),
-                      );
-                      actions.insert(
-                        1,
                         _QuickActionItem(
                           title: 'Product Catalog',
                           subtitle: 'Manage products',
@@ -2953,13 +2944,6 @@ class _HomeTabState extends State<_HomeTab> {
             color: Colors.teal,
             route: Routes.procurement,
           ),
-          _QuickActionItem(
-            title: 'Procurement History',
-            subtitle: 'View procurement logs',
-            icon: Icons.history_rounded,
-            color: const Color.fromARGB(255, 0, 60, 150),
-            route: Routes.procurementHistory,
-          ),
           ...commonItems,
         ];
 
@@ -3163,13 +3147,6 @@ class _HomeTabState extends State<_HomeTab> {
             color: Colors.teal,
             route: Routes.procurement,
           ),
-          _QuickActionItem(
-            title: 'Procurement History',
-            subtitle: 'View procurement logs',
-            icon: Icons.history_rounded,
-            color: const Color.fromARGB(255, 0, 60, 150),
-            route: Routes.procurementHistory,
-          ),
           ...commonItems,
         ];
 
@@ -3278,13 +3255,6 @@ class _HomeTabState extends State<_HomeTab> {
             icon: Icons.shopping_cart_rounded,
             color: Colors.teal,
             route: Routes.procurement,
-          ),
-          _QuickActionItem(
-            title: 'Procurement History',
-            subtitle: 'View procurement logs',
-            icon: Icons.history_rounded,
-            color: const Color.fromARGB(255, 0, 60, 150),
-            route: Routes.procurementHistory,
           ),
           ...commonItems,
         ];
@@ -3438,13 +3408,6 @@ class _HomeTabState extends State<_HomeTab> {
             icon: Icons.shopping_cart_rounded,
             color: Colors.teal,
             route: Routes.procurement,
-          ),
-          _QuickActionItem(
-            title: 'Procurement History',
-            subtitle: 'View procurement logs',
-            icon: Icons.history_rounded,
-            color: const Color.fromARGB(255, 0, 60, 150),
-            route: Routes.procurementHistory,
           ),
           _QuickActionItem(
             title: 'Expenses',

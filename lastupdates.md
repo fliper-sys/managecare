@@ -4,7 +4,7 @@ TO BE WORKED!!!
 •	Some products minus from inventory after sales, some doesn't ... and I can't seem to find the reason why from here. Sometimes when a sale is made, it will minus, other times it won't minus from the inventory ..
 •	The financial report page is wrong, The money it calculates for profit is wrong,  I did the manual calculation my self and it was off,  Also the WhatsApp message gross profit is also wrong .It should be fixed and the whatsapp message dosent indicate products that was sold in wholesale.
 •	inventory report show profit also for each item, not just the cost.
-•	Invoice can't still be printed only if the sale has been completed already. And the sale is not ment to be completed before printing inventory , Once invoice is generated , it should ask if you want to print or share.
+•	✅ Invoice generation now automatically shows a dialog asking user to print or share (COMPLETED)
 •	After deleting a workers account,  if you try recreating it with thesame email,  it would say workers email still exist, that shouldn't be happening. It should be deleted completely
 •	On the costumers page , there is not place to delete a costumer
 •	Tier 1 business can still open extra stores, or shouldn't be possible as they are only entitled to 1 store

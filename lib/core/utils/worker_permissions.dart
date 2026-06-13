@@ -3,6 +3,13 @@ class WorkerPermissions {
   static const Set<String> _fullAccessRoles = {'owner', 'admin', 'sub_admin'};
   static const Map<String, String> _roleAliases = {
     'worker': 'staff',
+    'mechanic technician': 'mechanic',
+    'body technician': 'body_technician',
+    'body-technician': 'body_technician',
+    'paint technician': 'painter',
+    'paint-technician': 'painter',
+    'valuconizer': 'valucnizer',
+    'vulcanizer': 'valucnizer',
     'frontdesk': 'receptionist',
     'front_desk': 'receptionist',
     'front_office': 'receptionist',
@@ -109,6 +116,10 @@ class WorkerPermissions {
     ],
     'hr': ['manage_staff', 'attendance', 'payroll_view'],
     'mechanic': ['job_quotes', 'work_orders', 'parts_management'],
+    'electrician': ['job_quotes', 'work_orders', 'diagnostics'],
+    'body_technician': ['job_quotes', 'work_orders', 'body_work'],
+    'painter': ['job_quotes', 'work_orders', 'painting'],
+    'valucnizer': ['job_quotes', 'work_orders', 'tyre_service'],
     'beautician': ['appointments', 'services', 'attendance'],
     'trainer': ['memberships', 'classes', 'attendance', 'manage_gym_bookings'],
     'field_officer': ['leads', 'properties', 'viewings'],
@@ -293,7 +304,15 @@ class WorkerPermissions {
         'hr',
         'manager',
       ],
-      'auto': ['mechanic', 'manager'],
+      'auto': [
+        'mechanic',
+        'electrician',
+        'body_technician',
+        'painter',
+        'valucnizer',
+        'manager',
+        'staff',
+      ],
       'salon': ['beautician', 'staff', 'manager'],
       'gym': ['trainer', 'staff', 'manager'],
       'agriculture': ['field_officer', 'manager', 'staff'],
@@ -327,11 +346,28 @@ class WorkerPermissions {
       'night_auditor': 'Night Auditor',
       'hr': 'HR',
       'mechanic': 'Mechanic',
+      'electrician': 'Electrician',
+      'body_technician': 'Body Technician',
+      'painter': 'Painter',
+      'valucnizer': 'Valucnizer',
       'beautician': 'Beautician',
       'trainer': 'Trainer',
       'pump_operator': 'Pump Operator',
       'field_officer': 'Field Officer',
     };
     return displayNames[role.toLowerCase()] ?? role;
+  }
+
+  static String getRoleDescription(String role) {
+    final descriptions = {
+      'mechanic': 'Handles engine, suspension, and repair work.',
+      'electrician': 'Diagnoses and fixes wiring and electrical faults.',
+      'body_technician': 'Restores panels, dents, and structural bodywork.',
+      'painter': 'Manages prep, spray, and finishing work.',
+      'valucnizer': 'Handles tyres, wheel balancing, and alignment support.',
+      'manager': 'Oversees workflow, approvals, and staff coordination.',
+      'staff': 'General support for service and workshop operations.',
+    };
+    return descriptions[normalizeRole(role)] ?? '';
   }
 }

@@ -1,9 +1,15 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/utils/datetime_utils.dart';
+import '../../../services/web_download.dart' as web_download;
 import 'package:provider/provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/product_history_provider.dart';
@@ -56,13 +62,72 @@ class _ProductHistoryScreenState extends State<ProductHistoryScreen> {
 
   String _fmt(DateTime d) => DateFormat.yMMMd().format(d);
 
+  String _escapeCsv(String value) => '"${value.replaceAll('"', '""')}"';
+
+  String _buildCsv(List<Map<String, dynamic>> sales) {
+    final buffer = StringBuffer();
+    buffer.writeln([
+      'Sale ID',
+      'Date',
+      'Quantity',
+      'Unit Price',
+      'Total',
+      'Payment Method',
+    ].join(','));
+
+    for (final sale in sales) {
+      buffer.writeln([
+        _escapeCsv((sale['saleId'] ?? '').toString()),
+        _escapeCsv(DateFormat('yyyy-MM-dd HH:mm:ss').format(sale['date'] as DateTime)),
+        _escapeCsv((sale['quantity'] ?? 0).toString()),
+        _escapeCsv((sale['price'] ?? 0).toString()),
+        _escapeCsv((sale['total'] ?? 0).toString()),
+        _escapeCsv((sale['paymentMethod'] ?? '').toString()),
+      ].join(','));
+    }
+
+    return buffer.toString();
+  }
+
+  Future<void> _exportHistory(List<Map<String, dynamic>> sales) async {
+    if (sales.isEmpty) return;
+    final fileName =
+        '${(widget.productName ?? widget.productId).replaceAll(RegExp(r'[^A-Za-z0-9_-]+'), '_')}_history.csv';
+    final csv = _buildCsv(sales);
+    final bytes = Uint8List.fromList(utf8.encode(csv));
+
+    if (kIsWeb) {
+      web_download.downloadBytes(bytes, fileName, 'text/csv');
+    } else {
+      await Share.shareXFiles(
+        [
+          XFile.fromData(
+            bytes,
+            name: fileName,
+            mimeType: 'text/csv',
+          ),
+        ],
+        text: 'Product history for ${widget.productName ?? widget.productId}',
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(
       value: _prov,
       child: Consumer<ProductHistoryProvider>(builder: (context, prov, _) {
         return Scaffold(
-          appBar: AppBar(title: Text(widget.productName ?? 'Product History')),
+          appBar: AppBar(
+            title: Text(widget.productName ?? 'Product History'),
+            actions: [
+              IconButton(
+                tooltip: 'Download history',
+                icon: const Icon(Icons.download_outlined),
+                onPressed: prov.sales.isEmpty ? null : () => _exportHistory(prov.sales),
+              ),
+            ],
+          ),
           body: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(

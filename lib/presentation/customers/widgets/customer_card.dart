@@ -7,6 +7,7 @@ class CustomerCard extends StatelessWidget {
   final String phone;
   final String totalPurchases;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
 
   const CustomerCard({
     super.key,
@@ -14,6 +15,7 @@ class CustomerCard extends StatelessWidget {
     required this.phone,
     required this.totalPurchases,
     required this.onTap,
+    this.onDelete,
   });
 
   @override
@@ -39,14 +41,28 @@ class CustomerCard extends StatelessWidget {
         ),
         title: Text(name),
         subtitle: Text(phone),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            const Text('Total',
-                style: TextStyle(fontSize: 12, color: AppColors.darkGrey)),
-            Text(totalPurchases,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                const Text('Total',
+                    style: TextStyle(fontSize: 12, color: AppColors.darkGrey)),
+                Text(totalPurchases,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+              ],
+            ),
+            if (onDelete != null) ...[
+              const SizedBox(width: 12),
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                tooltip: 'Delete customer',
+                onPressed: onDelete,
+              ),
+            ],
           ],
         ),
         onTap: onTap,

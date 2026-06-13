@@ -68,6 +68,41 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
     }
   }
 
+  Future<void> _deleteCustomer(String customerId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Customer'),
+        content: const Text('Are you sure you want to delete this customer?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await _repository.deleteCustomer(customerId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Customer deleted')));
+      _loadCustomers();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed to delete customer: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final query = _searchQuery.trim().toLowerCase();
@@ -164,6 +199,9 @@ class _CustomerListScreenState extends State<CustomerListScreen> {
                                         Routes.customerDetails,
                                         arguments: {'customerId': id},
                                       ),
+                                      onDelete: id.isNotEmpty
+                                          ? () => _deleteCustomer(id)
+                                          : null,
                                     );
                                   },
                                 ),

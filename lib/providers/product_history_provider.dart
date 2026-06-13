@@ -66,12 +66,37 @@ class ProductHistoryProvider extends ChangeNotifier {
     }
 
     try {
-      // Fetch sales with optimized query
-      final salesList = await _salesRepo.fetchSales(
-        businessId: businessId,
-        start: start,
-        end: end,
-      );
+      final normalizedProductId = productId.toLowerCase();
+      final salesList = <Map<String, dynamic>>[];
+
+      Future<void> addDocs(QuerySnapshot snapshot) async {
+        for (final doc in snapshot.docs) {
+          final data = doc.data();
+          if (data is! Map<String, dynamic>) continue;
+          salesList.add({'id': doc.id, ...data});
+        }
+      }
+
+      final firestore = FirebaseFirestore.instance;
+
+      try {
+        await addDocs(await firestore
+            .collection('businesses')
+            .doc(businessId)
+            .collection('sales')
+            .get());
+      } catch (e) {
+        debugPrint('ProductHistoryProvider nested load failed: $e');
+      }
+
+      try {
+        await addDocs(await firestore
+            .collection('sales')
+            .where('businessId', isEqualTo: businessId)
+            .get());
+      } catch (e) {
+        debugPrint('ProductHistoryProvider root load failed: $e');
+      }
 
       // Filter to only matched products - do minimal processing
       final matched = <Map<String, dynamic>>[];
@@ -85,7 +110,16 @@ class ProductHistoryProvider extends ChangeNotifier {
             
             // Match product ID
             final pid = (it['productId'] ?? it['id'] ?? it['product_id'] ?? it['productIdStr'] ?? '').toString();
-            if (pid != productId.toString()) continue;
+            final pname = (it['productName'] ?? it['name'] ?? '').toString();
+            final normalizedPid = pid.toLowerCase();
+            final normalizedName = pname.toLowerCase();
+            if (normalizedPid != normalizedProductId &&
+                !normalizedPid.contains(normalizedProductId) &&
+                !normalizedProductId.contains(normalizedPid) &&
+                !normalizedName.contains(normalizedProductId) &&
+                !normalizedProductId.contains(normalizedName)) {
+              continue;
+            }
 
             // Extract quantity
             double qty = _parseQuantity(it['quantity'] ?? it['qty'] ?? it['quantitySold'] ?? it['qtySold'] ?? it['soldQty']);
@@ -96,9 +130,10 @@ class ProductHistoryProvider extends ChangeNotifier {
             // Extract sale ID
             final saleId = (s['id'] ?? s['saleId'] ?? s['transactionId'] ?? s['sale_id'] ?? '')?.toString() ?? '';
 
-            // Get created date - already filtered by Firebase query
+            // Apply the selected date range locally so the full history can be queried safely
             final createdRaw = s['createdAt'] ?? s['created_at'] ?? s['timestamp'];
             final created = parseTimestamp(createdRaw);
+            if (created.isBefore(start) || created.isAfter(end)) continue;
 
             matched.add({
               'saleId': saleId,

@@ -6,6 +6,7 @@ import '../../../../providers/auto_provider.dart';
 import '../../../../providers/customer_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/workers_provider.dart';
+import '../../../../core/utils/worker_permissions.dart';
 
 class CreateServiceOrderScreen extends StatefulWidget {
   const CreateServiceOrderScreen({super.key});
@@ -32,6 +33,45 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
   final TextEditingController _notesController = TextEditingController();
   bool _isSubmitting = false;
 
+  bool _workerMatchesAutoRoles(Map<String, dynamic> worker) {
+    final autoRoles = WorkerPermissions.getAvailableRoles('auto')
+        .map(WorkerPermissions.normalizeRole)
+        .toSet();
+    final roles = <String>{};
+    final primaryRole = worker['role']?.toString();
+    if (primaryRole != null && primaryRole.trim().isNotEmpty) {
+      roles.add(WorkerPermissions.normalizeRole(primaryRole));
+    }
+    final secondaryRoles = worker['roles'];
+    if (secondaryRoles is List) {
+      for (final role in secondaryRoles) {
+        final normalized = WorkerPermissions.normalizeRole(role.toString());
+        if (normalized.isNotEmpty) {
+          roles.add(normalized);
+        }
+      }
+    }
+    return roles.any(autoRoles.contains);
+  }
+
+  String _workerDisplayLabel(Map<String, dynamic> worker) {
+    final name = (worker['fullName'] ?? worker['name'] ?? 'Worker').toString();
+    final rawRole = (worker['role'] ?? '').toString().trim();
+    final roleLabel = rawRole.isEmpty
+        ? ''
+        : ' • ${WorkerPermissions.getRoleDisplayName(rawRole)}';
+    return '$name$roleLabel';
+  }
+
+  String _workerRoleHint(Map<String, dynamic> worker) {
+    final role = (worker['role'] ?? '').toString().trim();
+    if (role.isEmpty) return 'Available for workshop assignment';
+    final description = WorkerPermissions.getRoleDescription(role);
+    return description.isEmpty
+        ? WorkerPermissions.getRoleDisplayName(role)
+        : description;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -54,7 +94,15 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
     final auto = context.watch<AutoProvider>();
     final workersProvider = context.watch<WorkersProvider>();
     final customerProvider = context.watch<CustomerProvider>();
-    final workers = workersProvider.workers;
+    final workers = workersProvider.workers.toList()
+      ..sort((left, right) {
+        final leftPreferred = _workerMatchesAutoRoles(left) ? 0 : 1;
+        final rightPreferred = _workerMatchesAutoRoles(right) ? 0 : 1;
+        if (leftPreferred != rightPreferred) return leftPreferred - rightPreferred;
+        final leftName = (left['fullName'] ?? left['name'] ?? '').toString();
+        final rightName = (right['fullName'] ?? right['name'] ?? '').toString();
+        return leftName.toLowerCase().compareTo(rightName.toLowerCase());
+      });
 
     return Scaffold(
       appBar: AppBar(title: const Text('Create Service Order')),
@@ -121,9 +169,40 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
                     .map(
                       (worker) => DropdownMenuItem(
                         value: (worker['id'] ?? '').toString(),
-                        child: Text(
-                          '${(worker['fullName'] ?? worker['name'] ?? 'Worker').toString()}'
-                          '${(worker['role'] ?? '').toString().trim().isEmpty ? '' : ' • ${(worker['role']).toString()}'}',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(child: Text(_workerDisplayLabel(worker))),
+                                if (_workerMatchesAutoRoles(worker))
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: Theme.of(context).colorScheme.primary.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      'Auto',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: Theme.of(context).colorScheme.primary,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _workerRoleHint(worker),
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     )

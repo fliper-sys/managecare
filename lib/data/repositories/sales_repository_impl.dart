@@ -9,6 +9,45 @@ class SalesRepositoryImpl implements SalesRepository {
   SalesRepositoryImpl({required FirebaseFirestore firestore})
       : _firestore = firestore;
 
+  Future<DocumentReference<Map<String, dynamic>>?> _resolveInventoryDocRef({
+    required String businessId,
+    required Map<String, dynamic> item,
+  }) async {
+    final inventory = _firestore.collection('businesses').doc(businessId).collection('inventory');
+    final productId = (item['productId'] ?? item['id'] ?? item['product_id'] ?? '').toString().trim();
+    if (productId.isNotEmpty) {
+      final docRef = inventory.doc(productId);
+      final snap = await docRef.get();
+      if (snap.exists) return docRef;
+    }
+
+    final barcode = (item['barcode'] ?? item['sku'] ?? '').toString().trim();
+    if (barcode.isNotEmpty) {
+      final barcodeSnap = await inventory.where('barcode', isEqualTo: barcode).limit(1).get();
+      if (barcodeSnap.docs.isNotEmpty) return barcodeSnap.docs.first.reference;
+    }
+
+    final name = (item['name'] ?? item['productName'] ?? item['itemName'] ?? '').toString().trim();
+    if (name.isNotEmpty) {
+      final nameSnap = await inventory.where('name', isEqualTo: name).limit(1).get();
+      if (nameSnap.docs.isNotEmpty) return nameSnap.docs.first.reference;
+    }
+
+    return null;
+  }
+
+  double _readQuantity(Map<String, dynamic> item) {
+    final quantityValue = item['quantity'] ?? item['qty'] ?? item['quantitySold'] ?? item['soldQty'] ?? 0;
+    if (quantityValue is num) return quantityValue.toDouble();
+    return double.tryParse(quantityValue.toString()) ?? 0.0;
+  }
+
+  double _readSaleUnitMultiplier(Map<String, dynamic> item) {
+    final multiplierValue = item['saleUnitMultiplier'] ?? item['inventoryQuantity'] ?? 1;
+    if (multiplierValue is num) return multiplierValue.toDouble();
+    return double.tryParse(multiplierValue.toString()) ?? 1.0;
+  }
+
   @override
   Future<dynamic> createSale(Map<String, dynamic> saleData) async {
     try {
@@ -236,13 +275,76 @@ class SalesRepositoryImpl implements SalesRepository {
   Future<void> syncSaleToFirestore(Map<String, dynamic> saleData) async {
     try {
       final saleId = saleData['id'] as String?;
-      if (saleId != null) {
+      final businessId = saleData['businessId']?.toString() ?? '';
+      final items = <Map<String, dynamic>>[];
+
+      if (saleId != null && saleId.isNotEmpty) {
+        try {
+          final dbHelper = DatabaseHelper.instance;
+          final saleItems = await dbHelper.query(
+            'sale_items',
+            where: 'saleId = ?',
+            whereArgs: [saleId],
+          );
+          items.addAll(saleItems.map((item) => Map<String, dynamic>.from(item)));
+        } catch (_) {}
+      }
+
+      if (items.isEmpty && saleData['items'] is List) {
+        for (final raw in saleData['items'] as List) {
+          if (raw is Map<String, dynamic>) {
+            items.add(raw);
+          } else if (raw is Map) {
+            items.add(Map<String, dynamic>.from(raw));
+          }
+        }
+      }
+
+      if (saleId != null && saleId.isNotEmpty) {
         await _firestore
             .collection('sales')
             .doc(saleId)
             .set(saleData, SetOptions(merge: true));
+        if (businessId.isNotEmpty) {
+          await _firestore
+              .collection('businesses')
+              .doc(businessId)
+              .collection('sales')
+              .doc(saleId)
+              .set(saleData, SetOptions(merge: true));
+        }
       } else {
-        await _firestore.collection('sales').add(saleData);
+        final docRef = await _firestore.collection('sales').add(saleData);
+        if (businessId.isNotEmpty) {
+          await _firestore
+              .collection('businesses')
+              .doc(businessId)
+              .collection('sales')
+              .doc(docRef.id)
+              .set({...saleData, 'id': docRef.id}, SetOptions(merge: true));
+        }
+      }
+
+      if (businessId.isNotEmpty && items.isNotEmpty) {
+        for (final item in items) {
+          final docRef = await _resolveInventoryDocRef(
+            businessId: businessId,
+            item: item,
+          );
+          if (docRef == null) continue;
+
+          final quantity = _readQuantity(item) * _readSaleUnitMultiplier(item);
+          if (quantity <= 0) continue;
+
+          final snap = await docRef.get();
+          final currentQuantity = ((snap.data()?['quantity'] ?? snap.data()?['stock'] ?? 0) as num).toDouble();
+          final newQuantity = (currentQuantity - quantity).clamp(0.0, 999999.0);
+          await docRef.update({
+            'quantity': newQuantity,
+            'stock': newQuantity,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
       }
     } catch (e) {
       rethrow;

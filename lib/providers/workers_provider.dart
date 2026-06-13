@@ -109,6 +109,58 @@ class WorkersProvider with ChangeNotifier {
     await _syncBusinessWorkerCount(targetBusinessId);
   }
 
+  Future<String?> _resolveWorkerEmail(String workerId) async {
+    final firestore = FirebaseFirestore.instance;
+
+    String? readEmail(Map<String, dynamic>? data) {
+      if (data == null) return null;
+      final value = data['emailLowercase'] ?? data['email'];
+      final email = value?.toString().trim();
+      if (email == null || email.isEmpty) return null;
+      return email.toLowerCase();
+    }
+
+    try {
+      final workerDoc = await firestore.collection('workers').doc(workerId).get();
+      final email = readEmail(workerDoc.data());
+      if (email != null) return email;
+    } catch (_) {}
+
+    try {
+      final userDoc = await firestore.collection('users').doc(workerId).get();
+      final email = readEmail(userDoc.data());
+      if (email != null) return email;
+    } catch (_) {}
+
+    return null;
+  }
+
+  Future<void> _deleteMatchingWorkerDocsByEmail(
+    String collection,
+    String email,
+    String? businessId,
+  ) async {
+    final firestore = FirebaseFirestore.instance;
+    final trimmedBusinessId = businessId?.trim() ?? '';
+    final normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail.isEmpty) return;
+
+    for (final field in const ['emailLowercase', 'email']) {
+      try {
+        Query query = firestore.collection(collection).where(field, isEqualTo: normalizedEmail);
+        if (trimmedBusinessId.isNotEmpty) {
+          query = query.where('businessId', isEqualTo: trimmedBusinessId);
+        }
+        final snapshot = await query.get();
+        for (final doc in snapshot.docs) {
+          await doc.reference.delete();
+        }
+      } catch (e) {
+        print('[WorkersProvider] Failed to delete matching $collection docs by email: $e');
+      }
+    }
+  }
+
   Future<void> loadWorkers(String businessId) async {
     _businessId = businessId;
     _isLoading = true;
@@ -279,21 +331,27 @@ class WorkersProvider with ChangeNotifier {
     try {
       await _ensureAuthenticatedSession();
 
-      // Delete from main collections
-      await _repository.deleteWorker(workerId); // Deletes from 'workers' collection
+      final workerEmail = await _resolveWorkerEmail(workerId);
+      final firestore = FirebaseFirestore.instance;
 
-      // Delete from users collection
+      // Delete from main collections by document id first
+      await _repository.deleteWorker(workerId);
       try {
-        await FirebaseFirestore.instance.collection('users').doc(workerId).delete();
-        print('[WorkersProvider] Deleted worker from users collection: $workerId');
+        await firestore.collection('users').doc(workerId).delete();
       } catch (e) {
-        print('[WorkersProvider] Failed to delete from users collection: $e');
-        // Continue with other deletions even if this fails
+        print('[WorkersProvider] Failed to delete users doc by id: $e');
+      }
+
+      // Also remove any lingering duplicates by email so recreation with the
+      // same email works even if older records used a different document id.
+      if (workerEmail != null && workerEmail.isNotEmpty) {
+        await _deleteMatchingWorkerDocsByEmail('workers', workerEmail, businessId);
+        await _deleteMatchingWorkerDocsByEmail('users', workerEmail, businessId);
       }
 
       // Delete from business-specific collections if businessId is provided
       if (businessId != null && businessId.isNotEmpty) {
-        final businessDocRef = FirebaseFirestore.instance.collection('businesses').doc(businessId);
+        final businessDocRef = firestore.collection('businesses').doc(businessId);
 
         // Delete from barbers collection
         try {
@@ -311,8 +369,35 @@ class WorkersProvider with ChangeNotifier {
           print('[WorkersProvider] Failed to delete from stylists collection: $e');
         }
 
-        // Note: Add other business-specific collections here as needed for different business types
-        // For example: mechanics for auto service, staff for restaurants, etc.
+        for (final collection in const [
+          'mechanics',
+          'electricians',
+          'body_technicians',
+          'painters',
+          'valucnizers',
+          'staff',
+          'managers',
+        ]) {
+          try {
+            await businessDocRef.collection(collection).doc(workerId).delete();
+          } catch (_) {}
+        }
+
+        if (workerEmail != null && workerEmail.isNotEmpty) {
+          for (final collection in const [
+            'barbers',
+            'stylists',
+            'mechanics',
+            'electricians',
+            'body_technicians',
+            'painters',
+            'valucnizers',
+            'staff',
+            'managers',
+          ]) {
+            await _deleteMatchingWorkerDocsByEmail(collection, workerEmail, businessId);
+          }
+        }
       }
 
       // Note: Firebase Auth user deletion cannot be performed from client-side code.
