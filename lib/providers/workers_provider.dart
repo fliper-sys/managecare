@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../data/repositories/worker_repository_impl.dart';
 
 class WorkersProvider with ChangeNotifier {
@@ -333,14 +334,14 @@ class WorkersProvider with ChangeNotifier {
 
       final workerEmail = await _resolveWorkerEmail(workerId);
       final firestore = FirebaseFirestore.instance;
+      final functions = FirebaseFunctions.instance;
 
-      // Delete from main collections by document id first
-      await _repository.deleteWorker(workerId);
-      try {
-        await firestore.collection('users').doc(workerId).delete();
-      } catch (e) {
-        print('[WorkersProvider] Failed to delete users doc by id: $e');
-      }
+      final callable = functions.httpsCallable('deleteWorkerCompletely');
+      await callable.call(<String, dynamic>{
+        'workerId': workerId,
+        if (businessId != null && businessId.isNotEmpty) 'businessId': businessId,
+        if (workerEmail != null && workerEmail.isNotEmpty) 'workerEmail': workerEmail,
+      });
 
       // Also remove any lingering duplicates by email so recreation with the
       // same email works even if older records used a different document id.
@@ -399,10 +400,6 @@ class WorkersProvider with ChangeNotifier {
           }
         }
       }
-
-      // Note: Firebase Auth user deletion cannot be performed from client-side code.
-      // This requires a Cloud Function with admin privileges to delete the Auth user.
-      // The worker's login will remain active until deleted server-side.
 
       await _refreshBusinessScopeAfterMutation(businessId);
     } catch (e) {

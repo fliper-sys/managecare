@@ -1159,6 +1159,23 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return;
 
     try {
+      // Enforce Tier 1 businesses can only have one store
+      try {
+        final businessDoc = await _firestore.collection('businesses').doc(_businessId).get();
+        final subscriptionTier = (businessDoc.data()?['subscriptionTier'] ?? '').toString().toLowerCase();
+        if (subscriptionTier == 'tier1' || subscriptionTier == 'basic' || subscriptionTier == 'standard') {
+          final storesSnapshot = await _firestore.collection('businesses').doc(_businessId).collection('stores').get();
+          if (storesSnapshot.docs.length >= 1) {
+            _errorMessage = 'Your subscription allows only one store. Upgrade to add more stores.';
+            notifyListeners();
+            return;
+          }
+        }
+      } catch (e) {
+        // If we cannot determine subscription tier, fall back to permissive behavior
+        debugPrint('Warning: could not verify subscription tier before adding store: $e');
+      }
+
       final data = {
         'name': name,
         'location': location,

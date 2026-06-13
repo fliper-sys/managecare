@@ -247,7 +247,7 @@ async function purgeUserCompletely(userId) {
   }
 }
 
-async function deleteWorkerCompletely(workerId, actorId) {
+async function deleteWorkerCompletely(workerId, actorId, workerEmailOverride) {
   console.log('[deleteWorkerCompletely] Starting deletion of worker', workerId, 'by', actorId);
 
   const workerRef = db.collection('workers').doc(workerId);
@@ -288,7 +288,7 @@ async function deleteWorkerCompletely(workerId, actorId) {
   }
 
   const authUid = (mergedWorkerData.authUid || mergedWorkerData.uid || workerId || '').toString().trim();
-  const workerEmail = (mergedWorkerData.email || userData.email || workerData.email || '').toString().trim();
+  const workerEmail = (workerEmailOverride || mergedWorkerData.email || userData.email || workerData.email || '').toString().trim();
 
   // Delete Firestore documents
   await recursiveDeleteSafe(userRef).catch((error) => {
@@ -301,13 +301,25 @@ async function deleteWorkerCompletely(workerId, actorId) {
   // Delete Firebase Auth user. Some legacy worker documents use a synthetic
   // Firestore id instead of the Firebase Auth uid, so fall back to email.
   try {
-    if (!authUid) {
-      console.log('[deleteWorkerCompletely] No auth uid available, skipping direct auth deletion', workerId);
+    if (authUid) {
+      await admin.auth().deleteUser(authUid);
+      console.log('[deleteWorkerCompletely] Successfully deleted auth user', authUid);
       return { success: true };
     }
 
-    await admin.auth().deleteUser(authUid);
-    console.log('[deleteWorkerCompletely] Successfully deleted auth user', authUid);
+    console.log('[deleteWorkerCompletely] No auth uid available, trying email fallback', workerId);
+    if (workerEmail) {
+      const userRecord = await admin.auth().getUserByEmail(workerEmail);
+      await admin.auth().deleteUser(userRecord.uid);
+      console.log('[deleteWorkerCompletely] Successfully deleted auth user by email', workerEmail, userRecord.uid);
+      await recursiveDeleteSafe(db.collection('users').doc(userRecord.uid)).catch((err) => {
+        console.error('[deleteWorkerCompletely] failed to delete fallback user doc', userRecord.uid, err);
+      });
+      await recursiveDeleteSafe(db.collection('workers').doc(userRecord.uid)).catch((err) => {
+        console.error('[deleteWorkerCompletely] failed to delete fallback worker doc', userRecord.uid, err);
+      });
+      return { success: true };
+    }
   } catch (error) {
     if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-uid') {
       if (workerEmail) {
@@ -359,9 +371,10 @@ exports.deleteWorkerCompletely = functions.https.onCall(async (data, context) =>
   }
 
   const actorId = context.auth.uid;
+  const workerEmail = typeof data.workerEmail === 'string' ? data.workerEmail.trim() : '';
 
   try {
-    return await deleteWorkerCompletely(workerId, actorId);
+    return await deleteWorkerCompletely(workerId, actorId, workerEmail);
   } catch (error) {
     console.error('[deleteWorkerCompletely] Error:', error);
     const knownCodes = [
