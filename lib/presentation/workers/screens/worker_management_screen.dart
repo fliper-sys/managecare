@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../data/repositories/worker_repository_impl.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/utils/worker_permissions.dart';
+import '../../../providers/auth_provider.dart';
 import '../../../providers/workers_provider.dart';
 import '../../../widgets/profile_avatar.dart';
 
@@ -45,12 +46,17 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
 
   @override
   Widget build(BuildContext context) {
+    final authProvider = context.watch<AuthProvider>();
     final businessProvider = context.watch<BusinessProvider>();
-    // final authProvider = context.watch<AuthProvider>();
     final businessType =
         businessProvider.currentBusiness?.businessType ?? 'retail';
 
     final availableRoles = WorkerPermissions.getAvailableRoles(businessType);
+    final canManageStaff = authProvider.currentUser != null &&
+        WorkerPermissions.canManageStaffForUser(
+          authProvider.currentUser!.role,
+          authProvider.currentUser!.permissions,
+        );
 
     return Scaffold(
       appBar: AppBar(
@@ -70,28 +76,33 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
         controller: _tabController,
         children: [
           // Active Workers Tab
-          _buildActiveWorkersTab(availableRoles),
+          _buildActiveWorkersTab(availableRoles, canManageStaff),
           // Permissions Tab
           _buildPermissionsTab(availableRoles),
           // Performance Tab
           _buildPerformanceTab(),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const AddWorkerScreen(),
-          ),
-        ),
-        icon: const Icon(Icons.person_add),
-        label: const Text('Add Worker'),
-        backgroundColor: AppColors.primary,
-      ),
+      floatingActionButton: canManageStaff
+          ? FloatingActionButton.extended(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const AddWorkerScreen(),
+                ),
+              ),
+              icon: const Icon(Icons.person_add),
+              label: const Text('Add Worker'),
+              backgroundColor: AppColors.primary,
+            )
+          : null,
     );
   }
 
-  Widget _buildActiveWorkersTab(List<String> availableRoles) {
+  Widget _buildActiveWorkersTab(
+    List<String> availableRoles,
+    bool canManageStaff,
+  ) {
     return Column(
       children: [
         Padding(
@@ -216,17 +227,12 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                     name: (worker['name'] ?? worker['fullName'] ?? 'Worker')
                         as String,
                     role: (worker['role'] as String?) ?? 'staff',
-                    permissions: (worker['permissions'] as List<dynamic>?)
-                            ?.map((permission) => permission.toString())
-                            .toList() ??
-                        WorkerPermissions.getPermissionsForRole(
-                          (worker['role'] as String?) ?? 'staff',
-                        ),
                     status:
                         (worker['isActive'] == true) ? 'Active' : 'Off-duty',
                     businessId: business?.id,
                     businessType: business?.businessType,
                     photoUrl: (worker['photoUrl'] ?? worker['photo_url']) as String?,
+                    canManageStaff: canManageStaff,
                   );
                 },
               );
@@ -266,9 +272,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                                 const Icon(Icons.check_circle,
                                     size: 16, color: Colors.green),
                                 const SizedBox(width: 8),
-                                Text(permission
-                                    .replaceAll('_', ' ')
-                                    .toUpperCase()),
+                                Text(WorkerPermissions.getPermissionLabel(permission)),
                               ],
                             ),
                           ))
@@ -349,11 +353,11 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     required String workerId,
     required String name,
     required String role,
-    required List<String> permissions,
     required String status,
     String? businessId,
     String? businessType,
     String? photoUrl,
+    required bool canManageStaff,
   }) {
     final isActive = status == 'Active';
     return Card(
@@ -396,41 +400,45 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                 ),
               ),
               const SizedBox(width: 8),
-              PopupMenuButton<String>(
-                onSelected: (value) {
-                  switch (value) {
-                    case 'edit':
-                      _showEditWorkerDialog(
-                        workerId,
-                        name,
-                        role,
-                        permissions,
-                        businessId,
-                      );
-                      break;
-                    case 'view_details':
-                      _navigateToWorkerDetails(workerId, businessId, businessType);
-                      break;
-                    case 'remove':
-                      _showRemoveWorkerDialog(workerId, name, businessId);
-                      break;
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'edit',
-                    child: Text('Edit Permissions'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'view_details',
-                    child: Text('View Details'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'remove',
-                    child: Text('Remove'),
-                  ),
-                ],
-              ),
+              if (canManageStaff)
+                PopupMenuButton<String>(
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'edit':
+                        _showEditWorkerDialog(
+                          workerId,
+                          name,
+                          role,
+                          businessId,
+                        );
+                        break;
+                      case 'view_details':
+                        _navigateToWorkerDetails(
+                          workerId,
+                          businessId,
+                          businessType,
+                        );
+                        break;
+                      case 'remove':
+                        _showRemoveWorkerDialog(workerId, name, businessId);
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Text('Edit Role'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'view_details',
+                      child: Text('View Details'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'remove',
+                      child: Text('Remove'),
+                    ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -484,20 +492,13 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     String workerId,
     String name,
     String currentRole,
-    List<String> currentPermissions,
     String? businessId,
   ) {
     final businessProvider = context.read<BusinessProvider>();
     final businessType = businessProvider.currentBusiness?.businessType ?? 'retail';
     final availableRoles = WorkerPermissions.getAvailableRoles(businessType);
-    final allPermissions = WorkerPermissions.getAllPermissions();
 
     String selectedRole = currentRole;
-    final selectedPermissions = <String>{
-      ...currentPermissions,
-      if (currentPermissions.isEmpty)
-        ...WorkerPermissions.getPermissionsForRole(currentRole),
-    };
 
     showDialog(
       context: context,
@@ -523,37 +524,31 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                           if (value == null) return;
                           setState(() {
                             selectedRole = value;
-                            selectedPermissions
-                              ..clear()
-                              ..addAll(
-                                  WorkerPermissions.getPermissionsForRole(value));
                           });
                         },
                       )),
-                  const Divider(),
-                  const Align(
+                  const SizedBox(height: 12),
+                  Align(
                     alignment: Alignment.centerLeft,
-                    child: Text('Permissions'),
+                    child: Text(
+                      'Effective permissions',
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  ...allPermissions.map(
-                    (permission) => CheckboxListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      value: selectedPermissions.contains(permission),
-                      title: Text(
-                        permission.replaceAll('_', ' ').toUpperCase(),
-                      ),
-                      onChanged: (checked) {
-                        setState(() {
-                          if (checked == true) {
-                            selectedPermissions.add(permission);
-                          } else {
-                            selectedPermissions.remove(permission);
-                          }
-                        });
-                      },
-                    ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: WorkerPermissions.getPermissionsForRole(selectedRole)
+                        .map(
+                          (permission) => Chip(
+                            label: Text(WorkerPermissions.getPermissionLabel(permission)),
+                          ),
+                        )
+                        .toList(),
                   ),
                 ],
               ),
@@ -570,7 +565,6 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                   workerId,
                   selectedRole,
                   businessId,
-                  selectedPermissions.toList()..sort(),
                 );
                 Navigator.of(context).pop();
                 this.setState(() {}); // Refresh the list
@@ -587,12 +581,14 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     String workerId,
     String newRole,
     String? businessId,
-    List<String> permissions,
   ) async {
     try {
+      final permissions = WorkerPermissions.getPermissionsForRole(newRole);
       final updateData = {
         'role': newRole,
+        'roles': [newRole],
         'permissions': permissions,
+        'customPermissions': permissions,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 

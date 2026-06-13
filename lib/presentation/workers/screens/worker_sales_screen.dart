@@ -47,7 +47,11 @@ class _WorkerSalesScreenState extends State<WorkerSalesScreen> {
     final authProvider = context.watch<AuthProvider>();
     final user = authProvider.currentUser;
 
-    if (user == null || !WorkerPermissions.canManageSales(user.role)) {
+    if (user == null ||
+        !WorkerPermissions.canManageSalesForUser(
+          user.role,
+          user.permissions,
+        )) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Sales'),

@@ -232,11 +232,18 @@ class WorkersProvider with ChangeNotifier {
       // If a PIN was included in the update, also sync it to the users collection
       final Map<String, dynamic> usersMerge = {};
       if (data.containsKey('pin')) usersMerge['pin'] = data['pin'];
+      if (data.containsKey('permissions')) {
+        usersMerge['permissions'] = data['permissions'];
+      }
+      if (data.containsKey('customPermissions')) {
+        usersMerge['permissions'] = data['customPermissions'];
+      }
       // Map common worker profile fields to user document keys
       if (data.containsKey('name')) usersMerge['fullName'] = data['name'];
       if (data.containsKey('email')) usersMerge['email'] = data['email'];
       if (data.containsKey('phoneNumber')) usersMerge['phoneNumber'] = data['phoneNumber'];
       if (data.containsKey('isActive')) usersMerge['isActive'] = data['isActive'];
+      if (data.containsKey('roles')) usersMerge['roles'] = data['roles'];
 
       if (usersMerge.isNotEmpty) {
         try {

@@ -3547,7 +3547,8 @@ class InventoryReport {
   final String productName;
   final int quantity;
   final int reorderLevel;
-  final double unitPrice;
+  final double unitPrice; // selling price per unit
+  final double costPrice; // cost per unit (purchase/average cost)
   final String unit;
 
   InventoryReport({
@@ -3556,12 +3557,17 @@ class InventoryReport {
     required this.quantity,
     required this.reorderLevel,
     required this.unitPrice,
+    this.costPrice = 0.0,
     this.unit = 'pc',
   });
 
   double get totalValue => quantity * unitPrice;
   bool get isLowStock => quantity < reorderLevel;
+
+  double get profitPerUnit => unitPrice - costPrice;
+  double get totalProfit => profitPerUnit * quantity;
 }
+
 
 class CustomerReport {
   final String customerId;

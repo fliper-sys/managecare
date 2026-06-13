@@ -1008,20 +1008,7 @@ class _HomeTabState extends State<_HomeTab> {
                           route: Routes.pharmacyDrugInventory,
                         ),
                       );
-                    } else if (businessType.contains('retail')) {
-                      // Retail specific actions
-                     
-                      actions.insert(
-                        0,
-                        _QuickActionItem(
-                          title: 'Product Catalog',
-                          subtitle: 'Manage products',
-                          icon: Icons.inventory,
-                          color: AppColors.retail,
-                          route: Routes.retailCatalog,
-                        ),
-                      );
-                    } else if (businessType.contains('wholesale')) {
+                    }  else if (businessType.contains('wholesale')) {
                       // Wholesale specific actions
                       actions.insert(
                         0,

@@ -352,6 +352,9 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                   'pin': pinCtrl.text.trim(),
                   'isActive': isActive,
                   'roles': rolesCtrl.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList(),
+                  'permissions': WorkerPermissions.getPermissionsForRoles(
+                    rolesCtrl.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty),
+                  ),
                   'serviceNames': servicesCtrl.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList(),
                   'updatedAt': DateTime.now(),
                 };

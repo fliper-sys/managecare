@@ -176,19 +176,83 @@ class WorkerPermissions {
     return rolePermissions[normalizeRole(role)] ?? [];
   }
 
+  static List<String> getPermissionsForRoles(Iterable<String> roles) {
+    final permissions = <String>{};
+    for (final role in roles) {
+      permissions.addAll(getPermissionsForRole(role));
+    }
+    final list = permissions.toList()..sort();
+    return list;
+  }
+
   static List<String> getAllPermissions() {
     final permissions = rolePermissions.values.expand((p) => p).toSet().toList();
     permissions.sort();
     return permissions;
   }
 
+  static String getPermissionLabel(String permission) {
+    const labels = {
+      'sales': 'Sales',
+      'view_inventory': 'View Inventory',
+      'manage_inventory': 'Manage Inventory',
+      'view_sales_history': 'View Sales History',
+      'attendance': 'Attendance',
+      'payroll_view': 'Payroll View',
+      'apply_discount': 'Apply Discount',
+      'manage_staff': 'Manage Staff',
+      'manage_menu': 'Manage Menu',
+      'procurement_management': 'Procurement Management',
+      'table_management': 'Table Management',
+      'view_orders': 'View Orders',
+      'view_reports': 'View Reports',
+      'view_low_stock': 'View Low Stock',
+      'bookings': 'Bookings',
+      'guest_checkin': 'Guest Check-in',
+      'guest_checkout': 'Guest Check-out',
+      'billing': 'Billing',
+      'manage_rooms': 'Manage Rooms',
+      'manage_guests': 'Manage Guests',
+      'manage_pool_bookings': 'Manage Pool Bookings',
+      'room_service': 'Room Service',
+      'room_status': 'Room Status',
+      'maintenance_requests': 'Maintenance Requests',
+      'manage_gym_bookings': 'Manage Gym Bookings',
+      'job_quotes': 'Job Quotes',
+      'work_orders': 'Work Orders',
+      'parts_management': 'Parts Management',
+      'diagnostics': 'Diagnostics',
+      'body_work': 'Body Work',
+      'painting': 'Painting',
+      'tyre_service': 'Tyre Service',
+      'appointments': 'Appointments',
+      'services': 'Services',
+      'leads': 'Leads',
+      'properties': 'Properties',
+      'viewings': 'Viewings',
+    };
+    return labels[permission] ?? permission.replaceAll('_', ' ').toUpperCase();
+  }
+
   static bool canManageSales(String role) => hasPermission(role, 'sales');
+
+  static bool canManageSalesForUser(String role, List<String> permissions) =>
+      hasEffectivePermission(role, permissions, 'sales');
 
   static bool canViewInventory(String role) =>
       hasPermission(role, 'view_inventory');
 
+  static bool canViewInventoryForUser(String role, List<String> permissions) =>
+      hasEffectivePermission(role, permissions, 'view_inventory');
+
   static bool canManageInventory(String role) =>
       hasPermission(role, 'manage_inventory');
+
+  static bool canManageInventoryForUser(
+    String role,
+    List<String> permissions,
+  ) =>
+      hasEffectivePermission(role, permissions, 'manage_inventory');
 
   static bool canEditPrice(String role) {
     final normalizedRole = normalizeRole(role);
@@ -203,11 +267,17 @@ class WorkerPermissions {
       normalizeRole(role) == 'manager' ||
       hasPermission(role, 'manage_staff');
 
+  static bool canManageStaffForUser(String role, List<String> permissions) =>
+      hasEffectivePermission(role, permissions, 'manage_staff');
+
   static bool canAccessPayroll(String role) =>
       _fullAccessRoles.contains(normalizeRole(role)) ||
       hasPermission(role, 'payroll_view');
 
   static bool canAttendance(String role) => hasPermission(role, 'attendance');
+
+  static bool canAttendanceForUser(String role, List<String> permissions) =>
+      hasEffectivePermission(role, permissions, 'attendance');
 
   static bool canApplyDiscount(String role) {
     final normalizedRole = normalizeRole(role);

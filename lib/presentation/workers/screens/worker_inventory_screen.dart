@@ -26,7 +26,11 @@ class _WorkerInventoryScreenState extends State<WorkerInventoryScreen> {
 
   void _checkPermissions() {
     final user = context.read<AuthProvider>().currentUser;
-    _canEdit = user != null && WorkerPermissions.canManageInventory(user.role);
+    _canEdit = user != null &&
+        WorkerPermissions.canManageInventoryForUser(
+          user.role,
+          user.permissions,
+        );
   }
 
   @override
@@ -40,7 +44,11 @@ class _WorkerInventoryScreenState extends State<WorkerInventoryScreen> {
     final authProvider = context.watch<AuthProvider>();
     final user = authProvider.currentUser;
 
-    if (user == null || !WorkerPermissions.canViewInventory(user.role)) {
+    if (user == null ||
+        !WorkerPermissions.canViewInventoryForUser(
+          user.role,
+          user.permissions,
+        )) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Inventory'),

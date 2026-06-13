@@ -23,7 +23,6 @@ import '../../../data/repositories/auth_repository_impl.dart';
 import '../../../data/repositories/worker_repository_impl.dart';
 import '../../../core/utils/worker_permissions.dart';
 import '../../../widgets/loading_indicator.dart';
-import '../widgets/permission_selector.dart';
 
 class AddWorkerScreen extends StatefulWidget {
   const AddWorkerScreen({super.key});
@@ -40,7 +39,6 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
   final _passwordController = TextEditingController();
   final _commissionController = TextEditingController();
   final _pinController = TextEditingController();
-  final selectedPermissions = <String>{};
   // support multiple roles for workers (salon/barber may need multiple roles)
   final Set<String> _selectedRoles = {'staff'}; 
   final List<String> _selectedServiceIds = [];
@@ -153,31 +151,6 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
     }
   }
 
-  List<String> _getPermissionsForBusiness(String businessType) {
-    switch (businessType.toLowerCase()) {
-      case 'restaurant':
-        return const [
-          'sales',
-          'view_orders',
-          'manage_menu',
-          'procurement_management',
-          'table_management',
-          'view_inventory',
-          'view_reports',
-          'view_low_stock',
-          'manage_staff',
-        ];
-      default:
-        return const [
-          'sales',
-          'inventory_management',
-          'customer_management',
-          'reports_access',
-          'worker_management',
-        ];
-    }
-  }
-
   String _readableRole(String role) {
     if (role.isEmpty) return role;
     return role.splitMapJoin(RegExp(r'[_\s]'), onMatch: (m) => ' ', onNonMatch: (s) => s)
@@ -191,6 +164,10 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
     return description.isEmpty
         ? 'Assigned to ${_readableRole(role).toLowerCase()} duties.'
         : description;
+  }
+
+  List<String> _effectivePermissionsForSelection() {
+    return WorkerPermissions.getPermissionsForRoles(_selectedRoles).toList();
   }
 
   Future<void> _handleAddWorker() async {
@@ -234,6 +211,20 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
       return;
     }
 
+    final currentUser = authProvider.currentUser!;
+    if (!WorkerPermissions.canManageStaffForUser(
+      currentUser.role,
+      currentUser.permissions,
+    )) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You do not have permission to add workers.'),
+        ),
+      );
+      return;
+    }
+
     try {
       final normalizedEmail = _emailController.text.trim().toLowerCase();
       final duplicateWorkerExists = workersProvider.workers.any((worker) {
@@ -267,6 +258,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
       final businessType = context.read<BusinessProvider>().currentBusiness?.businessType;
 
       final primaryRole = _selectedRoles.isNotEmpty ? _selectedRoles.first : 'staff';
+      final effectivePermissions = _effectivePermissionsForSelection();
 
       // Commission percentage (if worker is barber/stylist)
       final commissionPct = (_selectedRoles.contains('barber') || _selectedRoles.contains('hairstylist') || _selectedRoles.contains('stylist'))
@@ -303,6 +295,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           fullName: _fullNameController.text.trim(),
           phoneNumber: _phoneController.text.trim(),
           role: primaryRole,
+          permissions: effectivePermissions,
           businessId: authProvider.currentUser!.businessId,
           businessType: businessType,
           storeId: _selectedStoreId,
@@ -378,7 +371,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           'phoneNumber': _phoneController.text.trim(),
           'role': primaryRole,
           'roles': _selectedRoles.toList(),
-          'customPermissions': selectedPermissions.toList(),
+          'permissions': effectivePermissions,
+          'customPermissions': effectivePermissions,
           'serviceIds': _selectedServiceIds,
           'serviceNames': selectedServiceNames,
           'commissionPercentage': commissionPct,
@@ -538,6 +532,32 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = context.watch<AuthProvider>().currentUser;
+    final canManageStaff = currentUser != null &&
+        WorkerPermissions.canManageStaffForUser(
+          currentUser.role,
+          currentUser.permissions,
+        );
+
+    if (!canManageStaff) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Add Worker'),
+          backgroundColor: AppColors.primary,
+          elevation: 0,
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'You do not have permission to add or manage workers.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Add Worker'),
@@ -903,23 +923,41 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Permissions
               const Text(
-                'Permissions',
+                'Access level',
                 style: AppTextStyles.heading3,
               ),
-              const SizedBox(height: 12),
-              PermissionSelector(
-                availablePermissions: _getPermissionsForBusiness(
-                  context.read<BusinessProvider>().currentBusiness?.businessType ??
-                      '',
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                selectedPermissions: selectedPermissions,
-                onChanged: (value) {
-                  selectedPermissions
-                    ..clear()
-                    ..addAll(value);
-                },
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'This worker will inherit permissions from the selected role(s).',
+                      style: TextStyle(color: Colors.grey.shade700),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _effectivePermissionsForSelection()
+                          .map(
+                            (permission) => Chip(
+                              label: Text(
+                                WorkerPermissions.getPermissionLabel(permission),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 32),
 

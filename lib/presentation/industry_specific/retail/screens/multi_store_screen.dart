@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../providers/retail_provider.dart';
+import '../../../../providers/business_provider.dart';
 
 class MultiStoreScreen extends StatefulWidget {
   const MultiStoreScreen({super.key});
@@ -72,7 +73,7 @@ class _MultiStoreScreenState extends State<MultiStoreScreen> {
             ],
           ),
         ),
-        actions: [
+          actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
@@ -81,6 +82,14 @@ class _MultiStoreScreenState extends State<MultiStoreScreen> {
               final location = _locationController.text.trim();
               final address = _addressController.text.trim();
               final phone = _phoneController.text.trim();
+
+              // Re-check subscription and store limits before saving
+              final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+              final isTier1 = (business?.subscriptionTier ?? '').toString().toLowerCase() == 'tier1';
+              if (store == null && isTier1 && provider.stores.length >= 1) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your subscription allows only one store. Upgrade to add more stores.')));
+                return;
+              }
 
               try {
                 if (store == null) {
@@ -155,10 +164,22 @@ class _MultiStoreScreenState extends State<MultiStoreScreen> {
                 ))
             .toList(),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddEditStoreDialog(context, provider),
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: Builder(builder: (ctx) {
+        final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+        final isTier1 = (business?.subscriptionTier ?? '').toString().toLowerCase() == 'tier1';
+        final canAdd = !(isTier1 && provider.stores.length >= 1);
+        return FloatingActionButton(
+          onPressed: canAdd
+              ? () => _showAddEditStoreDialog(context, provider)
+              : () {
+                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+                    content: Text('Your subscription allows only one store. Upgrade to add more stores.'),
+                  ));
+                },
+          tooltip: canAdd ? 'Add Store' : 'Upgrade to add store',
+          child: const Icon(Icons.add),
+        );
+      }),
     );
   }
 }

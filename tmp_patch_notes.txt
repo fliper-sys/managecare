@@ -1,0 +1,8 @@
+Patch plan:
+1) Update InventoryReport class in reports_provider.dart to include costPrice and profit getters.
+2) Populate costPrice when creating InventoryReport instances in subscribeToInventoryReports and generateInventoryReport fallbacks.
+3) Update inventory_report_screen.dart DataTable to show Cost, Profit/Unit, Profit Total.
+4) Include costPrice in exportItems map in inventory_report_screen.dart.
+5) Update InventoryExportService buildCsv and PDF to include cost/profit columns.
+
+Applying patches via apply_patch calls.

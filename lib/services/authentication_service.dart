@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart' as fb_core;
+import '../core/utils/worker_permissions.dart';
 import '../data/models/user_model.dart';
 import 'deletion_recovery_service.dart';
 
@@ -201,6 +202,7 @@ class AuthenticationService {
           fullName: fullName.trim(),
           phoneNumber: phoneNumber,
           role: role,
+          permissions: WorkerPermissions.getPermissionsForRole(role),
           businessId: businessId,
           // Ensure businessIds/current/preferred are set for new worker
           businessIds: businessId.isNotEmpty ? [businessId] : const [],
@@ -253,6 +255,7 @@ class AuthenticationService {
           fullName: fullName.trim(),
           phoneNumber: phoneNumber,
           role: role,
+          permissions: WorkerPermissions.getPermissionsForRole(role),
           businessId: businessId,
           businessIds: businessId.isNotEmpty ? [businessId] : const [],
           currentBusinessId: businessId.isNotEmpty ? businessId : null,
@@ -357,6 +360,14 @@ class AuthenticationService {
       final workerEmail = workerData['email'] as String?;
       final workerRole = workerData['role'] as String? ?? 'staff';
       final workerBusinessId = workerData['businessId'] as String?;
+      final workerPermissions = <String>{
+        ...((workerData['permissions'] as List<dynamic>?)
+                ?.map((permission) => permission.toString()) ??
+            const <String>[]),
+        ...((workerData['customPermissions'] as List<dynamic>?)
+                ?.map((permission) => permission.toString()) ??
+            const <String>[]),
+      }.toList();
 
       // Try to infer businessType from worker record or business doc
       String? workerBusinessType = (workerData['businessType'] as String?) ?? (workerData['industry'] as String?);
@@ -391,6 +402,17 @@ class AuthenticationService {
       // 4. Load the UserModel from users collection
       var userModel = await _getUserFromFirestore(userCredential.user!.uid);
 
+      if (userModel != null &&
+          userModel.permissions.isEmpty &&
+          workerPermissions.isNotEmpty) {
+        userModel = userModel.copyWith(permissions: workerPermissions);
+        try {
+          await _firestore.collection('users').doc(userModel.id).set({
+            'permissions': workerPermissions,
+          }, SetOptions(merge: true));
+        } catch (_) {}
+      }
+
       if (userModel == null) {
         print(
             '[Auth] User profile not found in Firestore, creating one for worker...');
@@ -404,6 +426,7 @@ class AuthenticationService {
           fullName:
               workerEmail.split('@')[0], // Use email prefix as default name
           role: workerRole,
+          permissions: workerPermissions,
           businessId: workerBusinessId as String,
           // Ensure this worker user has the business in the array and current/preferred set
           businessIds: (workerBusinessId.isNotEmpty) ? [workerBusinessId] : const [],
@@ -423,6 +446,7 @@ class AuthenticationService {
           'email': userModel.email,
           'fullName': userModel.fullName,
           'role': userModel.role,
+          'permissions': userModel.permissions,
           'businessId': userModel.businessId,
           'businessIds': userModel.businessIds,
           'currentBusinessId': userModel.currentBusinessId,
@@ -443,6 +467,15 @@ class AuthenticationService {
       if (userModel.role.isEmpty) {
         userModel = userModel.copyWith(role: workerRole);
         print('[Auth] Updated user role to: $workerRole');
+      }
+
+      if (userModel.permissions.isEmpty && workerPermissions.isNotEmpty) {
+        userModel = userModel.copyWith(permissions: workerPermissions);
+        try {
+          await _firestore.collection('users').doc(userModel.id).set({
+            'permissions': workerPermissions,
+          }, SetOptions(merge: true));
+        } catch (_) {}
       }
 
       if (userModel.businessId.isEmpty && workerBusinessId != null) {
