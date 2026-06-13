@@ -1513,12 +1513,14 @@ class ReportsProvider extends ChangeNotifier {
         }));
       _inventoryReports = snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>? ?? {};
+        final cost = _inventoryCostCache[doc.id] ?? ((data['averageCost'] ?? data['cost'] ?? data['lastProcurementCost']) as num?)?.toDouble() ?? 0.0;
         return InventoryReport(
           productId: doc.id,
           productName: data['name'] ?? 'Unknown',
           quantity: (data['quantity'] as num?)?.toInt() ?? 0,
           reorderLevel: (data['reorderLevel'] as num?)?.toInt() ?? 10,
           unitPrice: (data['price'] as num?)?.toDouble() ?? 0.0,
+          costPrice: cost,
           unit: (data['unit'] ?? 'pc').toString(),
         );
       }).toList();
@@ -1551,6 +1553,7 @@ class ReportsProvider extends ChangeNotifier {
               var ii = 0;
               for (final raw in items) {
                 if (raw is Map<String, dynamic>) {
+                  final rawCost = ((raw['averageCost'] ?? raw['cost'] ?? raw['costPrice'] ?? raw['purchasePrice']) as num?)?.toDouble() ?? 0.0;
                   docItems.add(InventoryReport(
                     productId: '${d.id}_$ii',
                     productName:
@@ -1560,6 +1563,7 @@ class ReportsProvider extends ChangeNotifier {
                         0,
                     reorderLevel: (raw['reorderLevel'] as num?)?.toInt() ?? 10,
                     unitPrice: (raw['price'] as num?)?.toDouble() ?? 0.0,
+                    costPrice: rawCost,
                     unit: (raw['unit'] ?? 'pc').toString(),
                   ));
                 }
@@ -2276,12 +2280,14 @@ class ReportsProvider extends ChangeNotifier {
 
       _inventoryReports = snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>? ?? {};
+        final cost = _inventoryCostCache[doc.id] ?? ((data['averageCost'] ?? data['cost'] ?? data['lastProcurementCost']) as num?)?.toDouble() ?? 0.0;
         return InventoryReport(
           productId: doc.id,
           productName: data['name'] ?? 'Unknown',
           quantity: (data['quantity'] as num?)?.toInt() ?? 0,
           reorderLevel: (data['reorderLevel'] as num?)?.toInt() ?? 10,
           unitPrice: (data['price'] as num?)?.toDouble() ?? 0.0,
+          costPrice: cost,
           unit: (data['unit'] ?? 'pc').toString(),
         );
       }).toList();
@@ -2314,6 +2320,7 @@ class ReportsProvider extends ChangeNotifier {
               var ii = 0;
               for (final raw in items) {
                 if (raw is Map<String, dynamic>) {
+                  final rawCost = ((raw['averageCost'] ?? raw['cost'] ?? raw['costPrice'] ?? raw['purchasePrice']) as num?)?.toDouble() ?? 0.0;
                   docItems.add(InventoryReport(
                     productId: '${d.id}_$ii',
                     productName:
@@ -2323,6 +2330,7 @@ class ReportsProvider extends ChangeNotifier {
                         0,
                     reorderLevel: (raw['reorderLevel'] as num?)?.toInt() ?? 10,
                     unitPrice: (raw['price'] as num?)?.toDouble() ?? 0.0,
+                    costPrice: rawCost,
                     unit: (raw['unit'] ?? 'pc').toString(),
                   ));
                 }

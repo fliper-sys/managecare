@@ -388,6 +388,9 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                     DataColumn(label: Text('Product')),
                     DataColumn(label: Text('Quantity')),
                     DataColumn(label: Text('Unit Price')),
+                    DataColumn(label: Text('Cost')),
+                    DataColumn(label: Text('Profit/Unit')),
+                    DataColumn(label: Text('Profit Total')),
                     DataColumn(label: Text('Total Value')),
                     DataColumn(label: Text('Status')),
                   ],
@@ -399,6 +402,12 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                             DataCell(Text('${report.quantity} ${report.unit}')),
                             DataCell(Text(
                                 '₦${report.unitPrice.toStringAsFixed(2)}')),
+                            DataCell(Text(
+                                '₦${report.costPrice.toStringAsFixed(2)}')),
+                            DataCell(Text(
+                                '₦${report.profitPerUnit.toStringAsFixed(2)}')),
+                            DataCell(Text(
+                                '₦${report.totalProfit.toStringAsFixed(2)}')),
                             DataCell(Text(
                                 '₦${report.totalValue.toStringAsFixed(2)}')),
                             DataCell(
@@ -519,6 +528,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
             'quantity': report.quantity,
             'minStock': report.reorderLevel,
             'price': report.unitPrice,
+            'costPrice': report.costPrice,
             'unit': report.unit,
           },
         )

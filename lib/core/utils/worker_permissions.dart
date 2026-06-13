@@ -150,7 +150,10 @@ class WorkerPermissions {
     }
     final normalizedCustomPermissions =
         customPermissions.map((p) => p.trim()).where((p) => p.isNotEmpty);
-    return normalizedCustomPermissions.contains(permission);
+    if (normalizedCustomPermissions.isNotEmpty) {
+      return normalizedCustomPermissions.contains(permission);
+    }
+    return hasPermission(role, permission);
   }
 
   static List<String> getEffectivePermissions(

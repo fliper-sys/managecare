@@ -25,12 +25,15 @@ class InventoryExportResult {
 class InventoryExportService {
   static String buildCsv(List<Map<String, dynamic>> items) {
     final buffer = StringBuffer();
-    buffer.writeln('Product ID,Product Name,Category,SKU,Barcode,Quantity,Unit,Min Stock,Unit Price,Total Value,Status');
+    buffer.writeln('Product ID,Product Name,Category,SKU,Barcode,Quantity,Unit,Min Stock,Unit Price,Cost Price,Profit/Unit,Profit Total,Total Value,Status');
 
     for (final item in items) {
       final quantity = _toNum(item['quantity']);
       final minStock = _toNum(item['minStock'], fallback: 10);
       final unitPrice = _toDouble(item['price']);
+      final costPrice = _toDouble(item['costPrice']);
+      final profitPerUnit = unitPrice - costPrice;
+      final profitTotal = profitPerUnit * quantity.toDouble();
       final totalValue = quantity.toDouble() * unitPrice;
       final status = quantity <= minStock ? 'Low Stock' : 'OK';
       final row = [
@@ -43,6 +46,9 @@ class InventoryExportService {
         canonicalizeInventoryUnit(item['unit']?.toString()),
         formatInventoryQuantity(minStock),
         unitPrice.toStringAsFixed(2),
+        costPrice.toStringAsFixed(2),
+        profitPerUnit.toStringAsFixed(2),
+        profitTotal.toStringAsFixed(2),
         totalValue.toStringAsFixed(2),
         status,
       ];
@@ -151,8 +157,9 @@ class InventoryExportService {
               2: const pw.FlexColumnWidth(1.1),
               3: const pw.FlexColumnWidth(1.0),
               4: const pw.FlexColumnWidth(1.2),
-              5: const pw.FlexColumnWidth(1.4),
-              6: const pw.FlexColumnWidth(1.0),
+              5: const pw.FlexColumnWidth(1.2),
+              6: const pw.FlexColumnWidth(1.4),
+              7: const pw.FlexColumnWidth(1.0),
             },
             children: [
               pw.TableRow(
@@ -163,6 +170,9 @@ class InventoryExportService {
                   _tableCell('Quantity', isHeader: true),
                   _tableCell('Unit', isHeader: true),
                   _tableCell('Unit Price', isHeader: true),
+                  _tableCell('Cost Price', isHeader: true),
+                  _tableCell('Profit/Unit', isHeader: true),
+                  _tableCell('Profit Total', isHeader: true),
                   _tableCell('Total Value', isHeader: true),
                   _tableCell('Status', isHeader: true),
                 ],
@@ -171,6 +181,9 @@ class InventoryExportService {
                 final quantity = _toNum(item['quantity']);
                 final minStock = _toNum(item['minStock'], fallback: 10);
                 final unitPrice = _toDouble(item['price']);
+                final costPrice = _toDouble(item['costPrice']);
+                final profitPerUnit = unitPrice - costPrice;
+                final profitTotal = profitPerUnit * quantity.toDouble();
                 final total = quantity.toDouble() * unitPrice;
                 final status = quantity <= minStock ? 'Low Stock' : 'OK';
                 return pw.TableRow(
@@ -180,6 +193,9 @@ class InventoryExportService {
                     _tableCell(formatInventoryQuantity(quantity)),
                     _tableCell(canonicalizeInventoryUnit(item['unit']?.toString())),
                     _tableCell('$symbol${unitPrice.toStringAsFixed(2)}'),
+                    _tableCell('$symbol${costPrice.toStringAsFixed(2)}'),
+                    _tableCell('$symbol${profitPerUnit.toStringAsFixed(2)}'),
+                    _tableCell('$symbol${profitTotal.toStringAsFixed(2)}'),
                     _tableCell('$symbol${total.toStringAsFixed(2)}'),
                     _tableCell(
                       status,
