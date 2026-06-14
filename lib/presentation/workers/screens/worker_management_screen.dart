@@ -180,7 +180,10 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
               // Apply role filter
               if (_filterRoles.isNotEmpty) {
                 workers = workers
-                    .where((w) => _filterRoles.contains(w['role']))
+                    .where((w) {
+                      final workerRoles = _workerRoles(w);
+                      return workerRoles.any(_filterRoles.contains);
+                    })
                     .toList();
               }
 
@@ -220,6 +223,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                 itemBuilder: (context, index) {
                   final worker = workers[index];
                   final workerId = worker['id'] as String? ?? '';
+                  final workerRoles = _workerRoles(worker);
                   final business =
                       Provider.of<BusinessProvider>(context, listen: false)
                           .currentBusiness;
@@ -228,7 +232,10 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                     workerId: workerId,
                     name: (worker['name'] ?? worker['fullName'] ?? 'Worker')
                         as String,
-                    role: (worker['role'] as String?) ?? 'staff',
+                    role: workerRoles.isNotEmpty
+                        ? workerRoles.first
+                        : (worker['role'] as String?) ?? 'staff',
+                    roles: workerRoles,
                     status:
                         (worker['isActive'] == true) ? 'Active' : 'Off-duty',
                     businessId: business?.id,
@@ -243,6 +250,15 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
         ),
       ],
     );
+  }
+
+  List<String> _workerRoles(Map<String, dynamic> worker) {
+    final roles = (worker['roles'] as List<dynamic>?)?.cast<String>() ?? const [];
+    if (roles.isNotEmpty) {
+      return roles;
+    }
+    final primaryRole = (worker['role'] as String?)?.trim() ?? '';
+    return primaryRole.isEmpty ? const ['staff'] : [primaryRole];
   }
 
   Widget _buildPermissionsTab(List<String> availableRoles) {
@@ -520,6 +536,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     required String workerId,
     required String name,
     required String role,
+    List<String> roles = const [],
     required String status,
     String? businessId,
     String? businessType,
@@ -553,6 +570,19 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                       WorkerPermissions.getRoleDisplayName(role),
                       style: const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
+                    if (roles.length > 1)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          roles
+                              .map(WorkerPermissions.getRoleDisplayName)
+                              .join(' • '),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),

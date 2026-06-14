@@ -345,15 +345,21 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                 if (!formKey.currentState!.validate()) return;
                 Navigator.of(ctx).pop();
 
+                final roles = rolesCtrl.text
+                    .split(',')
+                    .map((s) => s.trim())
+                    .where((s) => s.isNotEmpty)
+                    .toList();
+                final normalizedRoles = roles.isEmpty ? ['staff'] : roles;
                 final updateMap = <String, dynamic>{
                   'name': nameCtrl.text.trim(),
                   'email': emailCtrl.text.trim(),
                   'phoneNumber': phoneCtrl.text.trim(),
                   'pin': pinCtrl.text.trim(),
                   'isActive': isActive,
-                  'roles': rolesCtrl.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList(),
+                  'roles': normalizedRoles,
                   'permissions': WorkerPermissions.getPermissionsForRoles(
-                    rolesCtrl.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty),
+                    normalizedRoles,
                   ),
                   'serviceNames': servicesCtrl.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList(),
                   'updatedAt': DateTime.now(),

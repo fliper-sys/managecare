@@ -100,13 +100,24 @@ class HotelDashboardScreen extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final auth = Provider.of<AuthProvider>(context);
     final role = auth.currentUser?.role ?? '';
-    final canBook = WorkerPermissions.canManageGuestBookings(role);
-    final canAccessOperations = WorkerPermissions.canManageHotelServices(role) ||
-        WorkerPermissions.canManagePoolBookings(role) ||
-        WorkerPermissions.canManageSales(role) ||
-        WorkerPermissions.canViewInventory(role);
-    final canManageStaff =
-        auth.isOwnerUser || WorkerPermissions.canManageStaff(role);
+    final permissions = auth.currentUser?.permissions ?? const <String>[];
+    final canBook = WorkerPermissions.hasEffectivePermission(
+      role,
+      permissions,
+      'bookings',
+    );
+    final canAccessOperations =
+        WorkerPermissions.hasEffectivePermission(role, permissions, 'guest_checkin') ||
+        WorkerPermissions.hasEffectivePermission(role, permissions, 'guest_checkout') ||
+        WorkerPermissions.hasEffectivePermission(role, permissions, 'billing') ||
+        WorkerPermissions.hasEffectivePermission(role, permissions, 'manage_rooms') ||
+        WorkerPermissions.hasEffectivePermission(role, permissions, 'room_service') ||
+        WorkerPermissions.hasEffectivePermission(role, permissions, 'maintenance_requests') ||
+        WorkerPermissions.hasEffectivePermission(role, permissions, 'manage_pool_bookings') ||
+        WorkerPermissions.canManageSalesForUser(role, permissions) ||
+        WorkerPermissions.canViewInventoryForUser(role, permissions);
+    final canManageStaff = auth.isOwnerUser ||
+        WorkerPermissions.canManageStaffForUser(role, permissions);
 
     return Scaffold(
       backgroundColor: colorScheme.surface, // Modern light background

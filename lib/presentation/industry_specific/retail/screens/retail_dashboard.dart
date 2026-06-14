@@ -346,6 +346,7 @@ class _RetailDashboardState extends State<RetailDashboard>
     // Logic extracted from original code to keep build clean
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final role = auth.currentUser?.role ?? '';
+    final currentPermissions = auth.currentUser?.permissions ?? const <String>[];
     final items = <Widget>[];
     final bool isOwner = auth.isOwnerUser;
 
@@ -374,15 +375,18 @@ class _RetailDashboardState extends State<RetailDashboard>
       add(Icons.bar_chart, 'Reports', Routes.retailStoreReports, Colors.teal);
       add(Icons.print, 'Printer Settings', Routes.printerSettings, Colors.teal);
     } else {
-      if (WorkerPermissions.canManageSales(role)) {
+      if (WorkerPermissions.canManageSalesForUser(role, currentPermissions)) {
         add(Icons.point_of_sale, 'Open POS', Routes.retailPos,
             AppColors.primary);
       }
-      if (WorkerPermissions.canViewInventory(role)) {
+      if (WorkerPermissions.canViewInventoryForUser(role, currentPermissions)) {
         add(Icons.event_busy, 'Expiry Tracker', Routes.expiryTracker,
             Colors.red);
       }
-      if (WorkerPermissions.canManageInventory(role)) {
+      if (WorkerPermissions.canManageInventoryForUser(
+        role,
+        currentPermissions,
+      )) {
         add(Icons.add_box, 'Add Product', Routes.retailAddProduct,
             AppColors.success);
       }

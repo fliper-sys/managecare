@@ -433,6 +433,8 @@ class WorkerPermissions {
 
   static String getRoleDescription(String role) {
     final descriptions = {
+      'cashier': 'Handles sales, receipts, and customer checkout.',
+      'sub_admin': 'Supports management with broader operational control.',
       'mechanic': 'Handles engine, suspension, and repair work.',
       'electrician': 'Diagnoses and fixes wiring and electrical faults.',
       'body_technician': 'Restores panels, dents, and structural bodywork.',
@@ -440,6 +442,12 @@ class WorkerPermissions {
       'vulcanizer': 'Handles tyres, wheel balancing, and alignment support.',
       'manager': 'Oversees workflow, approvals, and staff coordination.',
       'staff': 'General support for service and workshop operations.',
+      'receptionist': 'Welcomes customers, manages bookings, and assigns jobs.',
+      'pharmacist': 'Dispenses medications and manages prescriptions.',
+      'trainer': 'Leads classes, sessions, and member guidance.',
+      'beautician': 'Delivers beauty services and customer care.',
+      'field_officer': 'Manages field visits, follow-ups, and property updates.',
+      'supervisor': 'Monitors operations and keeps service moving smoothly.',
     };
     return descriptions[normalizeRole(role)] ?? '';
   }

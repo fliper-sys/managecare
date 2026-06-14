@@ -888,17 +888,26 @@ class AuthProvider with ChangeNotifier {
 
       // Validate the business owner's subscription before completing worker login.
       final workerBusinessId = _currentUser?.businessId.trim() ?? '';
-      if (workerBusinessId.isNotEmpty) {
+      final workerCurrentBusinessId =
+          _currentUser?.currentBusinessId?.trim() ?? '';
+      final workerPrimaryBusinessId =
+          _currentUser?.primaryBusinessId.trim() ?? '';
+      final resolvedWorkerBusinessId = workerBusinessId.isNotEmpty
+          ? workerBusinessId
+          : workerCurrentBusinessId.isNotEmpty
+              ? workerCurrentBusinessId
+              : workerPrimaryBusinessId;
+      if (resolvedWorkerBusinessId.isNotEmpty) {
         final businessSubscriptionActive =
             await _subscriptionService.validateAndUpdateBusinessSubscriptionStatus(
-          workerBusinessId,
+          resolvedWorkerBusinessId,
           userId: _currentUser!.id,
         );
 
         if (!businessSubscriptionActive) {
           if (kDebugMode) {
             print(
-              '[AuthProvider] Blocking worker login because business subscription is inactive or expired: $workerBusinessId',
+              '[AuthProvider] Blocking worker login because business subscription is inactive or expired: $resolvedWorkerBusinessId',
             );
           }
           await _rejectWorkerDueToBusinessSubscription();
