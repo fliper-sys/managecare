@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:printing/printing.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -624,29 +625,71 @@ class _SalesScreenState extends State<SalesScreen>
       });
 
       final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
-      if (kIsWeb) {
-        web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Invoice saved and downloaded: $filename'),
-          ),
-        );
-      } else {
-        await _sharePdfOnMobile(pdfBytes, filename);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Invoice saved and ready to share.'),
-          ),
-        );
-      }
+      if (!mounted) return;
+      await _showInvoiceReadyDialog(pdfBytes, filename, invoiceNumber);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Invoice generation failed: $e')),
       );
     }
+  }
+
+  /// Once an invoice PDF has been generated and saved, ask the user
+  /// whether they want to print it or share/download it — rather than
+  /// silently picking one for them.
+  Future<void> _showInvoiceReadyDialog(
+      Uint8List pdfBytes, String filename, String invoiceNumber) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Invoice Ready'),
+        content: Text('Invoice $invoiceNumber has been generated. '
+            'What would you like to do with it?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              if (kIsWeb) {
+                web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Invoice downloaded: $filename')),
+                );
+              } else {
+                await _sharePdfOnMobile(pdfBytes, filename);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Invoice ready to share.')),
+                );
+              }
+            },
+            child: Text(kIsWeb ? 'Download' : 'Share'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              try {
+                await Printing.layoutPdf(
+                  onLayout: (_) => Future.value(pdfBytes),
+                  name: filename,
+                );
+              } catch (e) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Printing failed: $e')),
+                );
+              }
+            },
+            child: const Text('Print'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _sharePdfOnMobile(Uint8List pdfBytes, String filename) async {

@@ -383,6 +383,7 @@ class WorkersProvider with ChangeNotifier {
           'body_technicians',
           'painters',
           'valucnizers',
+          'vulcanizers',
           'staff',
           'managers',
         ]) {
@@ -400,6 +401,7 @@ class WorkersProvider with ChangeNotifier {
             'body_technicians',
             'painters',
             'valucnizers',
+            'vulcanizers',
             'staff',
             'managers',
           ]) {

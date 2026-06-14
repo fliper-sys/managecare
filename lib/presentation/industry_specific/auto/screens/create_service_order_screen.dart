@@ -7,6 +7,7 @@ import '../../../../providers/customer_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/workers_provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
+import 'create_vehicle_screen.dart';
 
 class CreateServiceOrderScreen extends StatefulWidget {
   const CreateServiceOrderScreen({super.key});
@@ -22,14 +23,13 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
   String? _selectedCustomerName;
   String? _selectedWorkerId;
   String? _selectedWorkerName;
+  double? _selectedWorkerCommission;
   final Set<String> _selectedServiceIds = {};
   final List<Part> _selectedParts = [];
   Part? _partToAdd;
   int _partQty = 1;
   final TextEditingController _workDescriptionController =
       TextEditingController();
-  final TextEditingController _workmanshipRateController =
-      TextEditingController(text: '0');
   final TextEditingController _notesController = TextEditingController();
   bool _isSubmitting = false;
 
@@ -113,22 +113,6 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Select Vehicle'),
-                value: _selectedVehicleId,
-                items: auto.vehicles
-                    .map(
-                      (v) => DropdownMenuItem(
-                        value: v.id,
-                        child: Text(
-                          '${v.make} ${v.model} (${v.licensePlate})',
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => _selectedVehicleId = v),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
                 decoration: const InputDecoration(labelText: 'Select Customer (optional)'),
                 value: _selectedCustomerId,
                 items: customerProvider.customers
@@ -150,6 +134,15 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
                   setState(() {
                     _selectedCustomerId = customerId;
                     _selectedCustomerName = selected.isEmpty ? null : selected.first.name;
+                    final availableVehicleIds = (customerId == null
+                            ? auto.vehicles
+                            : auto.getVehiclesForCustomer(customerId))
+                        .map((v) => v.id)
+                        .toSet();
+                    if (_selectedVehicleId != null &&
+                        !availableVehicleIds.contains(_selectedVehicleId)) {
+                      _selectedVehicleId = null;
+                    }
                   });
                 },
               ),
@@ -160,6 +153,62 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
                   style: TextStyle(color: Colors.grey.shade700),
                 ),
               ],
+              const SizedBox(height: 12),
+              Builder(builder: (context) {
+                final customerVehicles = _selectedCustomerId == null
+                    ? auto.vehicles
+                    : auto.getVehiclesForCustomer(_selectedCustomerId!);
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      decoration: InputDecoration(
+                        labelText: _selectedCustomerId == null
+                            ? 'Select Vehicle'
+                            : "Select ${_selectedCustomerName ?? 'Customer'}'s Vehicle",
+                      ),
+                      value: _selectedVehicleId,
+                      items: customerVehicles
+                          .map(
+                            (v) => DropdownMenuItem(
+                              value: v.id,
+                              child: Text(
+                                '${v.make} ${v.model} (${v.licensePlate})',
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) => setState(() => _selectedVehicleId = v),
+                    ),
+                    if (_selectedCustomerId != null) ...[
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        onPressed: () async {
+                          final result = await Navigator.push<Vehicle>(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => CreateVehicleScreen(
+                                customerId: _selectedCustomerId,
+                                customerName: _selectedCustomerName,
+                              ),
+                            ),
+                          );
+                          if (result != null) {
+                            setState(() => _selectedVehicleId = result.id);
+                          }
+                        },
+                        icon: const Icon(Icons.add),
+                        label: Text(
+                          customerVehicles.isEmpty
+                              ? 'Add a car for ${_selectedCustomerName ?? 'this customer'}'
+                              : 'Add another car for ${_selectedCustomerName ?? 'this customer'}',
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              }),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 decoration:
@@ -218,6 +267,9 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
                         ? null
                         : (selected['fullName'] ?? selected['name'] ?? '')
                             .toString();
+                    _selectedWorkerCommission = selected.isEmpty
+                        ? null
+                        : (selected['commissionPercentage'] as num?)?.toDouble();
                   });
                 },
               ),
@@ -238,28 +290,33 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
                 maxLines: 2,
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _workmanshipRateController,
-                      decoration: const InputDecoration(
-                        labelText: 'Workmanship %',
-                        hintText: 'e.g. 5',
+              if (_selectedWorkerId != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.percent, color: Colors.grey),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          (_selectedWorkerCommission == null ||
+                                  _selectedWorkerCommission == 0)
+                              ? 'No bonus % set for $_selectedWorkerName. '
+                                  'Set it from Worker Management to give this worker a Workmanship bonus.'
+                              : 'Workmanship bonus: ${_selectedWorkerCommission!.toStringAsFixed(1)}% '
+                                  'of this job (set by admin for $_selectedWorkerName).',
+                          style: TextStyle(color: Colors.grey.shade700),
+                        ),
                       ),
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'This percentage becomes the worker bonus on the job.',
-                      style: TextStyle(color: Colors.grey.shade700),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
               const SizedBox(height: 12),
               const Text('Services',
                   style: TextStyle(fontWeight: FontWeight.bold)),
@@ -402,8 +459,7 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
                                       sum + (part.cost * part.quantity),
                                 );
                             final workmanshipRate =
-                                double.tryParse(_workmanshipRateController.text.trim()) ??
-                                    0.0;
+                                _selectedWorkerCommission ?? 0.0;
                             final workmanshipAmount =
                                 estimatedTotal * (workmanshipRate / 100);
                               final job = Job(
@@ -459,7 +515,6 @@ class _CreateServiceOrderScreenState extends State<CreateServiceOrderScreen> {
   @override
   void dispose() {
     _workDescriptionController.dispose();
-    _workmanshipRateController.dispose();
     _notesController.dispose();
     super.dispose();
   }

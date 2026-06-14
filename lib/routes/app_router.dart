@@ -74,7 +74,6 @@ import '../presentation/industry_specific/pharmacy/screens/pharmacy_sales_histor
 import '../presentation/industry_specific/pharmacy/screens/pharmacy_sales_report_screen.dart';
 
 import '../presentation/industry_specific/retail/screens/pos_screen.dart';
-import '../presentation/industry_specific/retail/screens/product_catalog_screen.dart';
 import '../presentation/industry_specific/retail/screens/supplier_management_screen.dart';
 import '../presentation/industry_specific/retail/screens/multi_store_screen.dart';
 import '../presentation/industry_specific/retail/screens/promotions_screen.dart';
@@ -104,6 +103,7 @@ import '../presentation/industry_specific/auto/screens/auto_dashboard_screen.dar
 import '../presentation/industry_specific/auto/screens/repair_jobs_screen.dart';
 import '../presentation/industry_specific/auto/screens/create_service_order_screen.dart';
 import '../presentation/industry_specific/auto/screens/parts_inventory_screen.dart';
+import '../presentation/industry_specific/auto/screens/auto_services_screen.dart';
 import '../presentation/industry_specific/auto/screens/bookings_screen.dart'
     as auto_bookings;
 import '../presentation/industry_specific/auto/screens/invoices_screen.dart';
@@ -588,9 +588,6 @@ class AppRouter {
       case Routes.retailPos:
         return _buildRoute(const PosScreen());
 
-      case Routes.retailCatalog:
-        return _buildRoute(const ProductCatalogScreen());
-
       case Routes.retailSuppliers:
         return _buildRoute(const SupplierManagementScreen());
 
@@ -662,6 +659,9 @@ class AppRouter {
 
       case Routes.autoPartsInventory:
         return _buildRoute(const PartsInventoryScreen());
+
+      case Routes.autoServices:
+        return _buildRoute(const AutoServicesScreen());
 
       case Routes.autoMechanicSchedule:
         return _buildRoute(const MechanicScheduleScreen());

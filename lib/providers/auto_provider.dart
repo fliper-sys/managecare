@@ -14,6 +14,7 @@ class Vehicle {
   final int year;
   String ownerName;
   String ownerPhone;
+  String? customerId;
 
   Vehicle({
     required this.id,
@@ -24,6 +25,7 @@ class Vehicle {
     required this.year,
     required this.ownerName,
     required this.ownerPhone,
+    this.customerId,
   });
 }
 
@@ -404,6 +406,7 @@ class AutoProvider extends ChangeNotifier {
           year: (v['year'] as num?)?.toInt() ?? 0,
           ownerName: v['ownerName'] as String? ?? (v['owner']?['name'] as String?) ?? '',
           ownerPhone: v['ownerPhone'] as String? ?? (v['owner']?['phone'] as String?) ?? '',
+          customerId: v['customerId'] as String?,
         ));
       }
 
@@ -473,9 +476,38 @@ class AutoProvider extends ChangeNotifier {
   }
 
   // Vehicles
-  void addVehicle(Vehicle v) {
-    vehicles.add(v);
-    notifyListeners();
+  Future<bool> addVehicle(Vehicle v) async {
+    final businessId = _businessId?.trim();
+    try {
+      if (businessId != null && businessId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('vehicles').doc(v.id).set({
+          'businessId': businessId,
+          'make': v.make,
+          'model': v.model,
+          'licensePlate': v.licensePlate,
+          'vin': v.vin,
+          'year': v.year,
+          'ownerName': v.ownerName,
+          'ownerPhone': v.ownerPhone,
+          'customerId': v.customerId,
+          'lastServiceDate': DateTime.now(),
+          'createdAt': DateTime.now(),
+        });
+      }
+      vehicles.add(v);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('[AutoProvider] addVehicle failed: $e');
+      return false;
+    }
+  }
+
+  /// All vehicles registered under a given customer.
+  List<Vehicle> getVehiclesForCustomer(String customerId) {
+    final normalized = customerId.trim();
+    if (normalized.isEmpty) return [];
+    return vehicles.where((v) => (v.customerId ?? '').trim() == normalized).toList();
   }
 
   Vehicle? getVehicleById(String id) {
@@ -755,9 +787,72 @@ class AutoProvider extends ChangeNotifier {
   }
 
   // Services
-  void addService(ServiceTask service) {
-    services.add(service);
-    notifyListeners();
+  /// Adds a new service preset (e.g. "Engine Replacement" with a fixed
+  /// workmanship price) and persists it to Firestore so it survives
+  /// reloads and is available to other devices/staff.
+  Future<bool> addService(ServiceTask service) async {
+    final businessId = _businessId?.trim();
+    try {
+      if (businessId != null && businessId.isNotEmpty) {
+        final docRef = FirebaseFirestore.instance.collection('services').doc(service.id);
+        await docRef.set({
+          'businessId': businessId,
+          'name': service.name,
+          'laborCost': service.laborCost,
+          'estimatedMinutes': service.estimatedDuration.inMinutes,
+          'createdAt': DateTime.now(),
+        });
+      }
+      services.add(service);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('[AutoProvider] addService failed: $e');
+      return false;
+    }
+  }
+
+  /// Updates an existing service preset's name/price/duration.
+  Future<bool> updateService(ServiceTask service) async {
+    final businessId = _businessId?.trim();
+    try {
+      if (businessId != null && businessId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('services').doc(service.id).set({
+          'businessId': businessId,
+          'name': service.name,
+          'laborCost': service.laborCost,
+          'estimatedMinutes': service.estimatedDuration.inMinutes,
+          'updatedAt': DateTime.now(),
+        }, SetOptions(merge: true));
+      }
+      final index = services.indexWhere((s) => s.id == service.id);
+      if (index != -1) {
+        services[index] = service;
+      } else {
+        services.add(service);
+      }
+      notifyListeners();
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('[AutoProvider] updateService failed: $e');
+      return false;
+    }
+  }
+
+  /// Removes a service preset.
+  Future<bool> deleteService(String serviceId) async {
+    final businessId = _businessId?.trim();
+    try {
+      if (businessId != null && businessId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('services').doc(serviceId).delete();
+      }
+      services.removeWhere((s) => s.id == serviceId);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('[AutoProvider] deleteService failed: $e');
+      return false;
+    }
   }
 
   // Parts Inventory

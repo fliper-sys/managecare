@@ -2134,8 +2134,13 @@ class ReportsProvider extends ChangeNotifier {
         final data = doc.data();
         final date = _parseDate(data['createdAt'] ?? data['timestamp']);
         final month = date.month;
-        final revenue =
+        final grossRevenue =
             ((data['totalAmount'] ?? data['total'] ?? 0) as num).toDouble();
+
+        // If part or all of this sale was returned/refunded, subtract the
+        // refunded amount from revenue so profit isn't overstated.
+        final returnAmount = ((data['returnAmount'] ?? 0) as num).toDouble();
+        final revenue = (grossRevenue - returnAmount).clamp(0, double.infinity).toDouble();
 
         // Calculate cost of goods sold from items if available
         final items = data['items'] as List? ?? [];
@@ -2150,10 +2155,18 @@ class ReportsProvider extends ChangeNotifier {
                             1) as num)
                         .toDouble();
             final itemCogs = (itemCost * itemQty).toDouble();
-            totalCostOfGoods += itemCogs;
             saleCogs += itemCogs;
           }
         }
+
+        // Without item-level return details, approximate the COGS for the
+        // returned portion proportionally to the sale's overall cost ratio,
+        // so a partial refund doesn't leave COGS for goods that came back.
+        if (returnAmount > 0 && grossRevenue > 0) {
+          final returnedFraction = (returnAmount / grossRevenue).clamp(0.0, 1.0);
+          saleCogs = saleCogs * (1 - returnedFraction);
+        }
+        totalCostOfGoods += saleCogs;
 
         debugPrint(
             '[FinancialReport] Sale - Date: $date, Month: $month, Revenue: ₦$revenue, COGS: ₦$saleCogs');
