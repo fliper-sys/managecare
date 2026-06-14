@@ -734,6 +734,36 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _rejectWorkerDueToBusinessSubscription() async {
+    try {
+      await _userDocSubscription?.cancel();
+      _userDocSubscription = null;
+    } catch (e) {
+      print(
+          '[AuthProvider] Error cancelling user doc subscription during worker subscription rejection: $e');
+    }
+
+    try {
+      await _authenticationService.signOut();
+    } catch (e) {
+      print(
+          '[AuthProvider] Enhanced auth sign-out failed during worker subscription rejection: $e');
+      try {
+        await _authService.signOut();
+      } catch (signOutError) {
+        print(
+            '[AuthProvider] Firebase sign-out also failed during worker subscription rejection: $signOutError');
+      }
+    }
+
+    _currentUser = null;
+    _status = AuthStatus.unauthenticated;
+    _subscriptionValidated = false;
+    _errorMessage =
+        'Please contact the business owner or manager for subscription renewal.';
+    notifyListeners();
+  }
+
   /// Login as a worker using worker ID and password
   Future<bool> loginAsWorker({
     required String workerId,
@@ -856,11 +886,29 @@ class AuthProvider with ChangeNotifier {
             '[AuthProvider] Error persisting worker business during login: $e');
       }
 
+      // Validate the business owner's subscription before completing worker login.
+      final workerBusinessId = _currentUser?.businessId.trim() ?? '';
+      if (workerBusinessId.isNotEmpty) {
+        final businessSubscriptionActive =
+            await _subscriptionService.validateAndUpdateBusinessSubscriptionStatus(
+          workerBusinessId,
+          userId: _currentUser!.id,
+        );
+
+        if (!businessSubscriptionActive) {
+          if (kDebugMode) {
+            print(
+              '[AuthProvider] Blocking worker login because business subscription is inactive or expired: $workerBusinessId',
+            );
+          }
+          await _rejectWorkerDueToBusinessSubscription();
+          return false;
+        }
+      }
+
       // Validate subscription status after loading user
       if (_currentUser != null) {
-        // Workers do not require subscription validation
         _subscriptionValidated = true;
-        if (kDebugMode) print('[AuthProvider] Skipped subscription validation for worker after worker login: ${_currentUser!.id}');
       }
 
       // Send login notification to business owners
