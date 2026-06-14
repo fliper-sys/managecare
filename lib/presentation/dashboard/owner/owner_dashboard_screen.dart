@@ -2042,12 +2042,24 @@ class _HomeTabState extends State<_HomeTab> {
                 Row(
                   children: [
                     Expanded(
-                      child: _smallStatChip(
-                        '${business.totalProducts ?? 0}',
-                        'Products',
-                        onTap: () =>
-                            Navigator.pushNamed(context, Routes.inventory),
-                      ),
+                      child: (currentBusinessType == 'auto' ||
+                              currentBusinessType == 'autorepair')
+                          ? _smallStatChip(
+                              context
+                                  .watch<AutoProvider>()
+                                  .parts
+                                  .length
+                                  .toString(),
+                              'Parts',
+                              onTap: () => Navigator.pushNamed(
+                                  context, Routes.autoPartsInventory),
+                            )
+                          : _smallStatChip(
+                              '${business.totalProducts ?? 0}',
+                              'Products',
+                              onTap: () =>
+                                  Navigator.pushNamed(context, Routes.inventory),
+                            ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -2056,15 +2068,6 @@ class _HomeTabState extends State<_HomeTab> {
                         'Customers',
                         onTap: () =>
                             Navigator.pushNamed(context, Routes.customers),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _smallStatChip(
-                        _loadingCounts ? '...' : context.watch<WorkersProvider>().workers.length.toString(),
-                        'Staff',
-                        onTap: () =>
-                            Navigator.pushNamed(context, Routes.workers),
                       ),
                     ),
                   ],
@@ -2093,13 +2096,6 @@ class _HomeTabState extends State<_HomeTab> {
                       icon: Icons.dashboard_customize_rounded,
                       tooltip: 'Open Industry Dashboard',
                       onPressed: () => _navigateToIndustryDashboard(business),
-                    ),
-                    const SizedBox(width: 10),
-                    _buildBusinessActionButton(
-                      icon: Icons.analytics_outlined,
-                      tooltip: 'Analytics',
-                      onPressed: () =>
-                          Navigator.pushNamed(context, Routes.reports),
                     ),
                     if (business.website != null &&
                         business.website!.isNotEmpty) ...[
@@ -2686,13 +2682,6 @@ class _HomeTabState extends State<_HomeTab> {
     // Common items for all business types
     final commonItems = [
       _QuickActionItem(
-        title: 'Reports',
-        subtitle: 'View analytics',
-        icon: Icons.analytics_rounded,
-        color: Colors.cyan,
-        route: Routes.reports,
-      ),
-      _QuickActionItem(
         title: 'Advanced Analytics',
         subtitle: 'KPIs & trends',
         icon: Icons.trending_up_rounded,
@@ -2705,13 +2694,6 @@ class _HomeTabState extends State<_HomeTab> {
         icon: Icons.people_rounded,
         color: Colors.purple,
         route: Routes.customers,
-      ),
-      _QuickActionItem(
-        title: 'Workers',
-        subtitle: 'Manage team',
-        icon: Icons.people_alt_rounded,
-        color: Colors.orange,
-        route: Routes.workers,
       ),
       _QuickActionItem(
         title: 'Settings',
@@ -2959,18 +2941,18 @@ class _HomeTabState extends State<_HomeTab> {
             route: Routes.autoVehicleHistory,
           ),
           _QuickActionItem(
-            title: 'Parts Inventory',
-            subtitle: 'Manage parts',
-            icon: Icons.inventory_2_rounded,
-            color: Colors.teal,
-            route: Routes.autoPartsInventory,
-          ),
-          _QuickActionItem(
             title: 'Mechanic Schedule',
             subtitle: 'Staff schedules',
             icon: Icons.schedule_rounded,
             color: Colors.purple,
             route: Routes.autoMechanicSchedule,
+          ),
+          _QuickActionItem(
+            title: 'Services',
+            subtitle: 'Manage service presets',
+            icon: Icons.build_circle_outlined,
+            color: Colors.indigo,
+            route: Routes.autoServices,
           ),
           ...commonItems,
         ];

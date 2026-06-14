@@ -178,6 +178,13 @@ class _AutoDashboardScreenState extends State<AutoDashboardScreen> {
                         ),
                         const SizedBox(width: 12),
                         _QuickActionBtn(
+                          icon: Icons.build_circle_outlined,
+                          label: 'Services',
+                          color: Colors.deepPurple,
+                          onTap: () => Navigator.pushNamed(context, Routes.autoServices),
+                        ),
+                        const SizedBox(width: 12),
+                        _QuickActionBtn(
                           icon: Icons.history, 
                           label: 'Job History', 
                           color: Colors.blueGrey,

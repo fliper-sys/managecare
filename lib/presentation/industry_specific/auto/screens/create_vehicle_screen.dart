@@ -6,7 +6,16 @@ import '../../../../providers/auto_provider.dart';
 import '../../../../providers/business_provider.dart';
 
 class CreateVehicleScreen extends StatefulWidget {
-  const CreateVehicleScreen({super.key});
+  final String? customerId;
+  final String? customerName;
+  final String? customerPhone;
+
+  const CreateVehicleScreen({
+    super.key,
+    this.customerId,
+    this.customerName,
+    this.customerPhone,
+  });
 
   @override
   State<CreateVehicleScreen> createState() => _CreateVehicleScreenState();
@@ -22,6 +31,17 @@ class _CreateVehicleScreenState extends State<CreateVehicleScreen> {
   final _ownerNameController = TextEditingController();
   final _ownerPhoneController = TextEditingController();
   bool _isSubmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.customerName != null && widget.customerName!.isNotEmpty) {
+      _ownerNameController.text = widget.customerName!;
+    }
+    if (widget.customerPhone != null && widget.customerPhone!.isNotEmpty) {
+      _ownerPhoneController.text = widget.customerPhone!;
+    }
+  }
 
   @override
   void dispose() {
@@ -53,15 +73,22 @@ class _CreateVehicleScreenState extends State<CreateVehicleScreen> {
         year: int.parse(_yearController.text.trim()),
         ownerName: _ownerNameController.text.trim(),
         ownerPhone: _ownerPhoneController.text.trim(),
+        customerId: widget.customerId,
       );
 
-      autoProvider.addVehicle(vehicle);
+      final ok = await autoProvider.addVehicle(vehicle);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Vehicle added successfully')),
-        );
-        Navigator.of(context).pop();
+        if (ok) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Vehicle added successfully')),
+          );
+          Navigator.of(context).pop(vehicle);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to save vehicle. Please try again.')),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -92,6 +119,29 @@ class _CreateVehicleScreenState extends State<CreateVehicleScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (widget.customerId != null) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.blueGrey.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.person, color: Colors.blueGrey),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Adding a car for ${widget.customerName ?? 'this customer'}',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 const Text(
                   'Vehicle Information',
                   style: TextStyle(
@@ -191,37 +241,39 @@ class _CreateVehicleScreenState extends State<CreateVehicleScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                const Text(
-                  'Owner Information',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                if (widget.customerId == null) ...[
+                  const Text(
+                    'Owner Information',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                // Owner Name
-                TextFormField(
-                  controller: _ownerNameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Owner Name',
-                    hintText: 'Vehicle owner\'s full name',
-                    border: OutlineInputBorder(),
+                  // Owner Name
+                  TextFormField(
+                    controller: _ownerNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Owner Name',
+                      hintText: 'Vehicle owner\'s full name',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                // Owner Phone
-                TextFormField(
-                  controller: _ownerPhoneController,
-                  decoration: const InputDecoration(
-                    labelText: 'Owner Phone',
-                    hintText: 'Owner\'s contact number',
-                    border: OutlineInputBorder(),
+                  // Owner Phone
+                  TextFormField(
+                    controller: _ownerPhoneController,
+                    decoration: const InputDecoration(
+                      labelText: 'Owner Phone',
+                      hintText: 'Owner\'s contact number',
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.phone,
                   ),
-                  keyboardType: TextInputType.phone,
-                ),
+                ],
                 const SizedBox(height: 32),
 
                 // Submit Button

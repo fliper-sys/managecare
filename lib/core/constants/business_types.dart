@@ -43,7 +43,7 @@ class BusinessTypes {
       color: AppColors.retail,
       features: [
         'Point of Sale',
-        'Product Catalog',
+        'Inventory Management',
         'Multi-Store Support',
         'Supplier Management',
         'Promotions & Discounts',

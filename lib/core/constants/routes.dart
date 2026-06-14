@@ -118,7 +118,6 @@ class Routes {
   static const String wholesaleTransfers = '/wholesale/transfers';
   static const String wholesaleReports = '/wholesale/reports';
   static const String retailPos = '/retail/pos';
-  static const String retailCatalog = '/retail/catalog';
   static const String retailSuppliers = '/retail/suppliers';
   static const String retailStores = '/retail/stores';
   static const String wholesaleWarehouses = '/wholesale/warehouses';
@@ -150,6 +149,7 @@ class Routes {
   static const String autoVehicleHistory = '/auto/vehicles';
   static const String autoCreateVehicle = '/auto/vehicles/create';
   static const String autoPartsInventory = '/auto/parts';
+  static const String autoServices = '/auto/services';
   static const String autoMechanicSchedule = '/auto/mechanics';
   static const String autoDiagnostics = '/auto/diagnostics';
   static const String autoBookings = '/auto/bookings';

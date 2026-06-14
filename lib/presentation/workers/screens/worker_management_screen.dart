@@ -9,6 +9,8 @@ import '../../../widgets/profile_avatar.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../providers/business_provider.dart';
+import '../../../providers/auto_provider.dart';
+import '../../../core/utils/currency.dart';
 import 'add_worker_screen.dart';
 import 'worker_details_screen.dart';
 
@@ -80,7 +82,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
           // Permissions Tab
           _buildPermissionsTab(availableRoles),
           // Performance Tab
-          _buildPerformanceTab(),
+          _buildPerformanceTab(businessType),
         ],
       ),
       floatingActionButton: canManageStaff
@@ -286,7 +288,14 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     );
   }
 
-  Widget _buildPerformanceTab() {
+  Widget _buildPerformanceTab(String businessType) {
+    final normalizedType = businessType.toLowerCase();
+    if (normalizedType == 'auto' ||
+        normalizedType == 'autorepair' ||
+        normalizedType == 'auto_repair' ||
+        normalizedType == 'automotive') {
+      return _buildAutoPerformanceTab();
+    }
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -308,6 +317,164 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
           ],
         ),
       ],
+    );
+  }
+
+  /// Real performance data for auto service workers: completion rate,
+  /// efficiency, and earnings sourced from AutoProvider's job records.
+  Widget _buildAutoPerformanceTab() {
+    const shopFloorRoles = {
+      'mechanic',
+      'electrician',
+      'body_technician',
+      'painter',
+      'vulcanizer',
+    };
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _fetchWorkers(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final shopWorkers = (snapshot.data ?? []).where((w) {
+          final role = WorkerPermissions.normalizeRole(
+              (w['role'] as String?)?.toLowerCase() ?? '');
+          if (shopFloorRoles.contains(role)) return true;
+          final roles = (w['roles'] as List<dynamic>?)
+                  ?.map((r) =>
+                      WorkerPermissions.normalizeRole(r.toString().toLowerCase()))
+                  .toSet() ??
+              {};
+          return roles.any(shopFloorRoles.contains);
+        }).toList();
+
+        if (shopWorkers.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.build_circle_outlined,
+                      size: 48, color: Colors.grey[400]),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No mechanics, technicians, or other shop floor workers yet',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final autoProvider = context.watch<AutoProvider>();
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: shopWorkers.length,
+          itemBuilder: (context, index) {
+            final worker = shopWorkers[index];
+            final workerId = worker['id'] as String? ?? '';
+            final name =
+                (worker['name'] ?? worker['fullName'] ?? 'Worker') as String;
+            final role = (worker['role'] as String?) ?? 'staff';
+
+            final jobCount = autoProvider.getJobsForWorker(workerId).length;
+            final completionRate =
+                autoProvider.getWorkerCompletionRate(workerId);
+            final efficiency = autoProvider.getWorkerEfficiency(workerId);
+            final totalEarnings = autoProvider.getWorkerEarnings(workerId);
+            final approvedEarnings =
+                autoProvider.getWorkerApprovedEarnings(workerId);
+            final pendingEarnings =
+                autoProvider.getWorkerPendingEarnings(workerId);
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        ProfileAvatar(
+                          photoUrl: (worker['photoUrl'] ?? worker['photo_url'])
+                              as String?,
+                          initials: name.isNotEmpty ? name[0] : '?',
+                          backgroundColor: AppColors.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                '${WorkerPermissions.getRoleDisplayName(role)} • $jobCount job${jobCount == 1 ? '' : 's'} assigned',
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.grey),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _AutoPerformanceStat(
+                            label: 'Completion Rate',
+                            value: '${completionRate.toStringAsFixed(0)}%',
+                            icon: Icons.task_alt,
+                            color: AppColors.success,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _AutoPerformanceStat(
+                            label: 'Efficiency',
+                            value: '${efficiency.toStringAsFixed(0)}%',
+                            icon: Icons.speed,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _AutoPerformanceStat(
+                            label: 'Total Earnings',
+                            value: formatCurrency(totalEarnings),
+                            icon: Icons.payments_outlined,
+                            color: AppColors.warning,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Approved ${formatCurrency(approvedEarnings)} • Pending ${formatCurrency(pendingEarnings)}',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -670,6 +837,55 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
         );
       }
     }
+  }
+}
+
+class _AutoPerformanceStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _AutoPerformanceStat({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -143,7 +143,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           'electrician',
           'body_technician',
           'painter',
-          'valucnizer',
+          'vulcanizer',
           'staff',
         ];
       default:

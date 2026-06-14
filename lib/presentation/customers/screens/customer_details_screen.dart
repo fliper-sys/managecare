@@ -11,7 +11,9 @@ import '../../../data/models/customer_model.dart';
 import '../../../data/repositories/customer_repository_impl.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/customer_provider.dart';
+import '../../../providers/auto_provider.dart';
 import '../../../widgets/custom_button.dart';
+import '../../industry_specific/auto/screens/create_vehicle_screen.dart';
 
 class CustomerDetailsScreen extends StatefulWidget {
   final String customerId;
@@ -388,6 +390,10 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
               ),
             ),
             const SizedBox(height: 24),
+            if (_isAutoBusiness(context)) ...[
+              _buildVehiclesSection(context, name.toString(), phone.toString()),
+              const SizedBox(height: 24),
+            ],
             const _SectionHeader(title: 'Purchase Statistics'),
             const SizedBox(height: 12),
             Row(
@@ -495,6 +501,89 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
   double _readDouble(dynamic value) {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+
+  bool _isAutoBusiness(BuildContext context) {
+    final businessType =
+        context.watch<BusinessProvider>().currentBusiness?.businessType.toLowerCase() ?? '';
+    return businessType == 'auto' ||
+        businessType == 'autorepair' ||
+        businessType == 'auto_repair' ||
+        businessType == 'automotive';
+  }
+
+  Widget _buildVehiclesSection(
+      BuildContext context, String customerName, String customerPhone) {
+    final autoProvider = context.watch<AutoProvider>();
+    final vehicles = autoProvider.getVehiclesForCustomer(widget.customerId);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const _SectionHeader(title: 'Cars'),
+              TextButton.icon(
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CreateVehicleScreen(
+                        customerId: widget.customerId,
+                        customerName: customerName == 'Unknown' ? null : customerName,
+                        customerPhone: customerPhone == 'N/A' ? null : customerPhone,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('Add Car'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (vehicles.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('No cars on file for this customer yet.'),
+            )
+          else
+            ...vehicles.map((vehicle) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.directions_car, color: AppColors.primary),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${vehicle.make} ${vehicle.model} ${vehicle.year > 0 ? '(${vehicle.year})' : ''}'
+                                  .trim(),
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            Text(
+                              'Plate: ${vehicle.licensePlate.isEmpty ? 'N/A' : vehicle.licensePlate}',
+                              style: AppTextStyles.caption,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+        ],
+      ),
+    );
   }
 }
 

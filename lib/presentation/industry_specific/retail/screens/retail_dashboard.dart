@@ -366,7 +366,6 @@ class _RetailDashboardState extends State<RetailDashboard>
       add(Icons.point_of_sale, 'Open POS', Routes.retailPos, AppColors.primary);
       add(Icons.storefront, 'Manage Stores', Routes.retailStores,
           AppColors.info);
-      add(Icons.inventory_2, 'Catalog', Routes.retailCatalog, Colors.indigo);
       add(Icons.event_busy, 'Expiry Tracker', Routes.expiryTracker, Colors.red);
       add(Icons.add_box, 'Add Product', Routes.retailAddProduct,
           AppColors.success);
@@ -380,7 +379,6 @@ class _RetailDashboardState extends State<RetailDashboard>
             AppColors.primary);
       }
       if (WorkerPermissions.canViewInventory(role)) {
-        add(Icons.inventory_2, 'Catalog', Routes.retailCatalog, Colors.indigo);
         add(Icons.event_busy, 'Expiry Tracker', Routes.expiryTracker,
             Colors.red);
       }
