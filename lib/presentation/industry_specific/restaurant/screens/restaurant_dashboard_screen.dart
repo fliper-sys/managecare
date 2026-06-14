@@ -224,11 +224,20 @@ class RestaurantDashboardScreen extends StatelessWidget {
                       builder: (context) {
                         final auth = Provider.of<AuthProvider>(context);
                         final role = auth.currentUser?.role ?? '';
+                        final permissions =
+                            auth.currentUser?.permissions ?? const <String>[];
                         final actions = <Widget>[];
 
                         if (auth.isOwnerUser ||
-                            WorkerPermissions.hasPermission(role, 'manage_menu') ||
-                            WorkerPermissions.canManageStaff(role)) {
+                            WorkerPermissions.hasEffectivePermission(
+                              role,
+                              permissions,
+                              'manage_menu',
+                            ) ||
+                            WorkerPermissions.canManageStaffForUser(
+                              role,
+                              permissions,
+                            )) {
                           actions.add(
                             _ActionTile(
                               icon: Icons.kitchen,
@@ -244,8 +253,15 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         }
 
                         if (auth.isOwnerUser ||
-                            WorkerPermissions.hasPermission(role, 'view_orders') ||
-                            WorkerPermissions.canManageSales(role)) {
+                            WorkerPermissions.hasEffectivePermission(
+                              role,
+                              permissions,
+                              'view_orders',
+                            ) ||
+                            WorkerPermissions.canManageSalesForUser(
+                              role,
+                              permissions,
+                            )) {
                           actions.add(
                             _ActionTile(
                               icon: Icons.post_add,
@@ -287,8 +303,15 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         );
 
                         if (auth.isOwnerUser ||
-                            WorkerPermissions.hasPermission(role, 'view_orders') ||
-                            WorkerPermissions.canManageSales(role)) {
+                            WorkerPermissions.hasEffectivePermission(
+                              role,
+                              permissions,
+                              'view_orders',
+                            ) ||
+                            WorkerPermissions.canManageSalesForUser(
+                              role,
+                              permissions,
+                            )) {
                           actions.add(
                             _ActionTile(
                               icon: Icons.receipt_long,
@@ -304,8 +327,14 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         }
 
                         if (auth.isOwnerUser ||
-                            WorkerPermissions.canManageStaff(role) ||
-                            WorkerPermissions.canManageSales(role)) {
+                            WorkerPermissions.canManageStaffForUser(
+                              role,
+                              permissions,
+                            ) ||
+                            WorkerPermissions.canManageSalesForUser(
+                              role,
+                              permissions,
+                            )) {
                           actions.add(
                             _ActionTile(
                               icon: Icons.table_restaurant,
@@ -346,7 +375,11 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         }
 
                         if (auth.isOwnerUser ||
-                            WorkerPermissions.hasPermission(role, 'bookings')) {
+                            WorkerPermissions.hasEffectivePermission(
+                              role,
+                              permissions,
+                              'bookings',
+                            )) {
                           actions.add(
                             _ActionTile(
                               icon: Icons.event,
@@ -362,8 +395,15 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         }
 
                         if (auth.isOwnerUser ||
-                            WorkerPermissions.hasPermission(role, 'sales') ||
-                            WorkerPermissions.hasPermission(role, 'manage_menu')) {
+                            WorkerPermissions.canManageSalesForUser(
+                              role,
+                              permissions,
+                            ) ||
+                            WorkerPermissions.hasEffectivePermission(
+                              role,
+                              permissions,
+                              'manage_menu',
+                            )) {
                           actions.add(
                             _ActionTile(
                               icon: Icons.delivery_dining,
@@ -379,7 +419,10 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         }
 
                         if (auth.isOwnerUser ||
-                            WorkerPermissions.canManageStaff(role)) {
+                            WorkerPermissions.canManageStaffForUser(
+                              role,
+                              permissions,
+                            )) {
                           actions.add(
                             _ActionTile(
                               icon: Icons.person,
@@ -395,8 +438,15 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         }
 
                         if (auth.isOwnerUser ||
-                            WorkerPermissions.canManageSales(role) ||
-                            WorkerPermissions.hasPermission(role, 'sales')) {
+                            WorkerPermissions.canManageSalesForUser(
+                              role,
+                              permissions,
+                            ) ||
+                            WorkerPermissions.hasEffectivePermission(
+                              role,
+                              permissions,
+                              'sales',
+                            )) {
                           actions.add(
                             _ActionTile(
                               icon: Icons.receipt_long,
@@ -412,8 +462,14 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         }
 
                         if (auth.isOwnerUser ||
-                            WorkerPermissions.canViewInventory(role) ||
-                            WorkerPermissions.hasPermission(role, 'inventory')) {
+                            WorkerPermissions.canViewInventoryForUser(
+                              role,
+                              permissions,
+                            ) ||
+                            WorkerPermissions.canManageInventoryForUser(
+                              role,
+                              permissions,
+                            )) {
                           actions.add(
                             _ActionTile(
                               icon: Icons.inventory,
@@ -429,7 +485,11 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         }
 
                         if (auth.isOwnerUser ||
-                            WorkerPermissions.hasPermission(role, 'customers')) {
+                            WorkerPermissions.hasEffectivePermission(
+                              role,
+                              permissions,
+                              'customers',
+                            )) {
                           actions.add(
                             _ActionTile(
                               icon: Icons.people,
@@ -445,7 +505,11 @@ class RestaurantDashboardScreen extends StatelessWidget {
                         }
 
                         if (auth.isOwnerUser ||
-                            WorkerPermissions.hasPermission(role, 'view_reports')) {
+                            WorkerPermissions.hasEffectivePermission(
+                              role,
+                              permissions,
+                              'view_reports',
+                            )) {
                           actions.add(
                             _ActionTile(
                               icon: Icons.bar_chart,
