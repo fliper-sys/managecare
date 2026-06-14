@@ -2042,24 +2042,25 @@ class _HomeTabState extends State<_HomeTab> {
                 Row(
                   children: [
                     Expanded(
-                      child: (currentBusinessType == 'auto' ||
-                              currentBusinessType == 'autorepair')
-                          ? _smallStatChip(
-                              context
-                                  .watch<AutoProvider>()
-                                  .parts
-                                  .length
-                                  .toString(),
-                              'Parts',
-                              onTap: () => Navigator.pushNamed(
-                                  context, Routes.autoPartsInventory),
-                            )
-                          : _smallStatChip(
-                              '${business.totalProducts ?? 0}',
-                              'Products',
-                              onTap: () =>
-                                  Navigator.pushNamed(context, Routes.inventory),
-                            ),
+                      child: (((business?.businessType ?? '')
+                              .toLowerCase()) ==
+                            'auto' ||
+                          ((business?.businessType ?? '')
+                              .toLowerCase()) ==
+                            'autorepair')
+                        ? _smallStatChip(
+                          context.watch<AutoProvider>().parts.length
+                            .toString(),
+                          'Parts',
+                          onTap: () => Navigator.pushNamed(
+                            context, Routes.autoPartsInventory),
+                        )
+                        : _smallStatChip(
+                          '${business.totalProducts ?? 0}',
+                          'Products',
+                          onTap: () =>
+                            Navigator.pushNamed(context, Routes.inventory),
+                        ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(

@@ -343,112 +343,94 @@ class _GasStockScreenState extends State<GasStockScreen> {
           appBar: AppBar(
             title: const Text('Gas Stock'),
             backgroundColor: AppColors.primary,
+            elevation: 0,
           ),
           floatingActionButton: FloatingActionButton.extended(
             onPressed: _showAddFuelDialog,
-            icon: const Icon(Icons.add),
+            icon: const Icon(Icons.add_rounded),
             label: const Text('Add Fuel Product'),
           ),
           body: RefreshIndicator(
             onRefresh: retail.loadProducts,
             child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: _GasStockStat(
-                        label: 'Products',
-                        value: fuelProducts.length.toString(),
-                        color: Colors.blue,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _GasStockStat(
-                        label: 'Fuel Stock',
-                        value: totalStock.toStringAsFixed(1),
-                        color: Colors.orange,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _GasStockStat(
-                        label: 'Stock Value',
-                        value: formatCurrency(stockValue),
-                        color: Colors.green,
-                      ),
-                    ),
-                  ],
+                _GasHeader(
+                  products: fuelProducts.length,
+                  fuelStock: totalStock,
+                  stockValue: stockValue,
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: _searchController,
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search_rounded),
                     hintText: 'Search fuel products',
-                    border: OutlineInputBorder(),
                     filled: true,
+                    fillColor: Theme.of(context).cardColor,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outline
+                            .withOpacity(0.16),
+                      ),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      borderSide: BorderSide(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .outline
+                            .withOpacity(0.16),
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 18),
                 if (fuelProducts.isEmpty)
                   Container(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
                       color: Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.circular(18),
+                      borderRadius: BorderRadius.circular(24),
                       border: Border.all(
                         color: Theme.of(context)
                             .colorScheme
                             .outline
-                            .withOpacity(0.24),
+                            .withOpacity(0.14),
                       ),
                     ),
-                    child: const Text(
-                      'No fuel products found yet. Add petrol, diesel, or gas stock here.',
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.local_gas_station_outlined,
+                          size: 40,
+                          color: Colors.grey.shade400,
+                        ),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'No fuel products found yet.',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Add petrol, diesel, or gas stock to get started.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                      ],
                     ),
                   )
                 else
                   ...fuelProducts.map(
-                    (product) => Card(
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.orange.withOpacity(0.12),
-                          child: Text(product.emoji),
-                        ),
-                        title: Text(product.name),
-                        subtitle: Text(
-                          '${product.category} - ${product.stock.toStringAsFixed(2)} ${product.unit}',
-                        ),
-                        trailing: Wrap(
-                          spacing: 8,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  formatCurrency(product.price),
-                                  style: AppTextStyles.body2.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                Text(
-                                  'Cost ${formatCurrency(product.cost)}',
-                                  style: AppTextStyles.caption,
-                                ),
-                              ],
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => _showAdjustStockDialog(product),
-                              icon: const Icon(Icons.inventory_2_outlined),
-                              label: const Text('Update'),
-                            ),
-                          ],
-                        ),
+                    (product) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _FuelProductCard(
+                        product: product,
+                        onUpdate: () => _showAdjustStockDialog(product),
                       ),
                     ),
                   ),
@@ -502,6 +484,279 @@ class _GasStockStat extends StatelessWidget {
               color: Colors.grey[600],
               fontSize: 12,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GasHeader extends StatelessWidget {
+  const _GasHeader({
+    required this.products,
+    required this.fuelStock,
+    required this.stockValue,
+  });
+
+  final int products;
+  final double fuelStock;
+  final double stockValue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.primary,
+            AppColors.primary.withOpacity(0.78),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withOpacity(0.25),
+            blurRadius: 20,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Fuel inventory overview',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Clean summary of products, stock levels, and valuation.',
+            style: TextStyle(color: Colors.white.withOpacity(0.9)),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _GasStatPill(
+                  label: 'Products',
+                  value: products.toString(),
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _GasStatPill(
+                  label: 'Fuel Stock',
+                  value: fuelStock.toStringAsFixed(1),
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _GasStatPill(
+                  label: 'Stock Value',
+                  value: formatCurrency(stockValue),
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GasStatPill extends StatelessWidget {
+  const _GasStatPill({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: color.withOpacity(0.88),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FuelProductCard extends StatelessWidget {
+  const _FuelProductCard({
+    required this.product,
+    required this.onUpdate,
+  });
+
+  final Product product;
+  final VoidCallback onUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: scheme.outline.withOpacity(0.12)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: Colors.orange.withOpacity(0.12),
+                child: Text(
+                  product.emoji,
+                  style: const TextStyle(fontSize: 20),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      product.name,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${product.category} • ${product.stock.toStringAsFixed(2)} ${product.unit}',
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              ElevatedButton(
+                onPressed: onUpdate,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: const Text('Update'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _PriceBadge(
+                  label: 'Sell',
+                  value: formatCurrency(product.price),
+                  color: Colors.blue,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _PriceBadge(
+                  label: 'Cost',
+                  value: formatCurrency(product.cost),
+                  color: Colors.green,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PriceBadge extends StatelessWidget {
+  const _PriceBadge({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800),
           ),
         ],
       ),
