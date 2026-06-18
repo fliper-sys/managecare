@@ -22,36 +22,33 @@ class ReportsDashboardScreen extends StatefulWidget {
 class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
   String _selectedPeriod = 'month';
   String? _lastBusinessId;
-  late ReportsProvider _reportsProvider;
 
   @override
   void initState() {
     super.initState();
-    _reportsProvider = context.read<ReportsProvider>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final businessProvider = context.read<BusinessProvider>();
       final authProvider = context.read<AuthProvider>();
       final businessId = businessProvider.currentBusiness?.id ??
           authProvider.currentUser?.businessId;
       if (businessId != null && businessId.isNotEmpty) {
-        _reportsProvider.subscribeToSalesReports(businessId: businessId);
-        _reportsProvider.subscribeToFinancialReports(businessId: businessId);
-        _reportsProvider.subscribeToInventoryReports(businessId: businessId);
-        _reportsProvider.subscribeToExpensesReports(businessId: businessId);
-      } else {
-        _reportsProvider.subscribeToSalesReports();
-        _reportsProvider.subscribeToFinancialReports();
-        _reportsProvider.subscribeToInventoryReports();
-        _reportsProvider.subscribeToExpensesReports();
+        _loadReports(businessId);
       }
     });
   }
 
   @override
   void dispose() {
-    // ensure subscriptions are canceled when screen is disposed
-    _reportsProvider.unsubscribeFromReportSubscriptions();
     super.dispose();
+  }
+
+  Future<void> _loadReports(String businessId) async {
+    final reportsProvider = context.read<ReportsProvider>();
+    await reportsProvider.generateSalesReport(businessId: businessId);
+    await reportsProvider.generateFinancialReport(businessId: businessId);
+    await reportsProvider.generateInventoryReport(businessId: businessId);
+    await reportsProvider.generateExpenseReport(businessId: businessId);
+    await reportsProvider.generateCustomerReport(businessId: businessId);
   }
 
   String _formatReadableDate(String raw) {
@@ -107,22 +104,9 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
     }
     if (_lastBusinessId != currentBusinessId) {
       _lastBusinessId = currentBusinessId;
-      final reportsProvider = context.read<ReportsProvider>();
-      // Defer subscriptions to avoid window assertion errors during build
       Future.microtask(() {
         if (currentBusinessId.isNotEmpty) {
-          reportsProvider.subscribeToSalesReports(businessId: currentBusinessId);
-          reportsProvider.subscribeToFinancialReports(
-              businessId: currentBusinessId);
-          reportsProvider.subscribeToInventoryReports(
-              businessId: currentBusinessId);
-          reportsProvider.subscribeToExpensesReports(
-              businessId: currentBusinessId);
-        } else {
-          reportsProvider.subscribeToSalesReports();
-          reportsProvider.subscribeToFinancialReports();
-          reportsProvider.subscribeToInventoryReports();
-          reportsProvider.subscribeToExpensesReports();
+          _loadReports(currentBusinessId);
         }
       });
     }

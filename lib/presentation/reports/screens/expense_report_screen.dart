@@ -46,24 +46,25 @@ class _ExpenseReportScreenState extends State<ExpenseReportScreen> {
       final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
           authProvider.currentUser?.businessId;
       if (businessId != null && businessId.isNotEmpty) {
-        final rp = context.read<ReportsProvider>();
-        rp.subscribeToFinancialReports(businessId: businessId);
-        rp.subscribeToExpensesReports(businessId: businessId);
-        _lastBusinessId = businessId;
+        _loadReports(businessId);
       }
     });
   }
 
   @override
   void dispose() {
-    // Cancel only the financial and expenses subscriptions used by this screen
-    context.read<ReportsProvider>().unsubscribeFromFinancialReports();
-    context.read<ReportsProvider>().unsubscribeFromExpensesReports();
     _searchController.dispose();
     _categoryController.dispose();
     _amountController.dispose();
     _descriptionController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadReports(String businessId) async {
+    _lastBusinessId = businessId;
+    final rp = context.read<ReportsProvider>();
+    await rp.generateFinancialReport(businessId: businessId);
+    await rp.generateExpenseReport(businessId: businessId);
   }
 
   @override
@@ -100,11 +101,8 @@ class _ExpenseReportScreenState extends State<ExpenseReportScreen> {
       );
     }
     if (_lastBusinessId != currentBusinessId) {
-      _lastBusinessId = currentBusinessId;
       if (currentBusinessId.isNotEmpty) {
-        final rp = context.read<ReportsProvider>();
-        rp.subscribeToFinancialReports(businessId: currentBusinessId);
-        rp.subscribeToExpensesReports(businessId: currentBusinessId);
+        Future.microtask(() => _loadReports(currentBusinessId));
       }
     }
     return Scaffold(

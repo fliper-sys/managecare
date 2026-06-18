@@ -2429,6 +2429,55 @@ class ReportsProvider extends ChangeNotifier {
     });
   }
 
+  /// Load expenses once without keeping a live subscription.
+  Future<void> generateExpenseReport({String? businessId}) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final bid = businessId ??
+          _currentSubscribedBusinessId ??
+          _authProvider?.currentUser?.currentBusinessId ??
+          _authProvider?.currentUser?.preferredBusinessId ??
+          _authProvider?.currentUser?.businessId;
+      _currentSubscribedBusinessId = bid;
+      if (bid == null || bid.isEmpty) {
+        _error = 'No business ID found';
+        _isLoading = false;
+        notifyListeners();
+        return;
+      }
+
+      final collectionRef =
+          _firestore.collection('businesses').doc(bid).collection('expenses');
+      final snapshot = await collectionRef.get();
+
+      final docs = snapshot.docs.toList();
+      docs.sort((a, b) {
+        final aData = a.data();
+        final bData = b.data();
+        final aTs = aData['timestamp'];
+        final bTs = bData['timestamp'];
+        if (aTs is num && bTs is num) return bTs.compareTo(aTs);
+        final aDate = _parseDate(aData['date']);
+        final bDate = _parseDate(bData['date']);
+        return bDate.compareTo(aDate);
+      });
+
+      _expenses
+        ..clear()
+        ..addAll(docs.map((doc) => {'id': doc.id, ...doc.data()}));
+
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      _error = 'Failed to load expenses report: $e';
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   // Customer Report Methods
   /// Generate customer report with real Firestore data
   Future<void> generateCustomerReport({String? businessId}) async {

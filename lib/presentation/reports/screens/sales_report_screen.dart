@@ -24,30 +24,30 @@ class SalesReportScreen extends StatefulWidget {
 class _SalesReportScreenState extends State<SalesReportScreen> {
   late TextEditingController _searchController;
   String? _lastBusinessId;
-  late ReportsProvider _reportsProvider;
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController();
-    _reportsProvider = context.read<ReportsProvider>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = context.read<AuthProvider>();
       final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
           authProvider.currentUser?.businessId;
       if (businessId != null && businessId.isNotEmpty) {
-        _reportsProvider.subscribeToSalesReports(businessId: businessId);
-        _lastBusinessId = businessId;
+        _loadReport(businessId);
       }
     });
   }
 
   @override
   void dispose() {
-    // cancel subscription on dispose
-    _reportsProvider.unsubscribeFromSalesReports();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadReport(String businessId) async {
+    _lastBusinessId = businessId;
+    await context.read<ReportsProvider>().generateSalesReport(businessId: businessId);
   }
 
   @override
@@ -84,11 +84,8 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
       );
     }
     if (_lastBusinessId != currentBusinessId) {
-      _lastBusinessId = currentBusinessId;
       if (currentBusinessId.isNotEmpty) {
-        context
-            .read<ReportsProvider>()
-            .subscribeToSalesReports(businessId: currentBusinessId);
+        Future.microtask(() => _loadReport(currentBusinessId));
       }
     }
     return Scaffold(
@@ -142,8 +139,8 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                             authProvider.currentUser?.businessId;
                     reportsProvider.setSalesDateRange(start, end);
                     if (businessId != null && businessId.isNotEmpty) {
-                      reportsProvider.subscribeToSalesReports(
-                          businessId: businessId);
+                      Future.microtask(
+                          () => reportsProvider.generateSalesReport(businessId: businessId));
                     }
                   },
                 ),

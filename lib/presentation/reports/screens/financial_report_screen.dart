@@ -35,18 +35,19 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
       final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
           authProvider.currentUser?.businessId;
       if (businessId != null && businessId.isNotEmpty) {
-        context
-            .read<ReportsProvider>()
-            .subscribeToFinancialReports(businessId: businessId);
-        _lastBusinessId = businessId;
+        _loadReport(businessId);
       }
     });
   }
 
   @override
   void dispose() {
-    context.read<ReportsProvider>().unsubscribeFromFinancialReports();
     super.dispose();
+  }
+
+  Future<void> _loadReport(String businessId) async {
+    _lastBusinessId = businessId;
+    await context.read<ReportsProvider>().generateFinancialReport(businessId: businessId);
   }
 
   Future<Map<String, dynamic>> _getInventoryCosts(
@@ -285,11 +286,8 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
       );
     }
     if (_lastBusinessId != currentBusinessId) {
-      _lastBusinessId = currentBusinessId;
       if (currentBusinessId.isNotEmpty) {
-        context
-            .read<ReportsProvider>()
-            .subscribeToFinancialReports(businessId: currentBusinessId);
+        Future.microtask(() => _loadReport(currentBusinessId));
       }
     }
     return Scaffold(
@@ -361,10 +359,10 @@ class _FinancialReportScreenState extends State<FinancialReportScreen> {
                               ?.id ??
                           authProvider.currentUser?.businessId;
                       reportsProvider.setFinancialDateRange(start, end);
-                      // Regenerate report with new date range
                       if (businessId != null && businessId.isNotEmpty) {
-                        reportsProvider.subscribeToFinancialReports(
-                            businessId: businessId);
+                        Future.microtask(() => reportsProvider.generateFinancialReport(
+                              businessId: businessId,
+                            ));
                       }
                     },
                   ),

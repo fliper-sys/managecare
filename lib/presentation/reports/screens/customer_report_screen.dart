@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../providers/auth_provider.dart';
+import '../../../providers/business_provider.dart';
 import '../../../providers/reports_provider.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/theme/colors.dart';
@@ -15,17 +17,28 @@ class CustomerReportScreen extends StatefulWidget {
 
 class _CustomerReportScreenState extends State<CustomerReportScreen> {
   bool _loading = true;
+  String? _lastBusinessId;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  Future<void> _load() async {
+  Future<void> _load(String? businessId) async {
     setState(() => _loading = true);
-    await context.read<ReportsProvider>().generateCustomerReport();
+    await context.read<ReportsProvider>().generateCustomerReport(businessId: businessId);
     setState(() => _loading = false);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
+        context.read<AuthProvider>().currentUser?.businessId;
+    if (businessId != null && businessId.isNotEmpty && businessId != _lastBusinessId) {
+      _lastBusinessId = businessId;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _load(businessId));
+    }
   }
 
   @override

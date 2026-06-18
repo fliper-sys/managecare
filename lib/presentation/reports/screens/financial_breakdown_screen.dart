@@ -56,7 +56,7 @@ class FinancialBreakdownScreen extends StatelessWidget {
                 onPressed: reportsProvider.isLoading || businessId == null || businessId.isEmpty
                     ? null
                     : () {
-                        reportsProvider.subscribeToFinancialReports(businessId: businessId);
+                        reportsProvider.generateFinancialReport(businessId: businessId);
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Refreshing breakdown...')),
                         );

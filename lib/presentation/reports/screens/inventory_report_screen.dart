@@ -31,19 +31,20 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
           authProvider.currentUser?.businessId;
       if (businessId != null && businessId.isNotEmpty) {
-        context
-            .read<ReportsProvider>()
-            .subscribeToInventoryReports(businessId: businessId);
-        _lastBusinessId = businessId;
+        _loadReport(businessId);
       }
     });
   }
 
   @override
   void dispose() {
-    context.read<ReportsProvider>().unsubscribeFromInventoryReports();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadReport(String businessId) async {
+    _lastBusinessId = businessId;
+    await context.read<ReportsProvider>().generateInventoryReport(businessId: businessId);
   }
 
   @override
@@ -80,11 +81,8 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
       );
     }
     if (_lastBusinessId != currentBusinessId) {
-      _lastBusinessId = currentBusinessId;
       if (currentBusinessId.isNotEmpty) {
-        context
-            .read<ReportsProvider>()
-            .subscribeToInventoryReports(businessId: currentBusinessId);
+        Future.microtask(() => _loadReport(currentBusinessId));
       }
     }
     return Scaffold(

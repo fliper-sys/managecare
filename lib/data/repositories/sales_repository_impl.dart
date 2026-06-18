@@ -300,6 +300,23 @@ class SalesRepositoryImpl implements SalesRepository {
         }
       }
 
+      final inventoryTargets = <Map<String, dynamic>>[];
+      if (businessId.isNotEmpty && items.isNotEmpty) {
+        for (final item in items) {
+          final docRef = await _resolveInventoryDocRef(
+            businessId: businessId,
+            item: item,
+          );
+          final quantity = _readInventoryDeductionQuantity(item);
+          if (docRef == null || quantity <= 0) continue;
+
+          inventoryTargets.add({
+            'ref': docRef,
+            'quantity': quantity,
+          });
+        }
+      }
+
       if (saleId != null && saleId.isNotEmpty) {
         final rootRef = _firestore.collection('sales').doc(saleId);
         final businessSaleRef = businessId.isNotEmpty
@@ -310,7 +327,7 @@ class SalesRepositoryImpl implements SalesRepository {
           final rootSnap = await tx.get(rootRef);
           final rootData = rootSnap.data() ?? {};
           final inventoryAlreadyApplied = rootData['inventorySyncApplied'] == true;
-          final shouldApplyInventory = !inventoryAlreadyApplied && businessId.isNotEmpty && items.isNotEmpty;
+          final shouldApplyInventory = !inventoryAlreadyApplied && inventoryTargets.isNotEmpty;
 
           final saleWrite = Map<String, dynamic>.from(saleData);
           saleWrite['id'] = saleId;
@@ -323,15 +340,9 @@ class SalesRepositoryImpl implements SalesRepository {
           }
 
           if (shouldApplyInventory) {
-            for (final item in items) {
-              final docRef = await _resolveInventoryDocRef(
-                businessId: businessId,
-                item: item,
-              );
-              if (docRef == null) continue;
-
-              final quantity = _readInventoryDeductionQuantity(item);
-              if (quantity <= 0) continue;
+            for (final target in inventoryTargets) {
+              final docRef = target['ref'] as DocumentReference<Map<String, dynamic>>;
+              final quantity = (target['quantity'] as num).toDouble();
 
               final snap = await tx.get(docRef);
               final currentQuantity = ((snap.data()?['quantity'] ?? snap.data()?['stock'] ?? 0) as num).toDouble();
