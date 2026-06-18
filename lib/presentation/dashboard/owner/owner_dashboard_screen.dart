@@ -1786,6 +1786,7 @@ class _HomeTabState extends State<_HomeTab> {
 
   Widget _buildBusinessCard(BusinessModel business, bool isDark) {
     final businessProvider = context.watch<BusinessProvider>();
+    final colorScheme = Theme.of(context).colorScheme;
     final isSyncingThisBusiness = businessProvider.isSwitchingBusiness &&
         businessProvider.pendingBusinessId == business.id;
     final baseColor = BusinessTypes.getColor(business.businessType);
@@ -1809,18 +1810,23 @@ class _HomeTabState extends State<_HomeTab> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              baseColor.withOpacity(0.96),
-              secondary,
+              isDark ? colorScheme.surfaceContainerHighest : baseColor.withOpacity(0.96),
+              isDark ? colorScheme.surfaceContainerHigh : secondary,
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(26),
+          border: Border.all(
+            color: isDark
+                ? colorScheme.outlineVariant.withOpacity(0.82)
+                : Colors.white.withOpacity(0.12),
+          ),
           boxShadow: [
             BoxShadow(
-              color: baseColor.withOpacity(0.25),
-              blurRadius: 28,
-              offset: const Offset(0, 16),
+              color: Colors.black.withOpacity(isDark ? 0.28 : 0.16),
+              blurRadius: 26,
+              offset: const Offset(0, 14),
             ),
           ],
         ),
@@ -1834,7 +1840,9 @@ class _HomeTabState extends State<_HomeTab> {
                 height: 130,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(surfaceOverlay),
+                  color: isDark
+                      ? colorScheme.onSurface.withOpacity(0.08)
+                      : Colors.white.withOpacity(surfaceOverlay),
                 ),
               ),
             ),
@@ -1846,7 +1854,9 @@ class _HomeTabState extends State<_HomeTab> {
                 height: 120,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(surfaceOverlay / 2),
+                  color: isDark
+                      ? colorScheme.onSurface.withOpacity(0.05)
+                      : Colors.white.withOpacity(surfaceOverlay / 2),
                 ),
               ),
             ),
@@ -1860,10 +1870,15 @@ class _HomeTabState extends State<_HomeTab> {
                       width: 74,
                       height: 74,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.14),
+                        color: isDark
+                            ? colorScheme.surface.withOpacity(0.55)
+                            : Colors.white.withOpacity(0.14),
                         borderRadius: BorderRadius.circular(20),
-                        border:
-                            Border.all(color: Colors.white.withOpacity(0.16)),
+                        border: Border.all(
+                          color: isDark
+                              ? colorScheme.outlineVariant.withOpacity(0.9)
+                              : Colors.white.withOpacity(0.16),
+                        ),
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(18),
@@ -1872,7 +1887,9 @@ class _HomeTabState extends State<_HomeTab> {
                                 imageUrl: logoUrl,
                                 fit: BoxFit.cover,
                                 placeholder: (context, url) => Container(
-                                  color: Colors.white.withOpacity(0.08),
+                                  color: isDark
+                                      ? colorScheme.surface.withOpacity(0.32)
+                                      : Colors.white.withOpacity(0.08),
                                 ),
                                 errorWidget: (context, url, error) => Center(
                                   child: Text(
@@ -1924,7 +1941,9 @@ class _HomeTabState extends State<_HomeTab> {
                                       ? 'Syncing workspace'
                                       : 'Active business',
                                   style: AppTextStyles.caption.copyWith(
-                                    color: Colors.white,
+                                    color: isDark
+                                        ? colorScheme.onSurface
+                                        : Colors.white,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -1935,13 +1954,15 @@ class _HomeTabState extends State<_HomeTab> {
                                   vertical: 6,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
+                                  color: isDark
+                                      ? colorScheme.surface
+                                      : Colors.white,
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
                                   business.subscriptionTier.toUpperCase(),
                                   style: AppTextStyles.caption.copyWith(
-                                    color: baseColor,
+                                    color: isDark ? colorScheme.onSurface : baseColor,
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
@@ -1959,14 +1980,13 @@ class _HomeTabState extends State<_HomeTab> {
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      const SizedBox(
+                                      SizedBox(
                                         width: 12,
                                         height: 12,
                                         child: CircularProgressIndicator(
                                           strokeWidth: 2,
-                                          valueColor:
-                                              AlwaysStoppedAnimation<Color>(
-                                            Colors.white,
+                                          valueColor: AlwaysStoppedAnimation<Color>(
+                                            isDark ? colorScheme.onSurface : Colors.white,
                                           ),
                                         ),
                                       ),
@@ -1974,7 +1994,9 @@ class _HomeTabState extends State<_HomeTab> {
                                       Text(
                                         'Refreshing',
                                         style: AppTextStyles.caption.copyWith(
-                                          color: Colors.white,
+                                          color: isDark
+                                              ? colorScheme.onSurface
+                                              : Colors.white,
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
@@ -1987,7 +2009,7 @@ class _HomeTabState extends State<_HomeTab> {
                           Text(
                             business.name,
                             style: AppTextStyles.heading4.copyWith(
-                              color: Colors.white,
+                              color: isDark ? colorScheme.onSurface : Colors.white,
                               fontWeight: FontWeight.w900,
                             ),
                             maxLines: 1,
@@ -1997,7 +2019,9 @@ class _HomeTabState extends State<_HomeTab> {
                           Text(
                             BusinessTypes.getName(business.businessType),
                             style: AppTextStyles.body2.copyWith(
-                              color: Colors.white.withOpacity(0.86),
+                              color: isDark
+                                  ? colorScheme.onSurfaceVariant
+                                  : Colors.white.withOpacity(0.86),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -2082,8 +2106,9 @@ class _HomeTabState extends State<_HomeTab> {
                         icon: const Icon(Icons.work_outline_rounded),
                         label: const Text('Open Workspace'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: baseColor,
+                          backgroundColor:
+                              isDark ? colorScheme.surface : Colors.white,
+                          foregroundColor: isDark ? colorScheme.onSurface : baseColor,
                           elevation: 0,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
@@ -2157,17 +2182,29 @@ class _HomeTabState extends State<_HomeTab> {
     required IconData icon,
     required String label,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = colorScheme.brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.10),
+        color: isDark
+            ? colorScheme.surfaceContainerHighest.withOpacity(0.92)
+            : Colors.white.withOpacity(0.10),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.10)),
+        border: Border.all(
+          color: isDark
+              ? colorScheme.outlineVariant.withOpacity(0.82)
+              : Colors.white.withOpacity(0.10),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: Colors.white.withOpacity(0.92)),
+          Icon(
+            icon,
+            size: 14,
+            color: isDark ? colorScheme.onSurfaceVariant : Colors.white.withOpacity(0.92),
+          ),
           const SizedBox(width: 8),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 170),
@@ -2176,7 +2213,7 @@ class _HomeTabState extends State<_HomeTab> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTextStyles.caption.copyWith(
-                color: Colors.white,
+                color: isDark ? colorScheme.onSurface : Colors.white,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -2191,15 +2228,19 @@ class _HomeTabState extends State<_HomeTab> {
     required String tooltip,
     required VoidCallback onPressed,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = colorScheme.brightness == Brightness.dark;
     return SizedBox(
       width: 50,
       height: 50,
       child: IconButton(
         onPressed: onPressed,
         tooltip: tooltip,
-        icon: Icon(icon, color: Colors.white),
+        icon: Icon(icon, color: isDark ? colorScheme.onSurface : Colors.white),
         style: IconButton.styleFrom(
-          backgroundColor: Colors.white.withOpacity(0.14),
+          backgroundColor: isDark
+              ? colorScheme.surfaceContainerHighest.withOpacity(0.9)
+              : Colors.white.withOpacity(0.14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
@@ -2332,20 +2373,21 @@ class _HomeTabState extends State<_HomeTab> {
     // Default retail metrics
     final averageTicket = transactions > 0 ? revenue / transactions : 0.0;
 
+    final colorScheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(14),
+        color: colorScheme.surfaceContainerHighest.withOpacity(isDark ? 0.92 : 1),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: AppColors.border.withAlpha((0.4 * 255).toInt()),
+          color: colorScheme.outlineVariant.withOpacity(isDark ? 0.9 : 0.8),
           width: 1,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withAlpha((0.05 * 255).toInt()),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(isDark ? 0.20 : 0.05),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -2414,37 +2456,54 @@ class _HomeTabState extends State<_HomeTab> {
   Widget _buildMetricTile(
       String label, String value, IconData icon, Color color, bool isDark,
       {String? route}) {
+    final colorScheme = Theme.of(context).colorScheme;
     return InkWell(
       onTap: route != null ? () => Navigator.pushNamed(context, route) : null,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
         decoration: BoxDecoration(
-          color: color.withAlpha((0.08 * 255).toInt()),
-          borderRadius: BorderRadius.circular(14),
+          color: colorScheme.surfaceContainerHighest.withOpacity(isDark ? 0.92 : 1),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: color.withAlpha((0.16 * 255).toInt()),
+            color: color.withOpacity(isDark ? 0.30 : 0.18),
             width: 1,
           ),
         ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: color.withAlpha((0.14 * 255).toInt()),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: color, size: 16),
+            Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(isDark ? 0.18 : 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: color, size: 16),
+                ),
+                const Spacer(),
+                if (route != null)
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: isDark
+                        ? Colors.white.withOpacity(0.45)
+                        : AppColors.textSecondary,
+                  ),
+              ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 14),
             Text(
               value,
               style: AppTextStyles.subtitle2.copyWith(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
                 color: isDark ? Colors.white : AppColors.textPrimary,
+                letterSpacing: -0.2,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -2456,7 +2515,6 @@ class _HomeTabState extends State<_HomeTab> {
                 fontSize: 11,
                 color: isDark ? Colors.grey[400] : AppColors.textSecondary,
               ),
-              textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -2467,31 +2525,42 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _smallStatChip(String value, String label, {VoidCallback? onTap}) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
         child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.white.withAlpha((0.12 * 255).toInt()),
-            borderRadius: BorderRadius.circular(8),
-            border:
-                Border.all(color: Colors.white.withAlpha((0.06 * 255).toInt())),
+            color: colorScheme.surfaceContainerHighest.withOpacity(isDark ? 0.92 : 1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withOpacity(isDark ? 0.85 : 0.75),
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.max,
             children: [
-              Text(value,
-                  style: AppTextStyles.caption.copyWith(
-                      color: Colors.white, fontWeight: FontWeight.w800)),
+              Text(
+                value,
+                style: AppTextStyles.caption.copyWith(
+                  color: colorScheme.onSurface,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
               const SizedBox(width: 6),
               Flexible(
-                child: Text(label,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTextStyles.caption.copyWith(
-                        color: Colors.white.withAlpha((0.9 * 255).toInt()))),
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.caption.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ],
           ),
@@ -2510,7 +2579,7 @@ class _HomeTabState extends State<_HomeTab> {
         crossAxisCount: 3,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
-        childAspectRatio: 0.85,
+        childAspectRatio: 1.08,
       ),
       itemCount: list.length,
       itemBuilder: (context, index) {
@@ -2534,19 +2603,21 @@ class _HomeTabState extends State<_HomeTab> {
       onTap: handleTap,
       child: Container(
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest
+              .withOpacity(isDark ? 0.92 : 1),
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: isDark
-                ? Colors.white.withOpacity(0.05)
-                : Colors.grey.withOpacity(0.15),
+            color: Theme.of(context)
+                .colorScheme
+                .outlineVariant
+                .withOpacity(isDark ? 0.88 : 0.8),
             width: 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+              color: Colors.black.withOpacity(isDark ? 0.20 : 0.05),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
@@ -2554,18 +2625,19 @@ class _HomeTabState extends State<_HomeTab> {
           color: Colors.transparent,
           child: InkWell(
             onTap: handleTap,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
             splashColor: item.color.withOpacity(isDark ? 0.2 : 0.1),
             child: Padding(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(14),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    width: 42,
+                    height: 42,
                     decoration: BoxDecoration(
                       color: item.color.withOpacity(isDark ? 0.15 : 0.1),
-                      shape: BoxShape.circle,
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     child: Icon(
                       item.icon,
@@ -2573,30 +2645,41 @@ class _HomeTabState extends State<_HomeTab> {
                       size: 22,
                     ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 14),
                   Text(
                     item.title,
-                    textAlign: TextAlign.center,
+                    textAlign: TextAlign.left,
                     style: AppTextStyles.subtitle2.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? Colors.white : AppColors.textPrimary,
-                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontSize: 13,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 4),
                   Text(
                     item.subtitle,
-                    textAlign: TextAlign.center,
+                    textAlign: TextAlign.left,
                     style: AppTextStyles.caption.copyWith(
-                      color:
-                          isDark ? Colors.grey[500] : AppColors.textSecondary,
-                      fontSize: 10,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 10.5,
                       height: 1.2,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                  ),
+                  const Spacer(),
+                  Align(
+                    alignment: Alignment.bottomRight,
+                    child: Icon(
+                      Icons.arrow_outward_rounded,
+                      size: 16,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurfaceVariant
+                          .withOpacity(0.7),
+                    ),
                   ),
                 ],
               ),

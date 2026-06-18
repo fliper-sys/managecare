@@ -52,6 +52,7 @@ class PdfInvoiceGenerator {
     final pageHeight = _estimatePageHeight(
       paperWidth: paperWidth,
       itemCount: cartItems.length,
+      hasTax: tax > 0,
       hasDiscount: discount > 0,
       hasNotes: (notes ?? '').trim().isNotEmpty,
     );
@@ -198,15 +199,18 @@ class PdfInvoiceGenerator {
   static double _estimatePageHeight({
     required String paperWidth,
     required int itemCount,
+    required bool hasTax,
     required bool hasDiscount,
     required bool hasNotes,
   }) {
-    final base = paperWidth == '58' ? 250.0 : 280.0;
-    final itemHeight = paperWidth == '58' ? 28.0 : 24.0;
+    final compact = paperWidth == '58';
+    final base = compact ? 360.0 : 390.0;
+    final itemHeight = compact ? 36.0 : 31.0;
     var height = base + (itemCount * itemHeight);
-    if (hasDiscount) height += 12;
+    if (hasTax) height += compact ? 12 : 14;
+    if (hasDiscount) height += compact ? 12 : 14;
     if (hasNotes) height += 48;
-    return height.clamp(300.0, 1200.0);
+    return height.clamp(420.0, 1400.0);
   }
 
   static pw.Widget _buildLabel(pw.Font font) {

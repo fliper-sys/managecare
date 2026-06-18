@@ -14,7 +14,7 @@ class SalesRepositoryImpl implements SalesRepository {
     required Map<String, dynamic> item,
   }) async {
     final inventory = _firestore.collection('businesses').doc(businessId).collection('inventory');
-    final productId = (item['productId'] ?? item['id'] ?? item['product_id'] ?? '').toString().trim();
+    final productId = (item['productId'] ?? item['id'] ?? item['product_id'] ?? item['inventoryProductId'] ?? item['inventory_product_id'] ?? item['menuItemId'] ?? item['menu_item_id'] ?? '').toString().trim();
     if (productId.isNotEmpty) {
       final docRef = inventory.doc(productId);
       final snap = await docRef.get();
@@ -27,7 +27,7 @@ class SalesRepositoryImpl implements SalesRepository {
       if (barcodeSnap.docs.isNotEmpty) return barcodeSnap.docs.first.reference;
     }
 
-    final name = (item['name'] ?? item['productName'] ?? item['itemName'] ?? '').toString().trim();
+    final name = (item['name'] ?? item['productName'] ?? item['itemName'] ?? item['menuItemName'] ?? '').toString().trim();
     if (name.isNotEmpty) {
       final nameSnap = await inventory.where('name', isEqualTo: name).limit(1).get();
       if (nameSnap.docs.isNotEmpty) return nameSnap.docs.first.reference;
@@ -46,6 +46,16 @@ class SalesRepositoryImpl implements SalesRepository {
     final multiplierValue = item['saleUnitMultiplier'] ?? item['inventoryQuantity'] ?? 1;
     if (multiplierValue is num) return multiplierValue.toDouble();
     return double.tryParse(multiplierValue.toString()) ?? 1.0;
+  }
+
+  double _readInventoryDeductionQuantity(Map<String, dynamic> item) {
+    final directValue = item['inventoryQuantity'] ?? item['stockReduction'] ?? item['stockDeduction'];
+    if (directValue is num) return directValue.toDouble();
+
+    final directParsed = double.tryParse(directValue?.toString() ?? '');
+    if (directParsed != null) return directParsed;
+
+    return _readQuantity(item) * _readSaleUnitMultiplier(item);
   }
 
   @override
@@ -91,17 +101,7 @@ class SalesRepositoryImpl implements SalesRepository {
           for (final raw in items) {
             if (raw is! Map<String, dynamic>) continue;
             final pid = (raw['productId'] ?? raw['id'] ?? raw['product_id'] ?? '').toString();
-            final qtyNum = (raw['quantity'] ?? raw['qty'] ?? raw['quantitySold'] ?? 0);
-            double qty;
-            try {
-              if (qtyNum is num) qty = qtyNum.toDouble();
-              else {
-                final cleaned = qtyNum?.toString().replaceAll(RegExp(r'[^0-9.\-]'), '');
-                qty = double.tryParse(cleaned!) ?? 0.0;
-              }
-            } catch (_) {
-              qty = 0.0;
-            }
+            final qty = _readInventoryDeductionQuantity(raw);
 
             if (pid.isEmpty || qty <= 0) continue;
 
@@ -301,18 +301,58 @@ class SalesRepositoryImpl implements SalesRepository {
       }
 
       if (saleId != null && saleId.isNotEmpty) {
-        await _firestore
-            .collection('sales')
-            .doc(saleId)
-            .set(saleData, SetOptions(merge: true));
-        if (businessId.isNotEmpty) {
-          await _firestore
-              .collection('businesses')
-              .doc(businessId)
-              .collection('sales')
-              .doc(saleId)
-              .set(saleData, SetOptions(merge: true));
-        }
+        final rootRef = _firestore.collection('sales').doc(saleId);
+        final businessSaleRef = businessId.isNotEmpty
+            ? _firestore.collection('businesses').doc(businessId).collection('sales').doc(saleId)
+            : null;
+
+        await _firestore.runTransaction((tx) async {
+          final rootSnap = await tx.get(rootRef);
+          final rootData = rootSnap.data() ?? {};
+          final inventoryAlreadyApplied = rootData['inventorySyncApplied'] == true;
+          final shouldApplyInventory = !inventoryAlreadyApplied && businessId.isNotEmpty && items.isNotEmpty;
+
+          final saleWrite = Map<String, dynamic>.from(saleData);
+          saleWrite['id'] = saleId;
+          saleWrite['updatedAt'] = FieldValue.serverTimestamp();
+          saleWrite['inventorySyncApplied'] = inventoryAlreadyApplied || !shouldApplyInventory;
+
+          tx.set(rootRef, saleWrite, SetOptions(merge: true));
+          if (businessSaleRef != null) {
+            tx.set(businessSaleRef, saleWrite, SetOptions(merge: true));
+          }
+
+          if (shouldApplyInventory) {
+            for (final item in items) {
+              final docRef = await _resolveInventoryDocRef(
+                businessId: businessId,
+                item: item,
+              );
+              if (docRef == null) continue;
+
+              final quantity = _readInventoryDeductionQuantity(item);
+              if (quantity <= 0) continue;
+
+              final snap = await tx.get(docRef);
+              final currentQuantity = ((snap.data()?['quantity'] ?? snap.data()?['stock'] ?? 0) as num).toDouble();
+              final newQuantity = (currentQuantity - quantity).clamp(0.0, 999999.0);
+              tx.set(docRef, {
+                'quantity': newQuantity,
+                'stock': newQuantity,
+                'updatedAt': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true));
+            }
+
+            final appliedAt = {
+              'inventorySyncApplied': true,
+              'inventorySyncAppliedAt': FieldValue.serverTimestamp(),
+            };
+            tx.set(rootRef, appliedAt, SetOptions(merge: true));
+            if (businessSaleRef != null) {
+              tx.set(businessSaleRef, appliedAt, SetOptions(merge: true));
+            }
+          }
+        });
       } else {
         final docRef = await _firestore.collection('sales').add(saleData);
         if (businessId.isNotEmpty) {
@@ -322,28 +362,6 @@ class SalesRepositoryImpl implements SalesRepository {
               .collection('sales')
               .doc(docRef.id)
               .set({...saleData, 'id': docRef.id}, SetOptions(merge: true));
-        }
-      }
-
-      if (businessId.isNotEmpty && items.isNotEmpty) {
-        for (final item in items) {
-          final docRef = await _resolveInventoryDocRef(
-            businessId: businessId,
-            item: item,
-          );
-          if (docRef == null) continue;
-
-          final quantity = _readQuantity(item) * _readSaleUnitMultiplier(item);
-          if (quantity <= 0) continue;
-
-          final snap = await docRef.get();
-          final currentQuantity = ((snap.data()?['quantity'] ?? snap.data()?['stock'] ?? 0) as num).toDouble();
-          final newQuantity = (currentQuantity - quantity).clamp(0.0, 999999.0);
-          await docRef.update({
-            'quantity': newQuantity,
-            'stock': newQuantity,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
         }
       }
     } catch (e) {
@@ -465,12 +483,66 @@ class SalesRepositoryImpl implements SalesRepository {
   Future<String> createSaleOffline(Map<String, dynamic> saleData) async {
     try {
       final dbHelper = DatabaseHelper.instance;
-      saleData['createdAt'] = DateTime.now().toIso8601String();
-      saleData['updatedAt'] = DateTime.now().toIso8601String();
-      saleData['syncStatus'] = 'pending';
+      final saleId = saleData['id']?.toString() ?? 'SALE-${DateTime.now().millisecondsSinceEpoch}';
+      final businessId = saleData['businessId']?.toString() ?? '';
+      final customerId = saleData['customerId']?.toString();
+      final paymentMethod = saleData['paymentMethod']?.toString() ?? saleData['payment_method']?.toString() ?? 'Cash';
+      final status = saleData['status']?.toString() ?? 'completed';
+      final notes = saleData['notes']?.toString();
+      final createdBy = saleData['createdBy']?.toString() ?? saleData['createdById']?.toString() ?? '';
+      final createdAt = DateTime.now().toIso8601String();
+      final updatedAt = DateTime.now().toIso8601String();
 
-      final id = await dbHelper.insert('sales', saleData);
-      return id.toString();
+      final localSale = {
+        'id': saleId,
+        'businessId': businessId,
+        'customerId': customerId,
+        'totalAmount': (saleData['totalAmount'] ?? saleData['finalAmount'] ?? saleData['total'] ?? 0).toString(),
+        'discountAmount': (saleData['discountAmount'] ?? saleData['discount'] ?? 0).toString(),
+        'taxAmount': (saleData['taxAmount'] ?? saleData['tax'] ?? 0).toString(),
+        'finalAmount': (saleData['finalAmount'] ?? saleData['total'] ?? saleData['totalAmount'] ?? 0).toString(),
+        'paymentMethod': paymentMethod,
+        'status': status,
+        'notes': notes,
+        'createdBy': createdBy,
+        'createdAt': createdAt,
+        'updatedAt': updatedAt,
+        'syncStatus': 'pending',
+      };
+
+      await dbHelper.insert('sales', localSale);
+
+      if (saleData['items'] is List) {
+        final items = List.from(saleData['items'] as List);
+        for (final rawItem in items) {
+          if (rawItem is! Map) continue;
+          final itemMap = Map<String, dynamic>.from(rawItem);
+          final itemId = itemMap['id']?.toString() ?? 'SI-${DateTime.now().millisecondsSinceEpoch}-${businessId.hashCode}';
+          final quantity = (itemMap['quantity'] is num)
+              ? (itemMap['quantity'] as num).toDouble()
+              : double.tryParse(itemMap['quantity']?.toString() ?? '0') ?? 0.0;
+          final unitPrice = (itemMap['unitPrice'] is num)
+              ? (itemMap['unitPrice'] as num).toDouble()
+              : double.tryParse(itemMap['unitPrice']?.toString() ?? itemMap['price']?.toString() ?? '0') ?? 0.0;
+          final total = (itemMap['total'] is num)
+              ? (itemMap['total'] as num).toDouble()
+              : double.tryParse(itemMap['total']?.toString() ?? (unitPrice * quantity).toString()) ?? (unitPrice * quantity);
+
+          final localItem = {
+            'id': itemId,
+            'saleId': saleId,
+            'productId': itemMap['productId']?.toString() ?? itemMap['inventoryProductId']?.toString() ?? itemMap['menuItemId']?.toString() ?? itemMap['id']?.toString() ?? '',
+            'productName': itemMap['productName']?.toString() ?? itemMap['menuItemName']?.toString() ?? itemMap['name']?.toString() ?? '',
+            'quantity': quantity,
+            'unitPrice': unitPrice,
+            'discount': (itemMap['discount'] ?? 0).toString(),
+            'total': total,
+          };
+          await dbHelper.insert('sale_items', localItem);
+        }
+      }
+
+      return saleId;
     } catch (e) {
       rethrow;
     }

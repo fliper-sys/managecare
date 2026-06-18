@@ -281,7 +281,10 @@ class _RestaurantCartSheetState extends State<RestaurantCartSheet> {
                             // Post-sale receipt actions
                             try {
                               await ReceiptManager.handlePostSale(
-                                  context, saleMap);
+                                  context,
+                                  saleMap,
+                                  invoiceGeneratedBeforeCheckout: true,
+                              );
                             } catch (_) {}
                           }
                         : null,

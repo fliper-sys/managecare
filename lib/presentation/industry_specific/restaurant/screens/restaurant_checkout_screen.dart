@@ -493,7 +493,11 @@ class _RestaurantCheckoutScreenState extends State<RestaurantCheckoutScreen> {
         'timestamp': DateTime.now().toIso8601String(),
       };
 
-      await ReceiptManager.handlePostSale(context, saleMap);
+      await ReceiptManager.handlePostSale(
+        context,
+        saleMap,
+        invoiceGeneratedBeforeCheckout: true,
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Receipt sent to printer'),

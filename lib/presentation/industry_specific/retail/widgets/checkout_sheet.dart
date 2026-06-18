@@ -1239,7 +1239,11 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
 
                         // Perform post-sale receipt actions
                         try {
-                          await ReceiptManager.handlePostSale(context, saleMap);
+                          await ReceiptManager.handlePostSale(
+                            context,
+                            saleMap,
+                            invoiceGeneratedBeforeCheckout: true,
+                          );
                         } catch (_) {}
                       },
                       style: ElevatedButton.styleFrom(

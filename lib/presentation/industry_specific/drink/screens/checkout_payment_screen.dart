@@ -122,12 +122,20 @@ class _CheckoutPaymentScreenState extends State<CheckoutPaymentScreen> {
 
         // Show receipt manager (handles print/share/email)
         if (!mounted) return;
-        await ReceiptManager.handlePostSale(context, saleMap);
+        await ReceiptManager.handlePostSale(
+          context,
+          saleMap,
+          invoiceGeneratedBeforeCheckout: true,
+        );
       } catch (e) {
         debugPrint('[CheckoutPayment] Error saving sale: $e');
         // Still show receipt manager even if save fails
         if (!mounted) return;
-        await ReceiptManager.handlePostSale(context, saleMap);
+        await ReceiptManager.handlePostSale(
+          context,
+          saleMap,
+          invoiceGeneratedBeforeCheckout: true,
+        );
       }
 
       // Show success message

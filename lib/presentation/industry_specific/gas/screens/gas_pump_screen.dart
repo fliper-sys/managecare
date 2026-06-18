@@ -332,7 +332,11 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                     // Show receipt dialog / actions
                                     try {
                                       if (mounted) {
-                                        await ReceiptManager.handlePostSale(context, saleMap);
+                                        await ReceiptManager.handlePostSale(
+                                          context,
+                                          saleMap,
+                                          invoiceGeneratedBeforeCheckout: true,
+                                        );
                                       } else {
                                         debugPrint('[GasPump] Skipping post-sale UI because widget is unmounted');
                                       }

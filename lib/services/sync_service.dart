@@ -2,22 +2,30 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:business_manager/core/utils/datetime_utils.dart';
 import '../data/local/database_helper.dart';
+import '../domain/repositories/sales_repository.dart';
 import '../data/repositories/sales_repository_impl.dart';
 import '../data/repositories/inventory_repository_impl.dart';
 import '../data/repositories/customer_repository_impl.dart';
 
 class SyncService {
   static const String _lastSyncKey = 'last_sync_time';
-  final DatabaseHelper _dbHelper = DatabaseHelper.instance;
-  late final SalesRepositoryImpl _salesRepository;
-  late final InventoryRepositoryImpl _inventoryRepository;
-  late final CustomerRepositoryImpl _customerRepository;
+  final DatabaseHelper _dbHelper;
+  late final SalesRepository _salesRepository;
+  InventoryRepositoryImpl? _inventoryRepository;
+  CustomerRepositoryImpl? _customerRepository;
 
-  SyncService() {
-    final firestore = FirebaseFirestore.instance;
-    _salesRepository = SalesRepositoryImpl(firestore: firestore);
-    _inventoryRepository = InventoryRepositoryImpl(firestore: firestore);
-    _customerRepository = CustomerRepositoryImpl(firestore: firestore);
+  SyncService({
+    DatabaseHelper? dbHelper,
+    SalesRepository? salesRepository,
+    FirebaseFirestore? firestore,
+    InventoryRepositoryImpl? inventoryRepository,
+    CustomerRepositoryImpl? customerRepository,
+  }) : _dbHelper = dbHelper ?? DatabaseHelper.instance {
+    final resolvedFirestore = firestore ?? FirebaseFirestore.instance;
+    _salesRepository =
+        salesRepository ?? SalesRepositoryImpl(firestore: resolvedFirestore);
+    _inventoryRepository = inventoryRepository;
+    _customerRepository = customerRepository;
   }
 
   Future<DateTime?> getLastSyncTime() async {
@@ -85,6 +93,11 @@ class SyncService {
 
   Future<void> syncInventory() async {
     try {
+      final inventoryRepository = _inventoryRepository;
+      if (inventoryRepository == null) {
+        throw StateError('Inventory repository is not configured');
+      }
+
       // Get pending inventory items
       final pendingItems = await _dbHelper.query(
         'inventory',
@@ -95,7 +108,7 @@ class SyncService {
       for (final itemData in pendingItems) {
         try {
           // Sync to Firestore
-          await _inventoryRepository.syncInventoryToFirestore(itemData);
+          await inventoryRepository.syncInventoryToFirestore(itemData);
 
           // Update sync status
           await _dbHelper.update(
@@ -121,6 +134,11 @@ class SyncService {
 
   Future<void> syncCustomers() async {
     try {
+      final customerRepository = _customerRepository;
+      if (customerRepository == null) {
+        throw StateError('Customer repository is not configured');
+      }
+
       // Get pending customers
       final pendingCustomers = await _dbHelper.query(
         'customers',
@@ -131,7 +149,7 @@ class SyncService {
       for (final customerData in pendingCustomers) {
         try {
           // Sync to Firestore
-          await _customerRepository.syncCustomerToFirestore(customerData);
+          await customerRepository.syncCustomerToFirestore(customerData);
 
           // Update sync status
           await _dbHelper.update(

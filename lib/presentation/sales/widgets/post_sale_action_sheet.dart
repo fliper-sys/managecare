@@ -44,6 +44,7 @@ class PostSaleActionSheet extends StatefulWidget {
   final Map<String, dynamic> saleData;
   final Future<dynamic>? pdfFuture; // File on mobile, Uint8List bytes on web
   final bool allowEditing; // Whether to show price/discount editing functionality
+  final bool invoiceLockedAfterCheckout; // When true, hide invoice generation buttons
 
   const PostSaleActionSheet({
     required this.receiptText,
@@ -53,6 +54,7 @@ class PostSaleActionSheet extends StatefulWidget {
     required this.saleData,
     this.pdfFuture,
     this.allowEditing = true, // Default to true for backward compatibility
+    this.invoiceLockedAfterCheckout = false, // Default: allow invoice after checkout
     super.key,
   });
 
@@ -73,6 +75,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
   bool _pdfGenerating = false;
   Uint8List? _pdfBytes;
   File? _pdfFile;
+  bool _lastGeneratedPdfWasInvoice = false;
 
   // Editable sale data
   late List<Map<String, dynamic>> _editableItems;
@@ -82,6 +85,17 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
   // Invoice prompt state
   bool _invoiceDialogShown = false;
   bool _autoGeneratingInvoice = false;
+
+  bool get _isCheckoutLockedToReceipt => widget.invoiceLockedAfterCheckout;
+  bool get _isCompletedSaleReceiptFlow {
+    final status = (widget.saleData['status'] ?? widget.saleData['saleStatus'] ?? widget.saleData['paymentStatus'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    return _isCheckoutLockedToReceipt ||
+        const {'completed', 'complete', 'paid', 'settled', 'checked_out', 'checkout_complete', 'closed'}
+            .contains(status);
+  }
 
   // Resolve payment method from various possible sale map keys and normalize
   String _getPaymentMethod(Map<String, dynamic> data) {
@@ -339,13 +353,17 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
     debugPrint(
         '[PostSaleActionSheet] Initialized with orderId: ${widget.orderId}');
 
-    // Auto-generate invoice and show print/share dialog
+    // Auto-generate the appropriate PDF after checkout
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _autoGenerateAndPromptInvoice();
+      if (_isCompletedSaleReceiptFlow) {
+        _generatePdf();
+      } else {
+        _autoGenerateAndPromptInvoice();
+      }
     });
 
     // Listen for background PDF generation if provided
-    if (widget.pdfFuture != null) {
+    if (widget.pdfFuture != null && !_isCompletedSaleReceiptFlow) {
       setState(() => _pdfGenerating = true);
       widget.pdfFuture!.then((res) async {
         if (res == null) {
@@ -537,10 +555,16 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
       currencySymbol: 'NGN ',
       paperWidth: paperWidth,
       copyLabel: copyLabel,
+      documentTitle: 'TAX INVOICE',
     );
   }
 
   Future<void> _printBluetoothInvoice() async {
+    if (_isCheckoutLockedToReceipt) {
+      await _printReceipt();
+      return;
+    }
+
     final selectedWidth = await showDialog<int>(
       context: context,
       builder: (ctx) => SimpleDialog(
@@ -705,6 +729,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
         setState(() {
           _pdfGenerating = false;
+          _pdfBytes = pdfBytes;
+          _pdfFile = null;
+          _lastGeneratedPdfWasInvoice = true;
           _statusMessage = 'Invoice PDF downloaded';
           _statusColor = Colors.green;
         });
@@ -714,7 +741,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         await file.writeAsBytes(pdfBytes);
         setState(() {
           _pdfFile = file;
+          _pdfBytes = pdfBytes;
           _pdfGenerating = false;
+          _lastGeneratedPdfWasInvoice = true;
           _statusMessage = 'Invoice PDF generated';
           _statusColor = Colors.green;
         });
@@ -732,11 +761,44 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
     if (_isPrinting) return;
     setState(() {
       _isPrinting = true;
-      _statusMessage = 'Preparing invoice print...';
+      _statusMessage = widget.invoiceLockedAfterCheckout
+          ? 'Preparing receipt print...'
+          : 'Preparing invoice print...';
       _statusColor = Colors.grey;
     });
 
     try {
+      if (_isCompletedSaleReceiptFlow) {
+        await _generatePdf();
+      }
+
+      if (_isCompletedSaleReceiptFlow) {
+        final receiptBytes = _pdfBytes ?? (_pdfFile != null ? await _pdfFile!.readAsBytes() : null);
+        if (receiptBytes == null || receiptBytes.isEmpty) {
+          throw Exception('Receipt PDF is not available');
+        }
+
+        final receiptName = PdfReceiptGenerator.getReceiptFilename(
+          widget.orderId ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        );
+
+        if (kIsWeb) {
+          await web_download.printPdfBytes(receiptBytes, receiptName);
+        } else {
+          await Printing.layoutPdf(
+            name: receiptName,
+            onLayout: (_) async => receiptBytes,
+          );
+        }
+
+        if (!mounted) return;
+        setState(() {
+          _statusMessage = 'Receipt print dialog opened';
+          _statusColor = Colors.green;
+        });
+        return;
+      }
+
       final businessProvider =
           Provider.of<BusinessProvider>(context, listen: false);
       final business = businessProvider.currentBusiness;
@@ -920,7 +982,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
 
         setState(() {
           _pdfBytes = bytes;
+          _pdfFile = null;
           _pdfGenerating = false;
+          _lastGeneratedPdfWasInvoice = false;
           _statusMessage = 'PDF ready (click Save/Share)';
           _statusColor = Colors.green;
         });
@@ -955,9 +1019,12 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
           businessClass: business?.businessClass,
         );
 
+        final bytes = await file.readAsBytes();
         setState(() {
           _pdfFile = file;
+          _pdfBytes = bytes;
           _pdfGenerating = false;
+          _lastGeneratedPdfWasInvoice = false;
           _statusMessage = 'PDF generated';
           _statusColor = Colors.green;
         });
@@ -1071,6 +1138,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
         subscriptionTier: business?.subscriptionTier,
         businessClass: business?.businessClass,
       );
+      _lastGeneratedPdfWasInvoice = false;
 
       setState(() {
         _statusMessage = 'PDF preview ready';
@@ -1656,6 +1724,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
     if (kIsWeb) {
       setState(() => _isPrinting = true);
       try {
+        if (_isCompletedSaleReceiptFlow) {
+          await _generatePdf();
+        }
+
         // For web, show print preview using browser's print dialog
         if (_pdfBytes != null && _pdfBytes!.isNotEmpty) {
           try {
@@ -1738,6 +1810,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
 
   Future<void> _savePdf() async {
     try {
+      if (_isCompletedSaleReceiptFlow) {
+        await _generatePdf();
+      }
+
       if (kIsWeb) {
         if (_pdfBytes != null) {
           final filename = PdfReceiptGenerator.getReceiptFilename(widget.orderId ?? DateTime.now().millisecondsSinceEpoch.toString());
@@ -1773,6 +1849,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
 
   Future<void> _sharePdf() async {
     try {
+      if (_isCompletedSaleReceiptFlow) {
+        await _generatePdf();
+      }
+
       if (kIsWeb) {
         if (_pdfBytes != null) {
           final filename = PdfReceiptGenerator.getReceiptFilename(widget.orderId ?? DateTime.now().millisecondsSinceEpoch.toString());
@@ -1876,6 +1956,11 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
 
   /// Auto-generate invoice PDF and show print/share dialog
   Future<void> _autoGenerateAndPromptInvoice() async {
+    if (_isCompletedSaleReceiptFlow) {
+      await _generatePdf();
+      return;
+    }
+
     if (_invoiceDialogShown || _autoGeneratingInvoice) return;
     
     setState(() => _autoGeneratingInvoice = true);
@@ -2325,6 +2410,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
               // Print Actions (Prioritized for fast sales)
               Builder(builder: (ctx) {
                 final isFuel = (widget.saleData['category'] ?? '').toString().toLowerCase() == 'fuel' || (widget.saleData['category'] ?? '').toString().toLowerCase() == 'petrol' || (widget.saleData['category'] ?? '').toString().toLowerCase() == 'gas';
+                final bluetoothButtonLabel = _isCheckoutLockedToReceipt
+                    ? 'Print Receipt (Bluetooth)'
+                    : (isFuel ? 'Print (58mm)' : 'Print (Bluetooth)');
                 return Column(children: [
                   if (isFuel) ...[
                     Container(
@@ -2370,7 +2458,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                         child: ElevatedButton.icon(
                           onPressed: _isPrinting ? null : _printReceipt,
                           icon: const Icon(Icons.print),
-                          label: Text(isFuel ? 'Print (58mm)' : 'Print (Bluetooth)'),
+                          label: Text(bluetoothButtonLabel),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.success,
                             disabledBackgroundColor: Colors.grey,
@@ -2483,79 +2571,125 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _isPrinting ? null : _printBluetoothInvoice,
-                    icon: const Icon(Icons.print_rounded),
-                    label: const Text('Print Invoice (Bluetooth)'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange.shade700,
+                Builder(builder: (_) {
+                  final printLabel = widget.invoiceLockedAfterCheckout
+                      ? 'Print Receipt (Bluetooth)'
+                      : 'Print Invoice (Bluetooth)';
+                  return SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _isPrinting ? null : _printBluetoothInvoice,
+                      icon: const Icon(Icons.print_rounded),
+                      label: Text(printLabel),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange.shade700,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                }),
                 const SizedBox(height: 12),
               ] else if (!_pdfGenerating && _pdfFile == null && _pdfBytes == null && widget.pdfFuture == null) ...[
                 // Offer explicit Generate PDF actions when no background generation was started
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _generatePdf,
-                        icon: const Icon(Icons.picture_as_pdf_outlined),
-                        label: const Text('Generate PDF Receipt'),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+                if (widget.invoiceLockedAfterCheckout) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _generatePdf,
+                      icon: const Icon(Icons.picture_as_pdf_outlined),
+                      label: const Text('Generate PDF Receipt'),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _isPrinting ? null : _printBluetoothInvoice,
+                      icon: const Icon(Icons.print_rounded),
+                      label: const Text('Print Receipt (Bluetooth)'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange.shade700,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _generatePdfInvoice,
-                        icon: const Icon(Icons.receipt_long),
-                        label: const Text('Generate PDF Invoice'),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                  ),
+                ] else ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _generatePdf,
+                          icon: const Icon(Icons.picture_as_pdf_outlined),
+                          label: const Text('Generate PDF Receipt'),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _generatePdfInvoice,
+                          icon: const Icon(Icons.receipt_long),
+                          label: const Text('Generate PDF Invoice'),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _isPrinting ? null : _printPdfInvoice,
+                          icon: const Icon(Icons.print),
+                          label: const Text('Print Invoice'),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _isPrinting ? null : _printBluetoothInvoice,
+                      icon: const Icon(Icons.print_rounded),
+                      label: const Text('Print Invoice (Bluetooth)'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange.shade700,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _isPrinting ? null : _printPdfInvoice,
-                        icon: const Icon(Icons.print),
-                        label: const Text('Print Invoice'),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
-                      ),
-                    ),
-                  ],
+                  ),
+                ],
+                const SizedBox(height: 12),
+              ],
+
+              if (widget.invoiceLockedAfterCheckout) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                  ),
+                  child: const Text(
+                    'Invoice generation is locked after checkout. You can still print the receipt.',
+                    style: TextStyle(color: Colors.black87),
+                  ),
                 ),
                 const SizedBox(height: 12),
+              ] else ...[
+                // Generate Invoice Button
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: _isPrinting ? null : _printBluetoothInvoice,
-                    icon: const Icon(Icons.print_rounded),
-                    label: const Text('Print Invoice (Bluetooth)'),
+                    onPressed: _isEmailing ? null : _generateInvoice,
+                    icon: const Icon(Icons.receipt),
+                    label: const Text('Generate Invoice'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange.shade700,
+                      backgroundColor: Colors.purple,
+                      disabledBackgroundColor: Colors.grey,
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
               ],
-
-              // Generate Invoice Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _isEmailing ? null : _generateInvoice,
-                  icon: const Icon(Icons.receipt),
-                  label: const Text('Generate Invoice'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.purple,
-                    disabledBackgroundColor: Colors.grey,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
 
               // Other Actions (Email, Share, PDF Generation)
               Row(

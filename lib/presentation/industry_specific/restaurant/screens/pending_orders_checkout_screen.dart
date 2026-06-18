@@ -20,7 +20,7 @@ import '../../../../services/offline_sales_service.dart';
 import '../../../../data/repositories/sales_repository_impl.dart';
 import '../../../../providers/connectivity_provider.dart';
 import '../providers/restaurant_provider.dart';
-import '../../../../services/pdf_invoice_generator.dart';
+import '../../../../services/pdf_receipt_generator.dart';
 import '../../../../services/web_download.dart' as web_download;
 
 class PendingOrdersAndCheckoutScreen extends StatefulWidget {
@@ -361,7 +361,7 @@ class _PendingOrdersAndCheckoutScreenState
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  'Payment confirmed. Receipt and invoice actions are ready.',
+                                  'Payment confirmed. Receipt actions are ready.',
                                   style: AppTextStyles.body2
                                       .copyWith(color: AppColors.success),
                                 ),
@@ -382,9 +382,9 @@ class _PendingOrdersAndCheckoutScreenState
                     child: Column(
                       children: [
                         CustomButton(
-                          text: 'Generate PDF Invoice',
-                          backgroundColor: Colors.blue,
-                          onPressed: () => _generatePdfInvoice(order),
+                        text: 'Generate PDF Receipt',
+                        backgroundColor: Colors.blue,
+                        onPressed: () => _generatePdfReceipt(order),
                         ),
                         const SizedBox(height: 8),
                         if (isCompact) ...[
@@ -445,7 +445,7 @@ class _PendingOrdersAndCheckoutScreenState
     );
   }
 
-  Future<void> _generatePdfInvoice(RestaurantOrder order) async {
+  Future<void> _generatePdfReceipt(RestaurantOrder order) async {
     try {
       final businessProvider = Provider.of<BusinessProvider>(context, listen: false);
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
@@ -466,41 +466,47 @@ class _PendingOrdersAndCheckoutScreenState
         };
       }).toList();
 
-      final invoiceNumber = 'INV-${order.id.split('-').last}';
+      final receiptNumber = 'RCPT-${order.id.split('-').last}';
 
-      final pdfBytes = await PdfInvoiceGenerator.generateInvoicePdfBytes(
+      final pdfBytes = await PdfReceiptGenerator.generateReceiptPdfBytes(
         businessName: business?.name ?? 'Restaurant',
-        invoiceNumber: invoiceNumber,
-        invoiceDate: DateTime.now(),
-        cartItems: cartItems,
+        storeName: business?.name ?? 'Restaurant',
+        receiptNumber: receiptNumber,
+        receiptDate: DateTime.now(),
+        items: cartItems,
         subtotal: order.subtotal,
         tax: order.tax,
         discount: order.discount,
         total: order.total,
+        paymentMethod: 'Cash',
         customerName: order.customerName ?? 'Customer',
         customerEmail: order.customerEmail,
+        customHeader: null,
+        customFooter: null,
+        paperWidth: '58',
+        cashier: authProvider.currentUser?.fullName,
+        poweredByText: 'Powered by Manage Care',
+        businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
         businessAddress: business?.address,
         businessPhone: business?.phone,
         businessEmail: business?.email,
-        cashierName: authProvider.currentUser?.fullName,
-        businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
         subscriptionTier: business?.subscriptionTier,
         businessClass: business?.businessClass,
       );
 
-      final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
+      final filename = PdfReceiptGenerator.getReceiptFilename(receiptNumber);
 
       if (kIsWeb) {
         web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Invoice PDF downloaded: $filename')),
+          SnackBar(content: Text('Receipt PDF downloaded: $filename')),
         );
       } else {
         await _sharePdfOnMobile(pdfBytes, filename);
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error generating PDF invoice: $e')),
+        SnackBar(content: Text('Error generating PDF receipt: $e')),
       );
     }
   }
@@ -513,8 +519,8 @@ class _PendingOrdersAndCheckoutScreenState
 
       await Share.shareXFiles(
         [XFile(file.path)],
-        text: 'Invoice PDF',
-        subject: 'Invoice',
+        text: 'Receipt PDF',
+        subject: 'Receipt',
       );
     } catch (e) {
       try {
@@ -523,11 +529,11 @@ class _PendingOrdersAndCheckoutScreenState
         await file.writeAsBytes(pdfBytes);
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Invoice saved to: ${file.path}')),
+          SnackBar(content: Text('Receipt saved to: ${file.path}')),
         );
       } catch (e2) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error saving PDF invoice')),
+          const SnackBar(content: Text('Error saving PDF receipt')),
         );
       }
     }
@@ -714,7 +720,11 @@ class _PendingOrdersAndCheckoutScreenState
           'workerName': authProvider.currentUser!.fullName,
       };
       try {
-        await ReceiptManager.handlePostSale(context, saleMap);
+        await ReceiptManager.handlePostSale(
+          context,
+          saleMap,
+          invoiceGeneratedBeforeCheckout: true,
+        );
       } catch (e) {
         debugPrint('[RestaurantPOS] Receipt error: $e');
       }

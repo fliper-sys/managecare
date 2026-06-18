@@ -468,7 +468,11 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
       // Show receipt actions
       try {
         if (mounted) {
-          await ReceiptManager.handlePostSale(context, saleMap);
+          await ReceiptManager.handlePostSale(
+            context,
+            saleMap,
+            invoiceGeneratedBeforeCheckout: true,
+          );
         } else {
           debugPrint('[PharmacyPOS] Skipping post-sale UI because widget is unmounted');
         }

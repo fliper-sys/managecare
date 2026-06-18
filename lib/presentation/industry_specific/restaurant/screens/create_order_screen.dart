@@ -24,7 +24,7 @@ import '../../../../services/payment_service.dart';
 import '../../../../services/receipt_manager.dart';
 import '../../../../services/web_download.dart' as web_download;
 import '../../../../services/web_email_receipt_service.dart';
-import '../../../../services/pdf_invoice_generator.dart';
+import '../../../../services/pdf_receipt_generator.dart';
 
 // Helpers
 String _safeIdSuffix(String id) => id.length >= 6 ? id.substring(id.length - 6) : id;
@@ -786,7 +786,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
         };
 
-        await ReceiptManager.handlePostSale(context, saleMap);
+        await ReceiptManager.handlePostSale(
+          context,
+          saleMap,
+          invoiceGeneratedBeforeCheckout: true,
+        );
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Payment successful and order completed'), backgroundColor: AppColors.success),
@@ -1034,7 +1038,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
             TextButton(
               onPressed: () async {
                 Navigator.pop(ctx);
-                await ReceiptManager.handlePostSale(context, saleMap);
+                await ReceiptManager.handlePostSale(
+                  context,
+                  saleMap,
+                  invoiceGeneratedBeforeCheckout: true,
+                );
               },
               child: const Text('View Receipt'),
             ),
@@ -1247,9 +1255,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     ),
                     const SizedBox(height: 16),
                     CustomButton(
-                      text: 'Generate PDF Invoice',
+                    text: 'Generate PDF Receipt',
                       backgroundColor: Colors.blue,
-                      onPressed: _selectedItems.isNotEmpty ? () => _generatePdfInvoice() : null,
+                      onPressed: _selectedItems.isNotEmpty ? () => _generatePdfReceipt() : null,
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -1313,10 +1321,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     );
   }
 
-  Future<void> _generatePdfInvoice() async {
+  Future<void> _generatePdfReceipt() async {
     if (_selectedItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Add items to cart before generating invoice')),
+        const SnackBar(content: Text('Add items to cart before generating receipt')),
       );
       return;
     }
@@ -1346,35 +1354,41 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         };
       }).toList();
 
-      // Generate invoice number
-      final invoiceNumber = 'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+      final receiptNumber = 'RCPT-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
 
-      final pdfBytes = await PdfInvoiceGenerator.generateInvoicePdfBytes(
+      final pdfBytes = await PdfReceiptGenerator.generateReceiptPdfBytes(
         businessName: business?.name ?? 'Business',
-        invoiceNumber: invoiceNumber,
-        invoiceDate: DateTime.now(),
-        cartItems: cartItems,
+        storeName: business?.name ?? 'Restaurant',
+        receiptNumber: receiptNumber,
+        receiptDate: DateTime.now(),
+        items: cartItems,
         subtotal: _subtotal,
         tax: tax,
         discount: discount,
         total: total,
+        paymentMethod: 'Cash',
         customerName: 'Walk-in Customer',
+        customerEmail: null,
+        customHeader: null,
+        customFooter: null,
+        paperWidth: '58',
+        cashier: auth.currentUser?.fullName,
+        poweredByText: 'Powered by Manage Care',
+        businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
         businessAddress: business?.address,
         businessPhone: business?.phone,
         businessEmail: business?.email,
-        cashierName: auth.currentUser?.fullName,
-        businessLogoUrl: business?.photoUrl ?? business?.logoUrl,
         subscriptionTier: business?.subscriptionTier,
         businessClass: business?.businessClass,
       );
 
-      final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
+      final filename = PdfReceiptGenerator.getReceiptFilename(receiptNumber);
 
       if (kIsWeb) {
         // Web: Download PDF
         web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Invoice PDF downloaded: $filename')),
+          SnackBar(content: Text('Receipt PDF downloaded: $filename')),
         );
       } else {
         // Mobile: Share PDF
@@ -1382,7 +1396,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error generating PDF invoice: $e')),
+        SnackBar(content: Text('Error generating PDF receipt: $e')),
       );
     }
   }
@@ -1397,8 +1411,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       // Share the file
       await Share.shareXFiles(
         [XFile(file.path)],
-        text: 'Invoice PDF',
-        subject: 'Invoice',
+        text: 'Receipt PDF',
+        subject: 'Receipt',
       );
     } catch (e) {
       // Fallback: Save to documents directory
@@ -1408,11 +1422,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         await file.writeAsBytes(pdfBytes);
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Invoice saved to: ${file.path}')),
+          SnackBar(content: Text('Receipt saved to: ${file.path}')),
         );
       } catch (e2) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error saving PDF invoice')),
+          const SnackBar(content: Text('Error saving PDF receipt')),
         );
       }
     }
@@ -1544,7 +1558,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                 'timestamp': DateTime.now().toIso8601String(),
                               };
 
-                              await ReceiptManager.handlePostSale(context, saleMap);
+                              await ReceiptManager.handlePostSale(
+                                context,
+                                saleMap,
+                                invoiceGeneratedBeforeCheckout: true,
+                              );
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(content: Text('Customer receipt sent to printer'), backgroundColor: AppColors.success),
                               );
@@ -2102,9 +2120,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                               children: [
                                 Expanded(
                                   child: CustomButton(
-                                    text: 'Generate PDF Invoice',
+                                    text: 'Generate PDF Receipt',
                                     backgroundColor: Colors.blue,
-                                    onPressed: _selectedItems.isNotEmpty ? () => _generatePdfInvoice() : null,
+                                    onPressed: _selectedItems.isNotEmpty ? () => _generatePdfReceipt() : null,
                                   ),
                                 ),
                               ],

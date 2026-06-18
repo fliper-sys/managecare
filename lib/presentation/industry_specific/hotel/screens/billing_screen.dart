@@ -222,6 +222,7 @@ class BillingScreen extends StatelessWidget {
                                       await ReceiptManager.handlePostSale(
                                         context,
                                         saleMap,
+                                        invoiceGeneratedBeforeCheckout: true,
                                       );
                                     }
                                     if (context.mounted) {

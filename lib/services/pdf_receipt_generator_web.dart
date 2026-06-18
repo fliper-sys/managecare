@@ -639,15 +639,17 @@ class PdfReceiptGenerator {
     required bool hasCustomHeader,
     required bool hasCustomFooter,
   }) {
-    final base = paperWidth == '58' ? 270.0 : 300.0;
-    final itemHeight = paperWidth == '58' ? 28.0 : 24.0;
-    final paymentHeight = paymentCount <= 0 ? 24.0 : paymentCount * 14.0;
+    final compact = paperWidth == '58';
+    final base = compact ? 420.0 : 460.0;
+    final itemHeight = compact ? 36.0 : 30.0;
+    final paymentHeight = paymentCount <= 0 ? 34.0 : paymentCount * 18.0;
     var height = base + (itemCount * itemHeight) + paymentHeight;
-    if (hasDiscount) height += 12;
-    if (hasQrCode) height += 92;
-    if (hasCustomHeader) height += 18;
-    if (hasCustomFooter) height += 16;
-    return height.clamp(320.0, 1200.0);
+    if (hasDiscount) height += compact ? 18 : 20;
+    if (hasQrCode) height += compact ? 120 : 136;
+    if (hasCustomHeader) height += 24;
+    if (hasCustomFooter) height += 28;
+    height += compact ? 120 : 140;
+    return height.clamp(480.0, 1800.0);
   }
 
   static String _resolveItemName(Map<String, dynamic> item) {

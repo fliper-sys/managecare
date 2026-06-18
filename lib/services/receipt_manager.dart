@@ -24,8 +24,11 @@ class ReceiptManager {
   }
 
   /// Handle post-sale actions: show action sheet with Share/Email/Print options
+  /// Pass [invoiceGeneratedBeforeCheckout] to disable invoice actions after checkout completion.
   static Future<void> handlePostSale(
-      BuildContext context, Map<String, dynamic> sale) async {
+      BuildContext context, Map<String, dynamic> sale, {
+      bool invoiceGeneratedBeforeCheckout = false,
+    }) async {
     try {
       debugPrint('[ReceiptManager] Starting handlePostSale...');
 
@@ -191,6 +194,7 @@ class ReceiptManager {
           saleData: sale,
           pdfFuture: pdfFuture,
           allowEditing: false, // Disable price editing on print action sheet
+          invoiceLockedAfterCheckout: invoiceGeneratedBeforeCheckout,
         ),
       );
 

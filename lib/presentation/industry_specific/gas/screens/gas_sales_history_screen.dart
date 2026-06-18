@@ -77,7 +77,11 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
       return;
     }
 
-    await ReceiptManager.handlePostSale(context, sale);
+    await ReceiptManager.handlePostSale(
+      context,
+      sale,
+      invoiceGeneratedBeforeCheckout: true,
+    );
   }
 
   @override

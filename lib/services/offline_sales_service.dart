@@ -1,19 +1,22 @@
 import 'package:flutter/foundation.dart';
-import '../data/repositories/sales_repository_impl.dart';
+import '../domain/repositories/sales_repository.dart';
 import '../providers/connectivity_provider.dart';
 import '../core/utils/connectivity_helper.dart';
 import 'sync_service.dart';
 
 /// Service for handling sales creation with offline support
 class OfflineSalesService {
-  final SalesRepositoryImpl _salesRepository;
+  final SalesRepository _salesRepository;
   final ConnectivityProvider? _connectivityProvider;
+  final Future<bool> Function()? _connectivityChecker;
 
   OfflineSalesService({
-    required SalesRepositoryImpl salesRepository,
+    required SalesRepository salesRepository,
     ConnectivityProvider? connectivityProvider,
+    Future<bool> Function()? connectivityChecker,
   }) : _salesRepository = salesRepository,
-       _connectivityProvider = connectivityProvider;
+       _connectivityProvider = connectivityProvider,
+       _connectivityChecker = connectivityChecker;
 
   /// Create a sale, automatically choosing between online and offline storage
   Future<Map<String, dynamic>> createSale(Map<String, dynamic> saleData) async {
@@ -49,6 +52,10 @@ class OfflineSalesService {
 
   /// Check if device is connected to internet
   Future<bool> _checkConnectivity() async {
+    if (_connectivityChecker != null) {
+      return await _connectivityChecker!();
+    }
+
     if (_connectivityProvider != null) {
       return _connectivityProvider!.isConnected;
     }

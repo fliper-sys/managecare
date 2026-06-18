@@ -912,7 +912,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
         if (!mounted) return;
 
-        await ReceiptManager.handlePostSale(context, saleMap);
+        await ReceiptManager.handlePostSale(
+          context,
+          saleMap,
+          invoiceGeneratedBeforeCheckout: true,
+        );
         if (!mounted) return;
 
         setState(() {
@@ -1116,7 +1120,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
       }
 
       try {
-        await ReceiptManager.handlePostSale(context, saleMap);
+        await ReceiptManager.handlePostSale(
+          context,
+          saleMap,
+          invoiceGeneratedBeforeCheckout: true,
+        );
       } catch (e) {
         debugPrint('[BarPOS] Receipt error: $e');
       }
@@ -1538,9 +1546,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                 ),
                 Chip(
                   label: Text('$cartCount items'),
-                  backgroundColor: Colors.brown.shade100,
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
                   labelStyle: AppTextStyles.caption.copyWith(
-                    color: Colors.brown.shade700,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
                   ),
                 ),
               ],
@@ -1553,14 +1561,16 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                 margin: const EdgeInsets.only(bottom: 16),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.amber.shade50,
+                  color: Theme.of(context).colorScheme.tertiaryContainer,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber.shade200),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                 ),
                 child: Text(
                   'You are editing $_editingInvoiceNumber. Saving will update the open tab, and payment will convert it into a sale.',
                   style: AppTextStyles.body2.copyWith(
-                    color: Colors.brown.shade800,
+                    color: Theme.of(context).colorScheme.onTertiaryContainer,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1576,9 +1586,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
@@ -1692,9 +1704,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1780,9 +1794,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2122,26 +2138,29 @@ class _DrinkCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: inStock ? onAdd : null,
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: cartQuantity > 0 ? Colors.brown : AppColors.border,
+            color: cartQuantity > 0 ? colorScheme.primary : colorScheme.outlineVariant,
             width: cartQuantity > 0 ? 2 : 1,
           ),
           boxShadow: cartQuantity > 0
               ? [
                   BoxShadow(
-                    color: Colors.brown.withOpacity(0.2),
+                    color: colorScheme.primary.withOpacity(0.18),
                     blurRadius: 8,
                   )
                 ]
               : [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withOpacity(
+                      colorScheme.brightness == Brightness.dark ? 0.24 : 0.05,
+                    ),
                     blurRadius: 4,
                   )
                 ],
@@ -2154,8 +2173,8 @@ class _DrinkCard extends StatelessWidget {
               flex: 2,
               child: Container(
                 width: double.infinity,
-                decoration: const BoxDecoration(
-                  color: AppColors.border,
+                decoration: BoxDecoration(
+                  color: colorScheme.surfaceContainer,
                   borderRadius: BorderRadius.only(
                     topLeft: Radius.circular(12),
                     topRight: Radius.circular(12),
@@ -2174,7 +2193,7 @@ class _DrinkCard extends StatelessWidget {
                             child: CircularProgressIndicator(),
                           ),
                           errorWidget: (_, __, ___) => Container(
-                            color: AppColors.border,
+                            color: colorScheme.surfaceContainer,
                           ),
                         ),
                       )
@@ -2218,7 +2237,7 @@ class _DrinkCard extends StatelessWidget {
                             Text(
                               inStock ? 'Available' : 'Out',
                               style: AppTextStyles.caption.copyWith(
-                                color: inStock ? Colors.green : Colors.red,
+                                color: inStock ? colorScheme.tertiary : colorScheme.error,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -2229,14 +2248,14 @@ class _DrinkCard extends StatelessWidget {
                             width: 24,
                             height: 24,
                             decoration: BoxDecoration(
-                              color: Colors.brown,
+                              color: colorScheme.primary,
                               borderRadius: BorderRadius.circular(4),
                             ),
                             alignment: Alignment.center,
                             child: Text(
                               cartQuantity.toString(),
                               style: AppTextStyles.caption.copyWith(
-                                color: Colors.white,
+                                color: colorScheme.onPrimary,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -2250,9 +2269,9 @@ class _DrinkCard extends StatelessWidget {
 
             // Quick Action Buttons
             Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 border: Border(
-                  top: BorderSide(color: AppColors.border),
+                  top: BorderSide(color: colorScheme.outlineVariant),
                 ),
               ),
               child: Row(
@@ -2260,12 +2279,12 @@ class _DrinkCard extends StatelessWidget {
                   Expanded(
                     child: InkWell(
                       onTap: inStock ? onRemove : null,
-                      child: Padding(
+                          child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 6),
                         child: Icon(
                           Icons.remove,
                           size: 18,
-                          color: inStock ? Colors.red : AppColors.border,
+                          color: inStock ? colorScheme.error : colorScheme.outlineVariant,
                         ),
                       ),
                     ),
@@ -2273,12 +2292,12 @@ class _DrinkCard extends StatelessWidget {
                   Expanded(
                     child: InkWell(
                       onTap: inStock ? onAdd : null,
-                      child: Padding(
+                          child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 6),
                         child: Icon(
                           Icons.add,
                           size: 18,
-                          color: inStock ? Colors.green : AppColors.border,
+                          color: inStock ? colorScheme.tertiary : colorScheme.outlineVariant,
                         ),
                       ),
                     ),

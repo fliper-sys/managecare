@@ -483,7 +483,11 @@ class _SalesScreenState extends State<SalesScreen>
 
             try {
               debugPrint('[SalesScreen] Showing receipt dialog');
-              await ReceiptManager.handlePostSale(context, saleMap);
+              await ReceiptManager.handlePostSale(
+                context,
+                saleMap,
+                invoiceGeneratedBeforeCheckout: true,
+              );
               debugPrint('[SalesScreen] Receipt dialog completed');
             } catch (e) {
               debugPrint('[SalesScreen] Receipt handling error: $e');
@@ -1152,7 +1156,6 @@ class _SalesScreenState extends State<SalesScreen>
       ),
       body: Column(
         children: [
-          const AppHeader(showBusinessSwitcher: false),
           _buildCartSessionStrip(context, retail),
           if (widget.enableStoreSwitcher)
             _buildStoreSwitcher(retail),

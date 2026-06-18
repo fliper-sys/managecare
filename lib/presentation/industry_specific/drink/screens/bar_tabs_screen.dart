@@ -89,7 +89,11 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
       );
 
       if (!mounted) return;
-      await ReceiptManager.handlePostSale(context, saleMap);
+      await ReceiptManager.handlePostSale(
+        context,
+        saleMap,
+        invoiceGeneratedBeforeCheckout: true,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -670,6 +674,7 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Consumer<DrinkProvider>(
       builder: (context, provider, _) {
         final invoices = _filterInvoices(provider.getInvoiceHistory());
@@ -724,24 +729,26 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(
+                              Icon(
                                 Icons.receipt_long_outlined,
                                 size: 64,
-                                color: AppColors.border,
+                                color: colorScheme.onSurfaceVariant,
                               ),
                               const SizedBox(height: 16),
                               Text(
                                 _filter == 'open'
                                     ? 'No open tabs or invoices'
                                     : 'No invoices in this view',
-                                style: AppTextStyles.heading5,
+                                style: AppTextStyles.heading5.copyWith(
+                                  color: colorScheme.onSurface,
+                                ),
                                 textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: 8),
                               Text(
                                 'Saved invoices stay here until payment happens, so workers can convert them to sales without re-entering the order.',
                                 style: AppTextStyles.body2.copyWith(
-                                  color: AppColors.textSecondary,
+                                  color: colorScheme.onSurfaceVariant,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
@@ -766,6 +773,8 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
                             ),
+                            color: colorScheme.surfaceContainerHighest,
+                            surfaceTintColor: colorScheme.surfaceContainerHighest,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(14),
                               onTap: () => _showInvoiceDetails(invoice),
@@ -782,6 +791,7 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                                             style:
                                                 AppTextStyles.subtitle1.copyWith(
                                               fontWeight: FontWeight.bold,
+                                              color: colorScheme.onSurface,
                                             ),
                                           ),
                                         ),
@@ -803,7 +813,7 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                                     Text(
                                       _formatInvoiceSubtitle(invoice),
                                       style: AppTextStyles.body2.copyWith(
-                                        color: AppColors.textSecondary,
+                                        color: colorScheme.onSurfaceVariant,
                                       ),
                                     ),
                                     const SizedBox(height: 8),
@@ -816,7 +826,7 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                                               .split('.')
                                               .first,
                                           style: AppTextStyles.caption.copyWith(
-                                            color: AppColors.textSecondary,
+                                            color: colorScheme.onSurfaceVariant,
                                           ),
                                         ),
                                         const Spacer(),
@@ -824,7 +834,7 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
                                           '₦${invoice.total.toStringAsFixed(2)}',
                                           style: AppTextStyles.subtitle1.copyWith(
                                             fontWeight: FontWeight.bold,
-                                            color: Colors.brown.shade700,
+                                            color: colorScheme.primary,
                                           ),
                                         ),
                                       ],

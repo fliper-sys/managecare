@@ -39,6 +39,7 @@ class EscPosReceiptGenerator {
     int paperWidth = 58, // 58mm or 80mm
     bool showQrCode = false,
     String? copyLabel, // e.g. 'CUSTOMER COPY' or 'BUSINESS COPY'
+    String documentTitle = 'RECEIPT',
   }) {
     final charsPerLine = paperWidth == 58 ? charsPer58mm : charsPer80mm;
     final buffer = EscPosBuffer(paperWidth);
@@ -75,7 +76,7 @@ class EscPosReceiptGenerator {
 
     // Title
     buffer.setAlignment(EscPosAlignment.center);
-    buffer.printText('TAX INVOICE', bold: true);
+    buffer.printText(documentTitle, bold: true);
 
     // Receipt info
     buffer.setAlignment(EscPosAlignment.left);

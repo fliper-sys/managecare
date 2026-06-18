@@ -914,8 +914,11 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                                     : 'pay_at_checkout',
                                           );
 
-                                          await ReceiptManager.handlePostSale(
-                                              context, saleMap);
+                                            await ReceiptManager.handlePostSale(
+                                              context,
+                                              saleMap,
+                                              invoiceGeneratedBeforeCheckout: true,
+                                            );
                                           if (!context.mounted) return;
                                           Navigator.pop(context);
                                         },
@@ -978,9 +981,12 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                             room: room,
                                             paymentMethod: 'hotel_billing',
                                           );
-                                          if (!context.mounted) return;
-                                          await ReceiptManager.handlePostSale(
-                                              context, saleMap);
+                                            if (!context.mounted) return;
+                                            await ReceiptManager.handlePostSale(
+                                              context,
+                                              saleMap,
+                                              invoiceGeneratedBeforeCheckout: true,
+                                            );
                                           if (!context.mounted) return;
                                           Navigator.pop(context);
                                         },
