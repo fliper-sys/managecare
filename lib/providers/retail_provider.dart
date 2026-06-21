@@ -239,10 +239,12 @@ class RetailProvider extends ChangeNotifier {
   final Map<String, String> _cartDefaultPricingModes = {};
   String _activeCartId = 'cart_1';
   int _cartSessionCounter = 1;
+  static const int maxCartItemsPerCart = 50;
   static const String _cartCacheKeyPrefix = 'retail_cart_state_v1_';
 
   bool _isLoading = false;
   String? _errorMessage;
+  String? _cartLimitMessage;
   String? _businessId;
   
   // Initialization tracking to prevent redundant loads
@@ -257,6 +259,7 @@ class RetailProvider extends ChangeNotifier {
   List<Promotion> get promotions => List.unmodifiable(_promotions);
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+  String? get cartLimitMessage => _cartLimitMessage;
   String get activeCartId => _activeCartId;
   String get activeCartLabel => _cartLabels[_activeCartId] ?? 'Cart 1';
   String get activeCartPricingMode =>
@@ -1450,25 +1453,38 @@ class RetailProvider extends ChangeNotifier {
   }
 
   // Cart management methods
-  void addToCart(String productId, {int qty = 1, String? pricingMode}) {
-    if (qty <= 0) return;
+  bool addToCart(String productId, {int qty = 1, String? pricingMode}) {
+    if (qty <= 0) return false;
     _ensureActiveCart();
     final existingMode = _activePricingModes()[productId];
     final resolvedMode =
         pricingMode == 'wholesale' || pricingMode == 'retail'
             ? pricingMode!
             : (existingMode ?? activeCartPricingMode);
+
+    final isNewItem = !_cart.containsKey(productId);
+    if (isNewItem && _cart.length >= maxCartItemsPerCart) {
+      _cartLimitMessage =
+          'Cart limit reached. You can only add up to $maxCartItemsPerCart unique products per cart.';
+      _errorMessage = _cartLimitMessage;
+      notifyListeners();
+      return false;
+    }
+
+    _cartLimitMessage = null;
     _cart.update(productId, (v) => v + qty, ifAbsent: () => qty);
     _activePricingModes()[productId] = resolvedMode;
     _syncActiveCartSnapshot();
     _queueCartCacheSave();
     notifyListeners();
+    return true;
   }
 
   /// Remove product from cart
   void removeFromCart(String productId) {
     _cart.remove(productId);
     _activePricingModes().remove(productId);
+    _cartLimitMessage = null;
     _syncActiveCartSnapshot();
     _queueCartCacheSave();
     notifyListeners();
@@ -1495,8 +1511,7 @@ class RetailProvider extends ChangeNotifier {
   bool addByBarcode(String barcode, {int qty = 1}) {
     final p = getProductByBarcode(barcode);
     if (p != null) {
-      addToCart(p.id, qty: qty);
-      return true;
+      return addToCart(p.id, qty: qty);
     }
     return false;
   }
@@ -1508,6 +1523,7 @@ class RetailProvider extends ChangeNotifier {
     } else {
       _cart[productId] = qty;
     }
+    _cartLimitMessage = null;
     _syncActiveCartSnapshot();
     _queueCartCacheSave();
     notifyListeners();
@@ -1515,6 +1531,7 @@ class RetailProvider extends ChangeNotifier {
 
   void clearCart() {
     _resetActiveCartState();
+    _cartLimitMessage = null;
     _queueCartCacheSave();
     notifyListeners();
   }

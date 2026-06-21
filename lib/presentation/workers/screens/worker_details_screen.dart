@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:provider/provider.dart';
+import '../../../data/repositories/auth_repository_impl.dart';
 import '../../../data/repositories/worker_repository_impl.dart';
 import '../../../providers/retail_provider.dart';
 import '../../industry_specific/barber_shop/providers/barber_shop_provider.dart';
@@ -237,6 +239,59 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
     );
   }
 
+  Future<void> _sendPasswordResetEmail() async {
+    final email = (_worker?['email'] as String?)?.trim() ?? '';
+    if (email.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Worker email is missing')),
+        );
+      }
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset Worker Password'),
+        content: Text(
+          'A password reset email will be sent to $email. '
+          'The worker can use it to choose a new password.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await AuthRepositoryImpl(
+        firebaseAuth: FirebaseAuth.instance,
+      ).resetPassword(email);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Password reset email sent to $email')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send password reset email: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _showEditWorkerDialog() async {
     final nameCtrl = TextEditingController(text: _worker?['name'] ?? '');
     final emailCtrl = TextEditingController(text: _worker?['email'] ?? '');
@@ -428,7 +483,13 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
         elevation: 0,
         actions: [
           Builder(builder: (ctx) {
-            final isOwner = context.watch<AuthProvider>().currentUser?.isOwner ?? false;
+            final currentUser = context.watch<AuthProvider>().currentUser;
+            final isOwner = currentUser?.isOwner ?? false;
+            final canManageStaff = currentUser != null &&
+                WorkerPermissions.canManageStaffForUser(
+                  currentUser.role,
+                  currentUser.permissions,
+                );
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -443,6 +504,12 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                   tooltip: 'Edit commission',
                   onPressed: _showEditCommissionDialog,
                 ),
+                if (canManageStaff)
+                  IconButton(
+                    icon: const Icon(Icons.lock_reset),
+                    tooltip: 'Reset password',
+                    onPressed: _sendPasswordResetEmail,
+                  ),
                 if (isOwner)
                   IconButton(
                     icon: const Icon(Icons.delete_forever),

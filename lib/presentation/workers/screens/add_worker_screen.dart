@@ -10,6 +10,7 @@ import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:firebase_core/firebase_core.dart' as fb_core;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import '../../../data/models/user_model.dart';
 import '../../../providers/auth_provider.dart';
@@ -170,6 +171,28 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
     return WorkerPermissions.getPermissionsForRoles(_selectedRoles).toList();
   }
 
+  Future<String> _resolveAuthUidByEmail({
+    required String email,
+    required String businessId,
+  }) async {
+    try {
+      final functions = FirebaseFunctions.instance;
+      final callable = functions.httpsCallable('resolveAuthUidByEmail');
+      final response = await callable.call(<String, dynamic>{
+        'email': email,
+        'businessId': businessId,
+      });
+      final data = response.data is Map
+          ? Map<String, dynamic>.from(response.data as Map)
+          : <String, dynamic>{};
+      if (data['found'] == false) return '';
+      return (data['uid'] ?? '').toString().trim();
+    } catch (e) {
+      print('[AddWorker] Failed to resolve auth UID by email: $e');
+      return '';
+    }
+  }
+
   Future<void> _handleAddWorker() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -313,9 +336,182 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
         await repo.createOrUpdateUser(worker);
       } on fb_auth.FirebaseAuthException catch (e) {
         if (e.code == 'email-already-in-use') {
-          throw Exception(
-            'This email is already linked to an existing worker login.',
-          );
+          // Attempt to link worker data to the existing account UID and
+          // create the worker/User documents for that UID. Then send a
+          // password reset email so the owner can tell the worker to reset
+          // their password and log in.
+          try {
+            final firestore = FirebaseFirestore.instance;
+            String existingUid = '';
+
+            // Try users collection first
+            final userQuery = await firestore
+                .collection('users')
+                .where('emailLowercase', isEqualTo: normalizedEmail)
+                .limit(1)
+                .get();
+            if (userQuery.docs.isNotEmpty) {
+              existingUid = userQuery.docs.first.id;
+            }
+
+            // Fallback to workers collection (root) if no users doc found
+            if (existingUid.isEmpty) {
+              final workerQuery = await firestore
+                  .collection('workers')
+                  .where('emailLowercase', isEqualTo: normalizedEmail)
+                  .limit(1)
+                  .get();
+              if (workerQuery.docs.isNotEmpty) {
+                existingUid = workerQuery.docs.first.id;
+              }
+            }
+
+            if (existingUid.isEmpty) {
+              existingUid = await _resolveAuthUidByEmail(
+                email: normalizedEmail,
+                businessId: authProvider.currentUser!.businessId,
+              );
+            }
+
+            if (existingUid.isEmpty) {
+              throw Exception(
+                'This email is already in use, but the linked auth account could not be resolved. Please ask the worker to use password reset or contact support.',
+              );
+            }
+
+            // Prepare worker data with the existing UID
+            final linkedWorker = UserModel(
+              id: existingUid,
+              email: normalizedEmail,
+              fullName: _fullNameController.text.trim(),
+              phoneNumber: _phoneController.text.trim(),
+              role: primaryRole,
+              permissions: effectivePermissions,
+              businessId: authProvider.currentUser!.businessId,
+              businessType: businessType,
+              storeId: _selectedStoreId,
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+              isActive: true,
+              isOwner: false,
+              pin: _pinController.text.trim(),
+              subscriptionTransactionId: passwordHash,
+            );
+
+            final repo = AuthRepositoryImpl(firebaseAuth: fb_auth.FirebaseAuth.instance);
+            await repo.createOrUpdateUser(linkedWorker);
+
+            // Also ensure a workers document exists with this UID
+            final workerRepo =
+                WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
+
+            final workerData = {
+              'id': existingUid,
+              'name': _fullNameController.text.trim(),
+              'fullName': _fullNameController.text.trim(),
+              'email': normalizedEmail,
+              'emailLowercase': normalizedEmail,
+              'phoneNumber': _phoneController.text.trim(),
+              'role': primaryRole,
+              'roles': _selectedRoles.toList(),
+              'permissions': effectivePermissions,
+              'customPermissions': effectivePermissions,
+              'serviceIds': _selectedServiceIds,
+              'commissionPercentage': commissionPct,
+              'businessId': authProvider.currentUser!.businessId,
+              'businessType': businessType,
+              'storeId': _selectedStoreId,
+              'pin': _pinController.text.trim(),
+              'isActive': true,
+              'hireDate': DateTime.now().toString().split(' ')[0],
+              'createdAt': DateTime.now(),
+              'updatedAt': DateTime.now(),
+            };
+
+            await workerRepo.addWorker(workerData);
+
+            // Create barber/stylist docs if needed (mirror logic used below)
+            final businessTypeLow = (businessType ?? '').toLowerCase();
+            if ((_selectedRoles.contains('barber') || primaryRole == 'barber') && (businessTypeLow == 'barber' || businessTypeLow == 'barbershop')) {
+              try {
+                final barberDoc = FirebaseFirestore.instance
+                    .collection('businesses')
+                    .doc(authProvider.currentUser!.businessId)
+                    .collection('barbers')
+                    .doc(existingUid);
+
+                await barberDoc.set({
+                  'id': existingUid,
+                  'name': _fullNameController.text.trim(),
+                  'email': normalizedEmail,
+                  'phone': _phoneController.text.trim(),
+                  'specialization': 'general',
+                  'serviceIds': _selectedServiceIds,
+                  'commissionPercentage': commissionPct,
+                  'isActive': true,
+                  'createdAt': Timestamp.fromDate(DateTime.now()),
+                });
+              } catch (e) {
+                print('[AddWorker] Failed to add barber document for existing user: $e');
+              }
+            }
+
+            if ((_selectedRoles.contains('hairstylist') || _selectedRoles.contains('stylist') || primaryRole == 'hairstylist' || primaryRole == 'stylist') && businessTypeLow == 'salon') {
+              try {
+                final stylistDoc = FirebaseFirestore.instance
+                    .collection('businesses')
+                    .doc(authProvider.currentUser!.businessId)
+                    .collection('stylists')
+                    .doc(existingUid);
+
+                await stylistDoc.set({
+                  'id': existingUid,
+                  'name': _fullNameController.text.trim(),
+                  'email': normalizedEmail,
+                  'phone': _phoneController.text.trim(),
+                  'specialization': 'stylist',
+                  'serviceIds': _selectedServiceIds,
+                  'commissionPercentage': commissionPct,
+                  'isActive': true,
+                  'createdAt': Timestamp.fromDate(DateTime.now()),
+                });
+              } catch (e) {
+                print('[AddWorker] Failed to add stylist document for existing user: $e');
+              }
+            }
+
+            // Send a password reset email to the existing account's email
+            try {
+              await repo.resetPassword(normalizedEmail);
+            } catch (resetErr) {
+              print('[AddWorker] Failed to send password reset email: $resetErr');
+            }
+
+            setState(() => _isLoading = false);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Email already exists. Linked worker data to existing account (UID: $existingUid). A password reset email was sent to $normalizedEmail — ask the worker to reset their password and log in.'),
+                  backgroundColor: AppColors.warning,
+                ),
+              );
+            }
+
+            // Refresh workers list and navigate as in success path
+            try {
+              final businessProvider = context.read<BusinessProvider>();
+              final bid = businessProvider.currentBusiness?.id ?? '';
+              if (bid.isNotEmpty) {
+                await context.read<WorkersProvider>().refreshForBusiness(bid);
+                await businessProvider.refreshBusinessStats(bid);
+              }
+            } catch (_) {}
+
+            return;
+          } catch (linkErr) {
+            // If linking fails, propagate as original error
+            rethrow;
+          }
         }
         rethrow;
       } catch (e) {

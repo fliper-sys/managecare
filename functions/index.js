@@ -359,6 +359,49 @@ async function deleteWorkerCompletely(workerId, actorId, workerEmailOverride) {
   return { success: true };
 }
 
+async function resolveAuthUidByEmailForBusiness(email, callerId, businessId) {
+  const normalizedEmail = (email || '').toString().trim().toLowerCase();
+  const normalizedBusinessId = (businessId || '').toString().trim();
+
+  if (!normalizedEmail) {
+    throw new functions.https.HttpsError('invalid-argument', 'email is required');
+  }
+  if (!normalizedBusinessId) {
+    throw new functions.https.HttpsError('invalid-argument', 'businessId is required');
+  }
+
+  const callerSnap = await db.collection('users').doc(callerId).get();
+  if (!callerSnap.exists) {
+    throw new functions.https.HttpsError('permission-denied', 'Caller profile not found');
+  }
+
+  const callerData = callerSnap.data() || {};
+  const callerBusinessId = (callerData.businessId || '').toString().trim();
+  const callerRole = (callerData.role || '').toString().trim().toLowerCase();
+  const callerRoles = Array.isArray(callerData.roles)
+    ? callerData.roles.map((role) => role.toString().trim().toLowerCase())
+    : [];
+  const canManageStaff =
+    callerData.isOwner === true ||
+    callerRole === 'owner' ||
+    callerRole === 'sub_admin' ||
+    callerRole === 'manager' ||
+    callerRoles.includes('manager') ||
+    callerRoles.includes('sub_admin');
+
+  if (callerBusinessId !== normalizedBusinessId || !canManageStaff) {
+    throw new functions.https.HttpsError('permission-denied', 'Not authorized to resolve worker accounts for this business');
+  }
+
+  const userRecord = await admin.auth().getUserByEmail(normalizedEmail);
+  return {
+    uid: userRecord.uid,
+    email: userRecord.email || normalizedEmail,
+    displayName: userRecord.displayName || '',
+    emailVerified: userRecord.emailVerified || false,
+  };
+}
+
 exports.deleteWorkerCompletely = functions.https.onCall(async (data, context) => {
   // Check if user is authenticated
   if (!context.auth) {
@@ -405,6 +448,28 @@ exports.deleteWorkerCompletely = functions.https.onCall(async (data, context) =>
       );
     }
     throw new functions.https.HttpsError('internal', 'Failed to delete worker');
+  }
+});
+
+exports.resolveAuthUidByEmail = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  const email = typeof data.email === 'string' ? data.email : '';
+  const businessId = typeof data.businessId === 'string' ? data.businessId : '';
+
+  try {
+    return await resolveAuthUidByEmailForBusiness(email, context.auth.uid, businessId);
+  } catch (error) {
+    console.error('[resolveAuthUidByEmail] Error:', error);
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    if (error && error.code === 'auth/user-not-found') {
+      return { found: false };
+    }
+    throw new functions.https.HttpsError('internal', 'Failed to resolve auth uid by email');
   }
 });
 

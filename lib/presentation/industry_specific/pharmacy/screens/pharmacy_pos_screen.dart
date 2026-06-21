@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../../core/extensions/list_extensions.dart';
 import '../../../../services/receipt_manager.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../../providers/auth_provider.dart';
@@ -176,7 +177,6 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                                                         _cart[entry.key] = newQty;
                                                       }
                                                     });
-                                                    setState(() {});
                                                   },
                                                 ),
                                                 Text('$qty'),
@@ -191,7 +191,6 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                                                         (v) => v + 1,
                                                       );
                                                     });
-                                                    setState(() {});
                                                   },
                                                 ),
                                                 IconButton(
@@ -203,7 +202,6 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                                                       _selectedPrescriptions
                                                           .remove(entry.key);
                                                     });
-                                                    setState(() {});
                                                   },
                                                 ),
                                               ],
@@ -243,12 +241,12 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                                                                       const EdgeInsets
                                                                           .all(12),
                                                                   child: Text(
-                                                                    'Saved prescriptions for ${drug.name}',
+                                                                    'Saved prescriptions for ${drug!.name}',
                                                                     style: AppTextStyles
                                                                         .body1,
                                                                   ),
                                                                 ),
-                                                                ...drug.prescriptions
+                                                                ...drug!.prescriptions
                                                                     .map((p) =>
                                                                         ListTile(
                                                                           title: Text(
@@ -338,9 +336,8 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                             setModalState(() {
                               _selectedPatientId = value;
                               if (value != null) {
-                                final match = provider.patients.firstWhere(
+                                final match = provider.patients.firstWhereOrNull(
                                   (p) => p?.id == value,
-                                  orElse: () => null,
                                 );
                                 controller.text = match?.name ?? '';
                               } else {
@@ -387,7 +384,7 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                                 TextButton(
                                   onPressed: () {
                                     setModalState(() => _cart.clear());
-                                    setState(() {});
+                                    _selectedPrescriptions.clear();
                                     Navigator.pop(ctx);
                                   },
                                   child: const Text('Clear'),

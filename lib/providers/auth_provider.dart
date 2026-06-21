@@ -764,6 +764,34 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _rejectWorkerDueToOwnerRestriction(String message) async {
+    try {
+      await _userDocSubscription?.cancel();
+      _userDocSubscription = null;
+    } catch (e) {
+      print('[AuthProvider] Error cancelling user doc subscription during owner-restriction rejection: $e');
+    }
+
+    try {
+      await _authenticationService.signOut();
+    } catch (e) {
+      print('[AuthProvider] Enhanced auth sign-out failed during owner-restriction rejection: $e');
+      try {
+        await _authService.signOut();
+      } catch (signOutError) {
+        print('[AuthProvider] Firebase sign-out also failed during owner-restriction rejection: $signOutError');
+      }
+    }
+
+    _currentUser = null;
+    _status = AuthStatus.unauthenticated;
+    _subscriptionValidated = false;
+    _errorMessage = message.isNotEmpty
+        ? message
+        : 'Worker login blocked: business owner account is restricted. Contact the owner.';
+    notifyListeners();
+  }
+
   /// Login as a worker using worker ID and password
   Future<bool> loginAsWorker({
     required String workerId,
@@ -912,6 +940,29 @@ class AuthProvider with ChangeNotifier {
           }
           await _rejectWorkerDueToBusinessSubscription();
           return false;
+        }
+        // Additionally ensure the business owner account is allowed (not deleted/restricted).
+        try {
+          final businessSnap = await FirebaseFirestore.instance
+              .collection('businesses')
+              .doc(resolvedWorkerBusinessId)
+              .get();
+          if (businessSnap.exists && businessSnap.data() != null) {
+            final ownerId = (businessSnap.data()!['ownerId'] ?? '').toString();
+            if (ownerId.isNotEmpty) {
+              final ownerAccess = await _authenticationService.resolveUserAccess(
+                ownerId,
+                allowSelfRecovery: false,
+              );
+              if (!ownerAccess.isAllowed) {
+                final msg = ownerAccess.message ?? 'The business owner account is restricted.';
+                await _rejectWorkerDueToOwnerRestriction(msg);
+                return false;
+              }
+            }
+          }
+        } catch (ownerCheckErr) {
+          if (kDebugMode) print('[AuthProvider] Owner access check failed: $ownerCheckErr');
         }
       }
 

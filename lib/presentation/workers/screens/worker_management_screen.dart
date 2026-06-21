@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:provider/provider.dart';
+import '../../../data/repositories/auth_repository_impl.dart';
 import '../../../data/repositories/worker_repository_impl.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/utils/worker_permissions.dart';
@@ -232,6 +234,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                     workerId: workerId,
                     name: (worker['name'] ?? worker['fullName'] ?? 'Worker')
                         as String,
+                    email: (worker['email'] as String?)?.trim(),
                     role: workerRoles.isNotEmpty
                         ? workerRoles.first
                         : (worker['role'] as String?) ?? 'staff',
@@ -535,6 +538,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
   Widget _buildWorkerCard({
     required String workerId,
     required String name,
+    String? email,
     required String role,
     List<String> roles = const [],
     required String status,
@@ -616,6 +620,9 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                           businessType,
                         );
                         break;
+                      case 'reset_password':
+                        _sendPasswordResetEmail(email);
+                        break;
                       case 'remove':
                         _showRemoveWorkerDialog(workerId, name, businessId);
                         break;
@@ -629,6 +636,10 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                     const PopupMenuItem(
                       value: 'view_details',
                       child: Text('View Details'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'reset_password',
+                      child: Text('Reset Password'),
                     ),
                     const PopupMenuItem(
                       value: 'remove',
@@ -657,6 +668,57 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
         ),
       ),
     );
+  }
+
+  Future<void> _sendPasswordResetEmail(String? email) async {
+    final workerEmail = email?.trim() ?? '';
+    if (workerEmail.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Worker email is missing')),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset Worker Password'),
+        content: Text(
+          'A password reset email will be sent to $workerEmail. '
+          'The worker can use it to create a new password.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await AuthRepositoryImpl(
+        firebaseAuth: FirebaseAuth.instance,
+      ).resetPassword(workerEmail);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Password reset email sent to $workerEmail')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send password reset email: $e')),
+        );
+      }
+    }
   }
 
   Future<List<Map<String, dynamic>>> _fetchWorkers() async {

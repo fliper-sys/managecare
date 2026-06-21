@@ -539,24 +539,22 @@ class _ExpenseReportScreenState extends State<ExpenseReportScreen> {
               onTap: () async {
                 Navigator.pop(context);
                 try {
-                  final pdfContent = await context
-                      .read<ReportsProvider>()
-                      .exportExpenseReportToPDF();
-                  final directory = await getApplicationDocumentsDirectory();
-                  final fileName =
-                      'Expense_Report_${DateTime.now().millisecondsSinceEpoch}.pdf';
-                  final filePath = '${directory.path}/$fileName';
-                  final file = File(filePath);
-                  await file.writeAsString(pdfContent);
-
-                  await Share.shareXFiles([XFile(file.path)],
-                      text: 'Expense Report');
+                  final business = context.read<BusinessProvider>().currentBusiness;
+                  final auth = context.read<AuthProvider>();
+                  final fileName = await context.read<ReportsProvider>().exportExpenseReportToPDF(
+                        businessName: business?.name ?? 'Business',
+                        businessAddress: business?.address,
+                        businessPhone: business?.phone,
+                        businessEmail: business?.email,
+                        businessLogoUrl: business?.logoUrl,
+                        subscriptionTier: business?.subscriptionTier,
+                        businessClass: business?.businessClass,
+                        generatedBy: auth.currentUser?.fullName,
+                      );
 
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text(
-                              'Expense report exported as PDF and shared')),
+                      SnackBar(content: Text('Exported PDF: $fileName')),
                     );
                   }
                 } catch (e) {

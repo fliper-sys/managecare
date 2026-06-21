@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:typed_data';
 import 'package:intl/intl.dart';
-import '../../../services/pdf_receipt_generator_io.dart';
 import '../../../services/web_download.dart' as web_download;
 import 'package:provider/provider.dart';
 import '../../../core/theme/colors.dart';
@@ -14,6 +13,8 @@ import '../../../providers/reports_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/utils/datetime_utils.dart';
+import '../../../services/financial_report_pdf_service.dart';
 import '../../../services/report_export_service.dart';
 import '../widgets/report_theme.dart';
 
@@ -419,10 +420,13 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
     );
 
     try {
+      reportsProvider.setFinancialDateRange(startDate, endDate);
+      await reportsProvider.generateFinancialReport(businessId: businessId);
+
       final directory =
           kIsWeb ? null : await getApplicationDocumentsDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      late String filePath;
+      String? filePath;
       late String fileName;
       late String content;
 
@@ -437,82 +441,68 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
           (financialSummary['totalRevenue'] as num?)?.toDouble() ?? 0.0;
       final netProfit =
           (financialSummary['profit'] as num?)?.toDouble() ?? 0.0;
+      final rawSales = await reportsProvider.fetchSalesList(
+        businessId: businessId,
+        start: startDate,
+        end: endDate,
+        limit: 1000,
+      );
+      final detailedTransactions = _buildDetailedTransactions(rawSales);
 
-      // Get detailed transactions
-      final transactions = reportsProvider.getDetailedTransactions() ?? [];
+      final financialData = await _buildFinancialPdfData(
+        reportsProvider: reportsProvider,
+        businessName: businessName,
+        businessId: businessId,
+        currentBusiness: currentBusiness,
+        startDate: startDate,
+        endDate: endDate,
+        transactions: detailedTransactions,
+      );
+
+      // Use the same normalized transaction rows for CSV so the export matches the selected range.
+      final csvTransactions = detailedTransactions
+          .map(
+            (t) => {
+              'date': t.date.toIso8601String(),
+              'description': t.description,
+              'type': t.type,
+              'amount': t.amount,
+              'paymentMethod': t.paymentMethod,
+              'cashier': t.cashier,
+              'items': t.itemCount,
+            },
+          )
+          .toList();
 
       final exportService = ReportExportService();
 
       if (_selectedFormat == 'pdf') {
-        if (kIsWeb) {
-          // Generate bytes and trigger browser download
-          final footerWithPowered = 'Powered by Manage Care';
-          const cashierName = 'System';
+        final options = FinancialReportPdfOptions(
+          title: 'Financial Report',
+          note: _includeNotes ? 'Includes notes and comments' : '',
+          includeSummary: true,
+          includeInsights: _includeCharts,
+          includeExpenseBreakdown: true,
+          includePaymentBreakdown: true,
+          includeInventorySummary: true,
+          includeMonthlyBreakdown: true,
+          includeTransactions: true,
+        );
 
-          final pdfBytes = await PdfReceiptGenerator.generateReceiptPdfBytes(
-            businessName: businessName,
-            receiptNumber: 'Financial_Report_$timestamp',
-            receiptDate: DateTime.now(),
-            items: transactions,
-            subtotal: totalSales,
-            tax: 0.0,
-            total: totalSales,
-            paymentMethod: 'N/A',
-            paymentBreakdown: null,
-            customerName: businessName,
-            customerEmail: null,
-            customHeader: null,
-            customFooter: footerWithPowered,
-            paperWidth: '80',
-            cashier: cashierName,
-            poweredByText: footerWithPowered,
-            showQrCode: false,
-            businessLogoUrl: currentBusiness?.logoUrl,
-            businessAddress: currentBusiness?.address,
-            businessPhone: currentBusiness?.phone,
-            businessEmail: currentBusiness?.email,
-            subscriptionTier: currentBusiness?.subscriptionTier,
-            businessClass: currentBusiness?.businessClass,
-          );
-          // Trigger download
-          fileName = 'Financial_Report_$timestamp.pdf';
-          web_download.downloadBytes(pdfBytes, fileName, 'application/pdf');
-          reportsProvider.addExportHistory(
-            fileName: fileName,
-            format: 'pdf',
-            reportType: 'financial',
-            bytes: pdfBytes.length,
-          );
-        } else {
-          fileName = 'Financial_Report_$timestamp.pdf';
-          filePath = '${directory!.path}/$fileName';
+        final result = await FinancialReportPdfService.exportPdf(
+          data: financialData,
+          options: options,
+          fileBaseName: 'Financial_Report',
+        );
 
-          final success = await exportService.exportFinancialReportPdf(
-            filePath: filePath,
-            businessName: businessName,
-            startDate: startDate,
-            endDate: endDate,
-            totalSales: totalSales,
-            totalExpenses: totalExpenses,
-            totalRevenue: totalRevenue,
-            netProfit: netProfit,
-            detailedTransactions: transactions,
-            includeCharts: _includeCharts,
-            includeNotes: _includeNotes,
-          );
+        fileName = result.fileName;
 
-          if (!success) throw Exception('PDF generation failed');
-
-          // Share the file on non-web platforms
-          await Share.shareXFiles([XFile(filePath)], text: 'Financial Report - PDF');
-          reportsProvider.addExportHistory(
-            fileName: fileName,
-            format: 'pdf',
-            reportType: 'financial',
-            filePath: filePath,
-            bytes: await File(filePath).length(),
-          );
-        }
+        reportsProvider.addExportHistory(
+          fileName: fileName,
+          format: 'pdf',
+          reportType: 'financial',
+          bytes: result.bytes,
+        );
       } else {
         // CSV
         content = exportService.exportFinancialCsv(
@@ -523,7 +513,7 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
           totalExpenses: totalExpenses,
           totalRevenue: totalRevenue,
           netProfit: netProfit,
-          detailedTransactions: transactions,
+          detailedTransactions: csvTransactions,
         );
 
         if (kIsWeb) {
@@ -550,7 +540,7 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
             bytes: await file.length(),
           );
         }
-      } 
+      }
 
       // Close loading dialog
       if (mounted) {
@@ -577,6 +567,112 @@ class _ExportReportScreenState extends State<ExportReportScreen> {
       }
       print('Export error: $e');
     }
+  }
+
+  Future<FinancialReportPdfData> _buildFinancialPdfData({
+    required ReportsProvider reportsProvider,
+    required String businessName,
+    required String businessId,
+    required DateTime startDate,
+    required DateTime endDate,
+    required List<FinancialReportTransactionRow> transactions,
+    dynamic currentBusiness,
+  }) async {
+    final authProvider = context.read<AuthProvider>();
+    final financialSummary = reportsProvider.getFinancialSummary();
+    final inventorySummary = reportsProvider.getInventorySummary();
+    final periodRows = [...reportsProvider.financialReports]
+      ..sort((a, b) => a.month.compareTo(b.month));
+
+    Map<String, double> paymentBreakdown = <String, double>{};
+    try {
+      paymentBreakdown = await reportsProvider.getPaymentMethodBreakdown(
+        businessId: businessId,
+        start: startDate,
+        end: endDate,
+      );
+    } catch (_) {
+      paymentBreakdown = <String, double>{};
+    }
+
+    return FinancialReportPdfData(
+      businessName: businessName,
+      businessAddress: currentBusiness?.address,
+      businessPhone: currentBusiness?.phone,
+      businessEmail: currentBusiness?.email,
+      businessTaxId: currentBusiness?.taxId,
+      businessLogoUrl: currentBusiness?.logoUrl,
+      subscriptionTier: currentBusiness?.subscriptionTier,
+      businessClass: currentBusiness?.businessClass,
+      startDate: startDate,
+      endDate: endDate,
+      generatedAt: DateTime.now(),
+      generatedBy: authProvider.currentUser?.fullName,
+      totalRevenue: (financialSummary['totalRevenue'] as num?)?.toDouble() ??
+          0.0,
+      totalCogs: (financialSummary['totalCogs'] as num?)?.toDouble() ??
+          0.0,
+      totalOperatingExpenses:
+          (financialSummary['totalExpenses'] as num?)?.toDouble() ??
+              0.0,
+      grossProfit: (financialSummary['grossProfit'] as num?)?.toDouble() ??
+          0.0,
+      netProfit: (financialSummary['profit'] as num?)?.toDouble() ??
+          0.0,
+      grossMargin: (financialSummary['grossMargin'] as num?)?.toDouble() ??
+          0.0,
+      netProfitMargin:
+          (financialSummary['profitMargin'] as num?)?.toDouble() ??
+              0.0,
+      inventoryValue:
+          (inventorySummary['inventoryValue'] as num?)?.toDouble() ?? 0.0,
+      inventoryItemCount: (inventorySummary['totalItems'] as num?)?.toInt() ?? 0,
+      periods: periodRows
+          .map(
+            (report) => FinancialReportPeriodRow(
+              label: DateFormat.MMM().format(DateTime(2000, report.month)),
+              revenue: report.revenue,
+              cogs: report.cogs,
+              operatingExpenses: report.expenses,
+              salariesEstimate: report.salaries,
+              utilitiesEstimate: report.utilities,
+            ),
+          )
+          .toList(),
+      transactions: transactions,
+      paymentBreakdown: paymentBreakdown,
+    );
+  }
+
+  List<FinancialReportTransactionRow> _buildDetailedTransactions(
+    List<Map<String, dynamic>> rawSales,
+  ) {
+    return rawSales.map((entry) {
+      final data = (entry['data'] as Map?)?.cast<String, dynamic>() ??
+          <String, dynamic>{};
+      final items = (data['items'] as List?) ?? const [];
+      return FinancialReportTransactionRow(
+        date: parseTimestamp(
+          data['date'] ?? data['createdAt'] ?? data['timestamp'],
+        ),
+        description: (data['description'] ??
+                data['customerName'] ??
+                data['customerDisplayName'] ??
+                'Sale')
+            .toString(),
+        type: (data['type'] ?? 'Sale').toString(),
+        amount: ((data['amount'] ??
+                data['totalAmount'] ??
+                data['finalAmount'] ??
+                data['total'] ??
+                0) as num)
+            .toDouble(),
+        paymentMethod: (data['paymentMethod'] ?? 'N/A').toString(),
+        cashier: (data['cashier'] ?? data['workerName'] ?? 'N/A').toString(),
+        itemCount: items.length,
+      );
+    }).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
   }
 
   void _showPreviewDialog(BuildContext context) {

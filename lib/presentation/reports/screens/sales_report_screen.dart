@@ -599,9 +599,18 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
               title: const Text('PDF (includes item rows)'),
               onTap: () async {
                 Navigator.pop(context);
-                final name = await context
-                    .read<ReportsProvider>()
-                    .exportSalesReportToPDF();
+                final business = context.read<BusinessProvider>().currentBusiness;
+                final auth = context.read<AuthProvider>();
+                final name = await context.read<ReportsProvider>().exportSalesReportToPDF(
+                      businessName: business?.name ?? 'Business',
+                      businessAddress: business?.address,
+                      businessPhone: business?.phone,
+                      businessEmail: business?.email,
+                      businessLogoUrl: business?.logoUrl,
+                      subscriptionTier: business?.subscriptionTier,
+                      businessClass: business?.businessClass,
+                      generatedBy: auth.currentUser?.fullName,
+                    );
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('Exported PDF: $name')),
                 );
