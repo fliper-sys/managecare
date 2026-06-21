@@ -181,19 +181,15 @@ class _PharmacyDashboardState extends State<PharmacyDashboard> {
                       final widgets = <Widget>[];
 
                       if (auth.isOwnerUser ||
-                          WorkerPermissions.hasPermission(
-                              role, 'manage_prescriptions') ||
                           WorkerPermissions.canManageSales(role)) {
                         widgets.add(PermissionedAction(
                           allow: (a) =>
                               a.isOwnerUser ||
-                              WorkerPermissions.hasPermission(
-                                  role, 'manage_prescriptions') ||
                               WorkerPermissions.canManageSales(role),
-                          onTapRoute: Routes.pharmacyAddPrescription,
+                          onTapRoute: Routes.pharmacyPos,
                           child: _ActionCard(
-                            title: 'New Prescription',
-                            icon: Icons.note_add_outlined,
+                            title: 'New Sale',
+                            icon: Icons.point_of_sale_outlined,
                             color: AppColors.pharmacy,
                           ),
                         ));
@@ -207,7 +203,7 @@ class _PharmacyDashboardState extends State<PharmacyDashboard> {
                               WorkerPermissions.canViewInventory(role),
                           onTapRoute: Routes.pharmacyDrugInventory,
                           child: _ActionCard(
-                            title: 'Drug Inventory',
+                            title: 'Inventory',
                             icon: Icons.medical_services_outlined,
                             color: AppColors.info,
                           ),
