@@ -987,25 +987,20 @@ class _HomeTabState extends State<_HomeTab> {
                         ),
                       );
                     } else if (businessType.contains('pharmacy')) {
-                      // Pharmacy specific actions
+                      // Pharmacy specific actions - lead with New Sale,
+                      // matching every other business type's POS-first
+                      // quick action. "Drug Inventory" is intentionally not
+                      // re-inserted here since it's already included in
+                      // the base pharmacy quick-actions list below,
+                      // avoiding a duplicate entry.
                       actions.insert(
                         0,
                         _QuickActionItem(
-                          title: 'New Prescription',
-                          subtitle: 'Add patient prescription',
-                          icon: Icons.medical_services,
+                          title: 'New Sale',
+                          subtitle: 'Start a sale',
+                          icon: Icons.point_of_sale,
                           color: AppColors.pharmacy,
-                          route: Routes.pharmacyAddPrescription,
-                        ),
-                      );
-                      actions.insert(
-                        1,
-                        _QuickActionItem(
-                          title: 'Drug Inventory',
-                          subtitle: 'Manage medications',
-                          icon: Icons.inventory_2,
-                          color: AppColors.pharmacy,
-                          route: Routes.pharmacyDrugInventory,
+                          route: Routes.pharmacyPos,
                         ),
                       );
                     }  else if (businessType.contains('wholesale')) {
@@ -2894,7 +2889,7 @@ class _HomeTabState extends State<_HomeTab> {
             route: Routes.pharmacyPrescriptions,
           ),
           _QuickActionItem(
-            title: 'Drug Inventory',
+            title: 'Inventory',
             subtitle: 'Manage drugs',
             icon: Icons.inventory_2_rounded,
             color: Colors.green,

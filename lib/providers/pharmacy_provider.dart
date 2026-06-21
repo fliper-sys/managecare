@@ -69,7 +69,11 @@ class Treatment {
   final DateTime startDate;
   final DateTime endDate;
   bool isActive;
-  final List<DateTime> administeredDates;
+  /// Each entry records one administered dose: when it was given and
+  /// which staff member logged it ({'date': DateTime, 'userId': String,
+  /// 'userName': String}). Replaces the old plain administeredDates list
+  /// so each dose can be attributed to the staff member who gave it.
+  final List<Map<String, dynamic>> administeredLog;
 
   Treatment({
     required this.id,
@@ -82,17 +86,19 @@ class Treatment {
     required this.startDate,
     DateTime? endDate,
     this.isActive = true,
-    this.administeredDates = const [],
+    this.administeredLog = const [],
   }) : endDate = endDate ?? startDate.add(Duration(days: durationDays));
 
   bool get isCompleted => DateTime.now().isAfter(this.endDate);
   int get daysRemaining => this.endDate.difference(DateTime.now()).inDays;
+  int get dosesGiven => administeredLog.length;
+  int get totalDosesExpected => frequencyPerDay * durationDays;
 }
 
 class Patient {
   final String id;
   final String name;
-  final String phone;
+  final String? phone;
   final String? email;
   final String? address;
   final DateTime? dateOfBirth;
@@ -103,7 +109,7 @@ class Patient {
   Patient({
     required this.id,
     required this.name,
-    required this.phone,
+    this.phone,
     this.email,
     this.address,
     this.dateOfBirth,
@@ -140,7 +146,7 @@ class Patient {
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
-        'phone': phone,
+        if (phone != null) 'phone': phone,
         if (email != null) 'email': email,
         if (address != null) 'address': address,
         if (dateOfBirth != null) 'dateOfBirth': dateOfBirth!.toIso8601String(),
@@ -153,7 +159,7 @@ class Patient {
     return Patient(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '',
-      phone: json['phone'] as String? ?? '',
+      phone: json['phone'] as String?,
       email: json['email'] as String?,
       address: json['address'] as String?,
       dateOfBirth: json['dateOfBirth'] != null
@@ -413,7 +419,13 @@ class PharmacyProvider extends ChangeNotifier {
                 'startDate': t.startDate.toIso8601String(),
                 'endDate': t.endDate.toIso8601String(),
                 'isActive': t.isActive,
-                'administeredDates': t.administeredDates.map((d) => d.toIso8601String()).toList(),
+                'administeredLog': t.administeredLog
+                    .map((e) => {
+                          'date': (e['date'] as DateTime).toIso8601String(),
+                          'userId': e['userId'],
+                          'userName': e['userName'],
+                        })
+                    .toList(),
               })
           .toList();
       await box.put('treatments', data);
@@ -439,9 +451,16 @@ class PharmacyProvider extends ChangeNotifier {
             startDate: parseTimestamp(m['startDate']),
             endDate: parseTimestamp(m['endDate']),
             isActive: m['isActive'] as bool? ?? true,
-            administeredDates: (m['administeredDates'] as List<dynamic>?)
-                ?.map((e) => parseTimestamp(e as String))
-                .toList() ?? [],
+            administeredLog: ((m['administeredLog'] as List<dynamic>?) ?? const [])
+                .map((e) {
+                  final entry = e as Map;
+                  return {
+                    'date': parseTimestamp(entry['date'] as String),
+                    'userId': entry['userId'],
+                    'userName': entry['userName'],
+                  };
+                })
+                .toList(),
           );
         }));
       notifyListeners();
@@ -607,9 +626,23 @@ class PharmacyProvider extends ChangeNotifier {
                     DateTime.now().toIso8601String(),
               ),
               isActive: t['isActive'] != false,
-              administeredDates:
+              administeredLog: (t['administeredLog'] as List<dynamic>?)
+                      ?.map((e) {
+                    final entry = e as Map;
+                    return {
+                      'date': parseTimestamp(entry['date']),
+                      'userId': entry['userId'],
+                      'userName': entry['userName'],
+                    };
+                  }).toList() ??
+                  // Backward-compat: older records may only have the
+                  // plain administeredDates list with no staff attribution.
                   (t['administeredDates'] as List<dynamic>? ?? const [])
-                      .map((e) => parseTimestamp(e))
+                      .map((e) => {
+                            'date': parseTimestamp(e),
+                            'userId': null,
+                            'userName': null,
+                          })
                       .toList(),
             )));
 
@@ -1426,7 +1459,13 @@ class PharmacyProvider extends ChangeNotifier {
           'startDate': treatment.startDate.toIso8601String(),
           'endDate': treatment.endDate.toIso8601String(),
           'isActive': treatment.isActive,
-          'administeredDates': treatment.administeredDates.map((d) => d.toIso8601String()).toList(),
+          'administeredLog': treatment.administeredLog
+              .map((e) => {
+                    'date': (e['date'] as DateTime).toIso8601String(),
+                    'userId': e['userId'],
+                    'userName': e['userName'],
+                  })
+              .toList(),
         }, businessId: businessId);
       } catch (e) {
         if (kDebugMode) debugPrint('[PharmacyProvider] Failed to persist treatment: $e');
@@ -1445,15 +1484,23 @@ class PharmacyProvider extends ChangeNotifier {
     return _treatments.where((t) => t.patientId == patientId && t.isActive && !t.isCompleted).toList();
   }
 
-  /// Mark treatment dose as administered
+  /// Mark treatment dose as administered. Records which staff member gave
+  /// the dose (and when) so the patient's treatment log shows who
+  /// administered each dose - the "attendance" / administration log
+  /// requested in item #10 of the pharmacy update document.
   Future<void> administerTreatmentDose(String treatmentId, DateTime date,
-      {bool persist = false, String? businessId, String? userId}) async {
+      {bool persist = false,
+      String? businessId,
+      String? userId,
+      String? userName}) async {
     final treatment = _treatments.firstWhere((t) => t.id == treatmentId,
         orElse: () => throw Exception('Treatment not found'));
 
-    if (!treatment.administeredDates.contains(date)) {
-      treatment.administeredDates.add(date);
-    }
+    treatment.administeredLog.add({
+      'date': date,
+      'userId': userId,
+      'userName': userName,
+    });
 
     notifyListeners();
     await _saveLocalTreatments();
@@ -1464,8 +1511,12 @@ class PharmacyProvider extends ChangeNotifier {
         await _repository!.updateTreatment(
           treatmentId,
           {
-            'administeredDates': treatment.administeredDates
-                .map((d) => d.toIso8601String())
+            'administeredLog': treatment.administeredLog
+                .map((e) => {
+                      'date': (e['date'] as DateTime).toIso8601String(),
+                      'userId': e['userId'],
+                      'userName': e['userName'],
+                    })
                 .toList(),
           },
           businessId: bid,
@@ -1477,6 +1528,7 @@ class PharmacyProvider extends ChangeNotifier {
         'patientId': treatment.patientId,
         'date': date.toIso8601String(),
         'userId': userId ?? 'system',
+        'userName': userName,
         'businessId': businessId,
       });
     }

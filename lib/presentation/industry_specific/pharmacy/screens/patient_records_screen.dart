@@ -3,6 +3,7 @@ import '../../../../widgets/profile_avatar.dart';
 import 'package:provider/provider.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../data/models/industry_specific/pharmacy/patient_model.dart';
 import 'prescription_detail_screen.dart';
 
@@ -324,15 +325,141 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                                   style: TextStyle(color: Colors.grey)),
                             )
                           : ListView(
-                              children: activeTreatments.map((treatment) => Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 4),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(treatment.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                    Text('${treatment.drugName} - ${treatment.dosage}'),
-                                    Text('Days remaining: ${treatment.daysRemaining}'),
-                                  ],
+                              children: activeTreatments.map((treatment) => Card(
+                                margin: const EdgeInsets.symmetric(vertical: 4),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(10),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(treatment.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      Text('${treatment.drugName} - ${treatment.dosage}'),
+                                      Text('${treatment.frequencyPerDay}x/day for ${treatment.durationDays} days'),
+                                      Text('Days remaining: ${treatment.daysRemaining}'),
+                                      Text(
+                                        'Doses given: ${treatment.dosesGiven} / ${treatment.totalDosesExpected}',
+                                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                      ),
+                                      if (treatment.administeredLog.isNotEmpty) ...[
+                                        const SizedBox(height: 6),
+                                        const Text('Administration log:',
+                                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                        ...treatment.administeredLog.reversed.take(5).map((entry) {
+                                          final date = entry['date'] as DateTime;
+                                          final staffName = (entry['userName'] as String?) ?? 'Unknown staff';
+                                          final dateStr = '${date.day}/${date.month}/${date.year} '
+                                              '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+                                          return Padding(
+                                            padding: const EdgeInsets.only(top: 2),
+                                            child: Text(
+                                              '• $dateStr — given by $staffName',
+                                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                            ),
+                                          );
+                                        }),
+                                      ],
+                                      const SizedBox(height: 8),
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: TextButton.icon(
+                                          icon: const Icon(Icons.check_circle_outline, size: 18),
+                                          label: const Text('Log Dose'),
+                                          onPressed: () async {
+                                            final auth = context.read<AuthProvider>();
+                                            final businessProvider = context.read<BusinessProvider>();
+                                            final staffName = auth.currentUser?.fullName ??
+                                                auth.currentUser?.email ??
+                                                'Staff';
+
+                                            // Guard against accidentally logging the same
+                                            // dose twice (e.g. two staff members, or one
+                                            // device that was offline and double-submits
+                                            // once back online). A dose is only expected
+                                            // roughly every (24 / frequencyPerDay) hours,
+                                            // so warn if the most recent log is still
+                                            // within that window.
+                                            if (treatment.administeredLog.isNotEmpty) {
+                                              final lastEntry =
+                                                  treatment.administeredLog.last;
+                                              final lastDate =
+                                                  lastEntry['date'] as DateTime;
+                                              final lastStaff =
+                                                  (lastEntry['userName'] as String?) ??
+                                                      'Unknown staff';
+                                              final minutesSinceLast = DateTime.now()
+                                                  .difference(lastDate)
+                                                  .inMinutes;
+                                              final expectedGapMinutes =
+                                                  treatment.frequencyPerDay > 0
+                                                      ? ((24 / treatment.frequencyPerDay) *
+                                                              60)
+                                                          .round()
+                                                      : 24 * 60;
+                                              // Flag as a possible duplicate if logged
+                                              // well inside the expected gap between
+                                              // doses (using half the gap as the cutoff).
+                                              if (minutesSinceLast <
+                                                  (expectedGapMinutes / 2)) {
+                                                final timeAgo = minutesSinceLast < 60
+                                                    ? '$minutesSinceLast min ago'
+                                                    : '${(minutesSinceLast / 60).floor()}h ${minutesSinceLast % 60}m ago';
+                                                final proceed = await showDialog<bool>(
+                                                      context: context,
+                                                      builder: (dialogCtx) => AlertDialog(
+                                                        title: const Text(
+                                                            'Dose already logged recently'),
+                                                        content: Text(
+                                                          'A dose for "${treatment.name}" was logged $timeAgo by $lastStaff. '
+                                                          'Log another dose anyway?',
+                                                        ),
+                                                        actions: [
+                                                          TextButton(
+                                                            onPressed: () =>
+                                                                Navigator.of(dialogCtx)
+                                                                    .pop(false),
+                                                            child: const Text('Cancel'),
+                                                          ),
+                                                          TextButton(
+                                                            onPressed: () =>
+                                                                Navigator.of(dialogCtx)
+                                                                    .pop(true),
+                                                            child: const Text(
+                                                                'Log Anyway'),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ) ??
+                                                    false;
+                                                if (!proceed) return;
+                                              }
+                                            }
+
+                                            try {
+                                              await context.read<PharmacyProvider>().administerTreatmentDose(
+                                                    treatment.id,
+                                                    DateTime.now(),
+                                                    persist: true,
+                                                    businessId: businessProvider.currentBusiness?.id,
+                                                    userId: auth.currentUser?.id,
+                                                    userName: staffName,
+                                                  );
+                                              if (context.mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Dose logged by $staffName')),
+                                                );
+                                              }
+                                            } catch (e) {
+                                              if (context.mounted) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  SnackBar(content: Text('Failed to log dose: $e')),
+                                                );
+                                              }
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               )).toList(),
                             ),
@@ -442,7 +569,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                 controller: phoneController,
                 keyboardType: TextInputType.phone,
                 decoration: const InputDecoration(
-                  labelText: 'Phone Number *',
+                  labelText: 'Phone Number (optional)',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -521,15 +648,18 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
             onPressed: () async {
               final name = nameController.text.trim();
               final phone = phoneController.text.trim();
-              if (name.isEmpty || phone.isEmpty) {
+              if (name.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please enter patient name and phone number'))
+                  const SnackBar(content: Text('Please enter the patient\'s name'))
                 );
                 return;
               }
               final provider = context.read<PharmacyProvider>();
-              // Duplicate check by phone or exact name
-              final dup = provider.patients.where((p) => p != null && (p.phone == phone || p.name.toLowerCase() == name.toLowerCase())).toList();
+              // Duplicate check by phone (only if provided) or exact name
+              final dup = provider.patients.where((p) =>
+                  p != null &&
+                  ((phone.isNotEmpty && p.phone == phone) ||
+                      p.name.toLowerCase() == name.toLowerCase())).toList();
               if (dup.isNotEmpty) {
                 final keep = await showDialog<bool>(
                   context: context,
@@ -554,7 +684,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
               final newPatient = Patient(
                 id: id,
                 name: name,
-                phone: phone,
+                phone: phone.isNotEmpty ? phone : null,
                 email: emailController.text.isNotEmpty ? emailController.text : null,
                 address: addressController.text.isNotEmpty ? addressController.text : null,
                 dateOfBirth: dob,
