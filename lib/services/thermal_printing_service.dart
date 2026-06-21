@@ -330,6 +330,8 @@ class ThermalPrintingService {
     String? customerName,
     String? storeName,
     String? tableLabel,
+    String? prescriptionNote,
+    List<Map<String, dynamic>>? prescriptionLines,
   }) {
     final sb = StringBuffer();
 
@@ -406,6 +408,32 @@ class ThermalPrintingService {
     const currency = '₦';
     sb.writeln('${_padRight('Subtotal:', labelWidth)} ${_padLeft(currency + totalAmount.toStringAsFixed(2), 12)}');
     sb.writeln('${_padRight('Payment:', labelWidth)} ${_padLeft(paymentMethod, 12)}');
+
+    // Prescription section - printed alongside the receipt whenever a
+    // prescription note or saved prescription line was attached to this
+    // sale (pharmacy module).
+    final hasPrescriptionNote =
+        prescriptionNote != null && prescriptionNote.trim().isNotEmpty;
+    final hasPrescriptionLines =
+        prescriptionLines != null && prescriptionLines.isNotEmpty;
+    if (hasPrescriptionNote || hasPrescriptionLines) {
+      sb.writeln('-' * paperWidth);
+      sb.writeln('PRESCRIPTION');
+      if (hasPrescriptionLines) {
+        for (final line in prescriptionLines) {
+          final drugName = (line['drugName'] ?? '').toString();
+          final dosage = (line['dosage'] ?? '').toString();
+          if (drugName.isEmpty && dosage.isEmpty) continue;
+          sb.writeln(drugName.isNotEmpty ? drugName : 'Drug');
+          if (dosage.isNotEmpty) {
+            sb.writeln('  $dosage');
+          }
+        }
+      }
+      if (hasPrescriptionNote) {
+        sb.writeln(prescriptionNote.trim());
+      }
+    }
 
     sb.writeln('\nAuthorized Signature:');
     sb.writeln('______________________________');

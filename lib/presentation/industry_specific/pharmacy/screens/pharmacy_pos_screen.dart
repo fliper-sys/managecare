@@ -13,6 +13,7 @@ import '../../../industry_specific/retail/widgets/pos_product_card.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import 'pharmacy_expiry_screen.dart';
+import '../../../../core/constants/routes.dart';
 
 class PharmacyPosScreen extends StatefulWidget {
   const PharmacyPosScreen({super.key});
@@ -24,6 +25,10 @@ class PharmacyPosScreen extends StatefulWidget {
 class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
   final Map<String, int> _cart = {}; // drugId -> qty
   String? _customerName;
+  String? _selectedPatientId;
+  String? _prescriptionNote;
+  // drugId -> selected saved-prescription map ({ageRange, intensity, dosage})
+  final Map<String, Map<String, dynamic>> _selectedPrescriptions = {};
 
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
@@ -55,6 +60,8 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         final controller = TextEditingController(text: _customerName ?? '');
+        final prescriptionNoteController =
+            TextEditingController(text: _prescriptionNote ?? '');
         return StatefulBuilder(
           builder: (context, setModalState) {
             double subtotal() {
@@ -117,11 +124,9 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                         Expanded(
                           child: _cart.isEmpty
                               ? const Center(child: Text('Cart is empty'))
-                              : ListView.separated(
+                              : ListView.builder(
                                   controller: scrollController,
                                   itemCount: _cart.length,
-                                  separatorBuilder: (_, __) =>
-                                      const Divider(height: 1),
                                   itemBuilder: (context, index) {
                                     final entry = _cart.entries.elementAt(index);
                                     Drug? drug;
@@ -136,57 +141,171 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                                       return const SizedBox.shrink();
                                     }
                                     final qty = entry.value;
-                                    return ListTile(
-                                      title: Text(drug.name),
-                                      subtitle: Text(
-                                        '₦${drug.price.toStringAsFixed(2)} x $qty',
-                                      ),
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
+                                    final selectedPres =
+                                        _selectedPrescriptions[entry.key];
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 2),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.remove_circle_outline,
+                                          ListTile(
+                                            contentPadding: EdgeInsets.zero,
+                                            title: Text(drug.name),
+                                            subtitle: Text(
+                                              '₦${drug.price.toStringAsFixed(2)} x $qty',
                                             ),
-                                            onPressed: () {
-                                              setModalState(() {
-                                                final newQty =
-                                                    (_cart[entry.key]! - 1)
-                                                        .clamp(0, 999999);
-                                                if (newQty <= 0) {
-                                                  _cart.remove(entry.key);
-                                                } else {
-                                                  _cart[entry.key] = newQty;
-                                                }
-                                              });
-                                              setState(() {});
-                                            },
-                                          ),
-                                          Text('$qty'),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.add_circle_outline,
+                                            trailing: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.remove_circle_outline,
+                                                  ),
+                                                  onPressed: () {
+                                                    setModalState(() {
+                                                      final newQty =
+                                                          (_cart[entry.key]! - 1)
+                                                              .clamp(0, 999999);
+                                                      if (newQty <= 0) {
+                                                        _cart.remove(entry.key);
+                                                        _selectedPrescriptions
+                                                            .remove(entry.key);
+                                                      } else {
+                                                        _cart[entry.key] = newQty;
+                                                      }
+                                                    });
+                                                    setState(() {});
+                                                  },
+                                                ),
+                                                Text('$qty'),
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.add_circle_outline,
+                                                  ),
+                                                  onPressed: () {
+                                                    setModalState(() {
+                                                      _cart.update(
+                                                        entry.key,
+                                                        (v) => v + 1,
+                                                      );
+                                                    });
+                                                    setState(() {});
+                                                  },
+                                                ),
+                                                IconButton(
+                                                  icon: const Icon(
+                                                      Icons.delete_outline),
+                                                  onPressed: () {
+                                                    setModalState(() {
+                                                      _cart.remove(entry.key);
+                                                      _selectedPrescriptions
+                                                          .remove(entry.key);
+                                                    });
+                                                    setState(() {});
+                                                  },
+                                                ),
+                                              ],
                                             ),
-                                            onPressed: () {
-                                              setModalState(() {
-                                                _cart.update(
-                                                  entry.key,
-                                                  (v) => v + 1,
-                                                );
-                                              });
-                                              setState(() {});
-                                            },
                                           ),
-                                          IconButton(
-                                            icon:
-                                                const Icon(Icons.delete_outline),
-                                            onPressed: () {
-                                              setModalState(() {
-                                                _cart.remove(entry.key);
-                                              });
-                                              setState(() {});
-                                            },
-                                          ),
+                                          if (drug.prescriptions.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                  bottom: 6),
+                                              child: Row(
+                                                children: [
+                                                  Icon(Icons.description_outlined,
+                                                      size: 16,
+                                                      color: Colors.grey[600]),
+                                                  const SizedBox(width: 4),
+                                                  Expanded(
+                                                    child: TextButton(
+                                                      style: TextButton.styleFrom(
+                                                        padding: EdgeInsets.zero,
+                                                        alignment:
+                                                            Alignment.centerLeft,
+                                                      ),
+                                                      onPressed: () async {
+                                                        final chosen =
+                                                            await showModalBottomSheet<
+                                                                Map<String,
+                                                                    dynamic>?>(
+                                                          context: context,
+                                                          builder: (sheetCtx) =>
+                                                              SafeArea(
+                                                            child: Column(
+                                                              mainAxisSize:
+                                                                  MainAxisSize.min,
+                                                              children: [
+                                                                Padding(
+                                                                  padding:
+                                                                      const EdgeInsets
+                                                                          .all(12),
+                                                                  child: Text(
+                                                                    'Saved prescriptions for ${drug.name}',
+                                                                    style: AppTextStyles
+                                                                        .body1,
+                                                                  ),
+                                                                ),
+                                                                ...drug.prescriptions
+                                                                    .map((p) =>
+                                                                        ListTile(
+                                                                          title: Text(
+                                                                              '${p['ageRange'] ?? ''} • ${p['intensity'] ?? ''}'),
+                                                                          subtitle:
+                                                                              Text(
+                                                                            p['dosage']?.toString() ??
+                                                                                '',
+                                                                          ),
+                                                                          onTap: () =>
+                                                                              Navigator.pop(
+                                                                                  sheetCtx,
+                                                                                  p),
+                                                                        )),
+                                                                ListTile(
+                                                                  title: const Text(
+                                                                      'None (write dosage manually)'),
+                                                                  onTap: () =>
+                                                                      Navigator.pop(
+                                                                          sheetCtx,
+                                                                          null),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        );
+                                                        setModalState(() {
+                                                          if (chosen != null) {
+                                                            _selectedPrescriptions[
+                                                                    entry.key] =
+                                                                chosen;
+                                                          } else {
+                                                            _selectedPrescriptions
+                                                                .remove(entry.key);
+                                                          }
+                                                        });
+                                                      },
+                                                      child: Text(
+                                                        selectedPres == null
+                                                            ? 'Use saved prescription'
+                                                            : 'Rx: ${selectedPres['dosage']}',
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: selectedPres ==
+                                                                  null
+                                                              ? Colors.grey[700]
+                                                              : AppColors.primary,
+                                                        ),
+                                                        overflow:
+                                                            TextOverflow.ellipsis,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          const Divider(height: 1),
                                         ],
                                       ),
                                     );
@@ -194,10 +313,65 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                                 ),
                         ),
                         const SizedBox(height: 8),
+                        // Patient picker - replaces free-text customer name.
+                        // Selecting "Walk-in / No patient" keeps the sale
+                        // available for non-patient customers.
+                        DropdownButtonFormField<String>(
+                          value: _selectedPatientId,
+                          decoration: const InputDecoration(
+                            labelText: 'Patient',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: [
+                            const DropdownMenuItem<String>(
+                              value: null,
+                              child: Text('Walk-in / No patient'),
+                            ),
+                            ...provider.patients
+                                .where((p) => p != null)
+                                .map((p) => DropdownMenuItem<String>(
+                                      value: p!.id,
+                                      child: Text(p.name),
+                                    )),
+                          ],
+                          onChanged: (value) {
+                            setModalState(() {
+                              _selectedPatientId = value;
+                              if (value != null) {
+                                final match = provider.patients.firstWhere(
+                                  (p) => p?.id == value,
+                                  orElse: () => null,
+                                );
+                                controller.text = match?.name ?? '';
+                              } else {
+                                controller.clear();
+                              }
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 8),
                         TextField(
                           controller: controller,
                           decoration: const InputDecoration(
-                            labelText: 'Customer / Patient name (optional)',
+                            labelText: 'Patient / Customer name',
+                            helperText:
+                                'Auto-filled from patient above, or type a walk-in name',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        // Free-text prescription note - printed alongside
+                        // the receipt (item #6). Used when the attendant
+                        // wants to write dosage/instructions manually
+                        // instead of (or in addition to) a saved
+                        // prescription selected per drug above.
+                        TextField(
+                          controller: prescriptionNoteController,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: 'Prescription / Dosage Note (optional)',
+                            helperText:
+                                'Printed on the receipt alongside the items',
+                            border: OutlineInputBorder(),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -223,10 +397,16 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                                     _customerName = controller.text.trim().isEmpty
                                         ? null
                                         : controller.text.trim();
+                                    _prescriptionNote = prescriptionNoteController
+                                            .text.trim().isEmpty
+                                        ? null
+                                        : prescriptionNoteController.text.trim();
                                     Navigator.pop(ctx);
                                     _confirmSale(
                                       provider,
                                       customerName: _customerName,
+                                      patientId: _selectedPatientId,
+                                      prescriptionNote: _prescriptionNote,
                                     );
                                   },
                                   child: const Text('Checkout'),
@@ -247,7 +427,12 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
     );
   }
 
-  Future<void> _confirmSale(PharmacyProvider provider, {String? customerName}) async {
+  Future<void> _confirmSale(
+    PharmacyProvider provider, {
+    String? customerName,
+    String? patientId,
+    String? prescriptionNote,
+  }) async {
     if (_cart.isEmpty) return;
 
     try {
@@ -282,6 +467,32 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
           'qty': qty,
           'unitPrice': drug.price,
           'total': drug.price * qty,
+        });
+      }
+
+      // Build prescription line items from any saved drug-level
+      // prescriptions the attendant selected while building the cart
+      // (item #9) - these are printed alongside the receipt.
+      final prescriptionLines = <Map<String, dynamic>>[];
+      for (final entry in _selectedPrescriptions.entries) {
+        Drug? drug;
+        try {
+          drug = provider.drugs.firstWhere((d) => d.id == entry.key);
+        } catch (_) {
+          drug = null;
+        }
+        if (drug == null) continue;
+        final pres = entry.value;
+        final ageRange = pres['ageRange']?.toString() ?? '';
+        final intensity = pres['intensity']?.toString() ?? '';
+        final dosage = pres['dosage']?.toString() ?? '';
+        prescriptionLines.add({
+          'drugName': drug.name,
+          'dosage': [
+            if (ageRange.isNotEmpty) ageRange,
+            if (intensity.isNotEmpty) intensity,
+            if (dosage.isNotEmpty) dosage,
+          ].join(' - '),
         });
       }
 
@@ -339,6 +550,9 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
         'discount': discount,
         'total': finalTotal,
         'customerName': customerName ?? 'Walk-in',
+        if (patientId != null) 'patientId': patientId,
+        if (prescriptionNote != null) 'prescriptionNote': prescriptionNote,
+        if (prescriptionLines.isNotEmpty) 'prescriptionLines': prescriptionLines,
         'paymentMethod': paymentMethod,
         'totalAmount': finalTotal,
         'finalAmount': finalTotal,
@@ -388,7 +602,7 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
 
       // Add prescription record for tracking (persist to remote and local cache)
       final prescription = await provider.addPrescription(
-          'WALKIN',
+          patientId ?? 'WALKIN',
           items.map((e) => {'drugId': e['drugId'], 'qty': e['qty']}).toList(),
           patientName: customerName,
           persist: true,
@@ -398,6 +612,9 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
       setState(() {
         _cart.clear();
         _customerName = null;
+        _selectedPatientId = null;
+        _prescriptionNote = null;
+        _selectedPrescriptions.clear();
       });
 
       if (!mounted) return;
@@ -451,6 +668,8 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
         'date': DateTime.now().toIso8601String(),
         'customer': {'name': customerName ?? 'Walk-in', 'email': null},
         'category': 'Pharmacy',
+        if (prescriptionNote != null) 'prescriptionNote': prescriptionNote,
+        if (prescriptionLines.isNotEmpty) 'prescriptionLines': prescriptionLines,
         'prescriptionId': prescription.id,
         'prescriptionPatientName':
             prescription.patientName ?? customerName ?? 'Walk-in',
@@ -572,6 +791,13 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black),
         actions: [
+          IconButton(
+            onPressed: () => Navigator.of(context).pushNamed(
+              Routes.pharmacyAddPrescription,
+            ),
+            icon: const Icon(Icons.description_outlined),
+            tooltip: 'Prescribe to a patient',
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Center(

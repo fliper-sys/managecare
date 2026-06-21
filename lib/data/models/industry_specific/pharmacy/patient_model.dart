@@ -1,7 +1,7 @@
 class PatientModel {
   final String id;
   final String name;
-  final String phone;
+  final String? phone;
   final String? email;
   final String? address;
   final DateTime? dateOfBirth;
@@ -12,7 +12,7 @@ class PatientModel {
   PatientModel({
     required this.id,
     required this.name,
-    required this.phone,
+    this.phone,
     this.email,
     this.address,
     this.dateOfBirth,
@@ -25,7 +25,7 @@ class PatientModel {
     return PatientModel(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? '',
-      phone: json['phone'] as String? ?? '',
+      phone: json['phone'] as String?,
       email: json['email'] as String?,
       address: json['address'] as String?,
       dateOfBirth: json['dateOfBirth'] != null
@@ -40,7 +40,7 @@ class PatientModel {
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
-        'phone': phone,
+        if (phone != null) 'phone': phone,
         if (email != null) 'email': email,
         if (address != null) 'address': address,
         if (dateOfBirth != null) 'dateOfBirth': dateOfBirth!.toIso8601String(),

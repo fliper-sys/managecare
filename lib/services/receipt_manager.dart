@@ -155,6 +155,10 @@ class ReceiptManager {
         customerName: customerName,
         storeName: storeName,
         tableLabel: tableLabel,
+        prescriptionNote: sale['prescriptionNote']?.toString(),
+        prescriptionLines: (sale['prescriptionLines'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .toList(),
       );
 
       // Do not generate PDFs automatically for pump/fuel sales. Defer generation
