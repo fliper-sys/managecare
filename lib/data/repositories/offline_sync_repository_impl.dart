@@ -1,4 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hive/hive.dart';
+import 'sales_repository_impl.dart';
+import 'inventory_repository_impl.dart';
 import '../../domain/repositories/offline_sync_repository.dart';
 
 /// Hive implementation of offline sync repository
@@ -83,11 +86,51 @@ class OfflineSyncRepositoryImpl implements OfflineSyncRepository {
   @override
   Future<void> syncAllPending(String businessId) async {
     try {
-      // TODO: Implement sync logic with Firebase
-      // This would typically:
-      // 1. Get all pending items
-      // 2. Upload to Firebase
-      // 3. Clear local cache on success
+      if (businessId.trim().isEmpty) {
+        throw Exception('businessId is required to sync pending data');
+      }
+
+      final firestore = FirebaseFirestore.instance;
+      final salesRepository = SalesRepositoryImpl(firestore: firestore);
+      final inventoryRepository = InventoryRepositoryImpl(firestore: firestore);
+
+      final salesBox = await Hive.openBox(_pendingSalesBox);
+      final inventoryBox = await Hive.openBox(_pendingInventoryBox);
+
+      final pendingSales = salesBox.toMap().entries
+          .where((entry) => (entry.value as Map)['businessId'] == businessId)
+          .toList();
+
+      for (final entry in pendingSales) {
+        try {
+          final saleData = Map<String, dynamic>.from(entry.value as Map);
+          saleData['id'] ??= entry.key.toString();
+          saleData['businessId'] = businessId;
+
+          await salesRepository.syncSaleToFirestore(saleData);
+          await salesBox.delete(entry.key);
+        } catch (e) {
+          print('[OfflineSyncRepository] Failed to sync sale ${entry.key}: $e');
+        }
+      }
+
+      final pendingInventory = inventoryBox.toMap().entries
+          .where((entry) => (entry.value as Map)['businessId'] == businessId)
+          .toList();
+
+      for (final entry in pendingInventory) {
+        try {
+          final inventoryData = Map<String, dynamic>.from(entry.value as Map);
+          inventoryData['id'] ??= entry.key.toString();
+          inventoryData['businessId'] = businessId;
+
+          await inventoryRepository.syncInventoryToFirestore(inventoryData);
+          await inventoryBox.delete(entry.key);
+        } catch (e) {
+          print(
+              '[OfflineSyncRepository] Failed to sync inventory ${entry.key}: $e');
+        }
+      }
     } catch (e) {
       rethrow;
     }

@@ -244,12 +244,11 @@ class _GuestManagementScreenState extends State<GuestManagementScreen> {
                     child: OutlinedButton.icon(
                       icon: const Icon(Icons.add_shopping_cart),
                       label: const Text('Attach Sale/Order'),
-                      onPressed: () {
-                        // TODO: Implement attach sale/order dialog
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Attach Sale/Order dialog coming soon!')),
-                        );
-                      },
+                      onPressed: () => _showAttachSaleOrderDialog(
+                        context,
+                        provider,
+                        reservation,
+                      ),
                     ),
                   ),
                 ),
@@ -337,6 +336,127 @@ class _GuestManagementScreenState extends State<GuestManagementScreen> {
           },
         );
       },
+    );
+  }
+
+  Future<void> _showAttachSaleOrderDialog(
+    BuildContext context,
+    HotelProvider provider,
+    Reservation reservation,
+  ) async {
+    final serviceNameCtrl = TextEditingController(text: 'Room service');
+    final descriptionCtrl = TextEditingController();
+    final chargeCtrl = TextEditingController();
+    String priority = 'medium';
+    final formKey = GlobalKey<FormState>();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Attach Sale/Order'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: serviceNameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Service or order name',
+                      hintText: 'Room service, laundry, minibar...',
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Enter a service name';
+                      }
+                      return null;
+                    },
+                  ),
+                  TextFormField(
+                    controller: descriptionCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Description',
+                    ),
+                    maxLines: 3,
+                  ),
+                  TextFormField(
+                    controller: chargeCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Charge amount',
+                      prefixText: '₦',
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) return null;
+                      final parsed = double.tryParse(value.trim());
+                      if (parsed == null) return 'Enter a valid amount';
+                      if (parsed < 0) return 'Amount cannot be negative';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: priority,
+                    decoration: const InputDecoration(labelText: 'Priority'),
+                    items: const [
+                      DropdownMenuItem(value: 'low', child: Text('Low')),
+                      DropdownMenuItem(value: 'medium', child: Text('Medium')),
+                      DropdownMenuItem(value: 'high', child: Text('High')),
+                      DropdownMenuItem(value: 'urgent', child: Text('Urgent')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setDialogState(() => priority = value);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (!formKey.currentState!.validate()) return;
+                Navigator.of(dialogContext).pop();
+
+                try {
+                  await provider.createServiceOrder(
+                    roomId: reservation.roomId,
+                    reservationId: reservation.id,
+                    serviceName: serviceNameCtrl.text.trim(),
+                    description: descriptionCtrl.text.trim().isEmpty
+                        ? serviceNameCtrl.text.trim()
+                        : descriptionCtrl.text.trim(),
+                    priority: priority,
+                    chargeAmount: double.tryParse(chargeCtrl.text.trim()),
+                    source: 'guest_management',
+                  );
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Sale/order attached successfully')),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Failed to attach sale/order: $e')),
+                    );
+                  }
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

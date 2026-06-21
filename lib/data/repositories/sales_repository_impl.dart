@@ -253,9 +253,21 @@ class SalesRepositoryImpl implements SalesRepository {
 
   @override
   Future<void> syncSales() async {
-    // TODO: Implement sync logic for sales
     try {
-      // Sync pending sales to Firestore
+      final pendingSales = await getPendingOfflineSales();
+
+      for (final saleData in pendingSales) {
+        final saleId = saleData['id']?.toString() ?? '';
+        if (saleId.isEmpty) continue;
+
+        try {
+          await syncSaleToFirestore(saleData);
+          await markSaleAsSynced(saleId);
+        } catch (e) {
+          // Leave the sale pending so it can be retried on the next sync pass.
+          print('[SalesRepositoryImpl] Failed to sync sale $saleId: $e');
+        }
+      }
     } catch (e) {
       rethrow;
     }
