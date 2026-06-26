@@ -43,6 +43,7 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
   final List<String> _businessTypes = const [
     'pharmacy',
     'retail',
+    'bakery',
     'wholesale',
     'agriculture',
     'auto_repair',
@@ -52,6 +53,7 @@ class _RegisterBusinessScreenState extends State<RegisterBusinessScreen> {
     'restaurant',
     'bar',
     'gas',
+    'petroleum',
     'real_estate',
     'apartment',
     'gym',

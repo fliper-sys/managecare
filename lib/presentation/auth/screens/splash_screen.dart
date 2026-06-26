@@ -4,6 +4,7 @@ import 'package:lottie/lottie.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../widgets/loading_indicator.dart';
 import '../../../core/constants/routes.dart';
+import '../../../core/utils/connectivity_helper.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../services/subscription_service.dart';
 import '../../../services/business_restriction_service.dart';
@@ -67,6 +68,15 @@ class _SplashScreenState extends State<SplashScreen>
           '[SplashScreen] Auth Status: ${authProvider.status}, User: ${authProvider.currentUser?.email}');
 
       if (authProvider.isAuthenticated && authProvider.currentUser != null) {
+        final isOnline = await ConnectivityHelper.hasInternetConnection();
+        if (!isOnline) {
+          final user = authProvider.currentUser!;
+          Navigator.of(context).pushReplacementNamed(
+            user.isOwner ? Routes.ownerDashboard : Routes.workerDashboard,
+          );
+          return;
+        }
+
         await authProvider.refresh();
         if (!mounted) return;
         if (authProvider.currentUser == null) {

@@ -99,6 +99,7 @@ class AppColors {
       case 'pharmacy':
         return pharmacy;
       case 'retail':
+      case 'bakery':
         return retail;
       case 'agri':
       case 'agriculture':
@@ -115,6 +116,11 @@ class AppColors {
         return drink;
       case 'restaurant':
         return restaurant;
+      case 'gas':
+      case 'petroleum':
+      case 'petrol_station':
+      case 'petroleum_station':
+        return primary;
       case 'realestate':
       case 'real_estate':
         return realEstate;

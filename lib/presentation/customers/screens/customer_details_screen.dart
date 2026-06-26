@@ -13,6 +13,7 @@ import '../../../providers/business_provider.dart';
 import '../../../providers/customer_provider.dart';
 import '../../../providers/auto_provider.dart';
 import '../../../widgets/custom_button.dart';
+import '../../../widgets/custom_text_field.dart';
 import '../../industry_specific/auto/screens/create_vehicle_screen.dart';
 
 class CustomerDetailsScreen extends StatefulWidget {
@@ -199,6 +200,43 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
     }
   }
 
+  Future<void> _editCustomer() async {
+    if (_customer == null) return;
+
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
+        _customer?['businessId']?.toString() ??
+        '';
+    if (businessId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to determine business for edit.')),
+      );
+      return;
+    }
+
+    final updatedCustomer = await Navigator.push<Map<String, dynamic>?>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EditCustomerScreen(
+          customerId: widget.customerId,
+          businessId: businessId,
+          initialCustomer: Map<String, dynamic>.from(_customer!),
+        ),
+      ),
+    );
+
+    if (updatedCustomer == null || !mounted) return;
+
+    setState(() {
+      _customer = updatedCustomer;
+    });
+
+    await _loadPurchaseHistory();
+    final customerProvider = context.read<CustomerProvider>();
+    customerProvider.setBusinessId(businessId);
+    await customerProvider.loadCustomers();
+  }
+
   Future<void> _startSaleForCustomer() async {
     final customer = _customer;
     if (customer == null) return;
@@ -261,6 +299,11 @@ class _CustomerDetailsScreenState extends State<CustomerDetailsScreen> {
         backgroundColor: Colors.transparent,
         iconTheme: IconThemeData(color: Theme.of(context).iconTheme.color),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.edit),
+            tooltip: 'Edit Customer',
+            onPressed: _editCustomer,
+          ),
           PopupMenuButton(
             itemBuilder: (context) => [
               PopupMenuItem(
@@ -753,7 +796,7 @@ class _PurchaseHistoryTile extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            '${items.length} item(s) • ${paymentMethod.toUpperCase()}',
+            '${items.length} item(s) â€¢ ${paymentMethod.toUpperCase()}',
             style: AppTextStyles.caption.copyWith(
               color: AppColors.textSecondary,
             ),
@@ -768,6 +811,276 @@ class _PurchaseHistoryTile extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class EditCustomerScreen extends StatefulWidget {
+  final String customerId;
+  final String businessId;
+  final Map<String, dynamic> initialCustomer;
+
+  const EditCustomerScreen({
+    super.key,
+    required this.customerId,
+    required this.businessId,
+    required this.initialCustomer,
+  });
+
+  @override
+  State<EditCustomerScreen> createState() => _EditCustomerScreenState();
+}
+
+class _EditCustomerScreenState extends State<EditCustomerScreen> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _emailController;
+  late final TextEditingController _phoneController;
+  late final TextEditingController _addressController;
+  late final TextEditingController _cityController;
+  late final TextEditingController _stateController;
+  late final TextEditingController _notesController;
+  bool _isActive = true;
+  bool _isSaving = false;
+  late final CustomerRepositoryImpl _repository;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository = CustomerRepositoryImpl(firestore: FirebaseFirestore.instance);
+    final customer = widget.initialCustomer;
+    _nameController = TextEditingController(
+      text: customer['name']?.toString() ??
+          customer['fullName']?.toString() ??
+          '',
+    );
+    _emailController = TextEditingController(
+      text: customer['email']?.toString() ?? '',
+    );
+    _phoneController = TextEditingController(
+      text: customer['phone']?.toString() ??
+          customer['phoneNumber']?.toString() ??
+          '',
+    );
+    _addressController = TextEditingController(
+      text: customer['address']?.toString() ?? '',
+    );
+    _cityController = TextEditingController(
+      text: customer['city']?.toString() ?? '',
+    );
+    _stateController = TextEditingController(
+      text: customer['state']?.toString() ?? '',
+    );
+    _notesController = TextEditingController(
+      text: customer['notes']?.toString() ?? '',
+    );
+    _isActive = (customer['isActive'] ?? true) != false &&
+        customer['isActive']?.toString() != '0';
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    _addressController.dispose();
+    _cityController.dispose();
+    _stateController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveCustomer() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isSaving = true);
+
+    final now = DateTime.now();
+    final updatedData = {
+      'businessId': widget.businessId,
+      'name': _nameController.text.trim(),
+      'fullName': _nameController.text.trim(),
+      'email': _emailController.text.trim(),
+      'phone': _phoneController.text.trim(),
+      'phoneNumber': _phoneController.text.trim(),
+      'address': _addressController.text.trim(),
+      'city': _cityController.text.trim(),
+      'state': _stateController.text.trim(),
+      'notes': _notesController.text.trim(),
+      'isActive': _isActive,
+      'updatedAt': now,
+    };
+
+    final resultCustomer = {
+      ...widget.initialCustomer,
+      ...updatedData,
+      'updatedAt': now.toIso8601String(),
+    };
+
+    DatabaseHelper? db;
+    try {
+      db = DatabaseHelper.instance;
+    } catch (_) {
+      db = null;
+    }
+
+    try {
+      await _repository.updateCustomer(widget.customerId, updatedData);
+      if (db != null) {
+        await db.update(
+          'customers',
+          {
+            'name': updatedData['name'],
+            'email': updatedData['email'],
+            'phone': updatedData['phone'],
+            'address': updatedData['address'],
+            'city': updatedData['city'],
+            'state': updatedData['state'],
+            'notes': updatedData['notes'],
+            'isActive': updatedData['isActive'] != null ? 1 : 0,
+            'updatedAt': now.toIso8601String(),
+            'syncStatus': 'synced',
+          },
+          where: 'id = ?',
+          whereArgs: [widget.customerId],
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Customer updated successfully')),
+      );
+      Navigator.pop(context, resultCustomer);
+    } catch (e) {
+      if (db != null) {
+        await db.update(
+          'customers',
+          {
+            'name': updatedData['name'],
+            'email': updatedData['email'],
+            'phone': updatedData['phone'],
+            'address': updatedData['address'],
+            'city': updatedData['city'],
+            'state': updatedData['state'],
+            'notes': updatedData['notes'],
+            'isActive': updatedData['isActive'] != null ? 1 : 0,
+            'updatedAt': now.toIso8601String(),
+            'syncStatus': 'pending',
+          },
+          where: 'id = ?',
+          whereArgs: [widget.customerId],
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to update online: $e. Saved locally.')),
+      );
+      Navigator.pop(context, resultCustomer);
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text('Edit Customer'),
+        elevation: 0,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              CustomTextField(
+                controller: _nameController,
+                label: 'Customer Name',
+                hint: 'Enter full name',
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Customer name is required';
+                  }
+                  return null;
+                },
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 16),
+              CustomTextField(
+                controller: _phoneController,
+                label: 'Phone',
+                hint: 'Enter phone number',
+                keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: 16),
+              CustomTextField(
+                controller: _emailController,
+                label: 'Email',
+                hint: 'Enter email address',
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 16),
+              CustomTextField(
+                controller: _addressController,
+                label: 'Address',
+                hint: 'Enter address',
+                maxLines: 2,
+              ),
+              const SizedBox(height: 16),
+              CustomTextField(
+                controller: _cityController,
+                label: 'City',
+                hint: 'Enter city',
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 16),
+              CustomTextField(
+                controller: _stateController,
+                label: 'State',
+                hint: 'Enter state',
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 16),
+              CustomTextField(
+                controller: _notesController,
+                label: 'Notes',
+                hint: 'Enter notes or remarks',
+                maxLines: 3,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Switch(
+                    value: _isActive,
+                    onChanged: (value) => setState(() => _isActive = value),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _isActive ? 'Active customer' : 'Inactive customer',
+                    style: AppTextStyles.body1,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: _isSaving ? null : _saveCustomer,
+                  child: _isSaving
+                      ? const CircularProgressIndicator(
+                          color: Colors.white,
+                        )
+                      : const Text('Save Customer'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -20,6 +20,12 @@ class WorkerPermissions {
     'captain': 'supervisor',
     'room_attendant': 'housekeeper',
     'maintenance': 'maintenance_staff',
+    'station attendant': 'station_attendant',
+    'fuel attendant': 'station_attendant',
+    'petroleum attendant': 'station_attendant',
+    'petrol attendant': 'station_attendant',
+    'bakery cashier': 'cashier',
+    'pastry chef': 'pastry_chef',
   };
 
   static const Map<String, List<String>> rolePermissions = {
@@ -71,11 +77,35 @@ class WorkerPermissions {
     'pharmacy_assistant': ['sales', 'view_inventory'],
     'bartender': ['sales', 'view_inventory'],
     'pump_operator': ['sales', 'view_inventory'],
+    'station_attendant': ['sales', 'view_inventory', 'view_sales_history'],
+    'fuel_manager': [
+      'sales',
+      'view_inventory',
+      'manage_inventory',
+      'view_sales_history',
+      'procurement_management',
+      'view_reports',
+      'view_low_stock',
+      'manage_staff',
+    ],
     'chef': [
       'manage_menu',
       'view_orders',
       'procurement_management',
       'view_inventory',
+      'view_low_stock',
+    ],
+    'baker': [
+      'sales',
+      'view_inventory',
+      'manage_inventory',
+      'procurement_management',
+      'view_low_stock',
+    ],
+    'pastry_chef': [
+      'sales',
+      'view_inventory',
+      'manage_inventory',
       'view_low_stock',
     ],
     'waiter': ['sales', 'view_orders', 'table_management'],
@@ -335,6 +365,7 @@ class WorkerPermissions {
     final rolesByBusiness = <String, List<String>>{
       'pharmacy': ['cashier', 'pharmacist', 'pharmacy_assistant', 'manager'],
       'retail': ['cashier', 'manager', 'staff'],
+      'bakery': ['cashier', 'baker', 'pastry_chef', 'manager', 'staff'],
       'restaurant': [
         'sub_admin',
         'manager',
@@ -392,6 +423,9 @@ class WorkerPermissions {
       'real_estate': ['field_officer', 'manager'],
       'bar': ['bartender', 'manager', 'staff'],
       'gas': ['pump_operator', 'cashier', 'manager'],
+      'petroleum': ['pump_operator', 'station_attendant', 'fuel_manager', 'cashier', 'manager'],
+      'petrol_station': ['pump_operator', 'station_attendant', 'fuel_manager', 'cashier', 'manager'],
+      'petroleum_station': ['pump_operator', 'station_attendant', 'fuel_manager', 'cashier', 'manager'],
     };
     return rolesByBusiness[businessType.toLowerCase()] ??
         ['staff', 'manager', 'worker'];
@@ -426,6 +460,10 @@ class WorkerPermissions {
       'beautician': 'Beautician',
       'trainer': 'Trainer',
       'pump_operator': 'Pump Operator',
+      'station_attendant': 'Station Attendant',
+      'fuel_manager': 'Fuel Manager',
+      'baker': 'Baker',
+      'pastry_chef': 'Pastry Chef',
       'field_officer': 'Field Officer',
     };
     return displayNames[role.toLowerCase()] ?? role;
@@ -447,6 +485,11 @@ class WorkerPermissions {
       'trainer': 'Leads classes, sessions, and member guidance.',
       'beautician': 'Delivers beauty services and customer care.',
       'field_officer': 'Manages field visits, follow-ups, and property updates.',
+      'pump_operator': 'Handles fuel pump sales and station checkout.',
+      'station_attendant': 'Serves customers, records fuel sales, and checks stock.',
+      'fuel_manager': 'Oversees fuel stock, procurement, reports, and station staff.',
+      'baker': 'Manages baked goods, production stock, and bakery inventory.',
+      'pastry_chef': 'Prepares pastries and helps monitor finished goods stock.',
       'supervisor': 'Monitors operations and keeps service moving smoothly.',
     };
     return descriptions[normalizeRole(role)] ?? '';

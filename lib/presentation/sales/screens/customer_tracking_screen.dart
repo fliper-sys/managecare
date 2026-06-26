@@ -67,8 +67,11 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
-      backgroundColor: Colors.grey[900],
+      backgroundColor: colorScheme.background,
       appBar: CustomAppBar(
         title: 'Customer Tracking',
         onBackPressed: () => Navigator.pop(context),
@@ -76,8 +79,8 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
       body: Consumer<CustomerProvider>(
         builder: (context, provider, child) {
           if (provider.isLoading) {
-            return const Center(
-              child: CircularProgressIndicator(color: AppColors.primary),
+            return Center(
+              child: CircularProgressIndicator(color: colorScheme.primary),
             );
           }
 
@@ -95,16 +98,24 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
                         TextField(
                           controller: searchController,
                           onChanged: _searchCustomers,
-                          style: const TextStyle(color: Colors.white),
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurface,
+                        ),
                           decoration: InputDecoration(
                             hintText: 'Search by name or phone',
-                            hintStyle: TextStyle(color: Colors.grey[400]),
-                            prefixIcon: const Icon(Icons.search,
-                                color: AppColors.primary),
+                            hintStyle: theme.textTheme.bodyMedium?.copyWith(
+                              color: colorScheme.onSurface.withOpacity(0.6),
+                            ),
+                            prefixIcon: Icon(
+                              Icons.search,
+                              color: colorScheme.primary,
+                            ),
                             suffixIcon: searchController.text.isNotEmpty
                                 ? IconButton(
-                                    icon: const Icon(Icons.clear,
-                                        color: AppColors.primary),
+                                    icon: Icon(
+                                      Icons.clear,
+                                      color: colorScheme.primary,
+                                    ),
                                     onPressed: () {
                                       searchController.clear();
                                       _searchCustomers('');
@@ -112,19 +123,26 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
                                   )
                                 : null,
                             filled: true,
-                            fillColor: Colors.grey[800],
+                            fillColor:
+                                theme.inputDecorationTheme.fillColor ??
+                                    colorScheme.surfaceVariant,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey[700]!),
+                              borderSide: BorderSide(
+                                color: colorScheme.onSurface.withOpacity(0.12),
+                              ),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey[700]!),
+                              borderSide: BorderSide(
+                                color: colorScheme.onSurface.withOpacity(0.12),
+                              ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide:
-                                  const BorderSide(color: AppColors.primary),
+                              borderSide: BorderSide(
+                                color: colorScheme.primary,
+                              ),
                             ),
                           ),
                         ),
@@ -157,13 +175,16 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.people_outline,
-                              size: 64, color: Colors.grey[600]),
+                          Icon(
+                            Icons.people_outline,
+                            size: 64,
+                            color: colorScheme.onSurface.withOpacity(0.6),
+                          ),
                           const SizedBox(height: 16),
                           Text(
                             'No customers yet',
                             style: TextStyle(
-                                color: Colors.grey[400], fontSize: 16),
+                                color: colorScheme.onSurface.withOpacity(0.7), fontSize: 16),
                           ),
                         ],
                       ),
@@ -188,12 +209,15 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
   }
 
   Widget _buildSortChip(String label, String value) {
+    final colorScheme = Theme.of(context).colorScheme;
     final isSelected = sortBy == value;
     return FilterChip(
       label: Text(
         label,
         style: TextStyle(
-          color: isSelected ? Colors.white : Colors.grey[400],
+          color: isSelected
+              ? colorScheme.onPrimary
+              : colorScheme.onSurface.withOpacity(0.7),
           fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
         ),
       ),
@@ -204,15 +228,18 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
           _applySort();
         });
       },
-      backgroundColor: Colors.grey[800],
-      selectedColor: AppColors.primary,
+      backgroundColor: colorScheme.surfaceVariant,
+      selectedColor: colorScheme.primary,
       side: BorderSide(
-        color: isSelected ? AppColors.primary : Colors.grey[700]!,
+        color: isSelected
+            ? colorScheme.primary
+            : colorScheme.onSurface.withOpacity(0.12),
       ),
     );
   }
 
   Widget _buildSummaryStats() {
+    final colorScheme = Theme.of(context).colorScheme;
     final totalCustomers = filteredCustomers.length;
     final totalSpent =
         filteredCustomers.fold<double>(0, (sum, c) => sum + c.totalSpent);
@@ -221,7 +248,7 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[800],
+        color: colorScheme.surfaceVariant,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -238,22 +265,26 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
   }
 
   Widget _buildStatColumn(String label, String value, IconData icon) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Expanded(
       child: Column(
         children: [
-          Icon(icon, color: AppColors.primary, size: 20),
+          Icon(icon, color: colorScheme.primary, size: 20),
           const SizedBox(height: 8),
           Text(
             label,
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey[400], fontSize: 12),
+            style: TextStyle(
+              color: colorScheme.onSurface.withOpacity(0.7),
+              fontSize: 12,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             value,
             textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: colorScheme.onSurface,
               fontSize: 14,
               fontWeight: FontWeight.bold,
             ),
@@ -264,6 +295,7 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
   }
 
   Widget _buildCustomerCard(CustomerModel customer) {
+    final colorScheme = Theme.of(context).colorScheme;
     final lastPurchaseDaysAgo =
         DateTime.now().difference(customer.lastPurchaseDate).inDays;
     final lastPurchaseText = lastPurchaseDaysAgo == 0
@@ -275,9 +307,11 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.grey[800],
+        color: colorScheme.surfaceVariant,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[700]!),
+        border: Border.all(
+          color: colorScheme.onSurface.withOpacity(0.12),
+        ),
       ),
       child: InkWell(
         onTap: () => _showCustomerDetails(customer),
@@ -306,7 +340,7 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
                           Text(
                             customer.phone!,
                             style: TextStyle(
-                                color: Colors.grey[400], fontSize: 13),
+                                color: colorScheme.onSurface.withOpacity(0.7), fontSize: 13),
                           ),
                       ],
                     ),
@@ -331,7 +365,8 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
               // Last purchase
               Text(
                 'Last purchase: $lastPurchaseText',
-                style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                style: TextStyle(
+                    color: colorScheme.onSurface.withOpacity(0.7), fontSize: 12),
               ),
               if (customer.notes != null && customer.notes!.isNotEmpty)
                 Padding(
@@ -339,7 +374,7 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
                   child: Text(
                     'Notes: ${customer.notes}',
                     style: TextStyle(
-                        color: Colors.grey[500],
+                        color: colorScheme.onSurface.withOpacity(0.65),
                         fontSize: 12,
                         fontStyle: FontStyle.italic),
                     maxLines: 1,
@@ -354,8 +389,9 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
   }
 
   Widget _buildCustomerBadge(CustomerModel customer) {
+    final colorScheme = Theme.of(context).colorScheme;
     String badge = '';
-    Color color = Colors.grey;
+    Color color = colorScheme.onSurface.withOpacity(0.6);
 
     if (customer.totalSpent > 50000) {
       badge = 'VIP';
@@ -365,7 +401,7 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
       color = Colors.orange;
     } else if (customer.totalTransactions >= 10) {
       badge = 'Loyal';
-      color = AppColors.primary;
+      color = colorScheme.primary;
     }
 
     if (badge.isEmpty) return const SizedBox.shrink();
@@ -410,9 +446,10 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
   }
 
   void _showCustomerDetails(CustomerModel customer) {
+    final colorScheme = Theme.of(context).colorScheme;
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.grey[850],
+      backgroundColor: colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -431,8 +468,8 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
                     children: [
                       Text(
                         customer.name,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: colorScheme.onSurface,
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
                         ),
@@ -445,7 +482,7 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
                     ],
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
+                    icon: Icon(Icons.close, color: colorScheme.onSurface),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -482,7 +519,8 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
                 _buildDetailSection('Notes', [
                   Text(
                     customer.notes!,
-                    style: TextStyle(color: Colors.grey[300]),
+                    style: TextStyle(
+                        color: colorScheme.onSurface.withOpacity(0.75)),
                   ),
                 ]),
               ],
@@ -494,13 +532,14 @@ class _CustomerTrackingScreenState extends State<CustomerTrackingScreen> {
   }
 
   Widget _buildDetailSection(String title, List<Widget> children) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: colorScheme.onSurface,
             fontSize: 16,
             fontWeight: FontWeight.bold,
           ),

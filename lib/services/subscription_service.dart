@@ -630,6 +630,14 @@ class SubscriptionService {
         return 'realestate';
       case 'bar':
         return 'drink';
+      case 'bakery_shop':
+      case 'bakeshop':
+        return 'bakery';
+      case 'petrol_station':
+      case 'petroleum_station':
+      case 'filling_station':
+      case 'filling station':
+        return 'petroleum';
       case 'guest_inn':
       case 'guest inn':
       case 'guesthouse':

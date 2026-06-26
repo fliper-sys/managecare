@@ -351,14 +351,21 @@ class BusinessProvider with ChangeNotifier {
         }
       }
 
-      // If this is a Gas business and default fuel products aren't configured yet,
+      final normalizedBusinessType =
+          business.businessType.toLowerCase().replaceAll(' ', '');
+
+      // If this is a fuel station business and default fuel products aren't configured yet,
       // create common fuel SKUs (Petrol, Diesel, Kerosene) and mark the business as configured.
-      if (business.businessType.toLowerCase() == 'gas') {
+      if (normalizedBusinessType == 'gas' ||
+          normalizedBusinessType == 'petroleum' ||
+          normalizedBusinessType == 'petrolstation' ||
+          normalizedBusinessType == 'petroleumstation' ||
+          normalizedBusinessType == 'fillingstation') {
         final configured = (business.industrySpecificSettings ?? {})['defaultFuelProductsConfigured'] ?? false;
         if (configured != true) {
           try {
             final fuelUnit = (business.industrySpecificSettings ?? {})['fuelUnit'] ?? 'L';
-            print('[BusinessProvider] Detected Gas business - creating default fuel products (unit: $fuelUnit)');
+            print('[BusinessProvider] Detected fuel station business - creating default fuel products (unit: $fuelUnit)');
             // Guard default product creation with a timeout as well
             try {
               await _repository.createDefaultFuelProducts(business.id, fuelUnit: fuelUnit).timeout(timeoutDuration);
@@ -393,6 +400,49 @@ class BusinessProvider with ChangeNotifier {
           } catch (e) {
             print('[BusinessProvider] Warning: failed to create default fuel products: $e');
             // Do not fail business creation if the onboarding step fails
+          }
+        }
+      }
+
+      if (normalizedBusinessType == 'bakery') {
+        final configured =
+            (business.industrySpecificSettings ?? {})['defaultBakeryProductsConfigured'] ?? false;
+        if (configured != true) {
+          try {
+            print('[BusinessProvider] Detected Bakery business - creating default bakery products');
+            try {
+              await _repository
+                  .createDefaultBakeryProducts(business.id)
+                  .timeout(timeoutDuration);
+            } catch (e) {
+              print('[BusinessProvider] Warning: default bakery products creation timed out or failed: $e');
+            }
+
+            final updatedSettings =
+                Map<String, dynamic>.from(business.industrySpecificSettings ?? {});
+            updatedSettings['defaultBakeryProductsConfigured'] = true;
+            final updated = business.copyWith(industrySpecificSettings: updatedSettings);
+
+            try {
+              await _repository.updateBusiness(updated).timeout(timeoutDuration);
+            } catch (e) {
+              print('[BusinessProvider] Warning: update business to mark default bakery products configured timed out or failed: $e');
+            }
+
+            final idx = _userBusinesses.indexWhere((b) => b.id == updated.id);
+            if (idx != -1) _userBusinesses[idx] = updated;
+            if (_currentBusiness?.id == updated.id) _currentBusiness = updated;
+
+            if (_localStorage != null) {
+              try {
+                await _localStorage!.saveBusiness(updated);
+                print('[BusinessProvider] Updated local cache to mark default bakery products configured for ${updated.id}');
+              } catch (e) {
+                print('[BusinessProvider] Warning: failed to update local business cache: $e');
+              }
+            }
+          } catch (e) {
+            print('[BusinessProvider] Warning: failed to create default bakery products: $e');
           }
         }
       }
@@ -1286,6 +1336,8 @@ class BusinessProvider with ChangeNotifier {
         return 'Pharmacy';
       case 'retail':
         return 'Retail Store';
+      case 'bakery':
+        return 'Bakery';
       case 'wholesale':
         return 'Wholesale';
       case 'agri':
@@ -1300,6 +1352,10 @@ class BusinessProvider with ChangeNotifier {
         return 'Bar/Lounge';
       case 'restaurant':
         return 'Restaurant';
+      case 'gas':
+        return 'Gas Station';
+      case 'petroleum':
+        return 'Petroleum Station';
       case 'realestate':
         return 'Real Estate';
       default:
@@ -1327,6 +1383,8 @@ class BusinessProvider with ChangeNotifier {
         return '/pharmacy';
       case 'retail':
         return '/retail';
+      case 'bakery':
+        return '/bakery';
       case 'wholesale':
         return '/wholesale';
       case 'agri':
@@ -1346,6 +1404,14 @@ class BusinessProvider with ChangeNotifier {
         return '/restaurant';
       case 'gas':
         return '/gas';
+      case 'petroleum':
+      case 'petrol_station':
+      case 'petroleum_station':
+      case 'filling_station':
+      case 'petrol station':
+      case 'petroleum station':
+      case 'filling station':
+        return '/petroleum';
       case 'realestate':
       case 'real estate':
         return '/realestate';

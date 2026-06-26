@@ -5,6 +5,7 @@ import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../providers/auth_provider.dart';
+import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
 
 class GasDashboardScreen extends StatefulWidget {
@@ -101,6 +102,16 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final businessType =
+        context.watch<BusinessProvider>().currentBusiness?.businessType.toLowerCase() ?? 'gas';
+    final isPetroleumStation = businessType.contains('petroleum') ||
+        businessType.contains('petrol station') ||
+        businessType.contains('filling station');
+    final dashboardLabel = isPetroleumStation ? 'Petroleum Station' : 'Gas';
+    final pumpRoute = isPetroleumStation ? Routes.petroleumPump : Routes.gasPump;
+    final stockRoute = isPetroleumStation ? Routes.petroleumStock : Routes.gasStock;
+    final historyRoute =
+        isPetroleumStation ? Routes.petroleumSalesHistory : Routes.gasSalesHistory;
     return Scaffold(
       backgroundColor: colorScheme.surface,
       body: Stack(
@@ -143,7 +154,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Gas',
+                              Text(dashboardLabel,
                                   style: TextStyle(
                                       color:
                                           Colors.white.withValues(alpha: 0.85),
@@ -268,14 +279,13 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                               icon: Icons.local_gas_station,
                               color: Colors.purple,
                               onTap: () =>
-                                  Navigator.pushNamed(context, Routes.gasPump)
+                                  Navigator.pushNamed(context, pumpRoute)
                                       .then((_) => _loadMetrics())),
                           _OperationCard(
-                              title: 'Gas Stock',
+                              title: 'Fuel Stock',
                               icon: Icons.inventory_2,
                               color: Colors.brown,
-                              onTap: () => Navigator.pushNamed(
-                                      context, Routes.gasStock)
+                              onTap: () => Navigator.pushNamed(context, stockRoute)
                                   .then((_) => _loadMetrics())),
                           _OperationCard(
                               title: 'Shop POS',
@@ -306,8 +316,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                               title: 'History',
                               icon: Icons.history,
                               color: Colors.teal,
-                              onTap: () => Navigator.pushNamed(
-                                  context, Routes.gasSalesHistory)),
+                              onTap: () => Navigator.pushNamed(context, historyRoute)),
                         ],
                       ),
 
@@ -322,8 +331,8 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                                   fontWeight: FontWeight.bold,
                                 )),
                             TextButton(
-                                onPressed: () => Navigator.pushNamed(
-                                    context, Routes.gasSalesHistory),
+                                onPressed: () =>
+                                    Navigator.pushNamed(context, historyRoute),
                                 child: const Text('View All'))
                           ]),
 

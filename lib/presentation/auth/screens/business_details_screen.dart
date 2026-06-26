@@ -214,6 +214,87 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
     }
   }
 
+  bool _isFuelStationType(String businessType) {
+    final type = businessType.toLowerCase().replaceAll(' ', '');
+    return type == 'gas' ||
+        type == 'petroleum' ||
+        type == 'petrolstation' ||
+        type == 'petroleumstation' ||
+        type == 'fillingstation';
+  }
+
+  Map<String, dynamic> _sizeMetrics() {
+    return {
+      'products': int.tryParse(_productCountController.text) ?? 0,
+      'staff': int.tryParse(_staffCountController.text) ?? 0,
+      'monthlyIncome': double.tryParse(_monthlyIncomeController.text) ?? 0.0,
+    };
+  }
+
+  Map<String, dynamic> _buildIndustrySpecificSettings() {
+    if (_isFuelStationType(widget.businessType)) {
+      return {
+        'fuelUnit': 'L',
+        'enablePump': true,
+        'receiptPrinting': true,
+        'defaultFuelProductsConfigured': false,
+        'stationType': widget.businessType == 'petroleum'
+            ? 'petroleum_station'
+            : 'gas_station',
+        'sizeMetrics': _sizeMetrics(),
+      };
+    }
+
+    if (widget.businessType == 'bakery') {
+      return {
+        'defaultBakeryProductsConfigured': false,
+        'dailyProductionTracking': true,
+        'expiryTracking': true,
+        'retailPosEnabled': true,
+        'sizeMetrics': _sizeMetrics(),
+      };
+    }
+
+    if (widget.businessType == 'hotel') {
+      return {
+        'hospitalityServices': {
+          'frontDesk': _enableFrontDesk,
+          'restaurant': _enableRestaurant,
+          'bar': _enableBar,
+          'kitchen': _enableKitchen,
+          'lounge': _enableLounge,
+          'roomService': _enableRoomService,
+          'hallBooking': _enableHallBooking,
+          'pool': _enablePool,
+        },
+        'roomPricing': {
+          'nightlyRate': double.tryParse(_defaultNightlyRateController.text) ?? 0.0,
+          'halfDayRate': double.tryParse(_halfDayRateController.text) ?? 0.0,
+          'roomServiceFee': double.tryParse(_roomServiceFeeController.text) ?? 0.0,
+          'checkoutReminderHours':
+              int.tryParse(_checkoutReminderHoursController.text) ?? 24,
+        },
+        'sizeMetrics': _sizeMetrics(),
+      };
+    }
+
+    if (widget.businessType == 'apartment') {
+      return {
+        'allowBookings': _allowBookings,
+        'defaultNightlyRate': double.tryParse(_defaultNightlyRateController.text) ?? 0.0,
+        'requireDeposit': _requireDeposit,
+        'defaultDeposit': double.tryParse(_defaultDepositController.text) ?? 0.0,
+        'defaultUnitType': _defaultUnitTypeController.text.trim(),
+        'defaultUnitCount': int.tryParse(_unitCountController.text) ?? 0,
+        'checkInTime': _checkInController.text,
+        'checkOutTime': _checkOutController.text,
+        'sizeMetrics': _sizeMetrics(),
+      };
+    }
+
+    return {'sizeMetrics': _sizeMetrics()};
+  }
+
   Future<void> _handleSubmit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -272,66 +353,7 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
       isActive: true,
       totalWorkers: int.tryParse(_staffCountController.text) ?? 0,
       totalProducts: int.tryParse(_productCountController.text) ?? 0,
-      industrySpecificSettings: (widget.businessType == 'gas'
-          ? {
-              'fuelUnit': 'L',
-              'enablePump': true,
-              'receiptPrinting': true,
-              'defaultFuelProductsConfigured': false,
-              'sizeMetrics': {
-                'products': int.tryParse(_productCountController.text) ?? 0,
-                'staff': int.tryParse(_staffCountController.text) ?? 0,
-                'monthlyIncome': double.tryParse(_monthlyIncomeController.text) ?? 0.0,
-              }
-            }
-          : widget.businessType == 'hotel'
-              ? {
-                  'hospitalityServices': {
-                    'frontDesk': _enableFrontDesk,
-                    'restaurant': _enableRestaurant,
-                    'bar': _enableBar,
-                    'kitchen': _enableKitchen,
-                    'lounge': _enableLounge,
-                    'roomService': _enableRoomService,
-                    'hallBooking': _enableHallBooking,
-                    'pool': _enablePool,
-                  },
-                  'roomPricing': {
-                    'nightlyRate': double.tryParse(_defaultNightlyRateController.text) ?? 0.0,
-                    'halfDayRate': double.tryParse(_halfDayRateController.text) ?? 0.0,
-                    'roomServiceFee': double.tryParse(_roomServiceFeeController.text) ?? 0.0,
-                    'checkoutReminderHours': int.tryParse(_checkoutReminderHoursController.text) ?? 24,
-                  },
-                  'sizeMetrics': {
-                    'products': int.tryParse(_productCountController.text) ?? 0,
-                    'staff': int.tryParse(_staffCountController.text) ?? 0,
-                    'monthlyIncome': double.tryParse(_monthlyIncomeController.text) ?? 0.0,
-                  }
-                }
-              : widget.businessType == 'apartment'
-                  ? {
-                      'allowBookings': _allowBookings,
-                      'defaultNightlyRate': double.tryParse(_defaultNightlyRateController.text) ?? 0.0,
-                      'requireDeposit': _requireDeposit,
-                      'defaultDeposit': double.tryParse(_defaultDepositController.text) ?? 0.0,
-                      'defaultUnitType': _defaultUnitTypeController.text.trim(),
-                      'defaultUnitCount': int.tryParse(_unitCountController.text) ?? 0,
-                      'checkInTime': _checkInController.text,
-                      'checkOutTime': _checkOutController.text,
-                      'sizeMetrics': {
-                        'products': int.tryParse(_productCountController.text) ?? 0,
-                        'staff': int.tryParse(_staffCountController.text) ?? 0,
-                        'monthlyIncome': double.tryParse(_monthlyIncomeController.text) ?? 0.0,
-                      }
-                    }
-                  : {
-                      // persist size metrics for later tier & pricing decisions
-                      'sizeMetrics': {
-                        'products': int.tryParse(_productCountController.text) ?? 0,
-                        'staff': int.tryParse(_staffCountController.text) ?? 0,
-                        'monthlyIncome': double.tryParse(_monthlyIncomeController.text) ?? 0.0,
-                      }
-                    }),
+      industrySpecificSettings: _buildIndustrySpecificSettings(),
     );
 
     print('[BusinessDetails] Creating business ${business.id}');

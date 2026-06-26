@@ -1962,35 +1962,42 @@ class ReportsProvider extends ChangeNotifier {
           padding: const pw.EdgeInsets.all(12),
           decoration: pw.BoxDecoration(
             color: PdfColors.white,
-            borderRadius: pw.BorderRadius.circular(12),
+            borderRadius: pw.BorderRadius.circular(14),
             border: pw.Border.all(color: PdfColors.grey300, width: 0.8),
           ),
-          child: pw.Column(
+          child: pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Container(
-                width: 34,
-                height: 6,
+                width: 12,
+                height: 12,
                 decoration: pw.BoxDecoration(
                   color: color,
-                  borderRadius: pw.BorderRadius.circular(99),
+                  shape: pw.BoxShape.circle,
                 ),
               ),
-              pw.SizedBox(height: 10),
-              pw.Text(
-                label,
-                style: const pw.TextStyle(
-                  fontSize: 9,
-                  color: PdfColors.grey700,
-                ),
-              ),
-              pw.SizedBox(height: 4),
-              pw.Text(
-                value,
-                style: pw.TextStyle(
-                  fontSize: 14,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.black,
+              pw.SizedBox(width: 10),
+              pw.Expanded(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      label,
+                      style: const pw.TextStyle(
+                        fontSize: 9,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      value,
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.black,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -2267,7 +2274,7 @@ class ReportsProvider extends ChangeNotifier {
                   _salesEndDate.add(const Duration(days: 1))))
           .orderBy('createdAt', descending: true);
 
-      final snapshot = await query.orderBy('createdAt', descending: true).get();
+      final snapshot = await query.get();
 
       // Fallback: if no docs found using `createdAt`, attempt numeric `timestamp` range
       if (snapshot.docs.isEmpty) {
@@ -2871,15 +2878,42 @@ class ReportsProvider extends ChangeNotifier {
       final bid = businessId ??
           _currentSubscribedBusinessId ??
           _authProvider?.currentUser?.businessId;
-      if (bid == null || bid.isEmpty) return [];
-      final snapshot = await _firestore
+      if (bid == null || bid.isEmpty || customerId.isEmpty) return [];
+
+      final salesRef = _firestore
           .collection('businesses')
           .doc(bid)
-          .collection('sales')
-          .where('customerId', isEqualTo: customerId)
-          .orderBy('createdAt', descending: true)
-          .get();
-      return snapshot.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+          .collection('sales');
+
+      // Some sales records store the customer link as customerId, some use a nested
+      // customer object with an id field, and some may store the customer value
+      // directly on the customer field. Query all common variants and merge.
+      final queries = <Future<QuerySnapshot>>[
+        salesRef.where('customerId', isEqualTo: customerId).get(),
+        salesRef.where('customer.id', isEqualTo: customerId).get(),
+        salesRef.where('customer', isEqualTo: customerId).get(),
+      ];
+
+      final snapshots = await Future.wait(queries);
+      final Map<String, Map<String, dynamic>> salesById = {};
+
+      for (final snap in snapshots) {
+        for (final doc in snap.docs) {
+          final saleData = doc.data() as Map<String, dynamic>?;
+          salesById[doc.id] = {...?saleData, 'id': doc.id};
+        }
+      }
+
+      final sales = salesById.values.toList();
+      sales.sort((a, b) {
+        final aDate = DateTime.tryParse(a['createdAt']?.toString() ?? '') ??
+            (a['createdAt'] is Timestamp ? (a['createdAt'] as Timestamp).toDate() : DateTime.fromMillisecondsSinceEpoch(0));
+        final bDate = DateTime.tryParse(b['createdAt']?.toString() ?? '') ??
+            (b['createdAt'] is Timestamp ? (b['createdAt'] as Timestamp).toDate() : DateTime.fromMillisecondsSinceEpoch(0));
+        return bDate.compareTo(aDate);
+      });
+
+      return sales;
     } catch (e) {
       return [];
     }
@@ -3037,35 +3071,42 @@ class ReportsProvider extends ChangeNotifier {
           padding: const pw.EdgeInsets.all(12),
           decoration: pw.BoxDecoration(
             color: PdfColors.white,
-            borderRadius: pw.BorderRadius.circular(12),
+            borderRadius: pw.BorderRadius.circular(14),
             border: pw.Border.all(color: PdfColors.grey300, width: 0.8),
           ),
-          child: pw.Column(
+          child: pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               pw.Container(
-                width: 34,
-                height: 6,
+                width: 12,
+                height: 12,
                 decoration: pw.BoxDecoration(
                   color: color,
-                  borderRadius: pw.BorderRadius.circular(99),
+                  shape: pw.BoxShape.circle,
                 ),
               ),
-              pw.SizedBox(height: 10),
-              pw.Text(
-                label,
-                style: const pw.TextStyle(
-                  fontSize: 9,
-                  color: PdfColors.grey700,
-                ),
-              ),
-              pw.SizedBox(height: 4),
-              pw.Text(
-                value,
-                style: pw.TextStyle(
-                  fontSize: 14,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.black,
+              pw.SizedBox(width: 10),
+              pw.Expanded(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      label,
+                      style: const pw.TextStyle(
+                        fontSize: 9,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text(
+                      value,
+                      style: pw.TextStyle(
+                        fontSize: 14,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.black,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

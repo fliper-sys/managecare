@@ -30,6 +30,7 @@ import '../presentation/inventory/screens/low_stock_products_screen.dart';
 import '../presentation/inventory/screens/add_inventory_screen.dart';
 import '../presentation/inventory/screens/edit_inventory_screen.dart';
 import '../presentation/customers/screens/customer_list_screen.dart';
+import '../presentation/customers/screens/customer_details_screen.dart';
 import '../presentation/customers/screens/add_customer_screen.dart';
 import '../presentation/reports/screens/reports_dashboard_screen.dart';
 import '../presentation/reports/screens/financial_report_screen.dart';
@@ -326,7 +327,9 @@ class AppRouter {
 
       case Routes.customerDetails:
         final args = settings.arguments as Map<String, dynamic>?;
-        return _buildRoute(const CustomerListScreen());
+        return _buildRoute(CustomerDetailsScreen(
+          customerId: args?['customerId'] ?? '',
+        ));
 
       case Routes.loyaltyDashboard:
         return _buildRoute(const LoyaltyDashboardScreen());
@@ -358,7 +361,7 @@ class AppRouter {
         return _buildRoute(const ExportReportScreen());
 
       case Routes.customerReport:
-        return _buildRoute(const CustomerReportScreen());
+        return _buildRoute(const CustomerTrackingScreen());
 
       case Routes.settings:
         return _buildRoute(const SettingsScreen());
@@ -580,6 +583,9 @@ class AppRouter {
 
       // Industry Specific Routes - Retail
       case Routes.retailDashboard:
+        return _buildRoute(const RetailDashboard());
+
+      case Routes.bakeryDashboard:
         return _buildRoute(const RetailDashboard());
 
       case Routes.wholesaleDashboard:
@@ -892,6 +898,18 @@ class AppRouter {
         return _buildRoute(const GasStockScreen());
 
       case Routes.gasSalesHistory:
+        return _buildRoute(const GasSalesHistoryScreen());
+
+      case Routes.petroleumDashboard:
+        return _buildRoute(const GasDashboardScreen());
+
+      case Routes.petroleumPump:
+        return _buildRoute(const GasPumpScreen());
+
+      case Routes.petroleumStock:
+        return _buildRoute(const GasStockScreen());
+
+      case Routes.petroleumSalesHistory:
         return _buildRoute(const GasSalesHistoryScreen());
 
       case '/restaurant/history':

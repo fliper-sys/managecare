@@ -224,6 +224,81 @@ class BusinessRepository {
     }
   }
 
+  /// Create starter bakery products so a bakery can begin selling immediately.
+  Future<void> createDefaultBakeryProducts(String businessId) async {
+    try {
+      final inventoryRef =
+          _firestore.collection(_collection).doc(businessId).collection('inventory');
+
+      final defaultProducts = [
+        {
+          'id': 'bread_loaf',
+          'name': 'Bread Loaf',
+          'price': 1000.0,
+          'cost': 0.0,
+          'quantity': 0,
+          'category': 'Bakery',
+          'unit': 'pcs',
+          'emoji': 'bread',
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+        {
+          'id': 'meat_pie',
+          'name': 'Meat Pie',
+          'price': 800.0,
+          'cost': 0.0,
+          'quantity': 0,
+          'category': 'Pastry',
+          'unit': 'pcs',
+          'emoji': 'pie',
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+        {
+          'id': 'cupcake',
+          'name': 'Cupcake',
+          'price': 500.0,
+          'cost': 0.0,
+          'quantity': 0,
+          'category': 'Cake',
+          'unit': 'pcs',
+          'emoji': 'cake',
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+        {
+          'id': 'small_chops_pack',
+          'name': 'Small Chops Pack',
+          'price': 1500.0,
+          'cost': 0.0,
+          'quantity': 0,
+          'category': 'Snacks',
+          'unit': 'pack',
+          'emoji': 'snack',
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+      ];
+
+      final batch = _firestore.batch();
+      var hasWrites = false;
+
+      for (final p in defaultProducts) {
+        final docRef = inventoryRef.doc(p['id'] as String);
+        final snapshot = await docRef.get();
+        if (!snapshot.exists) {
+          final data = Map<String, dynamic>.from(p);
+          data.remove('id');
+          batch.set(docRef, data);
+          hasWrites = true;
+        }
+      }
+
+      if (hasWrites) {
+        await batch.commit();
+      }
+    } catch (e) {
+      throw Exception('Failed to create default bakery products: $e');
+    }
+  }
+
   Future<void> updateBusiness(BusinessModel business) async {
     try {
       await _firestore.collection(_collection).doc(business.id).update({

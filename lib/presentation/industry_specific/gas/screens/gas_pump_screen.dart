@@ -30,7 +30,15 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
   @override
   Widget build(BuildContext context) {
     final retail = context.watch<RetailProvider>();
-    final products = retail.products.where((p) => p.category.toLowerCase() == 'fuel' || p.category.toLowerCase() == 'petrol' || p.category.toLowerCase() == 'gas').toList();
+    final products = retail.products.where((p) {
+      final category = p.category.toLowerCase();
+      return category == 'fuel' ||
+          category == 'petrol' ||
+          category == 'petroleum' ||
+          category == 'diesel' ||
+          category == 'kerosene' ||
+          category == 'gas';
+    }).toList();
 
     final selected = products.firstWhereOrNull((p) => p.id == _selectedProductId) ?? (products.isNotEmpty ? products.first : null);
 

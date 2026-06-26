@@ -974,7 +974,10 @@ class _HomeTabState extends State<_HomeTab> {
                   if (current != null) {
                     final businessType = current.businessType.toLowerCase();
 
-                    if (businessType.contains('gas')) {
+                    if (businessType.contains('gas') ||
+                        businessType.contains('petroleum') ||
+                        businessType.contains('petrol station') ||
+                        businessType.contains('filling station')) {
                       // Prepend Pump Sale action for Gas businesses
                       actions.insert(
                         0,
@@ -983,7 +986,9 @@ class _HomeTabState extends State<_HomeTab> {
                           subtitle: 'Quick fuel sale',
                           icon: Icons.local_gas_station,
                           color: Colors.amber,
-                          route: Routes.gasPump,
+                          route: businessType.contains('petroleum')
+                              ? Routes.petroleumPump
+                              : Routes.gasPump,
                         ),
                       );
                     } else if (businessType.contains('pharmacy')) {
@@ -2700,6 +2705,7 @@ class _HomeTabState extends State<_HomeTab> {
         screen = const PharmacyDashboard();
         break;
       case 'retail':
+      case 'bakery':
         screen = const RetailDashboard();
         break;
       case 'restaurant':
@@ -2728,6 +2734,16 @@ class _HomeTabState extends State<_HomeTab> {
         screen = const DrinkDashboardScreen();
         break;
       case 'gas':
+      case 'petroleum':
+      case 'petrol station':
+      case 'petroleum station':
+      case 'filling station':
+      case 'petrol_station':
+      case 'petroleum_station':
+      case 'filling_station':
+      case 'petrolstation':
+      case 'petroleumstation':
+      case 'fillingstation':
         screen = const GasDashboardScreen();
         break;
       case 'apartment':
@@ -3394,6 +3410,55 @@ class _HomeTabState extends State<_HomeTab> {
           ...commonItems,
         ];
 
+      case 'petroleum':
+      case 'petrol station':
+      case 'petroleum station':
+      case 'filling station':
+      case 'petrol_station':
+      case 'petroleum_station':
+      case 'filling_station':
+      case 'petrolstation':
+      case 'petroleumstation':
+      case 'fillingstation':
+        return [
+          _QuickActionItem(
+            title: 'Pump',
+            subtitle: 'Fuel dispensing',
+            icon: Icons.local_gas_station_rounded,
+            color: Colors.blue,
+            route: Routes.petroleumPump,
+          ),
+          _QuickActionItem(
+            title: 'Stock',
+            subtitle: 'Fuel inventory',
+            icon: Icons.inventory_2_rounded,
+            color: Colors.green,
+            route: Routes.petroleumStock,
+          ),
+          _QuickActionItem(
+            title: 'Sales History',
+            subtitle: 'Fuel sales',
+            icon: Icons.history_rounded,
+            color: Colors.orange,
+            route: Routes.petroleumSalesHistory,
+          ),
+          _QuickActionItem(
+            title: 'New Sale',
+            subtitle: 'Create transaction',
+            icon: Icons.point_of_sale_rounded,
+            color: Colors.green,
+            route: Routes.sales,
+          ),
+          _QuickActionItem(
+            title: 'Inventory',
+            subtitle: 'Station shop stock',
+            icon: Icons.inventory_2_rounded,
+            color: Colors.green,
+            route: Routes.inventory,
+          ),
+          ...commonItems,
+        ];
+
       case 'wholesale':
         return [
           _QuickActionItem(
@@ -3632,10 +3697,15 @@ class _MenuTabState extends State<_MenuTab> {
         screen = const PharmacyDashboard();
         break;
       case 'retail':
+      case 'bakery':
         print('[MenuTab] Loading RetailDashboard');
         screen = const RetailDashboard();
         break;
       case 'gas':
+      case 'petroleum':
+      case 'petrolstation':
+      case 'petroleumstation':
+      case 'fillingstation':
         print('[MenuTab] Loading GasDashboardScreen');
         screen = const GasDashboardScreen();
         break;

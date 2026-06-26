@@ -50,6 +50,20 @@ class BusinessTypes {
       ],
     ),
     BusinessType(
+      id: 'bakery',
+      name: 'Bakery',
+      description: 'Bakery retail sales, product inventory, and daily stock control',
+      icon: Icons.bakery_dining,
+      color: AppColors.retail,
+      features: [
+        'Bakery POS',
+        'Bread & Pastry Inventory',
+        'Daily Stock Control',
+        'Supplier Management',
+        'Sales Reports',
+      ],
+    ),
+    BusinessType(
       id: 'wholesale',
       name: 'Wholesale',
       description: 'Wholesale distribution: bulk orders, purchase orders and stock transfers',
@@ -231,6 +245,21 @@ class BusinessTypes {
         'Sales Notifications',
       ],
     ),
+    BusinessType(
+      id: 'petroleum',
+      name: 'Petroleum Station',
+      description: 'Pump sales, fuel inventory, and station records for petroleum products',
+      icon: Icons.local_gas_station,
+      color: AppColors.primary,
+      features: [
+        'Fuel Inventory (litres)',
+        'Petrol, Diesel & Kerosene Stock',
+        'Sell by amount or volume',
+        'Pump / Quick Sale UI',
+        'Receipt printing',
+        'Sales Notifications',
+      ],
+    ),
   ];
 
   static BusinessType? getById(String id) {
@@ -275,6 +304,11 @@ class BusinessTypes {
       'barber': 'barbershop',
       'barbershop': 'barbershop',
       'retailstore': 'retail',
+      'bakeryshop': 'bakery',
+      'bakeshop': 'bakery',
+      'petrolstation': 'petroleum',
+      'petroleumstation': 'petroleum',
+      'fillingstation': 'petroleum',
       'realestate': 'realestate',
     };
     // Normalize common plural/synonym forms

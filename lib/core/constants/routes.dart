@@ -85,6 +85,10 @@ class Routes {
   static const String gasPump = '/gas/pump';
   static const String gasStock = '/gas/stock';
   static const String gasSalesHistory = '/gas/history';
+  static const String petroleumDashboard = '/petroleum';
+  static const String petroleumPump = '/petroleum/pump';
+  static const String petroleumStock = '/petroleum/stock';
+  static const String petroleumSalesHistory = '/petroleum/history';
 
   // Product Installation
   static const String productInstallation = '/install/product';
@@ -111,6 +115,7 @@ class Routes {
 
   // Industry-Specific Routes - Retail
   static const String retailDashboard = '/retail';
+  static const String bakeryDashboard = '/bakery';
   static const String wholesaleDashboard = '/wholesale';
   static const String wholesaleInventory = '/wholesale/inventory';
   static const String wholesalePos = '/wholesale/pos';

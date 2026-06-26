@@ -92,6 +92,7 @@ class BusinessLogicRegistry {
       case 'crops':
         return _agricultureLogic;
       case 'retail':
+      case 'bakery':
       case 'shop':
       case 'store':
         return _retailLogic;
@@ -117,6 +118,7 @@ class BusinessLogicRegistry {
       'Auto Repair',
       'Agriculture',
       'Retail',
+      'Bakery',
       'Gym'
     ];
   }

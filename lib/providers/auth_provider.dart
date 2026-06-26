@@ -16,6 +16,7 @@ import '../services/push_service.dart';
 import '../services/push_notification_service.dart';
 import '../data/repositories/business_repository_impl.dart';
 import '../data/repositories/worker_repository_impl.dart';
+import '../core/utils/connectivity_helper.dart';
 
 enum AuthStatus {
   initial,
@@ -73,6 +74,14 @@ class AuthProvider with ChangeNotifier {
     _init();
   }
 
+  Future<bool> _hasNetworkConnection() async {
+    try {
+      return await ConnectivityHelper.hasInternetConnection();
+    } catch (_) {
+      return false;
+    }
+  }
+
   void _init() {
     _initializeLocalStorage();
 
@@ -124,6 +133,13 @@ class AuthProvider with ChangeNotifier {
           _currentUser = cachedUser;
           _status = AuthStatus.authenticated;
           _errorMessage = null;
+
+          final hasNetwork = await _hasNetworkConnection();
+          if (!hasNetwork) {
+            _subscriptionValidated = true;
+            notifyListeners();
+            return;
+          }
 
           // Validate subscription status
           try {
@@ -385,6 +401,25 @@ class AuthProvider with ChangeNotifier {
     bool allowSelfRecovery = false,
   }) async {
     try {
+      final hasNetwork = await _hasNetworkConnection();
+      if (!hasNetwork) {
+        final cachedUser = _localStorage?.getCachedUser();
+        if (cachedUser != null && cachedUser.id == uid) {
+          _currentUser = cachedUser;
+          _status = AuthStatus.authenticated;
+          _errorMessage = null;
+          _subscriptionValidated = true;
+          notifyListeners();
+          return;
+        }
+
+        _currentUser = null;
+        _status = AuthStatus.unauthenticated;
+        _errorMessage = null;
+        notifyListeners();
+        return;
+      }
+
       final access = await _authenticationService.resolveUserAccess(
         uid,
         allowSelfRecovery: allowSelfRecovery,
@@ -522,6 +557,16 @@ class AuthProvider with ChangeNotifier {
     } catch (e) {
       if (kDebugMode) print('[AuthProvider] Error during business reconciliation: $e');
     }
+
+    final hasNetwork = await _hasNetworkConnection();
+    if (!hasNetwork) {
+      if (_currentUser != null) {
+        _subscriptionValidated = true;
+        notifyListeners();
+      }
+      return;
+    }
+
     if (_currentUser == null) return;
     try {
       final id = _currentUser!.id;

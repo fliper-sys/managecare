@@ -21,8 +21,10 @@ class _GasStockScreenState extends State<GasStockScreen> {
   bool _isFuelCategory(String category) {
     final normalized = category.trim().toLowerCase();
     return normalized.contains('fuel') ||
+        normalized.contains('petroleum') ||
         normalized.contains('petrol') ||
         normalized.contains('diesel') ||
+        normalized.contains('kerosene') ||
         normalized.contains('gas');
   }
 
@@ -82,6 +84,14 @@ class _GasStockScreenState extends State<GasStockScreen> {
                         DropdownMenuItem(
                           value: 'diesel',
                           child: Text('Diesel'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'kerosene',
+                          child: Text('Kerosene'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'petroleum',
+                          child: Text('Petroleum'),
                         ),
                         DropdownMenuItem(value: 'gas', child: Text('Gas')),
                       ],
@@ -183,7 +193,7 @@ class _GasStockScreenState extends State<GasStockScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('$name added to gas stock'),
+        content: Text('$name added to fuel stock'),
         backgroundColor: AppColors.success,
       ),
     );
@@ -341,7 +351,7 @@ class _GasStockScreenState extends State<GasStockScreen> {
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('Gas Stock'),
+            title: const Text('Fuel Stock'),
             backgroundColor: AppColors.primary,
             elevation: 0,
           ),
@@ -417,7 +427,7 @@ class _GasStockScreenState extends State<GasStockScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Add petrol, diesel, or gas stock to get started.',
+                          'Add petrol, diesel, kerosene, or gas stock to get started.',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey.shade600),
                         ),

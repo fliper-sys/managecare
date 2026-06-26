@@ -19,6 +19,12 @@ class BusinessSelectionScreen extends StatelessWidget {
       color: const Color(0xFFFF9800),
     ),
     BusinessTypeOption(
+      name: 'Bakery',
+      id: 'bakery',
+      icon: Icons.bakery_dining,
+      color: const Color(0xFFD97706),
+    ),
+    BusinessTypeOption(
       name: 'Wholesale',
       id: 'wholesale',
       icon: Icons.local_shipping,
@@ -71,6 +77,12 @@ class BusinessSelectionScreen extends StatelessWidget {
       id: 'gas',
       icon: Icons.local_gas_station,
       color: const Color(0xFFFFC107),
+    ),
+    BusinessTypeOption(
+      name: 'Petroleum Station',
+      id: 'petroleum',
+      icon: Icons.local_gas_station,
+      color: const Color(0xFF0F766E),
     ),
     BusinessTypeOption(
       name: 'Real Estate',
@@ -317,6 +329,8 @@ class BusinessTypeOption {
         return 'Prescriptions, stock, and fast checkout.';
       case 'retail':
         return 'Inventory, POS, and customer flow.';
+      case 'bakery':
+        return 'Bread, pastries, POS, and daily stock.';
       case 'wholesale':
         return 'Bulk stock, pricing, and dispatch.';
       case 'agri':
@@ -334,6 +348,8 @@ class BusinessTypeOption {
         return 'Tables, orders, kitchen, and bar sales.';
       case 'gas':
         return 'Pump sales, stock, and station records.';
+      case 'petroleum':
+        return 'Petrol, diesel, pump sales, and station stock.';
       case 'realestate':
         return 'Properties, clients, and payment records.';
       case 'gym':
