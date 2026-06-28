@@ -215,7 +215,10 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
   }
 
   bool _isFuelStationType(String businessType) {
-    final type = businessType.toLowerCase().replaceAll(' ', '');
+    final type = businessType
+        .toLowerCase()
+        .replaceAll(' ', '')
+        .replaceAll('_', '');
     return type == 'gas' ||
         type == 'petroleum' ||
         type == 'petrolstation' ||
@@ -268,9 +271,12 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
           'pool': _enablePool,
         },
         'roomPricing': {
-          'nightlyRate': double.tryParse(_defaultNightlyRateController.text) ?? 0.0,
-          'halfDayRate': double.tryParse(_halfDayRateController.text) ?? 0.0,
-          'roomServiceFee': double.tryParse(_roomServiceFeeController.text) ?? 0.0,
+          'nightlyRate':
+              double.tryParse(_defaultNightlyRateController.text) ?? 0.0,
+          'halfDayRate':
+              double.tryParse(_halfDayRateController.text) ?? 0.0,
+          'roomServiceFee':
+              double.tryParse(_roomServiceFeeController.text) ?? 0.0,
           'checkoutReminderHours':
               int.tryParse(_checkoutReminderHoursController.text) ?? 24,
         },
@@ -281,9 +287,11 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
     if (widget.businessType == 'apartment') {
       return {
         'allowBookings': _allowBookings,
-        'defaultNightlyRate': double.tryParse(_defaultNightlyRateController.text) ?? 0.0,
+        'defaultNightlyRate':
+            double.tryParse(_defaultNightlyRateController.text) ?? 0.0,
         'requireDeposit': _requireDeposit,
-        'defaultDeposit': double.tryParse(_defaultDepositController.text) ?? 0.0,
+        'defaultDeposit':
+            double.tryParse(_defaultDepositController.text) ?? 0.0,
         'defaultUnitType': _defaultUnitTypeController.text.trim(),
         'defaultUnitCount': int.tryParse(_unitCountController.text) ?? 0,
         'checkInTime': _checkInController.text,

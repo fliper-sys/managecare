@@ -1,9 +1,13 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/text_styles.dart';
+import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
 import '../../../../services/receipt_manager.dart';
 
@@ -23,11 +27,20 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
 
   DateTime? _startDate;
   DateTime? _endDate;
+  StreamSubscription<Map<String, dynamic>>? _metricsSubscription;
+  StreamSubscription<List<Map<String, dynamic>>>? _historySubscription;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _metricsSubscription?.cancel();
+    _historySubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadData({
@@ -47,6 +60,28 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
       _transactions = metrics['transactions'] ?? 0;
       _sales = history;
       _loading = false;
+    });
+
+    _metricsSubscription?.cancel();
+    _historySubscription?.cancel();
+    _metricsSubscription =
+        retail.watchFuelMetrics(start: start, end: end).listen((metrics) {
+      if (!mounted) return;
+      setState(() {
+        _totalAmount = metrics['totalAmount'] ?? 0.0;
+        _totalVolume = metrics['totalVolume'] ?? 0.0;
+        _transactions = metrics['transactions'] ?? 0;
+        _loading = false;
+      });
+    });
+    _historySubscription = retail
+        .watchFuelSalesHistory(start: start, end: end, limit: limit)
+        .listen((history) {
+      if (!mounted) return;
+      setState(() {
+        _sales = history;
+        _loading = false;
+      });
     });
   }
 
@@ -181,81 +216,275 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
             ),
             const SizedBox(height: 12),
             Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _sales.isEmpty
-                      ? const Center(child: Text('No fuel sales yet'))
-                      : ListView.separated(
-                          itemCount: _sales.length,
-                          separatorBuilder: (_, __) => const Divider(),
-                          itemBuilder: (context, index) {
-                            final sale = _sales[index];
-                            final created = sale['createdAt'] as DateTime?;
-                            final dateText = created != null
-                                ? DateFormat.yMd().add_jm().format(created)
-                                : (sale['createdAtRaw']?.toString() ?? '');
-                            final saleId = sale['id']?.toString() ?? '';
-
-                            return ListTile(
-                              onTap: saleId.isEmpty
-                                  ? null
-                                  : () => Navigator.pushNamed(
-                                        context,
-                                        Routes.salesReceipt,
-                                        arguments: saleId,
-                                      ),
-                              leading: saleId.isEmpty
-                                  ? const CircleAvatar(
-                                      child: Icon(Icons.local_gas_station),
-                                    )
-                                  : PopupMenuButton<String>(
-                                      onSelected: (value) => _handleReceiptAction(
-                                        context,
-                                        value,
-                                        saleId,
-                                      ),
-                                      itemBuilder: (context) => const [
-                                        PopupMenuItem(
-                                          value: 'view',
-                                          child: Text('View Receipt'),
-                                        ),
-                                        PopupMenuItem(
-                                          value: 'reprint',
-                                          child: Text('Reprint Receipt'),
-                                        ),
-                                      ],
-                                      child: const CircleAvatar(
-                                        child: Icon(Icons.receipt_long),
-                                      ),
-                                    ),
-                              title: Text(
-                                saleId.isEmpty ? 'Fuel sale' : 'Sale - $saleId',
-                              ),
-                              subtitle: Text(dateText),
-                              trailing: Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    'NGN ${(sale['totalAmount'] ?? 0.0).toStringAsFixed(2)}',
-                                    style: AppTextStyles.body1.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${(sale['fuelVolume'] ?? 0.0).toStringAsFixed(3)} L',
-                                    style: AppTextStyles.caption,
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+              child: DefaultTabController(
+                length: 3,
+                child: Column(
+                  children: [
+                    const TabBar(
+                      isScrollable: true,
+                      tabs: [
+                        Tab(text: 'Pump Sales'),
+                        Tab(text: 'Mini Mart Sales'),
+                        Tab(text: 'Daily Uploads'),
+                      ],
+                    ),
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          _buildPumpSalesList(),
+                          _buildMiniMartSalesList(),
+                          _buildDailyUploadsList(),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  bool _isFuelSale(Map<String, dynamic> data) {
+    bool isFuelText(String value) {
+      final text = value.trim().toLowerCase();
+      return text.contains('fuel') ||
+          text == 'gas' ||
+          text.contains('cooking gas') ||
+          text.contains('petrol') ||
+          text.contains('petroleum') ||
+          text.contains('diesel') ||
+          text.contains('deseal') ||
+          text.contains('kerosene') ||
+          text.contains('pump');
+    }
+
+    if (isFuelText(data['category']?.toString() ?? '') ||
+        isFuelText(data['order_type']?.toString() ?? '') ||
+        isFuelText(data['saleType']?.toString() ?? '')) {
+      return true;
+    }
+
+    final items = data['items'];
+    if (items is! List) return false;
+    return items.any((item) {
+      if (item is! Map) return false;
+      return isFuelText(item['category']?.toString() ?? '') ||
+          isFuelText(item['productName']?.toString() ?? '') ||
+          isFuelText(item['name']?.toString() ?? '');
+    });
+  }
+
+  Widget _buildPumpSalesList() {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_sales.isEmpty) return const Center(child: Text('No fuel sales yet'));
+    return ListView.separated(
+      itemCount: _sales.length,
+      separatorBuilder: (_, __) => const Divider(),
+      itemBuilder: (context, index) {
+        final sale = _sales[index];
+        final created = sale['createdAt'] as DateTime?;
+        final dateText = created != null
+            ? DateFormat.yMd().add_jm().format(created)
+            : (sale['createdAtRaw']?.toString() ?? '');
+        final saleId = sale['id']?.toString() ?? '';
+
+        return ListTile(
+          onTap: saleId.isEmpty
+              ? null
+              : () => Navigator.pushNamed(
+                    context,
+                    Routes.salesReceipt,
+                    arguments: saleId,
+                  ),
+          leading: saleId.isEmpty
+              ? const CircleAvatar(child: Icon(Icons.local_gas_station))
+              : PopupMenuButton<String>(
+                  onSelected: (value) => _handleReceiptAction(
+                    context,
+                    value,
+                    saleId,
+                  ),
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'view',
+                      child: Text('View Receipt'),
+                    ),
+                    PopupMenuItem(
+                      value: 'reprint',
+                      child: Text('Reprint Receipt'),
+                    ),
+                  ],
+                  child: const CircleAvatar(child: Icon(Icons.receipt_long)),
+                ),
+          title: Text(saleId.isEmpty ? 'Fuel sale' : 'Sale - $saleId'),
+          subtitle: Text(dateText),
+          trailing: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'NGN ${(sale['totalAmount'] ?? 0.0).toStringAsFixed(2)}',
+                style: AppTextStyles.body1.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${(sale['fuelVolume'] ?? 0.0).toStringAsFixed(3)} L',
+                style: AppTextStyles.caption,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMiniMartSalesList() {
+    final businessId = context.watch<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) {
+      return const Center(child: Text('No business selected'));
+    }
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(businessId)
+          .collection('sales')
+          .orderBy('createdAt', descending: true)
+          .limit(150)
+          .snapshots(includeMetadataChanges: true),
+      builder: (context, snapshot) {
+        final docs = (snapshot.data?.docs ?? [])
+            .where((doc) => !_isFuelSale(doc.data()))
+            .toList();
+        if (snapshot.connectionState == ConnectionState.waiting && docs.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (docs.isEmpty) {
+          return const Center(child: Text('No minimart sales yet'));
+        }
+        return ListView.separated(
+          itemCount: docs.length,
+          separatorBuilder: (_, __) => const Divider(),
+          itemBuilder: (context, index) {
+            final doc = docs[index];
+            final data = doc.data();
+            final createdAt = data['createdAt'] is Timestamp
+                ? (data['createdAt'] as Timestamp).toDate()
+                : data['timestamp'] is Timestamp
+                    ? (data['timestamp'] as Timestamp).toDate()
+                    : null;
+            final amount = ((data['totalAmount'] ??
+                        data['total'] ??
+                        data['amount']) as num?)
+                    ?.toDouble() ??
+                0.0;
+            final itemCount = data['items'] is List
+                ? (data['items'] as List).length
+                : ((data['quantity'] as num?)?.toInt() ?? 0);
+
+            return ListTile(
+              onTap: () => Navigator.pushNamed(
+                context,
+                Routes.salesReceipt,
+                arguments: doc.id,
+              ),
+              leading: PopupMenuButton<String>(
+                onSelected: (value) => _handleReceiptAction(
+                  context,
+                  value,
+                  doc.id,
+                ),
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: 'view',
+                    child: Text('View Receipt'),
+                  ),
+                  PopupMenuItem(
+                    value: 'reprint',
+                    child: Text('Reprint Receipt'),
+                  ),
+                ],
+                child: const CircleAvatar(child: Icon(Icons.storefront)),
+              ),
+              title: Text('Mini mart sale - ${doc.id}'),
+              subtitle: Text(
+                '${createdAt == null ? '' : DateFormat.yMd().add_jm().format(createdAt)}\n'
+                'Items: $itemCount',
+              ),
+              isThreeLine: true,
+              trailing: Text(
+                'NGN ${amount.toStringAsFixed(2)}',
+                style: AppTextStyles.body1.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildDailyUploadsList() {
+    final businessId = context.watch<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) {
+      return const Center(child: Text('No business selected'));
+    }
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(businessId)
+          .collection('pump_daily_uploads')
+          .orderBy('uploadedAt', descending: true)
+          .limit(100)
+          .snapshots(includeMetadataChanges: true),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+        if (snapshot.connectionState == ConnectionState.waiting && docs.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (docs.isEmpty) {
+          return const Center(child: Text('No daily uploads yet'));
+        }
+        return ListView.separated(
+          itemCount: docs.length,
+          separatorBuilder: (_, __) => const Divider(),
+          itemBuilder: (context, index) {
+            final data = docs[index].data();
+            final uploadedAt = data['uploadedAt'] is Timestamp
+                ? (data['uploadedAt'] as Timestamp).toDate()
+                : null;
+            return ListTile(
+              leading: const CircleAvatar(child: Icon(Icons.cloud_upload)),
+              title: Text(
+                'Pump ${data['pumpNumber'] ?? ''} - ${data['productName'] ?? ''}',
+              ),
+              subtitle: Text(
+                '${uploadedAt == null ? '' : DateFormat.yMd().add_jm().format(uploadedAt)}\n'
+                'Operator: ${data['workerName'] ?? 'N/A'}',
+              ),
+              isThreeLine: true,
+              trailing: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '${((data['soldVolume'] as num?)?.toDouble() ?? 0).toStringAsFixed(3)} L',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    'NGN ${((data['expectedAmount'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

@@ -25,6 +25,11 @@ class SettingsScreen extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final user = authProvider.currentUser;
     final business = businessProvider.currentBusiness;
+    final businessType = business?.businessType.toLowerCase() ?? '';
+    final isFuelStation = businessType.contains('gas') ||
+        businessType.contains('petroleum') ||
+        businessType.contains('petrol') ||
+        businessType.contains('filling');
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -192,6 +197,22 @@ class SettingsScreen extends StatelessWidget {
                           Navigator.pushNamed(context, Routes.printerSettings);
                         },
                       ),
+                      if (isFuelStation) ...[
+                        const Divider(height: 1),
+                        _SettingsItem(
+                          icon: Icons.local_gas_station_outlined,
+                          title: 'Pump Configuration',
+                          subtitle: 'Add pumps and assign fuel products',
+                          onTap: () {
+                            Navigator.pushNamed(
+                              context,
+                              businessType.contains('petroleum')
+                                  ? Routes.petroleumPumpConfiguration
+                                  : Routes.gasPumpConfiguration,
+                            );
+                          },
+                        ),
+                      ],
                       // Show Dunning Status only to admins or business owners
                       if (AccessControl.canAccessDunning(context)) ...[
                         const Divider(height: 1),

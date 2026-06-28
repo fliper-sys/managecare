@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/colors.dart';
@@ -75,6 +76,12 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
     final businessProvider = context.watch<BusinessProvider>();
     final currentBusinessId = businessProvider.currentBusiness?.id ??
         authProvider.currentUser?.businessId;
+    final businessType =
+        businessProvider.currentBusiness?.businessType.toLowerCase() ?? '';
+    final isFuelStation = businessType.contains('gas') ||
+        businessType.contains('petroleum') ||
+        businessType.contains('petrol') ||
+        businessType.contains('filling');
     if (currentBusinessId == null || currentBusinessId.isEmpty) {
       return Scaffold(
         appBar: AppBar(
@@ -364,6 +371,10 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
               color: AppColors.error,
               onTap: () => Navigator.pushNamed(context, Routes.exportReport),
             ),
+            if (isFuelStation) ...[
+              const SizedBox(height: 12),
+              _FuelStationReportSplitCard(businessId: currentBusinessId),
+            ],
             const SizedBox(height: 24),
 
             // Recent Reports
@@ -568,6 +579,142 @@ class _ReportCategoryCard extends StatelessWidget {
             Icon(Icons.chevron_right_rounded, color: context.reportMutedText.withOpacity(0.8)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _FuelStationReportSplitCard extends StatelessWidget {
+  const _FuelStationReportSplitCard({required this.businessId});
+
+  final String businessId;
+
+  bool _isPumpSale(Map<String, dynamic> data) {
+    final category = (data['category'] ?? '').toString().toLowerCase();
+    final orderType = (data['order_type'] ?? data['orderType'] ?? '')
+        .toString()
+        .toLowerCase();
+    return category.contains('fuel') ||
+        category.contains('pump') ||
+        orderType.contains('fuel');
+  }
+
+  double _readAmount(Map<String, dynamic> data) {
+    return (data['totalAmount'] as num?)?.toDouble() ??
+        (data['total'] as num?)?.toDouble() ??
+        (data['expectedAmount'] as num?)?.toDouble() ??
+        0.0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.local_gas_station_rounded),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Fuel Station Report Split',
+                    style: AppTextStyles.heading5,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('businesses')
+                  .doc(businessId)
+                  .collection('sales')
+                  .snapshots(includeMetadataChanges: true),
+              builder: (context, salesSnapshot) {
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('businesses')
+                      .doc(businessId)
+                      .collection('pump_daily_uploads')
+                      .snapshots(includeMetadataChanges: true),
+                  builder: (context, uploadSnapshot) {
+                    final sales = salesSnapshot.data?.docs ?? [];
+                    final uploads = uploadSnapshot.data?.docs ?? [];
+                    var pumpRevenue = 0.0;
+                    var minimartRevenue = 0.0;
+                    for (final sale in sales) {
+                      final data = sale.data();
+                      if (_isPumpSale(data)) {
+                        pumpRevenue += _readAmount(data);
+                      } else {
+                        minimartRevenue += _readAmount(data);
+                      }
+                    }
+                    for (final upload in uploads) {
+                      pumpRevenue += _readAmount(upload.data());
+                    }
+
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: _MiniSplitMetric(
+                            title: 'Pump Revenue',
+                            value: formatCurrency(pumpRevenue),
+                            subtitle: '${uploads.length} daily uploads',
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _MiniSplitMetric(
+                            title: 'Minimart Revenue',
+                            value: formatCurrency(minimartRevenue),
+                            subtitle: 'Retail/non-pump sales',
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniSplitMetric extends StatelessWidget {
+  const _MiniSplitMetric({
+    required this.title,
+    required this.value,
+    required this.subtitle,
+  });
+
+  final String title;
+  final String value;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: context.reportBorder),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: AppTextStyles.caption),
+          const SizedBox(height: 6),
+          Text(value, style: AppTextStyles.heading5),
+          const SizedBox(height: 4),
+          Text(subtitle, style: AppTextStyles.caption),
+        ],
       ),
     );
   }

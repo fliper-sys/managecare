@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -7,9 +9,15 @@ import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
+import '../utils/fuel_station_scope.dart';
 
 class GasDashboardScreen extends StatefulWidget {
-  const GasDashboardScreen({super.key});
+  const GasDashboardScreen({
+    super.key,
+    this.mode = FuelStationMode.gas,
+  });
+
+  final FuelStationMode mode;
 
   @override
   State<GasDashboardScreen> createState() => _GasDashboardScreenState();
@@ -25,6 +33,8 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
   int _fuelProductCount = 0;
   List<Map<String, dynamic>> _recentSales = [];
   DateTime _selectedDate = DateTime.now();
+  StreamSubscription<Map<String, dynamic>>? _metricsSubscription;
+  StreamSubscription<List<Map<String, dynamic>>>? _historySubscription;
 
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
@@ -56,6 +66,8 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
 
   @override
   void dispose() {
+    _metricsSubscription?.cancel();
+    _historySubscription?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -81,7 +93,10 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     final fuelProducts = retail.products.where((p) {
       final cat = p.category.toLowerCase();
       return cat.contains('fuel') ||
+          cat.contains('petroleum') ||
           cat.contains('petrol') ||
+          cat.contains('diesel') ||
+          cat.contains('kerosene') ||
           cat.contains('gas');
     }).toList();
 
@@ -96,6 +111,28 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
         _loading = false;
       });
     }
+
+    _metricsSubscription?.cancel();
+    _historySubscription?.cancel();
+    _metricsSubscription =
+        retail.watchFuelMetrics(start: start, end: end).listen((metrics) {
+      if (!mounted) return;
+      setState(() {
+        _totalAmount = metrics['totalAmount'] ?? 0.0;
+        _totalVolume = metrics['totalVolume'] ?? 0.0;
+        _transactions = metrics['transactions'] ?? 0;
+        _loading = false;
+      });
+    });
+    _historySubscription = retail
+        .watchFuelSalesHistory(start: start, end: end, limit: 5)
+        .listen((history) {
+      if (!mounted) return;
+      setState(() {
+        _recentSales = history;
+        _loading = false;
+      });
+    });
   }
 
   @override
@@ -104,14 +141,26 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     final colorScheme = theme.colorScheme;
     final businessType =
         context.watch<BusinessProvider>().currentBusiness?.businessType.toLowerCase() ?? 'gas';
-    final isPetroleumStation = businessType.contains('petroleum') ||
-        businessType.contains('petrol station') ||
-        businessType.contains('filling station');
-    final dashboardLabel = isPetroleumStation ? 'Petroleum Station' : 'Gas';
+    if (!FuelStationScope.matches(widget.mode, businessType)) {
+      return FuelStationScope.mismatchScaffold(
+        mode: widget.mode,
+        businessType: businessType,
+      );
+    }
+    final isPetroleumStation = widget.mode == FuelStationMode.petroleum;
+    final dashboardLabel = widget.mode.label;
     final pumpRoute = isPetroleumStation ? Routes.petroleumPump : Routes.gasPump;
     final stockRoute = isPetroleumStation ? Routes.petroleumStock : Routes.gasStock;
     final historyRoute =
         isPetroleumStation ? Routes.petroleumSalesHistory : Routes.gasSalesHistory;
+    final pumpUploadRoute =
+        isPetroleumStation ? Routes.petroleumPumpUpload : Routes.gasPumpUpload;
+    final pumpUploadHistoryRoute = isPetroleumStation
+        ? Routes.petroleumPumpUploadHistory
+        : Routes.gasPumpUploadHistory;
+    final pumpConfigurationRoute = isPetroleumStation
+        ? Routes.petroleumPumpConfiguration
+        : Routes.gasPumpConfiguration;
     return Scaffold(
       backgroundColor: colorScheme.surface,
       body: Stack(
@@ -288,6 +337,25 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                               onTap: () => Navigator.pushNamed(context, stockRoute)
                                   .then((_) => _loadMetrics())),
                           _OperationCard(
+                              title: 'Pump Upload',
+                              icon: Icons.cloud_upload_outlined,
+                              color: Colors.deepPurple,
+                              onTap: () => Navigator.pushNamed(
+                                      context, pumpUploadRoute)
+                                  .then((_) => _loadMetrics())),
+                          _OperationCard(
+                              title: 'Upload History',
+                              icon: Icons.fact_check_outlined,
+                              color: Colors.blueGrey,
+                              onTap: () => Navigator.pushNamed(
+                                  context, pumpUploadHistoryRoute)),
+                          _OperationCard(
+                              title: 'Pump Config',
+                              icon: Icons.tune_outlined,
+                              color: Colors.cyan,
+                              onTap: () => Navigator.pushNamed(
+                                  context, pumpConfigurationRoute)),
+                          _OperationCard(
                               title: 'Shop POS',
                               icon: Icons.point_of_sale,
                               color: Colors.indigo,
@@ -301,6 +369,12 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                               onTap: () => Navigator.pushNamed(
                                       context, Routes.procurement)
                                   .then((_) => _loadMetrics())),
+                          _OperationCard(
+                              title: 'Expenses',
+                              icon: Icons.receipt_long_outlined,
+                              color: Colors.brown,
+                              onTap: () => Navigator.pushNamed(
+                                  context, Routes.expenseReport)),
                           _OperationCard(
                               title: 'Printer settings',
                               icon: Icons.print,

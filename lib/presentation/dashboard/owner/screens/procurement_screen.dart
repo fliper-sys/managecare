@@ -9,6 +9,7 @@ import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/utils/inventory_utils.dart';
 import '../../../../core/utils/search_utils.dart';
+import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/pharmacy_provider.dart';
@@ -343,6 +344,30 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
+    final auth = context.watch<AuthProvider>();
+    final user = auth.currentUser;
+    final canAccess = auth.isOwnerUser ||
+        auth.isAdminUser ||
+        (user != null &&
+            WorkerPermissions.canAccessProcurementForUser(
+              user.role,
+              user.permissions,
+            ));
+
+    if (!canAccess) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Procurement Management')),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Access denied: procurement access has not been granted to this worker.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,

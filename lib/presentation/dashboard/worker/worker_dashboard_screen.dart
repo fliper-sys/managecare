@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/constants/routes.dart';
 import '../../../core/theme/text_styles.dart';
+import '../../../core/utils/worker_permissions.dart';
 
 import 'package:provider/provider.dart';
 import '../../../providers/auth_provider.dart';
@@ -260,6 +261,8 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
         : businessTypeStr;
 
     print('[WorkerDashboard] Loading dashboard for type: $primaryType');
+    final currentUser = context.watch<AuthProvider>().currentUser;
+    final workerRole = WorkerPermissions.normalizeRole(currentUser?.role ?? '');
 
     // Route to industry-specific dashboard
     Widget? dashboard;
@@ -329,8 +332,16 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
       case 'petrolstation':
       case 'petroleumstation':
       case 'fillingstation':
-        print('[WorkerDashboard] Showing Gas Dashboard');
-        dashboard = const GasDashboardScreen();
+        if (workerRole == 'pump_operator') {
+          print('[WorkerDashboard] Showing Pump Operator Dashboard');
+          dashboard = const _PumpOperatorDashboard();
+        } else if (workerRole == 'sales_rep' || workerRole == 'cashier') {
+          print('[WorkerDashboard] Showing Mini Mart Dashboard for station sales rep');
+          dashboard = const _StationSalesRepDashboard();
+        } else {
+          print('[WorkerDashboard] Showing Gas Dashboard');
+          dashboard = const GasDashboardScreen();
+        }
         break;
     }
 
@@ -412,6 +423,11 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
+            if (currentUser != null)
+              _GrantedAdminQuickNav(
+                role: workerRole,
+                permissions: currentUser.permissions,
+              ),
             SizedBox(
               height: MediaQuery.of(context).size.height,
               child: dashboard,
@@ -423,3 +439,391 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
   }
 }
 
+class _GrantedAdminQuickNav extends StatelessWidget {
+  const _GrantedAdminQuickNav({
+    required this.role,
+    required this.permissions,
+  });
+
+  final String role;
+  final List<String> permissions;
+
+  @override
+  Widget build(BuildContext context) {
+    final shortcuts = _buildShortcuts();
+    if (shortcuts.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Granted Admin Access',
+            style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Shortcuts approved by your admin for this business.',
+            style: AppTextStyles.caption,
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: shortcuts
+                  .map(
+                    (shortcut) => Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ActionChip(
+                        avatar: Icon(shortcut.icon, size: 18),
+                        label: Text(shortcut.label),
+                        onPressed: () =>
+                            Navigator.pushNamed(context, shortcut.route),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<_GrantedAdminShortcut> _buildShortcuts() {
+    bool can(String permission) => WorkerPermissions.hasEffectivePermission(
+          role,
+          permissions,
+          permission,
+        );
+
+    final shortcuts = <_GrantedAdminShortcut>[];
+    if (can('access_owner_dashboard')) {
+      shortcuts.add(
+        const _GrantedAdminShortcut(
+          label: 'Dashboard',
+          route: Routes.ownerDashboard,
+          icon: Icons.dashboard_rounded,
+        ),
+      );
+    }
+    if (can('access_inventory_screen') ||
+        can('manage_inventory') ||
+        can('view_inventory')) {
+      shortcuts.add(
+        const _GrantedAdminShortcut(
+          label: 'Inventory',
+          route: Routes.inventory,
+          icon: Icons.inventory_2_rounded,
+        ),
+      );
+    }
+    if (can('access_procurement_screen') || can('procurement_management')) {
+      shortcuts.add(
+        const _GrantedAdminShortcut(
+          label: 'Procurement',
+          route: Routes.procurement,
+          icon: Icons.shopping_bag_rounded,
+        ),
+      );
+    }
+    if (can('access_reports_dashboard') || can('view_reports')) {
+      shortcuts.add(
+        const _GrantedAdminShortcut(
+          label: 'Reports',
+          route: Routes.reports,
+          icon: Icons.bar_chart_rounded,
+        ),
+      );
+    }
+    if (can('access_analytics_dashboard')) {
+      shortcuts.add(
+        const _GrantedAdminShortcut(
+          label: 'Analytics',
+          route: Routes.advancedAnalytics,
+          icon: Icons.insights_rounded,
+        ),
+      );
+    }
+    if (can('access_expenses_screen')) {
+      shortcuts.add(
+        const _GrantedAdminShortcut(
+          label: 'Expenses',
+          route: Routes.expenseReport,
+          icon: Icons.receipt_long_rounded,
+        ),
+      );
+    }
+    if (can('access_workers_screen') || can('manage_staff')) {
+      shortcuts.add(
+        const _GrantedAdminShortcut(
+          label: 'Workers',
+          route: Routes.workers,
+          icon: Icons.groups_rounded,
+        ),
+      );
+    }
+    if (can('access_settings_screen')) {
+      shortcuts.add(
+        const _GrantedAdminShortcut(
+          label: 'Settings',
+          route: Routes.settings,
+          icon: Icons.settings_rounded,
+        ),
+      );
+    }
+    return shortcuts;
+  }
+}
+
+class _GrantedAdminShortcut {
+  const _GrantedAdminShortcut({
+    required this.label,
+    required this.route,
+    required this.icon,
+  });
+
+  final String label;
+  final String route;
+  final IconData icon;
+}
+
+class _PumpOperatorDashboard extends StatelessWidget {
+  const _PumpOperatorDashboard();
+
+  @override
+  Widget build(BuildContext context) {
+    final businessType =
+        context.watch<BusinessProvider>().currentBusiness?.businessType.toLowerCase() ??
+            'gas';
+    final isPetroleumStation = businessType.contains('petroleum') ||
+        businessType.contains('petrol') ||
+        businessType.contains('filling');
+    final pumpRoute =
+        isPetroleumStation ? Routes.petroleumPump : Routes.gasPump;
+    final uploadRoute =
+        isPetroleumStation ? Routes.petroleumPumpUpload : Routes.gasPumpUpload;
+    final uploadHistoryRoute = isPetroleumStation
+        ? Routes.petroleumPumpUploadHistory
+        : Routes.gasPumpUploadHistory;
+
+    return WillPopScope(
+      onWillPop: () async {
+        final shouldExit = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Exit App'),
+                content: const Text('Do you want to exit the app?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('No'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Yes'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+        if (shouldExit) await SystemNavigator.pop();
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Pump Operator'),
+          actions: [
+            IconButton(
+              tooltip: 'Upload History',
+              icon: const Icon(Icons.history_rounded),
+              onPressed: () => Navigator.pushNamed(
+                context,
+                uploadHistoryRoute,
+              ),
+            ),
+          ],
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _PumpOperatorActionCard(
+              title: 'Pump Sale',
+              subtitle: 'Record individual fuel sales by amount or volume',
+              icon: Icons.local_gas_station_rounded,
+              onTap: () => Navigator.pushNamed(context, pumpRoute),
+            ),
+            _PumpOperatorActionCard(
+              title: 'Total Sales Upload',
+              subtitle: 'Upload opening and closing pump readings',
+              icon: Icons.cloud_upload_rounded,
+              onTap: () => Navigator.pushNamed(context, uploadRoute),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StationSalesRepDashboard extends StatelessWidget {
+  const _StationSalesRepDashboard();
+
+  @override
+  Widget build(BuildContext context) {
+    final businessType =
+        context.watch<BusinessProvider>().currentBusiness?.businessType.toLowerCase() ??
+            'gas';
+    final isPetroleumStation = businessType.contains('petroleum') ||
+        businessType.contains('petrol') ||
+        businessType.contains('filling');
+    final historyRoute = isPetroleumStation
+        ? Routes.petroleumSalesHistory
+        : Routes.gasSalesHistory;
+
+    return WillPopScope(
+      onWillPop: () async {
+        final shouldExit = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Exit App'),
+                content: const Text('Do you want to exit the app?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('No'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Yes'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+        if (shouldExit) await SystemNavigator.pop();
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Mini Mart Sales'),
+          actions: [
+            IconButton(
+              tooltip: 'Sales History',
+              icon: const Icon(Icons.history_rounded),
+              onPressed: () => Navigator.pushNamed(context, historyRoute),
+            ),
+          ],
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(
+              'Station Mini Mart',
+              style: AppTextStyles.heading5,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Sell cylinders, oils, accessories, bakery or retail items without accessing pump upload tools.',
+              style: AppTextStyles.body2Secondary,
+            ),
+            const SizedBox(height: 16),
+            _StationSalesRepActionCard(
+              title: 'Mini Mart Sale',
+              subtitle: 'Open POS for shop and retail products',
+              icon: Icons.point_of_sale_rounded,
+              color: Colors.green,
+              onTap: () => Navigator.pushNamed(context, Routes.retailPos),
+            ),
+            _StationSalesRepActionCard(
+              title: 'Mini Mart Inventory',
+              subtitle: 'Check available retail stock',
+              icon: Icons.inventory_2_rounded,
+              color: Colors.blue,
+              onTap: () => Navigator.pushNamed(context, Routes.inventory),
+            ),
+            _StationSalesRepActionCard(
+              title: 'Sales History',
+              subtitle: 'Review recorded station sales',
+              icon: Icons.receipt_long_rounded,
+              color: Colors.orange,
+              onTap: () => Navigator.pushNamed(context, historyRoute),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PumpOperatorActionCard extends StatelessWidget {
+  const _PumpOperatorActionCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: CircleAvatar(child: Icon(icon)),
+        title: Text(title, style: AppTextStyles.body1),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _StationSalesRepActionCard extends StatelessWidget {
+  const _StationSalesRepActionCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        leading: CircleAvatar(
+          backgroundColor: color.withOpacity(0.12),
+          child: Icon(icon, color: color),
+        ),
+        title: Text(title, style: AppTextStyles.body1),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: onTap,
+      ),
+    );
+  }
+}

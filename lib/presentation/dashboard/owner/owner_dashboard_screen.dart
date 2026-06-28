@@ -974,24 +974,7 @@ class _HomeTabState extends State<_HomeTab> {
                   if (current != null) {
                     final businessType = current.businessType.toLowerCase();
 
-                    if (businessType.contains('gas') ||
-                        businessType.contains('petroleum') ||
-                        businessType.contains('petrol station') ||
-                        businessType.contains('filling station')) {
-                      // Prepend Pump Sale action for Gas businesses
-                      actions.insert(
-                        0,
-                        _QuickActionItem(
-                          title: 'Pump Sale',
-                          subtitle: 'Quick fuel sale',
-                          icon: Icons.local_gas_station,
-                          color: Colors.amber,
-                          route: businessType.contains('petroleum')
-                              ? Routes.petroleumPump
-                              : Routes.gasPump,
-                        ),
-                      );
-                    } else if (businessType.contains('pharmacy')) {
+                    if (businessType.contains('pharmacy')) {
                       // Pharmacy specific actions - lead with New Sale,
                       // matching every other business type's POS-first
                       // quick action. "Drug Inventory" is intentionally not
@@ -3380,6 +3363,20 @@ class _HomeTabState extends State<_HomeTab> {
             route: Routes.gasPump,
           ),
           _QuickActionItem(
+            title: 'Pump Upload',
+            subtitle: 'Daily total sales',
+            icon: Icons.cloud_upload_rounded,
+            color: Colors.indigo,
+            route: Routes.gasPumpUpload,
+          ),
+          _QuickActionItem(
+            title: 'Pump Upload History',
+            subtitle: 'Pump daily uploads',
+            icon: Icons.fact_check_rounded,
+            color: Colors.deepPurple,
+            route: Routes.gasPumpUploadHistory,
+          ),
+          _QuickActionItem(
             title: 'Stock',
             subtitle: 'Fuel inventory',
             icon: Icons.inventory_2_rounded,
@@ -3388,17 +3385,17 @@ class _HomeTabState extends State<_HomeTab> {
           ),
           _QuickActionItem(
             title: 'Sales History',
-            subtitle: 'Fuel sales',
+            subtitle: 'Pump and minimart sales',
             icon: Icons.history_rounded,
             color: Colors.orange,
             route: Routes.gasSalesHistory,
           ),
            _QuickActionItem(
-            title: 'New Sale',
-            subtitle: 'Create transaction',
+            title: 'Mini Mart Sale',
+            subtitle: 'Sell retail station items',
             icon: Icons.point_of_sale_rounded,
             color: Colors.green,
-            route: Routes.sales,
+            route: Routes.retailPos,
           ),
           _QuickActionItem(
             title: 'Inventory',
@@ -3406,6 +3403,13 @@ class _HomeTabState extends State<_HomeTab> {
             icon: Icons.inventory_2_rounded,
             color: Colors.green,
             route: Routes.inventory,
+          ),
+          _QuickActionItem(
+            title: 'Expenses',
+            subtitle: 'Record expenses',
+            icon: Icons.receipt_long_rounded,
+            color: Colors.brown,
+            route: Routes.expenseReport,
           ),
           ...commonItems,
         ];
@@ -3429,6 +3433,20 @@ class _HomeTabState extends State<_HomeTab> {
             route: Routes.petroleumPump,
           ),
           _QuickActionItem(
+            title: 'Pump Upload',
+            subtitle: 'Daily total sales',
+            icon: Icons.cloud_upload_rounded,
+            color: Colors.indigo,
+            route: Routes.petroleumPumpUpload,
+          ),
+          _QuickActionItem(
+            title: 'Pump Upload History',
+            subtitle: 'Pump daily uploads',
+            icon: Icons.fact_check_rounded,
+            color: Colors.deepPurple,
+            route: Routes.petroleumPumpUploadHistory,
+          ),
+          _QuickActionItem(
             title: 'Stock',
             subtitle: 'Fuel inventory',
             icon: Icons.inventory_2_rounded,
@@ -3437,17 +3455,17 @@ class _HomeTabState extends State<_HomeTab> {
           ),
           _QuickActionItem(
             title: 'Sales History',
-            subtitle: 'Fuel sales',
+            subtitle: 'Pump and minimart sales',
             icon: Icons.history_rounded,
             color: Colors.orange,
             route: Routes.petroleumSalesHistory,
           ),
           _QuickActionItem(
-            title: 'New Sale',
-            subtitle: 'Create transaction',
+            title: 'Mini Mart Sale',
+            subtitle: 'Sell retail station items',
             icon: Icons.point_of_sale_rounded,
             color: Colors.green,
-            route: Routes.sales,
+            route: Routes.retailPos,
           ),
           _QuickActionItem(
             title: 'Inventory',
@@ -3455,6 +3473,13 @@ class _HomeTabState extends State<_HomeTab> {
             icon: Icons.inventory_2_rounded,
             color: Colors.green,
             route: Routes.inventory,
+          ),
+          _QuickActionItem(
+            title: 'Expenses',
+            subtitle: 'Record expenses',
+            icon: Icons.receipt_long_rounded,
+            color: Colors.brown,
+            route: Routes.expenseReport,
           ),
           ...commonItems,
         ];

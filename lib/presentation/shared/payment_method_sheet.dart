@@ -22,6 +22,9 @@ class _PaymentMethodSheetState extends State<PaymentMethodSheet> {
   late String _selected;
   String? _selectedCashierId;
   bool _isLoadingWorkers = true;
+  final _cashController = TextEditingController();
+  final _cardController = TextEditingController();
+  final _transferController = TextEditingController();
 
   @override
   void initState() {
@@ -62,6 +65,14 @@ class _PaymentMethodSheetState extends State<PaymentMethodSheet> {
     });
   }
 
+  @override
+  void dispose() {
+    _cashController.dispose();
+    _cardController.dispose();
+    _transferController.dispose();
+    super.dispose();
+  }
+
   String? _getValidCashierId(List<Map<String, dynamic>> workers) {
     // If no selected cashier, return null
     if (_selectedCashierId == null) return null;
@@ -83,7 +94,27 @@ class _PaymentMethodSheetState extends State<PaymentMethodSheet> {
       return;
     }
 
-    // Return the selected payment method as a string
+    if (_selected == 'Multiple') {
+      final cash = double.tryParse(_cashController.text.trim()) ?? 0.0;
+      final card = double.tryParse(_cardController.text.trim()) ?? 0.0;
+      final transfer = double.tryParse(_transferController.text.trim()) ?? 0.0;
+      final total = cash + card + transfer;
+      if (widget.amount != null && (total - widget.amount!).abs() > 0.01) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Split payment must equal ${widget.amount!.toStringAsFixed(2)}',
+            ),
+          ),
+        );
+        return;
+      }
+      Navigator.of(context).pop(
+        'Multiple (Cash: ${cash.toStringAsFixed(2)}, Card: ${card.toStringAsFixed(2)}, Transfer: ${transfer.toStringAsFixed(2)})',
+      );
+      return;
+    }
+
     Navigator.of(context).pop(_selected);
   }
 
@@ -159,6 +190,44 @@ class _PaymentMethodSheetState extends State<PaymentMethodSheet> {
               groupValue: _selected,
               onChanged: (v) => setState(() => _selected = v!),
             ),
+            RadioListTile<String>(
+              title: const Text('Multiple'),
+              value: 'Multiple',
+              groupValue: _selected,
+              onChanged: (v) => setState(() => _selected = v!),
+            ),
+            if (_selected == 'Multiple') ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: _cashController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Cash amount',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _cardController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Card amount',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _transferController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Transfer amount',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
 
             SizedBox(

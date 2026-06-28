@@ -6,6 +6,7 @@ import 'dart:convert';
 
 import '../core/utils/datetime_utils.dart';
 import '../data/models/user_model.dart';
+import '../data/repositories/business_repository_impl.dart';
 import '../models/marketer_analytics_model.dart';
 import '../models/marketer_model.dart';
 import '../services/subscription_service.dart';
@@ -127,6 +128,61 @@ class MarketerProvider extends ChangeNotifier {
       subscriptionTier: seededTier,
       businessClass: detectedFromMetrics,
     );
+  }
+
+  Map<String, dynamic> _buildIndustrySpecificSettings(
+    String businessType,
+    Map<String, dynamic> businessData,
+  ) {
+    final type = businessType
+        .toLowerCase()
+        .replaceAll(' ', '')
+        .replaceAll('_', '');
+    final sizeMetrics = {
+      'products': businessData['productCount'] ?? 0,
+      'staff': businessData['staffCount'] ?? 0,
+      'monthlyIncome': businessData['monthlyRevenue'] ?? 0.0,
+    };
+
+    if (type == 'gas' ||
+        type == 'petroleum' ||
+        type == 'petrolstation' ||
+        type == 'petroleumstation' ||
+        type == 'fillingstation') {
+      return {
+        'fuelUnit': 'L',
+        'enablePump': true,
+        'receiptPrinting': true,
+        'defaultFuelProductsConfigured': false,
+        'stationType':
+            type == 'petroleum' ? 'petroleum_station' : 'gas_station',
+        'sizeMetrics': sizeMetrics,
+      };
+    }
+
+    if (type == 'bakery') {
+      return {
+        'defaultBakeryProductsConfigured': false,
+        'dailyProductionTracking': true,
+        'expiryTracking': true,
+        'retailPosEnabled': true,
+        'sizeMetrics': sizeMetrics,
+      };
+    }
+
+    return {'sizeMetrics': sizeMetrics};
+  }
+
+  bool _isFuelStationType(String businessType) {
+    final type = businessType
+        .toLowerCase()
+        .replaceAll(' ', '')
+        .replaceAll('_', '');
+    return type == 'gas' ||
+        type == 'petroleum' ||
+        type == 'petrolstation' ||
+        type == 'petroleumstation' ||
+        type == 'fillingstation';
   }
 
   ReferralRecord? _pickPrimaryReferral(List<ReferralRecord> referrals) {
@@ -1602,6 +1658,8 @@ class MarketerProvider extends ChangeNotifier {
       final userPhone =
           businessPhone ?? userData['phoneNumber'] ?? userData['phone'] ?? '';
       final ownerName = userData['fullName'] ?? userData['name'] ?? '';
+      final industrySpecificSettings =
+          _buildIndustrySpecificSettings(businessType, businessData);
 
       // Create business document
       final businessRef = await _firestore.collection('businesses').add({
@@ -1623,6 +1681,7 @@ class MarketerProvider extends ChangeNotifier {
         'productCount': businessData['productCount'] ?? 0,
         'staffCount': businessData['staffCount'] ?? 0,
         'monthlyRevenue': businessData['monthlyRevenue'] ?? 0.0,
+        'industrySpecificSettings': industrySpecificSettings,
         'detectedTierSource': 'marketer_auto_detection',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -1633,6 +1692,30 @@ class MarketerProvider extends ChangeNotifier {
       });
 
       final businessId = businessRef.id;
+
+      final businessRepository = BusinessRepository();
+      if (_isFuelStationType(businessType)) {
+        await businessRepository.createDefaultFuelProducts(
+          businessId,
+          fuelUnit: industrySpecificSettings['fuelUnit']?.toString() ?? 'L',
+        );
+        await businessRef.set({
+          'industrySpecificSettings': {
+            ...industrySpecificSettings,
+            'defaultFuelProductsConfigured': true,
+          },
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } else if (businessType.toLowerCase() == 'bakery') {
+        await businessRepository.createDefaultBakeryProducts(businessId);
+        await businessRef.set({
+          'industrySpecificSettings': {
+            ...industrySpecificSettings,
+            'defaultBakeryProductsConfigured': true,
+          },
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
 
       await _firestore.collection('users').doc(userId).set({
         'businessId': businessId,

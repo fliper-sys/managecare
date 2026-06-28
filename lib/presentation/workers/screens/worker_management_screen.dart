@@ -231,6 +231,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                           .currentBusiness;
 
                   return _buildWorkerCard(
+                    worker: worker,
                     workerId: workerId,
                     name: (worker['name'] ?? worker['fullName'] ?? 'Worker')
                         as String,
@@ -536,6 +537,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
   }
 
   Widget _buildWorkerCard({
+    required Map<String, dynamic> worker,
     required String workerId,
     required String name,
     String? email,
@@ -606,11 +608,24 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                   onSelected: (value) {
                     switch (value) {
                       case 'edit':
+                        final currentPermissions =
+                            ((worker['permissions'] ?? worker['customPermissions'])
+                                        as List<dynamic>?)
+                                    ?.map((permission) => permission.toString())
+                                    .where((permission) =>
+                                        permission !=
+                                        WorkerPermissions
+                                            .permissionOverrideMarker)
+                                    .where((permission) =>
+                                        permission.trim().isNotEmpty)
+                                    .toList() ??
+                                WorkerPermissions.getPermissionsForRole(role);
                         _showEditWorkerDialog(
                           workerId,
                           name,
                           role,
                           businessId,
+                          currentPermissions,
                         );
                         break;
                       case 'view_details':
@@ -631,7 +646,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                   itemBuilder: (context) => [
                     const PopupMenuItem(
                       value: 'edit',
-                      child: Text('Edit Role'),
+                      child: Text('Edit Permissions'),
                     ),
                     const PopupMenuItem(
                       value: 'view_details',
@@ -747,17 +762,37 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     }
   }
 
+  bool _isAdminScreenPermission(String permission) {
+    return permission.startsWith('access_') ||
+        permission == 'view_reports' ||
+        permission == 'procurement_management' ||
+        permission == 'manage_staff' ||
+        permission == 'payroll_view';
+  }
+
   void _showEditWorkerDialog(
     String workerId,
     String name,
     String currentRole,
     String? businessId,
+    List<String> currentPermissions,
   ) {
     final businessProvider = context.read<BusinessProvider>();
     final businessType = businessProvider.currentBusiness?.businessType ?? 'retail';
     final availableRoles = WorkerPermissions.getAvailableRoles(businessType);
 
     String selectedRole = currentRole;
+    final permissionOptions = <String>{
+      ...WorkerPermissions.getPermissionsForRole(selectedRole),
+      ...WorkerPermissions.getAdminGrantablePermissions(),
+    }.toList()
+      ..sort((a, b) => WorkerPermissions.getPermissionLabel(a)
+          .compareTo(WorkerPermissions.getPermissionLabel(b)));
+    final selectedPermissions = <String>{
+      ...currentPermissions,
+      if (currentPermissions.isEmpty)
+        ...WorkerPermissions.getPermissionsForRole(selectedRole),
+    };
 
     showDialog(
       context: context,
@@ -783,6 +818,25 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                           if (value == null) return;
                           setState(() {
                             selectedRole = value;
+                            selectedPermissions
+                              ..clear()
+                              ..addAll(
+                                WorkerPermissions.getPermissionsForRole(value),
+                              );
+                            permissionOptions
+                              ..clear()
+                              ..addAll({
+                                ...WorkerPermissions.getPermissionsForRole(
+                                  selectedRole,
+                                ),
+                                ...WorkerPermissions
+                                    .getAdminGrantablePermissions(),
+                              })
+                              ..sort((a, b) =>
+                                  WorkerPermissions.getPermissionLabel(a)
+                                      .compareTo(
+                                WorkerPermissions.getPermissionLabel(b),
+                              ));
                           });
                         },
                       )),
@@ -790,7 +844,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Effective permissions',
+                      'Selectable permissions',
                       style: TextStyle(
                         color: Colors.grey.shade700,
                         fontWeight: FontWeight.w600,
@@ -798,16 +852,32 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: WorkerPermissions.getPermissionsForRole(selectedRole)
-                        .map(
-                          (permission) => Chip(
-                            label: Text(WorkerPermissions.getPermissionLabel(permission)),
-                          ),
-                        )
-                        .toList(),
+                  Text(
+                    'Tick the admin screens this worker can open. Untick any permission to remove it immediately after saving.',
+                    style: TextStyle(color: Colors.grey.shade600),
+                  ),
+                  const SizedBox(height: 8),
+                  ...permissionOptions.map(
+                    (permission) => CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        WorkerPermissions.getPermissionLabel(permission),
+                      ),
+                      subtitle: _isAdminScreenPermission(permission)
+                          ? const Text('Admin screen access')
+                          : null,
+                      value: selectedPermissions.contains(permission),
+                      onChanged: (value) {
+                        setState(() {
+                          if (value == true) {
+                            selectedPermissions.add(permission);
+                          } else {
+                            selectedPermissions.remove(permission);
+                          }
+                        });
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -824,6 +894,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                   workerId,
                   selectedRole,
                   businessId,
+                  selectedPermissions.toList()..sort(),
                 );
                 Navigator.of(context).pop();
                 this.setState(() {}); // Refresh the list
@@ -840,28 +911,33 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     String workerId,
     String newRole,
     String? businessId,
+    List<String> permissions,
   ) async {
     try {
-      final permissions = WorkerPermissions.getPermissionsForRole(newRole);
+      final savedPermissions = <String>{
+        WorkerPermissions.permissionOverrideMarker,
+        ...permissions.where((permission) =>
+            permission != WorkerPermissions.permissionOverrideMarker),
+      }.toList()
+        ..sort();
       final updateData = {
         'role': newRole,
         'roles': [newRole],
-        'permissions': permissions,
-        'customPermissions': permissions,
+        'permissions': savedPermissions,
+        'customPermissions': savedPermissions,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      // Update in workers collection
+      // Keep both mirrors aligned; SetOptions avoids failing if one doc is absent.
       await FirebaseFirestore.instance
           .collection('workers')
           .doc(workerId)
-          .update(updateData);
+          .set(updateData, SetOptions(merge: true));
 
-      // Also update in users collection if exists
       await FirebaseFirestore.instance
           .collection('users')
           .doc(workerId)
-          .update(updateData);
+          .set(updateData, SetOptions(merge: true));
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

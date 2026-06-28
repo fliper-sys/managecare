@@ -41,13 +41,16 @@ class SubscriptionService {
   static const String familyKitchen = 'kitchen';
   static const String familyLounge = 'lounge';
   static const String familyHospitality = 'hospitality';
+  static const String familyFuel = 'fuel_station';
 
   static const Map<String, int> _tierRanks = {
     'free': 0,
     'tier1': 1,
     'tier2': 2,
     'tier3': 3,
-    'unlimited': 4,
+    'tier4': 4,
+    'premium': 5,
+    'unlimited': 5,
   };
 
   static SubscriptionPlan _plan({
@@ -81,6 +84,8 @@ class SubscriptionService {
         return 'Lounge';
       case familyHospitality:
         return 'Hospitality';
+      case familyFuel:
+        return 'Fuel Station';
       default:
         return 'Standard';
     }
@@ -94,6 +99,10 @@ class SubscriptionService {
         return 'Tier 2';
       case 'tier3':
         return 'Tier 3';
+      case 'tier4':
+        return 'Tier 4';
+      case 'premium':
+        return 'Premium';
       default:
         return 'Unlimited';
     }
@@ -607,6 +616,294 @@ class SubscriptionService {
           'locations': null,
           'branches': null
         }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier1',
+        durationCode: '3m',
+        price: 33900.0,
+        days: 90,
+        features: [
+          '1 location',
+          '2 pumps',
+          '3 workers',
+          '50 minimart products'
+        ],
+        limits: {
+          'locations': 1,
+          'branches': 0,
+          'pumps': 2,
+          'pumps_per_location': 2,
+          'workers': 3,
+          'workers_per_location': 3,
+          'products': 50,
+          'products_per_location': 50
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier1',
+        durationCode: '6m',
+        price: 56500.0,
+        days: 180,
+        features: [
+          '1 location',
+          '2 pumps',
+          '3 workers',
+          '50 minimart products'
+        ],
+        limits: {
+          'locations': 1,
+          'branches': 0,
+          'pumps': 2,
+          'pumps_per_location': 2,
+          'workers': 3,
+          'workers_per_location': 3,
+          'products': 50,
+          'products_per_location': 50
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier1',
+        durationCode: '12m',
+        price: 111800.0,
+        days: 365,
+        features: [
+          '1 location',
+          '2 pumps',
+          '3 workers',
+          '50 minimart products'
+        ],
+        limits: {
+          'locations': 1,
+          'branches': 0,
+          'pumps': 2,
+          'pumps_per_location': 2,
+          'workers': 3,
+          'workers_per_location': 3,
+          'products': 50,
+          'products_per_location': 50
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier2',
+        durationCode: '3m',
+        price: 47515.0,
+        days: 90,
+        features: [
+          '2 locations',
+          '5 pumps per location',
+          '7 workers per location',
+          '150 products per location'
+        ],
+        limits: {
+          'locations': 2,
+          'branches': 1,
+          'pumps': 10,
+          'pumps_per_location': 5,
+          'workers': 14,
+          'workers_per_location': 7,
+          'products': 300,
+          'products_per_location': 150
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier2',
+        durationCode: '6m',
+        price: 84775.0,
+        days: 180,
+        features: [
+          '2 locations',
+          '5 pumps per location',
+          '7 workers per location',
+          '150 products per location'
+        ],
+        limits: {
+          'locations': 2,
+          'branches': 1,
+          'pumps': 10,
+          'pumps_per_location': 5,
+          'workers': 14,
+          'workers_per_location': 7,
+          'products': 300,
+          'products_per_location': 150
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier2',
+        durationCode: '12m',
+        price: 152048.0,
+        days: 365,
+        features: [
+          '2 locations',
+          '5 pumps per location',
+          '7 workers per location',
+          '150 products per location'
+        ],
+        limits: {
+          'locations': 2,
+          'branches': 1,
+          'pumps': 10,
+          'pumps_per_location': 5,
+          'workers': 14,
+          'workers_per_location': 7,
+          'products': 300,
+          'products_per_location': 150
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier3',
+        durationCode: '3m',
+        price: 80775.0,
+        days: 90,
+        features: [
+          '4 locations',
+          '10 pumps per location',
+          '12 workers per location',
+          '250 products per location'
+        ],
+        limits: {
+          'locations': 4,
+          'branches': 3,
+          'pumps': 40,
+          'pumps_per_location': 10,
+          'workers': 48,
+          'workers_per_location': 12,
+          'products': 1000,
+          'products_per_location': 250
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier3',
+        durationCode: '6m',
+        price: 145395.0,
+        days: 180,
+        features: [
+          '4 locations',
+          '10 pumps per location',
+          '12 workers per location',
+          '250 products per location'
+        ],
+        limits: {
+          'locations': 4,
+          'branches': 3,
+          'pumps': 40,
+          'pumps_per_location': 10,
+          'workers': 48,
+          'workers_per_location': 12,
+          'products': 1000,
+          'products_per_location': 250
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier3',
+        durationCode: '12m',
+        price: 258480.0,
+        days: 365,
+        features: [
+          '4 locations',
+          '10 pumps per location',
+          '12 workers per location',
+          '250 products per location'
+        ],
+        limits: {
+          'locations': 4,
+          'branches': 3,
+          'pumps': 40,
+          'pumps_per_location': 10,
+          'workers': 48,
+          'workers_per_location': 12,
+          'products': 1000,
+          'products_per_location': 250
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier4',
+        durationCode: '3m',
+        price: 137318.0,
+        days: 90,
+        features: [
+          '10 locations',
+          '20 pumps per location',
+          '25 workers per location',
+          '500 products per location'
+        ],
+        limits: {
+          'locations': 10,
+          'branches': 9,
+          'pumps': 200,
+          'pumps_per_location': 20,
+          'workers': 250,
+          'workers_per_location': 25,
+          'products': 5000,
+          'products_per_location': 500
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier4',
+        durationCode: '6m',
+        price: 247173.0,
+        days: 180,
+        features: [
+          '10 locations',
+          '20 pumps per location',
+          '25 workers per location',
+          '500 products per location'
+        ],
+        limits: {
+          'locations': 10,
+          'branches': 9,
+          'pumps': 200,
+          'pumps_per_location': 20,
+          'workers': 250,
+          'workers_per_location': 25,
+          'products': 5000,
+          'products_per_location': 500
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'tier4',
+        durationCode: '12m',
+        price: 439418.0,
+        days: 365,
+        features: [
+          '10 locations',
+          '20 pumps per location',
+          '25 workers per location',
+          '500 products per location'
+        ],
+        limits: {
+          'locations': 10,
+          'branches': 9,
+          'pumps': 200,
+          'pumps_per_location': 20,
+          'workers': 250,
+          'workers_per_location': 25,
+          'products': 5000,
+          'products_per_location': 500
+        }),
+    _plan(
+        family: familyFuel,
+        tier: 'premium',
+        durationCode: 'monthly',
+        price: 0.0,
+        days: 30,
+        features: [
+          'Add-on access',
+          'Attendance and clock-in system',
+          'Unlimited pumps per location',
+          'Up to 50 locations',
+          'No inventory limit',
+          'Custom pricing'
+        ],
+        limits: {
+          'locations': 50,
+          'branches': 49,
+          'pumps': null,
+          'pumps_per_location': null,
+          'workers': null,
+          'workers_per_location': null,
+          'products': null,
+          'products_per_location': null
+        }),
   ];
 
   SubscriptionService({
@@ -635,8 +932,13 @@ class SubscriptionService {
         return 'bakery';
       case 'petrol_station':
       case 'petroleum_station':
+      case 'petroleum station':
       case 'filling_station':
       case 'filling station':
+      case 'gas_station':
+      case 'gas station':
+      case 'fuel_station':
+      case 'fuel station':
         return 'petroleum';
       case 'guest_inn':
       case 'guest inn':
@@ -659,6 +961,12 @@ class SubscriptionService {
       case 'hotel':
       case 'apartment':
         return familyHospitality;
+      case 'gas':
+      case 'petrol':
+      case 'petroleum':
+      case 'filling station':
+      case 'fuel':
+        return familyFuel;
       default:
         return familyStandard;
     }
@@ -749,6 +1057,12 @@ class SubscriptionService {
         if (staff <= 7 && monthlyIncome <= 1000000.0) return 'tier1';
         if (staff <= 15 && monthlyIncome <= 3000000.0) return 'tier2';
         return 'tier3';
+      case familyFuel:
+        if (products <= 50 && staff <= 3) return 'tier1';
+        if (products <= 150 && staff <= 7) return 'tier2';
+        if (products <= 250 && staff <= 12) return 'tier3';
+        if (products <= 500 && staff <= 25) return 'tier4';
+        return 'premium';
       default:
         if (products <= 300 && staff <= 3) return 'tier1';
         if (products <= 700 && staff <= 5) return 'tier2';
@@ -872,6 +1186,11 @@ class SubscriptionService {
       case 'pool_booking':
       case 'pool_features':
         return family == familyHospitality && rank >= getTierRank('tier3');
+      case 'fuel_addons':
+      case 'attendance':
+      case 'clock_in':
+      case 'worker_attendance':
+        return family == familyFuel && rank >= getTierRank('premium');
       case 'white_label':
       case 'sso_login':
       case 'dedicated_support':
@@ -914,6 +1233,11 @@ class SubscriptionService {
       case 'pool_booking':
       case 'pool_features':
         return family == familyHospitality ? 'tier3' : 'unlimited';
+      case 'fuel_addons':
+      case 'attendance':
+      case 'clock_in':
+      case 'worker_attendance':
+        return family == familyFuel ? 'premium' : 'unlimited';
       case 'white_label':
       case 'sso_login':
       case 'dedicated_support':
@@ -1009,6 +1333,12 @@ class SubscriptionService {
       case 't3':
       case 'tier3':
         return 'tier3';
+      case 't4':
+      case 'tier4':
+        return 'tier4';
+      case 'premium':
+      case 'fuel_premium':
+        return 'premium';
       case 'unlimited':
       case 'unlimited_plan':
         return 'unlimited';
@@ -1020,9 +1350,17 @@ class SubscriptionService {
   static List<String> _limitKeysForFamily(String family, String limitType) {
     switch (limitType) {
       case 'products':
-        return family == familyKitchen || family == familyLounge
+        return family == familyFuel
+            ? ['products_per_location', 'products', 'inventory_products']
+            : family == familyKitchen || family == familyLounge
             ? ['inventory_products', 'menu_items', 'products']
             : ['products', 'inventory_products'];
+      case 'pumps':
+        return ['pumps_per_location', 'pumps'];
+      case 'workers':
+        return family == familyFuel
+            ? ['workers_per_location', 'workers']
+            : ['workers'];
       case 'tables':
         return family == familyHospitality
             ? ['restaurant_tables', 'bar_tables', 'tables']

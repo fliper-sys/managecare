@@ -1,0 +1,47 @@
+GAS PLANTS/ PETROLEUM STATIONS
+
+DONE 1. On the admin account, there are two places on the sales page to sale gas, no use for that. there is pump sale (quick fuel sale) and pump(fuel dispensing)  there both do thesame thing
+DONE 2. when adding a worker , there should be options to add them as either pump operator,sales rep, staff,cashier or manager.the pump operator only have acess to dispense fuel, so on their dashboard ,they can only sale fuel , while sales rep can be the one operating minimart such and reponsible for seling and registering what is being sold there. such as gas cylinders , oil and any other retail products, so their dashboard will look like that of retail service. the staff account will have acess to sale both fuel and retail items etc, while the managers account is to have acess to make sales both retail, pump sale, sale history, upload history, make uploads , view upload history, record expenses and history of each pump or generally.
+DONE 3. under seetings ,there should be a settings called pump configuration, the admin can add how many pumps the gas/petrol station have with details about each pump like pump number , it it is deseal, petrol,gas or kerosine, model of pump, serial number,magnufacturer , year of magnifature etc.
+DONE 4. from the pump operator dashboard, they will have 2 feaatures to use to record sales , the first will be "pump sale" here they can reciord each individual sale by choosing which product they are selling and amount or volume that is being sold and if the costomer paid with cash, card or transfer or if the costomer paid with multiple payment methods ,and submit each individual transaction. while the second feature is "total sales upload" here they dont need to reord each individual transaction, they only need to upload daily or end of day sales... on the pump workers check their previous day closing volume which will be their present day opening ,they are to snap that figure from the pump and upload and also at the end of tthe day, they can also check the volume that has been dispensed for the day and then snap and upload .so to upload,they click on the "total sales upload" feature and select which pump they want to uplode for(from the pumps thathas already been registered under settings in pump configuration) ,then they upload the opening volume and closing volume from the pump. now after uploading this two photos , there will be sections they have to fill in below  under where the photos are uploaded,first is a space provided  to type in thhe figures being the opening figure and closing figure(volume), then below, the system is to automatcally calculate how much was today volume by minusing the opening value from the closing value, getting what will be today total sales, then the system is to multiply what that volume is by the selling price for the product that pump is dispensing(the pump might be dispensing fuel or gas or diseal or kerosine which all have different price, since when adding and configuring the pump there is a space to chose which of the product from the stock inventory is being dispensed ,the system uses the price of the product choosen to multiply and get the amount )to get the total sales in cash. next is a space to write how much of that total sales was cash and how much was pos(transfer and card combined).. the opening figuer inputed by the pump operator must match the previous closing figure.
+DONE 5. from the worker dashboard,the should be a small icon above they can use to see the history of uploads. but they can only see for one pump at a time, not all the pumps.
+DONE 6. the manager accout would be able to see this upload and also the admin account. see the upload and from which wokrker account the upload was from and which pump it was being uploaded for.
+DONE 7. under pump daily upload history, the admin and manager account wiill be able to choose if they want to see the history for all the upload in general or just a particular pump
+DONE 8. when the app subtract the openingvolume from the closing volume, it is to minus that data from what is remaining in stock for that particular product.
+DONE 9. under stock inventory, only liters and cylinders are the unit available.
+DONE 10. the history of both pump sale and total daily upload hsitory can be viewed from sales history but it should be seperated.
+DONE 11. the manger acount will have the option to make new sale ,pump sale ,pump upload , sale history and record expense.
+DONE 12. currenty, the gas section dosent have anywhere to reord expenses
+DONE 13. when pump uploads are being made, the system should automatically minus the final sales volume from the inventory.
+DONE 14. under report,admin should be able to see report for minimart seperate from report for pumps.
+DONE 15. under adevance analytic, the revenew trend graph dosent show time or date to help track the graph, also it should be possibe for thr admin to see details about each pump such as which pump is making the most sale daily and overall higherst amount of sale in general, also which operator has sold the most /worker.
+DONE 16. the gas/petroleum section will be graded into 5 catrgories
+• 1st is tier 1 , not more than 1 location ,cant have more than 2 pumps , 3 workers and not more than 50 products in inventory for mini mart
+• 33,900/ 3months
+• 56,500/ 6 months(save10%)
+• 111,800/ 12months(save20%)
+• tier 2 , not more than 2 locations, cant have more than 5 pumps  per location, maximum of 7 workers per location, not more than 150 products in inventory per location.
+• 47,515/ 3months
+• 84,775/ 6months(save 10%)
+• 152,048/ 12months(save 20%)
+• tier 3 , not more than 4 locations, cant have more than 10 pumps per location, not more than 12 workers per location, not more than 250 products in inventory per location.
+• 80,775/ 3 months
+• 145,395/ 6months(save 10%)
+• 258,480/12months(save 20%)
+• tier 4, not more than 10 location, cant have more than 20 pumps per lcation, not more than25 workers per location ,not more than 500 products per location
+• 1137,318/ 3 months
+• 247,173 / 6 months(save10%)
+• 439,418/ 12 months(save 20%)
+• premium will be the final and highest level, here members will be able to access add-ons , and for each addons then click on,they will have more acess. some of the add-ons will include
+• having access to track workers attendanace /clock in systems
+• unlimited amount of pumps per location
+• up to 50 locations
+• no inventory limit.
+DONE - Petroleum station data flow
+- Added cached fuel metrics/history in RetailProvider.
+- Added Firestore snapshot streams for fuel metrics and fuel sales history.
+- Updated gas/petroleum dashboard to load cached values first and refresh from snapshots.
+- Updated fuel sales history screen to load cached values first and refresh from snapshots.
+- Expanded fuel category detection to include petroleum, petrol, diesel, kerosene, gas, and fuel.
+
+Note: This file was empty on disk before implementation, so there were no existing checklist items to mark individually.

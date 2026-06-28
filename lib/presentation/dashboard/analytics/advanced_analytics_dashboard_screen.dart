@@ -1,4 +1,5 @@
 import 'package:fl_chart/fl_chart.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -7,7 +8,9 @@ import 'package:business_manager/core/utils/formatters.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/colors.dart';
+import '../../../core/utils/worker_permissions.dart';
 import '../../../providers/analytics_provider.dart';
+import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../widgets/custom_app_bar.dart';
 import '../../../widgets/date_range_selector.dart';
@@ -104,6 +107,37 @@ class _AdvancedAnalyticsDashboardScreenState
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final user = auth.currentUser;
+    final canAccess = auth.isOwnerUser ||
+        auth.isAdminUser ||
+        (user != null &&
+            WorkerPermissions.canAccessAdvancedAnalyticsForUser(
+              user.role,
+              user.permissions,
+            ));
+
+    if (!canAccess) {
+      return Scaffold(
+        backgroundColor: _screenBackground,
+        appBar: CustomAppBar(
+          title: 'Advanced Analytics',
+          onBackPressed: () => Navigator.pop(context),
+          backgroundColor: _cardSurface,
+          elevation: 0,
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Access denied: advanced analytics access has not been granted to this worker.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: _screenBackground,
       appBar: CustomAppBar(
@@ -121,6 +155,12 @@ class _AdvancedAnalyticsDashboardScreenState
           }
 
           final analytics = provider.currentAnalytics;
+          final business = context.watch<BusinessProvider>().currentBusiness;
+          final businessType = business?.businessType.toLowerCase() ?? '';
+          final isFuelStation = businessType.contains('gas') ||
+              businessType.contains('petroleum') ||
+              businessType.contains('petrol') ||
+              businessType.contains('filling');
           if (analytics == null) {
             return Center(
               child: Text(
@@ -157,6 +197,12 @@ class _AdvancedAnalyticsDashboardScreenState
                   _buildRevenueTrendCard(provider)
                       .animate()
                       .fadeIn(duration: 500.ms, delay: 400.ms),
+                  if (isFuelStation && business != null) ...[
+                    const SizedBox(height: 28),
+                    _buildFuelStationAnalyticsCard(business.id)
+                        .animate()
+                        .fadeIn(duration: 500.ms, delay: 450.ms),
+                  ],
                   const SizedBox(height: 28),
                   _buildCustomerAnalyticsCard(analytics)
                       .animate()
@@ -578,6 +624,112 @@ class _AdvancedAnalyticsDashboardScreenState
     );
   }
 
+  Widget _buildFuelStationAnalyticsCard(String businessId) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _cardSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _softBorder),
+        boxShadow: _cardShadow,
+      ),
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('businesses')
+            .doc(businessId)
+            .collection('pump_daily_uploads')
+            .snapshots(includeMetadataChanges: true),
+        builder: (context, snapshot) {
+          final docs = snapshot.data?.docs ?? [];
+          final pumpRevenue = <String, double>{};
+          final operatorRevenue = <String, double>{};
+          for (final doc in docs) {
+            final data = doc.data();
+            final amount =
+                (data['expectedAmount'] as num?)?.toDouble() ?? 0.0;
+            final pump = 'Pump ${data['pumpNumber'] ?? data['pumpId'] ?? ''}';
+            final operator =
+                (data['workerName'] ?? data['workerId'] ?? 'Unknown')
+                    .toString();
+            pumpRevenue[pump] = (pumpRevenue[pump] ?? 0) + amount;
+            operatorRevenue[operator] =
+                (operatorRevenue[operator] ?? 0) + amount;
+          }
+          final topPump = pumpRevenue.entries.toList()
+            ..sort((a, b) => b.value.compareTo(a.value));
+          final topOperator = operatorRevenue.entries.toList()
+            ..sort((a, b) => b.value.compareTo(a.value));
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Pump Performance',
+                style: GoogleFonts.poppins(
+                  color: _textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildFuelInsightTile(
+                      'Top Pump',
+                      topPump.isEmpty ? 'No data' : topPump.first.key,
+                      topPump.isEmpty
+                          ? ''
+                          : formatCurrency(topPump.first.value),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildFuelInsightTile(
+                      'Top Operator',
+                      topOperator.isEmpty ? 'No data' : topOperator.first.key,
+                      topOperator.isEmpty
+                          ? ''
+                          : formatCurrency(topOperator.first.value),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildFuelInsightTile(String title, String value, String subtitle) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        border: Border.all(color: _softBorder),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: GoogleFonts.poppins(color: _textMuted)),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: GoogleFonts.poppins(
+              color: _textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (subtitle.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(subtitle, style: GoogleFonts.poppins(color: _textMuted)),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildLineChart(List<Map<String, dynamic>> trendData) {
     final spots = trendData.asMap().entries.map((entry) {
       final index = entry.key;
@@ -616,7 +768,10 @@ class _AdvancedAnalyticsDashboardScreenState
                 if (_selectedPeriod == 'daily') {
                   label = DateFormat('d MMM').format(item['date']);
                 } else if (_selectedPeriod == 'weekly') {
-                  label = 'W${index + 1}';
+                  final date = item['date'];
+                  label = date is DateTime
+                      ? DateFormat('d MMM').format(date)
+                      : 'W${index + 1}';
                 } else {
                   label = DateFormat('MMM').format(item['date']);
                 }

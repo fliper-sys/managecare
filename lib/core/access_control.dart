@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import 'utils/worker_permissions.dart';
 
 class AccessControl {
   /// Returns true when the current user is a business admin or the owner.
   static bool canViewReports(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    return auth.isAdminUser || auth.isOwnerUser;
+    final user = auth.currentUser;
+    if (auth.isAdminUser || auth.isOwnerUser) return true;
+    if (user == null) return false;
+    return WorkerPermissions.canAccessReportsForUser(
+      user.role,
+      user.permissions,
+    );
   }
 
   /// Returns true when the current business has an active Professional subscription

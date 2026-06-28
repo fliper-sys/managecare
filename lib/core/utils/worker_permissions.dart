@@ -1,5 +1,6 @@
 /// Worker permissions and role-based access control
 class WorkerPermissions {
+  static const String permissionOverrideMarker = '__permissions_override__';
   static const Set<String> _fullAccessRoles = {'owner', 'admin', 'sub_admin'};
   static const Map<String, String> _roleAliases = {
     'worker': 'staff',
@@ -24,6 +25,10 @@ class WorkerPermissions {
     'fuel attendant': 'station_attendant',
     'petroleum attendant': 'station_attendant',
     'petrol attendant': 'station_attendant',
+    'sales rep': 'sales_rep',
+    'sales representative': 'sales_rep',
+    'mini mart attendant': 'sales_rep',
+    'minimart attendant': 'sales_rep',
     'bakery cashier': 'cashier',
     'pastry chef': 'pastry_chef',
   };
@@ -40,6 +45,12 @@ class WorkerPermissions {
       'view_inventory',
       'manage_inventory',
       'view_sales_history',
+      'access_inventory_screen',
+      'access_procurement_screen',
+      'access_reports_dashboard',
+      'access_analytics_dashboard',
+      'access_expenses_screen',
+      'access_workers_screen',
       'attendance',
       'payroll_view',
       'apply_discount',
@@ -56,6 +67,13 @@ class WorkerPermissions {
       'view_inventory',
       'manage_inventory',
       'view_sales_history',
+      'access_inventory_screen',
+      'access_procurement_screen',
+      'access_reports_dashboard',
+      'access_analytics_dashboard',
+      'access_expenses_screen',
+      'access_workers_screen',
+      'access_settings_screen',
       'attendance',
       'payroll_view',
       'apply_discount',
@@ -77,12 +95,22 @@ class WorkerPermissions {
     'pharmacy_assistant': ['sales', 'view_inventory'],
     'bartender': ['sales', 'view_inventory'],
     'pump_operator': ['sales', 'view_inventory'],
+    'sales_rep': [
+      'sales',
+      'view_inventory',
+      'view_sales_history',
+    ],
     'station_attendant': ['sales', 'view_inventory', 'view_sales_history'],
     'fuel_manager': [
       'sales',
       'view_inventory',
       'manage_inventory',
       'view_sales_history',
+      'access_inventory_screen',
+      'access_procurement_screen',
+      'access_reports_dashboard',
+      'access_analytics_dashboard',
+      'access_expenses_screen',
       'procurement_management',
       'view_reports',
       'view_low_stock',
@@ -178,9 +206,12 @@ class WorkerPermissions {
     if (_fullAccessRoles.contains(normalizedRole)) {
       return true;
     }
-    final normalizedCustomPermissions =
-        customPermissions.map((p) => p.trim()).where((p) => p.isNotEmpty);
-    if (normalizedCustomPermissions.isNotEmpty) {
+    final hasCustomOverride =
+        customPermissions.contains(permissionOverrideMarker);
+    final normalizedCustomPermissions = customPermissions
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty && p != permissionOverrideMarker);
+    if (hasCustomOverride || normalizedCustomPermissions.isNotEmpty) {
       return normalizedCustomPermissions.contains(permission);
     }
     return hasPermission(role, permission);
@@ -194,9 +225,14 @@ class WorkerPermissions {
     if (_fullAccessRoles.contains(normalizedRole)) {
       return rolePermissions.values.expand((p) => p).toSet().toList()..sort();
     }
-    if (customPermissions.isNotEmpty) {
-      final permissions =
-          customPermissions.map((p) => p.trim()).where((p) => p.isNotEmpty).toSet().toList();
+    final hasCustomOverride =
+        customPermissions.contains(permissionOverrideMarker);
+    if (hasCustomOverride || customPermissions.isNotEmpty) {
+      final permissions = customPermissions
+          .map((p) => p.trim())
+          .where((p) => p.isNotEmpty && p != permissionOverrideMarker)
+          .toSet()
+          .toList();
       permissions.sort();
       return permissions;
     }
@@ -224,12 +260,39 @@ class WorkerPermissions {
     return permissions;
   }
 
+  static List<String> getAdminGrantablePermissions() {
+    return const [
+      'access_inventory_screen',
+      'access_procurement_screen',
+      'access_reports_dashboard',
+      'access_analytics_dashboard',
+      'access_expenses_screen',
+      'access_workers_screen',
+      'access_settings_screen',
+      'access_owner_dashboard',
+      'manage_inventory',
+      'procurement_management',
+      'view_reports',
+      'manage_staff',
+      'attendance',
+      'payroll_view',
+    ];
+  }
+
   static String getPermissionLabel(String permission) {
     const labels = {
       'sales': 'Sales',
       'view_inventory': 'View Inventory',
       'manage_inventory': 'Manage Inventory',
       'view_sales_history': 'View Sales History',
+      'access_inventory_screen': 'Inventory Screen',
+      'access_procurement_screen': 'Procurement Screen',
+      'access_reports_dashboard': 'Reports Dashboard',
+      'access_analytics_dashboard': 'Advanced Analytics',
+      'access_expenses_screen': 'Expenses Screen',
+      'access_workers_screen': 'Workers Screen',
+      'access_settings_screen': 'Settings Screen',
+      'access_owner_dashboard': 'Owner Dashboard',
       'attendance': 'Attendance',
       'payroll_view': 'Payroll View',
       'apply_discount': 'Apply Discount',
@@ -285,7 +348,8 @@ class WorkerPermissions {
     String role,
     List<String> permissions,
   ) =>
-      hasEffectivePermission(role, permissions, 'manage_inventory');
+      hasEffectivePermission(role, permissions, 'manage_inventory') ||
+      hasEffectivePermission(role, permissions, 'access_inventory_screen');
 
   static bool canEditPrice(String role) {
     final normalizedRole = normalizeRole(role);
@@ -293,7 +357,16 @@ class WorkerPermissions {
   }
 
   static bool canViewAnalytics(String role) =>
-      hasPermission(role, 'view_sales_history');
+      hasPermission(role, 'view_sales_history') ||
+      hasPermission(role, 'view_reports') ||
+      hasPermission(role, 'access_reports_dashboard') ||
+      hasPermission(role, 'access_analytics_dashboard');
+
+  static bool canViewAnalyticsForUser(String role, List<String> permissions) =>
+      hasEffectivePermission(role, permissions, 'view_sales_history') ||
+      hasEffectivePermission(role, permissions, 'view_reports') ||
+      hasEffectivePermission(role, permissions, 'access_reports_dashboard') ||
+      hasEffectivePermission(role, permissions, 'access_analytics_dashboard');
 
   static bool canManageStaff(String role) =>
       _fullAccessRoles.contains(normalizeRole(role)) ||
@@ -301,7 +374,35 @@ class WorkerPermissions {
       hasPermission(role, 'manage_staff');
 
   static bool canManageStaffForUser(String role, List<String> permissions) =>
-      hasEffectivePermission(role, permissions, 'manage_staff');
+      hasEffectivePermission(role, permissions, 'manage_staff') ||
+      hasEffectivePermission(role, permissions, 'access_workers_screen');
+
+  static bool canAccessAdminScreenForUser(
+    String role,
+    List<String> permissions,
+    String permission,
+  ) =>
+      hasEffectivePermission(role, permissions, permission);
+
+  static bool canAccessReportsForUser(String role, List<String> permissions) =>
+      hasEffectivePermission(role, permissions, 'view_reports') ||
+      hasEffectivePermission(role, permissions, 'access_reports_dashboard');
+
+  static bool canAccessAdvancedAnalyticsForUser(
+    String role,
+    List<String> permissions,
+  ) =>
+      hasEffectivePermission(role, permissions, 'access_analytics_dashboard');
+
+  static bool canAccessProcurementForUser(
+    String role,
+    List<String> permissions,
+  ) =>
+      hasEffectivePermission(role, permissions, 'procurement_management') ||
+      hasEffectivePermission(role, permissions, 'access_procurement_screen');
+
+  static bool canAccessExpensesForUser(String role, List<String> permissions) =>
+      hasEffectivePermission(role, permissions, 'access_expenses_screen');
 
   static bool canAccessPayroll(String role) =>
       _fullAccessRoles.contains(normalizeRole(role)) ||
@@ -422,10 +523,28 @@ class WorkerPermissions {
       'agriculture': ['field_officer', 'manager', 'staff'],
       'real_estate': ['field_officer', 'manager'],
       'bar': ['bartender', 'manager', 'staff'],
-      'gas': ['pump_operator', 'cashier', 'manager'],
-      'petroleum': ['pump_operator', 'station_attendant', 'fuel_manager', 'cashier', 'manager'],
-      'petrol_station': ['pump_operator', 'station_attendant', 'fuel_manager', 'cashier', 'manager'],
-      'petroleum_station': ['pump_operator', 'station_attendant', 'fuel_manager', 'cashier', 'manager'],
+      'gas': ['pump_operator', 'sales_rep', 'staff', 'cashier', 'manager'],
+      'petroleum': [
+        'pump_operator',
+        'sales_rep',
+        'staff',
+        'cashier',
+        'manager'
+      ],
+      'petrol_station': [
+        'pump_operator',
+        'sales_rep',
+        'staff',
+        'cashier',
+        'manager'
+      ],
+      'petroleum_station': [
+        'pump_operator',
+        'sales_rep',
+        'staff',
+        'cashier',
+        'manager'
+      ],
     };
     return rolesByBusiness[businessType.toLowerCase()] ??
         ['staff', 'manager', 'worker'];
@@ -460,6 +579,7 @@ class WorkerPermissions {
       'beautician': 'Beautician',
       'trainer': 'Trainer',
       'pump_operator': 'Pump Operator',
+      'sales_rep': 'Sales Rep',
       'station_attendant': 'Station Attendant',
       'fuel_manager': 'Fuel Manager',
       'baker': 'Baker',
@@ -486,6 +606,7 @@ class WorkerPermissions {
       'beautician': 'Delivers beauty services and customer care.',
       'field_officer': 'Manages field visits, follow-ups, and property updates.',
       'pump_operator': 'Handles fuel pump sales and station checkout.',
+      'sales_rep': 'Handles minimart and retail product sales.',
       'station_attendant': 'Serves customers, records fuel sales, and checks stock.',
       'fuel_manager': 'Oversees fuel stock, procurement, reports, and station staff.',
       'baker': 'Manages baked goods, production stock, and bakery inventory.',

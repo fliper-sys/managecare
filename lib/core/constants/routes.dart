@@ -85,10 +85,18 @@ class Routes {
   static const String gasPump = '/gas/pump';
   static const String gasStock = '/gas/stock';
   static const String gasSalesHistory = '/gas/history';
+  static const String gasPumpConfiguration = '/gas/pumps/configuration';
+  static const String gasPumpUpload = '/gas/pumps/upload';
+  static const String gasPumpUploadHistory = '/gas/pumps/upload-history';
   static const String petroleumDashboard = '/petroleum';
   static const String petroleumPump = '/petroleum/pump';
   static const String petroleumStock = '/petroleum/stock';
   static const String petroleumSalesHistory = '/petroleum/history';
+  static const String petroleumPumpConfiguration =
+      '/petroleum/pumps/configuration';
+  static const String petroleumPumpUpload = '/petroleum/pumps/upload';
+  static const String petroleumPumpUploadHistory =
+      '/petroleum/pumps/upload-history';
 
   // Product Installation
   static const String productInstallation = '/install/product';
