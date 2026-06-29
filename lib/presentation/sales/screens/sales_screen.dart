@@ -133,18 +133,6 @@ class _SalesScreenState extends State<SalesScreen>
     super.dispose();
   }
 
-  void _showCartLimitSnack(RetailProvider retail) {
-    final message = retail.cartLimitMessage ??
-        'Cart limit reached. Remove a product to add another one.';
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.warning,
-      ),
-    );
-  }
-
   void _showCheckout(BuildContext context, RetailProvider retail) {
     final cartItemCountBeforeCheckout = retail.cartCount;
     final cartTotalBeforeCheckout = retail.cartTotal;
@@ -495,11 +483,7 @@ class _SalesScreenState extends State<SalesScreen>
 
             try {
               debugPrint('[SalesScreen] Showing receipt dialog');
-              await ReceiptManager.handlePostSale(
-                context,
-                saleMap,
-                invoiceGeneratedBeforeCheckout: true,
-              );
+              await ReceiptManager.handlePostSale(context, saleMap);
               debugPrint('[SalesScreen] Receipt dialog completed');
             } catch (e) {
               debugPrint('[SalesScreen] Receipt handling error: $e');
@@ -985,12 +969,7 @@ class _SalesScreenState extends State<SalesScreen>
     }
 
     if (product != null) {
-      final added =
-          retail.addToCart(product.id, pricingMode: _globalPricingMode);
-      if (!added) {
-        _showCartLimitSnack(retail);
-        return;
-      }
+      retail.addToCart(product.id, pricingMode: _globalPricingMode);
 
       // Log analytics
       final analyticsService = AnalyticsService();
@@ -1067,6 +1046,7 @@ class _SalesScreenState extends State<SalesScreen>
                             _selectedStoreFilterId != _allStoresValue
                         ? _selectedStoreFilterId
                         : null,
+                    forceRefresh: true,
                   );
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -1173,6 +1153,7 @@ class _SalesScreenState extends State<SalesScreen>
       ),
       body: Column(
         children: [
+          const AppHeader(showBusinessSwitcher: false),
           _buildCartSessionStrip(context, retail),
           if (widget.enableStoreSwitcher)
             _buildStoreSwitcher(retail),
@@ -1954,7 +1935,7 @@ class _ProductsGrid extends StatelessWidget {
   final bool inStockOnly;
   final String sortBy;
   final bool isGridView;
-  final bool Function(Product) onAddToCart;
+  final Function(Product) onAddToCart;
   final String globalPricingMode;
 
   const _ProductsGrid(
@@ -2076,19 +2057,7 @@ class _ProductsGrid extends StatelessWidget {
               final product = products[index];
               return _ProductCard(
                 product: product,
-                onAdd: () {
-                  final added = onAddToCart(product);
-                  if (!added) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text(
-                          'Cart limit reached. Remove a product to add another one.',
-                        ),
-                        backgroundColor: AppColors.warning,
-                      ),
-                    );
-                  }
-                },
+                onAdd: () => onAddToCart(product),
                 globalPricingMode: globalPricingMode,
               );
             },
@@ -2104,19 +2073,7 @@ class _ProductsGrid extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 12),
                 child: _ProductListTile(
                   product: product,
-                  onAdd: () {
-                    final added = onAddToCart(product);
-                    if (!added) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: const Text(
-                            'Cart limit reached. Remove a product to add another one.',
-                          ),
-                          backgroundColor: AppColors.warning,
-                        ),
-                      );
-                    }
-                  },
+                  onAdd: () => onAddToCart(product),
                   globalPricingMode: globalPricingMode,
                 ),
               );
@@ -2396,17 +2353,6 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   ScrollController get _effectiveScrollController =>
       widget.scrollController ?? _internalScrollController!;
-
-  void _showCartLimitSnack(RetailProvider retail) {
-    final message = retail.cartLimitMessage ??
-        'Cart limit reached. Remove a product to add another one.';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.warning,
-      ),
-    );
-  }
 
   String _resolveBusinessId() {
     final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
@@ -3086,10 +3032,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             IconButton(
                               icon: const Icon(Icons.add_circle_outline),
                               onPressed: () {
-                                final added = retail.addToCart(item.id);
-                                if (!added) {
-                                  _showCartLimitSnack(retail);
-                                }
+                                retail.addToCart(item.id);
                                 setState(() {});
                               },
                               tooltip: 'Increase quantity',

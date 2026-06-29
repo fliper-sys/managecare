@@ -12,6 +12,14 @@ class CustomerProvider extends ChangeNotifier {
   bool _isLoading = false;
   String _errorMessage = '';
 
+  // ── Quota optimisation: customer cache TTL ───────────────────────────
+  // Prevents re-fetching the full customer list on every screen visit.
+  // Customers are re-fetched only if the cache is older than
+  // [_customerCacheTtl] or if the business changes.
+  DateTime? _lastCustomerFetch;
+  static const _customerCacheTtl = Duration(minutes: 5);
+  // ─────────────────────────────────────────────────────────────────────
+
   List<CustomerModel> get customers => _customers;
   CustomerModel? get selectedCustomer => _selectedCustomer;
   bool get isLoading => _isLoading;
@@ -36,14 +44,28 @@ class CustomerProvider extends ChangeNotifier {
       _customers.clear();
       _selectedCustomer = null;
       _errorMessage = '';
+      // ── Quota optimisation: invalidate cache on business switch ──────
+      _lastCustomerFetch = null;
+      // ─────────────────────────────────────────────────────────────────
     }
     notifyListeners();
   }
 
   /// Load all customers for the business and normalize older Firestore shapes.
-  Future<void> loadCustomers() async {
+  Future<void> loadCustomers({bool forceRefresh = false}) async {
     final customerRef = _businessCustomersRef;
     if (customerRef == null) return;
+
+    // ── Quota optimisation: TTL cache ────────────────────────────────
+    // Return immediately if we already have customers and the cache is
+    // still fresh. Pass forceRefresh: true after adding/editing a customer.
+    if (!forceRefresh &&
+        _customers.isNotEmpty &&
+        _lastCustomerFetch != null &&
+        DateTime.now().difference(_lastCustomerFetch!) < _customerCacheTtl) {
+      return; // Serve from in-memory cache — zero Firestore reads
+    }
+    // ─────────────────────────────────────────────────────────────────
 
     _isLoading = true;
     notifyListeners();
@@ -59,6 +81,9 @@ class CustomerProvider extends ChangeNotifier {
       _sortCustomers();
       _syncSelectedCustomerFromList();
       _errorMessage = '';
+      // ── Quota optimisation: stamp cache timestamp ────────────────────
+      _lastCustomerFetch = DateTime.now();
+      // ─────────────────────────────────────────────────────────────────
     } catch (e) {
       _errorMessage = 'Failed to load customers: $e';
       debugPrint('[CustomerProvider] Error: $_errorMessage');
