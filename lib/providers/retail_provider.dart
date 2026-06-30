@@ -993,6 +993,127 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, dynamic>> _calculateFuelMetricsSnapshot(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) async {
+    if (_products.isEmpty && _businessId != null) {
+      await loadProducts();
+    }
+
+    double totalAmount = 0.0;
+    double totalVolume = 0.0;
+    int transactions = 0;
+
+    final Map<String, String> productCategory = {
+      for (var p in _products) p.id: p.category.toLowerCase()
+    };
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final items = (data['items'] as List<dynamic>?) ?? [];
+      bool hasFuel = false;
+      double saleFuelVolume = 0.0;
+      double saleAmount =
+          (data['totalAmount'] as num?)?.toDouble() ??
+          (data['total'] as num?)?.toDouble() ??
+          0.0;
+
+      final saleCategory = (data['category'] as String?)?.toLowerCase() ?? '';
+      if (saleCategory.contains('fuel') ||
+          saleCategory.contains('petrol') ||
+          saleCategory.contains('gas')) {
+        hasFuel = true;
+      }
+
+      for (final it in items) {
+        if (it is! Map<String, dynamic>) continue;
+        final pid = (it['productId'] as String?) ?? '';
+        final qtyNum = it['quantity'];
+        double qty = 0.0;
+        if (qtyNum is num) {
+          qty = qtyNum.toDouble();
+        } else {
+          qty = double.tryParse(qtyNum?.toString() ?? '') ?? 0.0;
+        }
+
+        final category = productCategory[pid] ?? '';
+        if (category.contains('fuel') ||
+            category.contains('petrol') ||
+            category.contains('gas')) {
+          hasFuel = true;
+          saleFuelVolume += qty;
+        }
+      }
+
+      if (hasFuel) {
+        transactions += 1;
+        totalVolume += saleFuelVolume;
+        totalAmount += saleAmount;
+      }
+    }
+
+    return {
+      'totalAmount': totalAmount,
+      'totalVolume': totalVolume,
+      'transactions': transactions,
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> _calculateFuelSalesHistorySnapshot(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) async {
+    if (_products.isEmpty && _businessId != null) {
+      await loadProducts();
+    }
+
+    final Map<String, String> productCategory = {
+      for (var p in _products) p.id: p.category.toLowerCase()
+    };
+
+    final results = <Map<String, dynamic>>[];
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      final items = (data['items'] as List<dynamic>?) ?? [];
+      double fuelVolume = 0.0;
+      bool hasFuel = false;
+      for (final it in items) {
+        if (it is! Map<String, dynamic>) continue;
+        final pid = (it['productId'] as String?) ?? '';
+        final qtyNum = it['quantity'];
+        double qty = 0.0;
+        if (qtyNum is num) {
+          qty = qtyNum.toDouble();
+        } else {
+          qty = double.tryParse(qtyNum?.toString() ?? '') ?? 0.0;
+        }
+
+        final category = productCategory[pid] ?? '';
+        if (category.contains('fuel') ||
+            category.contains('petrol') ||
+            category.contains('gas')) {
+          hasFuel = true;
+          fuelVolume += qty;
+        }
+      }
+
+      if (hasFuel) {
+        results.add({
+          'id': doc.id,
+          'createdAt': data['createdAt'],
+          'customerName': data['customerName'] ?? data['customer'] ?? 'Walk-in',
+          'totalAmount': (data['totalAmount'] as num?)?.toDouble() ??
+              (data['total'] as num?)?.toDouble() ??
+              0.0,
+          'fuelVolume': fuelVolume,
+          'paymentMethod': data['paymentMethod'] ?? 'Cash',
+          'items': items,
+        });
+      }
+    }
+
+    return results;
+  }
+
   /// Returns aggregated fuel metrics for the business within an optional date range.
   /// If no range provided it uses today as default.
   Future<Map<String, dynamic>> getFuelMetrics({DateTime? start, DateTime? end}) async {
@@ -1011,53 +1132,30 @@ class RetailProvider extends ChangeNotifier {
           .where('createdAt', isLessThanOrEqualTo: e)
           .get();
 
-      double totalAmount = 0.0;
-      double totalVolume = 0.0;
-      int transactions = 0;
-
-      // Build product category map for quick lookup
-      final Map<String, String> productCategory = {for (var p in _products) p.id: p.category.toLowerCase()};
-
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final items = (data['items'] as List<dynamic>?) ?? [];
-        bool hasFuel = false;
-        double saleFuelVolume = 0.0;
-        double saleAmount = (data['totalAmount'] as num?)?.toDouble() ?? (data['total'] as num?)?.toDouble() ?? 0.0;
-
-        final saleCategory = (data['category'] as String?)?.toLowerCase() ?? '';
-        if (saleCategory.contains('fuel') || saleCategory.contains('petrol') || saleCategory.contains('gas')) {
-          hasFuel = true;
-        }
-
-
-        for (final it in items) {
-          if (it is! Map<String, dynamic>) continue;
-          final pid = (it['productId'] as String?) ?? '';
-          final qtyNum = it['quantity'];
-          double qty = 0.0;
-          if (qtyNum is num) qty = qtyNum.toDouble();
-          else qty = double.tryParse(qtyNum?.toString() ?? '') ?? 0.0;
-
-          final category = productCategory[pid] ?? '';
-          if (category.contains('fuel') || category.contains('petrol') || category.contains('gas')) {
-            hasFuel = true;
-            saleFuelVolume += qty;
-          }
-        }
-
-        if (hasFuel) {
-          transactions += 1;
-          totalVolume += saleFuelVolume;
-          totalAmount += saleAmount;
-        }
-      }
-
-      return {'totalAmount': totalAmount, 'totalVolume': totalVolume, 'transactions': transactions};
+      return await _calculateFuelMetricsSnapshot(snapshot);
     } catch (e) {
       debugPrint('Error computing fuel metrics: $e');
       return {'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0};
     }
+  }
+
+  Stream<Map<String, dynamic>> watchFuelMetrics({DateTime? start, DateTime? end}) {
+    if (_businessId == null) {
+      return Stream.value({'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0});
+    }
+
+    final now = DateTime.now();
+    final s = start ?? DateTime(now.year, now.month, now.day);
+    final e = end ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
+
+    return _firestore
+        .collection('businesses')
+        .doc(_businessId)
+        .collection('sales')
+        .where('createdAt', isGreaterThanOrEqualTo: s)
+        .where('createdAt', isLessThanOrEqualTo: e)
+        .snapshots()
+        .asyncMap((snapshot) => _calculateFuelMetricsSnapshot(snapshot));
   }
 
   /// Returns a list of sales that include fuel items, with computed fuelVolume for each sale.
@@ -1095,48 +1193,50 @@ class RetailProvider extends ChangeNotifier {
       }
 
       final snapshot = await query.limit(limit).get();
-
-      final Map<String, String> productCategory = {for (var p in _products) p.id: p.category.toLowerCase()};
-
-      final results = <Map<String, dynamic>>[];
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final items = (data['items'] as List<dynamic>?) ?? [];
-        double fuelVolume = 0.0;
-        bool hasFuel = false;
-        for (final it in items) {
-          if (it is! Map<String, dynamic>) continue;
-          final pid = (it['productId'] as String?) ?? '';
-          final qtyNum = it['quantity'];
-          double qty = 0.0;
-          if (qtyNum is num) qty = qtyNum.toDouble();
-          else qty = double.tryParse(qtyNum?.toString() ?? '') ?? 0.0;
-
-          final category = productCategory[pid] ?? '';
-          if (category.contains('fuel') || category.contains('petrol') || category.contains('gas')) {
-            hasFuel = true;
-            fuelVolume += qty;
-          }
-        }
-
-        if (hasFuel) {
-          results.add({
-            'id': doc.id,
-            'createdAt': (data['createdAt'] is DateTime) ? data['createdAt'] as DateTime : (data['createdAt'] is Timestamp ? (data['createdAt'] as Timestamp).toDate() : null),
-            'createdAtRaw': data['createdAt'],
-            'totalAmount': (data['totalAmount'] as num?)?.toDouble() ?? (data['total'] as num?)?.toDouble() ?? 0.0,
-            'fuelVolume': fuelVolume,
-            'items': items,
-            'workerId': data['workerId'],
-          });
-        }
-      }
-
-      return results;
+      return await _calculateFuelSalesHistorySnapshot(snapshot);
     } catch (e) {
       debugPrint('Error fetching fuel sales history: $e');
       return [];
     }
+  }
+
+  Stream<List<Map<String, dynamic>>> watchFuelSalesHistory({
+    DateTime? start,
+    DateTime? end,
+    int limit = 100,
+  }) {
+    if (_businessId == null) {
+      return Stream.value([]);
+    }
+
+    final useDateRange = start != null || end != null;
+    DateTime? s;
+    DateTime? e;
+    if (useDateRange) {
+      final now = DateTime.now();
+      s = start ?? DateTime(now.year, now.month, now.day);
+      e = end ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
+    }
+
+    Query<Map<String, dynamic>> query = _firestore
+        .collection('businesses')
+        .doc(_businessId)
+        .collection('sales')
+        .orderBy('createdAt', descending: true);
+
+    if (useDateRange) {
+      query = _firestore
+          .collection('businesses')
+          .doc(_businessId)
+          .collection('sales')
+          .where('createdAt', isGreaterThanOrEqualTo: s)
+          .where('createdAt', isLessThanOrEqualTo: e)
+          .orderBy('createdAt', descending: true);
+    }
+
+    return query.limit(limit).snapshots().asyncMap(
+          (snapshot) => _calculateFuelSalesHistorySnapshot(snapshot),
+        );
   }
 
   // Load stores from Firestore
@@ -1771,7 +1871,7 @@ class RetailProvider extends ChangeNotifier {
               .doc(dayKey)
               .set({
             'date': dayKey,
-            'totalSales': FieldValue.increment(finalTotal),
+            'totalSales': FieldValue.increment(totalAmount),
             'totalTransactions': FieldValue.increment(1),
             'lastUpdated': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));

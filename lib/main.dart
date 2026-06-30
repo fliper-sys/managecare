@@ -3,6 +3,7 @@ import 'services/local_business_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -89,20 +90,10 @@ void main() async {
     // Serves recently-read documents and query results from the on-device
     // cache, reducing Firestore reads on repeat visits to the same screen.
     // 100MB cache (default is 40MB) reduces evictions for larger catalogues.
-    if (!kIsWeb) {
-      FirebaseFirestore.instance.settings = const Settings(
-        persistenceEnabled: true,
-        cacheSizeBytes: 104857600, // 100 MB
-      );
-    } else {
-      await FirebaseFirestore.instance
-          .enablePersistence(
-            const PersistenceSettings(synchronizeTabs: true),
-          )
-          .catchError((_) {
-        // Unavailable in private/incognito mode — safe to ignore.
-      });
-    }
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: 104857600, // 100 MB
+    );
     // ─────────────────────────────────────────────────────────────────
   } on FirebaseException catch (e) {
     if (e.code != 'duplicate-app') {

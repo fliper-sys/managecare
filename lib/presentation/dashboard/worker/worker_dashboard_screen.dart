@@ -19,6 +19,7 @@ import '../../industry_specific/realestate/screens/realestate_dashboard_screen.d
 import '../../industry_specific/pharmacy/screens/pharmacy_dashboard.dart';
 import '../../industry_specific/retail/screens/retail_dashboard.dart';
 import '../../industry_specific/gas/screens/gas_dashboard_screen.dart';
+import '../../industry_specific/gas/utils/fuel_station_scope.dart';
 import '../../industry_specific/wholesale/screens/warehouse_dashboard_screen.dart';
 import '../../industry_specific/barber_shop/screens/barber_shop_dashboard_screen.dart';
 
@@ -332,6 +333,9 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
       case 'petrolstation':
       case 'petroleumstation':
       case 'fillingstation':
+        final isPetroleumStation = FuelStationScope.isPetroleumBusiness(
+          primaryType,
+        );
         if (workerRole == 'pump_operator') {
           print('[WorkerDashboard] Showing Pump Operator Dashboard');
           dashboard = const _PumpOperatorDashboard();
@@ -340,7 +344,11 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
           dashboard = const _StationSalesRepDashboard();
         } else {
           print('[WorkerDashboard] Showing Gas Dashboard');
-          dashboard = const GasDashboardScreen();
+          dashboard = GasDashboardScreen(
+            mode: isPetroleumStation
+                ? FuelStationMode.petroleum
+                : FuelStationMode.gas,
+          );
         }
         break;
     }
@@ -564,6 +572,15 @@ class _GrantedAdminQuickNav extends StatelessWidget {
           label: 'Expenses',
           route: Routes.expenseReport,
           icon: Icons.receipt_long_rounded,
+        ),
+      );
+    }
+    if (can('attendance')) {
+      shortcuts.add(
+        const _GrantedAdminShortcut(
+          label: 'Attendance',
+          route: Routes.attendance,
+          icon: Icons.fingerprint_rounded,
         ),
       );
     }

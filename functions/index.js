@@ -1,10 +1,127 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+const crypto = require('crypto');
 
 admin.initializeApp();
 const db = admin.firestore();
 const FieldValue = admin.firestore.FieldValue;
 const GRACE_WINDOW_DAYS = 30;
+const ATTENDANCE_TIMEZONE = 'Africa/Lagos';
+
+function textResponse(res, status, body) {
+  res.status(status).set('Content-Type', 'text/plain; charset=utf-8').send(body);
+}
+
+function lagosDateKey(date) {
+  // Nigeria currently uses WAT (UTC+1) year-round. Keeping this helper central
+  // makes it easy to swap for a full timezone library if the app later supports
+  // multiple local business timezones.
+  return new Date(date.getTime() + 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function parseAdmsTimestamp(value) {
+  const raw = (value || '').toString().trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+  if (!match) {
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const [, y, m, d, hh, mm, ss] = match.map((part) => Number(part));
+  // Device times are local station times. Convert WAT local time to UTC.
+  return new Date(Date.UTC(y, m - 1, d, hh - 1, mm, ss));
+}
+
+function admsConfig(serial) {
+  // Common ZKTeco/iClock ADMS handshake format. Some firmwares accept "OK",
+  // but many expect this "GET OPTION FROM" config block during options=all.
+  return [
+    `GET OPTION FROM: ${serial}`,
+    'Stamp=0',
+    'OpStamp=0',
+    'ErrorDelay=60',
+    'Delay=30',
+    'TransTimes=00:00;14:05',
+    'TransInterval=1',
+    'TransFlag=1111000000',
+    `TimeZone=${ATTENDANCE_TIMEZONE}`,
+    'Realtime=1',
+    'Encrypt=0',
+    '',
+  ].join('\n');
+}
+
+function attendancePunchId(serial, terminalUserId, punchTime, rawStatusCode, verifyMethod) {
+  return crypto
+    .createHash('sha1')
+    .update([serial, terminalUserId, punchTime.toISOString(), rawStatusCode, verifyMethod].join('|'))
+    .digest('hex');
+}
+
+async function resolveAttendanceDevice(serial) {
+  if (!serial) return null;
+  const snap = await db
+    .collectionGroup('attendance_devices')
+    .where('serialNumber', '==', serial)
+    .limit(1)
+    .get();
+  if (snap.empty) return null;
+  const doc = snap.docs[0];
+  const parent = doc.ref.parent.parent;
+  return {
+    id: doc.id,
+    businessId: parent ? parent.id : '',
+    data: doc.data() || {},
+  };
+}
+
+async function resolveWorkerByTerminalUserId(businessId, terminalUserId) {
+  const value = (terminalUserId || '').toString().trim();
+  if (!businessId || !value) return null;
+  const fields = ['terminalUserId', 'deviceUserId', 'attendanceDeviceUserId'];
+  for (const field of fields) {
+    const snap = await db
+      .collection('workers')
+      .where('businessId', '==', businessId)
+      .where(field, '==', value)
+      .limit(1)
+      .get();
+    if (!snap.empty) {
+      const doc = snap.docs[0];
+      return { id: doc.id, data: doc.data() || {}, matchedField: field };
+    }
+  }
+  return null;
+}
+
+async function resolveDirection(workerId, dateKey, punchId) {
+  const existing = await db
+    .collection('attendance_punches')
+    .where('workerId', '==', workerId)
+    .where('dateKey', '==', dateKey)
+    .get();
+  const count = existing.docs.filter((doc) => doc.id !== punchId).length;
+  // Chosen policy: alternate punches. This supports workers who leave and
+  // return during a shift without trusting terminal IN/OUT key state.
+  return count % 2 === 0 ? 'check_in' : 'check_out';
+}
+
+function parseAttlog(rawBody) {
+  return rawBody
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split(/\t+/);
+      return {
+        rawLine: line,
+        terminalUserId: (parts[0] || '').trim(),
+        punchTime: parseAdmsTimestamp(parts[1]),
+        rawStatusCode: Number.parseInt(parts[2] || '0', 10),
+        verifyMethod: (parts[3] || '').trim(),
+        rawParts: parts,
+      };
+    });
+}
 async function getKoraConfig() {
   const doc = await db.collection('secure').doc('secure').get();
   const data = doc.data() || {};
@@ -884,6 +1001,168 @@ exports.verifyKoraSubscriptionPayment = functions.https.onCall(async (data, cont
     ).toString(),
     raw: payload,
   };
+});
+
+exports.iclock = functions.https.onRequest(async (req, res) => {
+  const serial = (req.query.SN || req.query.sn || '').toString().trim();
+  const table = (req.query.table || '').toString().trim().toUpperCase();
+  const path = (req.path || req.url || '').split('?')[0].toLowerCase();
+
+  try {
+    if (req.method === 'GET' && path.endsWith('/cdata')) {
+      if ((req.query.options || '').toString().toLowerCase() === 'all') {
+        return textResponse(res, 200, admsConfig(serial || 'UNKNOWN'));
+      }
+      return textResponse(res, 200, 'OK');
+    }
+
+    if (req.method === 'GET' && path.endsWith('/getrequest')) {
+      // The terminal polls this endpoint for queued commands. We do not manage
+      // remote enrollment yet, so return OK/no-op. Later this can read a
+      // business attendance_device_commands subcollection.
+      return textResponse(res, 200, 'OK');
+    }
+
+    if (req.method === 'POST' && path.endsWith('/cdata') && table === 'ATTLOG') {
+      if (!serial) return textResponse(res, 400, 'Missing SN');
+
+      // ADMS sends tab-separated plain text, not JSON. Firebase exposes the
+      // unmodified bytes as req.rawBody; using req.body can corrupt ATTLOG rows.
+      const rawBody = req.rawBody ? req.rawBody.toString('utf8') : '';
+      const rows = parseAttlog(rawBody);
+      const device = await resolveAttendanceDevice(serial);
+      const businessId = device ? device.businessId : '';
+      const batch = db.batch();
+      const directionCounts = new Map();
+
+      for (const row of rows) {
+        if (!row.terminalUserId || !row.punchTime) {
+          const badRef = db.collection('attendance_punches_unmatched').doc();
+          batch.set(badRef, {
+            reason: 'invalid_attlog_row',
+            deviceSerial: serial,
+            terminalUserId: row.terminalUserId || '',
+            rawLine: row.rawLine,
+            rawParts: row.rawParts,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          continue;
+        }
+
+        const punchId = attendancePunchId(
+          serial,
+          row.terminalUserId,
+          row.punchTime,
+          row.rawStatusCode,
+          row.verifyMethod
+        );
+        const punchRef = db.collection('attendance_punches').doc(punchId);
+        const existingPunch = await punchRef.get();
+        if (existingPunch.exists) continue;
+
+        if (!businessId) {
+          batch.set(db.collection('attendance_punches_unmatched').doc(punchId), {
+            reason: 'unregistered_device',
+            deviceSerial: serial,
+            terminalUserId: row.terminalUserId,
+            punchTime: admin.firestore.Timestamp.fromDate(row.punchTime),
+            rawStatusCode: row.rawStatusCode,
+            verifyMethod: row.verifyMethod,
+            rawLine: row.rawLine,
+            createdAt: FieldValue.serverTimestamp(),
+          }, { merge: true });
+          continue;
+        }
+
+        const worker = await resolveWorkerByTerminalUserId(
+          businessId,
+          row.terminalUserId
+        );
+        if (!worker) {
+          batch.set(db.collection('attendance_punches_unmatched').doc(punchId), {
+            reason: 'worker_mapping_not_found',
+            businessId,
+            deviceSerial: serial,
+            terminalUserId: row.terminalUserId,
+            punchTime: admin.firestore.Timestamp.fromDate(row.punchTime),
+            rawStatusCode: row.rawStatusCode,
+            verifyMethod: row.verifyMethod,
+            rawLine: row.rawLine,
+            createdAt: FieldValue.serverTimestamp(),
+          }, { merge: true });
+          continue;
+        }
+
+        const dateKey = lagosDateKey(row.punchTime);
+        const directionKey = `${worker.id}_${dateKey}`;
+        if (!directionCounts.has(directionKey)) {
+          const existing = await db
+            .collection('attendance_punches')
+            .where('workerId', '==', worker.id)
+            .where('dateKey', '==', dateKey)
+            .get();
+          directionCounts.set(directionKey, existing.size);
+        }
+        const currentCount = directionCounts.get(directionKey) || 0;
+        const direction = currentCount % 2 === 0 ? 'check_in' : 'check_out';
+        directionCounts.set(directionKey, currentCount + 1);
+        const punchData = {
+          businessId,
+          workerId: worker.id,
+          workerName: worker.data.fullName || worker.data.name || worker.data.email || worker.id,
+          terminalUserId: row.terminalUserId,
+          deviceSerial: serial,
+          deviceId: device.id,
+          punchTime: admin.firestore.Timestamp.fromDate(row.punchTime),
+          dateKey,
+          direction,
+          verifyMethod: row.verifyMethod,
+          rawStatusCode: Number.isNaN(row.rawStatusCode) ? null : row.rawStatusCode,
+          rawLine: row.rawLine,
+          matchedField: worker.matchedField,
+          source: 'hippoint_f16_adms',
+          createdAt: FieldValue.serverTimestamp(),
+        };
+        batch.set(punchRef, punchData, { merge: true });
+
+        const dailyLogRef = db
+          .collection('businesses')
+          .doc(businessId)
+          .collection('attendance_logs')
+          .doc(`${worker.id}_${dateKey}`);
+        const dailyUpdate = {
+          businessId,
+          workerId: worker.id,
+          workerName: punchData.workerName,
+          terminalUserId: row.terminalUserId,
+          deviceSerial: serial,
+          dateKey,
+          source: 'hippoint_f16_adms',
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (direction === 'check_in') {
+          dailyUpdate.checkInAt = admin.firestore.Timestamp.fromDate(row.punchTime);
+        } else {
+          dailyUpdate.checkOutAt = admin.firestore.Timestamp.fromDate(row.punchTime);
+        }
+        batch.set(dailyLogRef, dailyUpdate, { merge: true });
+      }
+
+      await batch.commit();
+      return textResponse(res, 200, 'OK');
+    }
+
+    return textResponse(res, 404, 'Not Found');
+  } catch (error) {
+    console.error('[iclock] ADMS request failed', {
+      method: req.method,
+      path,
+      serial,
+      table,
+      error,
+    });
+    return textResponse(res, 500, 'ERROR');
+  }
 });
 
 exports.notifyRecurringSubscriptionRenewals = functions.pubsub

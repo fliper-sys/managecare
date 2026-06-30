@@ -21,6 +21,7 @@ import '../presentation/industry_specific/gas/screens/gas_stock_screen.dart';
 import '../presentation/industry_specific/gas/screens/pump_configuration_screen.dart';
 import '../presentation/industry_specific/gas/screens/pump_daily_upload_screen.dart';
 import '../presentation/industry_specific/gas/screens/pump_upload_history_screen.dart';
+import '../presentation/industry_specific/gas/utils/fuel_station_scope.dart';
 import '../presentation/industry_specific/wholesale/screens/warehouse_reports_screen.dart';
 import '../presentation/inventory/screens/product_details_screen.dart';
 import '../presentation/reports/screens/aggregated_reports_screen.dart';
@@ -892,7 +893,9 @@ class AppRouter {
         return _buildRoute(const KitchenOrdersScreen());
 
       case Routes.gasDashboard:
-        return _buildRoute(const GasDashboardScreen());
+        return _buildRoute(
+          const GasDashboardScreen(mode: FuelStationMode.gas),
+        );
 
       case Routes.gasPump:
         return _buildRoute(const GasPumpScreen());
@@ -913,7 +916,9 @@ class AppRouter {
         return _buildRoute(const PumpUploadHistoryScreen());
 
       case Routes.petroleumDashboard:
-        return _buildRoute(const GasDashboardScreen());
+        return _buildRoute(
+          const GasDashboardScreen(mode: FuelStationMode.petroleum),
+        );
 
       case Routes.petroleumPump:
         return _buildRoute(const GasPumpScreen());

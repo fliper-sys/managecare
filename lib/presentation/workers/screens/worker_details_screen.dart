@@ -632,14 +632,13 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
 
   Widget _buildPermissionsTab() {
     final roles = (_worker?['roles'] as List<dynamic>?)?.cast<String>() ?? [(_worker?['role'] as String? ?? 'staff')];
-    final permissionSet = <String>{};
-    for (var r in roles) {
-      permissionSet.addAll(WorkerPermissions.getPermissionsForRole(r));
-    }
     final customPermissions =
         (_worker?['customPermissions'] as List<dynamic>?)?.cast<String>() ?? [];
-    permissionSet.addAll(customPermissions);
-    final permissions = permissionSet.toList();
+    final primaryRole = roles.isNotEmpty ? roles.first : 'staff';
+    final permissions = WorkerPermissions.getEffectivePermissions(
+      primaryRole,
+      customPermissions,
+    );
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -665,9 +664,11 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                                     size: 16, color: Colors.green),
                                 const SizedBox(width: 8),
                                 Expanded(
-                                  child: Text(permission
-                                      .replaceAll('_', ' ')
-                                      .toUpperCase()),
+                                  child: Text(
+                                    WorkerPermissions.getPermissionLabel(
+                                      permission,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),

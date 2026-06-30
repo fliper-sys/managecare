@@ -325,8 +325,9 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
               children: permissions
                   .map(
                     (permission) => Chip(
-                      label:
-                          Text(permission.replaceAll('_', ' ').toUpperCase()),
+                      label: Text(
+                        WorkerPermissions.getPermissionLabel(permission),
+                      ),
                       backgroundColor: AppColors.primary.withOpacity(0.2),
                       labelStyle: const TextStyle(fontSize: 10),
                     ),
@@ -352,9 +353,7 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
   }
 
   void _navigateToAttendance(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Navigate to Attendance Screen')),
-    );
+    Navigator.pushNamed(context, Routes.attendance);
   }
 
   void _navigateToPrescriptions(BuildContext context) {

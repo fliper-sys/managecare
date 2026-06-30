@@ -51,6 +51,7 @@ import '../../industry_specific/realestate/screens/realestate_dashboard_screen.d
 import '../../industry_specific/pharmacy/screens/pharmacy_dashboard.dart';
 import '../../industry_specific/retail/screens/retail_dashboard.dart';
 import '../../industry_specific/gas/screens/gas_dashboard_screen.dart';
+import '../../industry_specific/gas/utils/fuel_station_scope.dart';
 import '../../industry_specific/apartment/screens/apartment_dashboard_screen.dart';
 import '../../reports/screens/reports_dashboard_screen.dart';
 import '../../settings/screens/profile_screen.dart';
@@ -2727,7 +2728,11 @@ class _HomeTabState extends State<_HomeTab> {
       case 'petrolstation':
       case 'petroleumstation':
       case 'fillingstation':
-        screen = const GasDashboardScreen();
+        screen = GasDashboardScreen(
+          mode: FuelStationScope.isPetroleumBusiness(businessType)
+              ? FuelStationMode.petroleum
+              : FuelStationMode.gas,
+        );
         break;
       case 'apartment':
         screen = const ApartmentDashboardScreen();
@@ -3411,6 +3416,13 @@ class _HomeTabState extends State<_HomeTab> {
             color: Colors.brown,
             route: Routes.expenseReport,
           ),
+          _QuickActionItem(
+            title: 'Attendance',
+            subtitle: 'Schedules and check-ins',
+            icon: Icons.fingerprint_rounded,
+            color: Colors.teal,
+            route: Routes.attendance,
+          ),
           ...commonItems,
         ];
 
@@ -3480,6 +3492,13 @@ class _HomeTabState extends State<_HomeTab> {
             icon: Icons.receipt_long_rounded,
             color: Colors.brown,
             route: Routes.expenseReport,
+          ),
+          _QuickActionItem(
+            title: 'Attendance',
+            subtitle: 'Schedules and check-ins',
+            icon: Icons.fingerprint_rounded,
+            color: Colors.teal,
+            route: Routes.attendance,
           ),
           ...commonItems,
         ];
@@ -3732,7 +3751,11 @@ class _MenuTabState extends State<_MenuTab> {
       case 'petroleumstation':
       case 'fillingstation':
         print('[MenuTab] Loading GasDashboardScreen');
-        screen = const GasDashboardScreen();
+        screen = GasDashboardScreen(
+          mode: FuelStationScope.isPetroleumBusiness(primaryType)
+              ? FuelStationMode.petroleum
+              : FuelStationMode.gas,
+        );
         break;
     }
 

@@ -626,6 +626,11 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                           role,
                           businessId,
                           currentPermissions,
+                          (worker['terminalUserId'] ??
+                                  worker['deviceUserId'] ??
+                                  worker['attendanceDeviceUserId'] ??
+                                  '')
+                              .toString(),
                         );
                         break;
                       case 'view_details':
@@ -776,12 +781,15 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     String currentRole,
     String? businessId,
     List<String> currentPermissions,
+    String currentTerminalUserId,
   ) {
     final businessProvider = context.read<BusinessProvider>();
     final businessType = businessProvider.currentBusiness?.businessType ?? 'retail';
     final availableRoles = WorkerPermissions.getAvailableRoles(businessType);
 
     String selectedRole = currentRole;
+    final terminalUserIdController =
+        TextEditingController(text: currentTerminalUserId);
     final permissionOptions = <String>{
       ...WorkerPermissions.getPermissionsForRole(selectedRole),
       ...WorkerPermissions.getAdminGrantablePermissions(),
@@ -841,6 +849,15 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                         },
                       )),
                   const SizedBox(height: 12),
+                  TextField(
+                    controller: terminalUserIdController,
+                    decoration: const InputDecoration(
+                      labelText: 'Attendance terminal user ID',
+                      helperText:
+                          'Must match the user ID enrolled on the F16 device.',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
@@ -895,6 +912,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                   selectedRole,
                   businessId,
                   selectedPermissions.toList()..sort(),
+                  terminalUserIdController.text.trim(),
                 );
                 Navigator.of(context).pop();
                 this.setState(() {}); // Refresh the list
@@ -912,6 +930,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     String newRole,
     String? businessId,
     List<String> permissions,
+    String terminalUserId,
   ) async {
     try {
       final savedPermissions = <String>{
@@ -925,6 +944,9 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
         'roles': [newRole],
         'permissions': savedPermissions,
         'customPermissions': savedPermissions,
+        'terminalUserId': terminalUserId,
+        'deviceUserId': terminalUserId,
+        'attendanceDeviceUserId': terminalUserId,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
