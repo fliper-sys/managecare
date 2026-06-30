@@ -30,20 +30,71 @@ class AnalyticsRepositoryImpl implements AnalyticsRepository {
   Future<dynamic> getSalesAnalytics(String businessId,
       {required DateTime startDate, required DateTime endDate}) async {
     try {
+      // ── Quota optimisation ──────────────────────────────────────────
+      // Read from pre-aggregated salesSummaries docs (one per calendar day,
+      // written by RetailProvider.checkout()). This costs exactly N reads
+      // for N days in range regardless of how many sales were made, vs.
+      // the old approach which fetched every sale document in the range.
+      //
+      // Falls back to the legacy full-scan only when a summary is missing
+      // for a past day (e.g. sales made before this was deployed).
+      final days = endDate.difference(startDate).inDays + 1;
+      double summaryTotal = 0;
+      int summaryTransactions = 0;
+      bool summaryComplete = true;
+
+      for (int i = 0; i < days; i++) {
+        final day = startDate.add(Duration(days: i));
+        final dayKey =
+            '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
+        final summaryDoc = await _firestore
+            .collection('businesses')
+            .doc(businessId)
+            .collection('salesSummaries')
+            .doc(dayKey)
+            .get();
+
+        if (summaryDoc.exists) {
+          final data = summaryDoc.data()!;
+          summaryTotal += ((data['totalSales'] as num?) ?? 0).toDouble();
+          summaryTransactions +=
+              ((data['totalTransactions'] as num?) ?? 0).toInt();
+        } else if (day.isBefore(
+            DateTime.now().subtract(const Duration(hours: 1)))) {
+          // Missing summary for a past day — fall back to full scan to
+          // ensure accuracy for historical data pre-dating this change.
+          summaryComplete = false;
+          break;
+        }
+      }
+
+      if (summaryComplete) {
+        return {
+          'totalSales': summaryTotal,
+          'totalTransactions': summaryTransactions,
+          'averageTransactionValue': summaryTransactions > 0
+              ? summaryTotal / summaryTransactions
+              : 0,
+        };
+      }
+
+      // ── Legacy fallback: full document scan ─────────────────────────
+      // Only reached for date ranges that predate the salesSummaries
+      // rollout. Phases out naturally as summaries accumulate day by day.
       final snapshot = await _firestore
           .collection('businesses')
           .doc(businessId)
           .collection('sales')
           .where('createdAt',
               isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
+          .where('createdAt',
+              isLessThanOrEqualTo: Timestamp.fromDate(endDate))
           .get();
 
       double totalSales = 0;
       int totalTransactions = 0;
-
       var salesDocs = snapshot.docs;
-      // Fallback: if createdAt isn't used, try numeric `timestamp` field
+
       if (salesDocs.isEmpty) {
         final tsSnapshot = await _firestore
             .collection('businesses')
@@ -58,10 +109,8 @@ class AnalyticsRepositoryImpl implements AnalyticsRepository {
       }
 
       for (var doc in salesDocs) {
-        // Use safe data access to prevent "field does not exist" errors
         final data = doc.data() as Map<String, dynamic>?;
         if (data == null) continue;
-        
         final amount = (data['totalAmount'] as num?) ??
             (data['total'] as num?) ??
             (data['amount'] as num?) ??

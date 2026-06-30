@@ -229,8 +229,14 @@ class RetailProvider extends ChangeNotifier {
   List<Supplier> _suppliers = [];
   List<StoreLocation> _stores = [];
   List<Promotion> _promotions = [];
-  final Map<String, Map<String, dynamic>> _fuelMetricsCache = {};
-  final Map<String, List<Map<String, dynamic>>> _fuelSalesHistoryCache = {};
+
+  // ── Quota optimisation: product cache TTL ───────────────────────────
+  // Products are re-fetched only when the cache is older than 5 minutes
+  // or the business/store changes. Pass forceRefresh: true after mutations.
+  DateTime? _lastProductFetch;
+  String? _lastProductFetchStoreId;
+  static const _productCacheTtl = Duration(minutes: 5);
+  // ────────────────────────────────────────────────────────────────────
 
   // Cart: productId -> qty
   final Map<String, int> _cart = {};
@@ -241,12 +247,10 @@ class RetailProvider extends ChangeNotifier {
   final Map<String, String> _cartDefaultPricingModes = {};
   String _activeCartId = 'cart_1';
   int _cartSessionCounter = 1;
-  static const int maxCartItemsPerCart = 50;
   static const String _cartCacheKeyPrefix = 'retail_cart_state_v1_';
 
   bool _isLoading = false;
   String? _errorMessage;
-  String? _cartLimitMessage;
   String? _businessId;
   
   // Initialization tracking to prevent redundant loads
@@ -261,7 +265,6 @@ class RetailProvider extends ChangeNotifier {
   List<Promotion> get promotions => List.unmodifiable(_promotions);
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
-  String? get cartLimitMessage => _cartLimitMessage;
   String get activeCartId => _activeCartId;
   String get activeCartLabel => _cartLabels[_activeCartId] ?? 'Cart 1';
   String get activeCartPricingMode =>
@@ -741,6 +744,10 @@ class RetailProvider extends ChangeNotifier {
         ..['cart_1'] = 'retail';
       _activeCartId = 'cart_1';
       _cartSessionCounter = 1;
+      // ── Quota optimisation: invalidate product cache on business switch
+      _lastProductFetch = null;
+      _lastProductFetchStoreId = null;
+      // ────────────────────────────────────────────────────────────────
     }
     _businessId = businessId;
     _ensureActiveCart();
@@ -806,8 +813,18 @@ class RetailProvider extends ChangeNotifier {
   }
 
   // Load products from Firestore inventory
-  Future<void> loadProducts({String? storeId}) async {
+  Future<void> loadProducts({String? storeId, bool forceRefresh = false}) async {
     if (_businessId == null) return;
+
+    // ── Quota optimisation: TTL cache ────────────────────────────────
+    if (!forceRefresh &&
+        _products.isNotEmpty &&
+        _lastProductFetch != null &&
+        _lastProductFetchStoreId == (storeId ?? '') &&
+        DateTime.now().difference(_lastProductFetch!) < _productCacheTtl) {
+      return;
+    }
+    // ─────────────────────────────────────────────────────────────────
 
     try {
       _isLoading = true;
@@ -941,6 +958,11 @@ class RetailProvider extends ChangeNotifier {
 
       _products = merged.values.toList();
 
+      // ── Quota optimisation: stamp cache timestamp ──────────────────
+      _lastProductFetch = DateTime.now();
+      _lastProductFetchStoreId = storeId ?? '';
+      // ───────────────────────────────────────────────────────────────
+
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -971,162 +993,14 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
-  bool _isFuelCategory(String category) {
-    final normalized = category.trim().toLowerCase();
-    return normalized.contains('fuel') ||
-        normalized.contains('petroleum') ||
-        normalized.contains('petrol') ||
-        normalized.contains('diesel') ||
-        normalized.contains('kerosene') ||
-        normalized.contains('gas');
-  }
-
-  String _fuelCacheKey({
-    DateTime? start,
-    DateTime? end,
-    int? limit,
-  }) {
-    return [
-      _businessId ?? '',
-      start?.toIso8601String() ?? 'none',
-      end?.toIso8601String() ?? 'none',
-      limit?.toString() ?? 'all',
-    ].join('|');
-  }
-
-  DateTime? _readSaleDate(dynamic value) {
-    if (value is DateTime) return value;
-    if (value is Timestamp) return value.toDate();
-    if (value is String) return DateTime.tryParse(value);
-    return null;
-  }
-
-  Map<String, String> _fuelProductCategoryMap() {
-    return {
-      for (final product in _products) product.id: product.category.toLowerCase(),
-    };
-  }
-
-  Map<String, dynamic> _buildFuelMetricsFromDocs(
-    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    double totalAmount = 0.0;
-    double totalVolume = 0.0;
-    int transactions = 0;
-    final productCategory = _fuelProductCategoryMap();
-
-    for (final doc in docs) {
-      final data = doc.data();
-      final items = (data['items'] as List<dynamic>?) ?? [];
-      var hasFuel = false;
-      var saleFuelVolume = 0.0;
-      final saleAmount = (data['totalAmount'] as num?)?.toDouble() ??
-          (data['total'] as num?)?.toDouble() ??
-          0.0;
-
-      final saleCategory = (data['category'] as String?) ?? '';
-      if (_isFuelCategory(saleCategory)) {
-        hasFuel = true;
-      }
-
-      for (final item in items) {
-        if (item is! Map<String, dynamic>) continue;
-        final productId = (item['productId'] as String?) ?? '';
-        final quantityValue = item['quantity'];
-        final quantity = quantityValue is num
-            ? quantityValue.toDouble()
-            : double.tryParse(quantityValue?.toString() ?? '') ?? 0.0;
-
-        final category = (item['category'] as String?) ??
-            productCategory[productId] ??
-            (hasFuel ? saleCategory : '');
-        if (_isFuelCategory(category)) {
-          hasFuel = true;
-          saleFuelVolume += quantity;
-        }
-      }
-
-      if (hasFuel) {
-        transactions += 1;
-        totalVolume += saleFuelVolume;
-        totalAmount += saleAmount;
-      }
-    }
-
-    return {
-      'totalAmount': totalAmount,
-      'totalVolume': totalVolume,
-      'transactions': transactions,
-    };
-  }
-
-  List<Map<String, dynamic>> _buildFuelHistoryFromDocs(
-    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final productCategory = _fuelProductCategoryMap();
-    final results = <Map<String, dynamic>>[];
-
-    for (final doc in docs) {
-      final data = doc.data();
-      final items = (data['items'] as List<dynamic>?) ?? [];
-      var fuelVolume = 0.0;
-      var hasFuel = false;
-
-      final saleCategory = (data['category'] as String?) ?? '';
-      if (_isFuelCategory(saleCategory)) {
-        hasFuel = true;
-      }
-
-      for (final item in items) {
-        if (item is! Map<String, dynamic>) continue;
-        final productId = (item['productId'] as String?) ?? '';
-        final quantityValue = item['quantity'];
-        final quantity = quantityValue is num
-            ? quantityValue.toDouble()
-            : double.tryParse(quantityValue?.toString() ?? '') ?? 0.0;
-
-        final category = (item['category'] as String?) ??
-            productCategory[productId] ??
-            (hasFuel ? saleCategory : '');
-        if (_isFuelCategory(category)) {
-          hasFuel = true;
-          fuelVolume += quantity;
-        }
-      }
-
-      if (hasFuel) {
-        results.add({
-          'id': doc.id,
-          'createdAt': _readSaleDate(data['createdAt']),
-          'createdAtRaw': data['createdAt'],
-          'totalAmount': (data['totalAmount'] as num?)?.toDouble() ??
-              (data['total'] as num?)?.toDouble() ??
-              0.0,
-          'fuelVolume': fuelVolume,
-          'items': items,
-          'workerId': data['workerId'],
-          'fromCache': doc.metadata.isFromCache,
-        });
-      }
-    }
-
-    return results;
-  }
-
   /// Returns aggregated fuel metrics for the business within an optional date range.
   /// If no range provided it uses today as default.
-  Future<Map<String, dynamic>> getFuelMetrics({
-    DateTime? start,
-    DateTime? end,
-  }) async {
-    if (_businessId == null) {
-      return {'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0};
-    }
+  Future<Map<String, dynamic>> getFuelMetrics({DateTime? start, DateTime? end}) async {
+    if (_businessId == null) return {'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0};
 
     final now = DateTime.now();
     final s = start ?? DateTime(now.year, now.month, now.day);
     final e = end ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
-    final cacheKey = _fuelCacheKey(start: s, end: e);
 
     try {
       final snapshot = await _firestore
@@ -1137,66 +1011,60 @@ class RetailProvider extends ChangeNotifier {
           .where('createdAt', isLessThanOrEqualTo: e)
           .get();
 
-      final metrics = _buildFuelMetricsFromDocs(snapshot.docs);
-      _fuelMetricsCache[cacheKey] = metrics;
-      return metrics;
+      double totalAmount = 0.0;
+      double totalVolume = 0.0;
+      int transactions = 0;
+
+      // Build product category map for quick lookup
+      final Map<String, String> productCategory = {for (var p in _products) p.id: p.category.toLowerCase()};
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final items = (data['items'] as List<dynamic>?) ?? [];
+        bool hasFuel = false;
+        double saleFuelVolume = 0.0;
+        double saleAmount = (data['totalAmount'] as num?)?.toDouble() ?? (data['total'] as num?)?.toDouble() ?? 0.0;
+
+        final saleCategory = (data['category'] as String?)?.toLowerCase() ?? '';
+        if (saleCategory.contains('fuel') || saleCategory.contains('petrol') || saleCategory.contains('gas')) {
+          hasFuel = true;
+        }
+
+
+        for (final it in items) {
+          if (it is! Map<String, dynamic>) continue;
+          final pid = (it['productId'] as String?) ?? '';
+          final qtyNum = it['quantity'];
+          double qty = 0.0;
+          if (qtyNum is num) qty = qtyNum.toDouble();
+          else qty = double.tryParse(qtyNum?.toString() ?? '') ?? 0.0;
+
+          final category = productCategory[pid] ?? '';
+          if (category.contains('fuel') || category.contains('petrol') || category.contains('gas')) {
+            hasFuel = true;
+            saleFuelVolume += qty;
+          }
+        }
+
+        if (hasFuel) {
+          transactions += 1;
+          totalVolume += saleFuelVolume;
+          totalAmount += saleAmount;
+        }
+      }
+
+      return {'totalAmount': totalAmount, 'totalVolume': totalVolume, 'transactions': transactions};
     } catch (e) {
       debugPrint('Error computing fuel metrics: $e');
-      return _fuelMetricsCache[cacheKey] ??
-          {'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0};
+      return {'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0};
     }
-  }
-
-  Stream<Map<String, dynamic>> watchFuelMetrics({
-    DateTime? start,
-    DateTime? end,
-  }) {
-    if (_businessId == null) {
-      return Stream.value({
-        'totalAmount': 0.0,
-        'totalVolume': 0.0,
-        'transactions': 0,
-      });
-    }
-
-    final now = DateTime.now();
-    final s = start ?? DateTime(now.year, now.month, now.day);
-    final e = end ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
-    final cacheKey = _fuelCacheKey(start: s, end: e);
-    final cached = _fuelMetricsCache[cacheKey];
-
-    final stream = _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('sales')
-        .where('createdAt', isGreaterThanOrEqualTo: s)
-        .where('createdAt', isLessThanOrEqualTo: e)
-        .snapshots(includeMetadataChanges: true)
-        .map((snapshot) {
-      final metrics = _buildFuelMetricsFromDocs(snapshot.docs);
-      _fuelMetricsCache[cacheKey] = metrics;
-      return metrics;
-    });
-
-    if (cached == null) return stream;
-
-    return (() async* {
-      yield cached;
-      await for (final value in stream) {
-        yield value;
-      }
-    })();
   }
 
   /// Returns a list of sales that include fuel items, with computed fuelVolume for each sale.
   ///
   /// If `start` and `end` are not provided, this will return the most recent `limit`
   /// sales regardless of date (useful for viewing recent history for a gas station).
-  Future<List<Map<String, dynamic>>> getFuelSalesHistory({
-    DateTime? start,
-    DateTime? end,
-    int limit = 100,
-  }) async {
+  Future<List<Map<String, dynamic>>> getFuelSalesHistory({DateTime? start, DateTime? end, int limit = 100}) async {
     if (_businessId == null) return [];
 
     // If no date range provided, fetch the most recent `limit` sales (no date filter).
@@ -1208,7 +1076,6 @@ class RetailProvider extends ChangeNotifier {
       s = start ?? DateTime(now.year, now.month, now.day);
       e = end ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
     }
-    final cacheKey = _fuelCacheKey(start: s, end: e, limit: limit);
 
     try {
       var query = _firestore
@@ -1229,67 +1096,47 @@ class RetailProvider extends ChangeNotifier {
 
       final snapshot = await query.limit(limit).get();
 
-      final results = _buildFuelHistoryFromDocs(
-        snapshot.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>(),
-      );
-      _fuelSalesHistoryCache[cacheKey] = results;
+      final Map<String, String> productCategory = {for (var p in _products) p.id: p.category.toLowerCase()};
+
+      final results = <Map<String, dynamic>>[];
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final items = (data['items'] as List<dynamic>?) ?? [];
+        double fuelVolume = 0.0;
+        bool hasFuel = false;
+        for (final it in items) {
+          if (it is! Map<String, dynamic>) continue;
+          final pid = (it['productId'] as String?) ?? '';
+          final qtyNum = it['quantity'];
+          double qty = 0.0;
+          if (qtyNum is num) qty = qtyNum.toDouble();
+          else qty = double.tryParse(qtyNum?.toString() ?? '') ?? 0.0;
+
+          final category = productCategory[pid] ?? '';
+          if (category.contains('fuel') || category.contains('petrol') || category.contains('gas')) {
+            hasFuel = true;
+            fuelVolume += qty;
+          }
+        }
+
+        if (hasFuel) {
+          results.add({
+            'id': doc.id,
+            'createdAt': (data['createdAt'] is DateTime) ? data['createdAt'] as DateTime : (data['createdAt'] is Timestamp ? (data['createdAt'] as Timestamp).toDate() : null),
+            'createdAtRaw': data['createdAt'],
+            'totalAmount': (data['totalAmount'] as num?)?.toDouble() ?? (data['total'] as num?)?.toDouble() ?? 0.0,
+            'fuelVolume': fuelVolume,
+            'items': items,
+            'workerId': data['workerId'],
+          });
+        }
+      }
+
       return results;
     } catch (e) {
       debugPrint('Error fetching fuel sales history: $e');
-      return _fuelSalesHistoryCache[cacheKey] ?? [];
+      return [];
     }
-  }
-
-  Stream<List<Map<String, dynamic>>> watchFuelSalesHistory({
-    DateTime? start,
-    DateTime? end,
-    int limit = 100,
-  }) {
-    if (_businessId == null) return Stream.value(const []);
-
-    final useDateRange = start != null || end != null;
-    DateTime? s;
-    DateTime? e;
-    if (useDateRange) {
-      final now = DateTime.now();
-      s = start ?? DateTime(now.year, now.month, now.day);
-      e = end ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
-    }
-    final cacheKey = _fuelCacheKey(start: s, end: e, limit: limit);
-    final cached = _fuelSalesHistoryCache[cacheKey];
-
-    var query = _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('sales')
-        .orderBy('createdAt', descending: true);
-
-    if (useDateRange) {
-      query = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .where('createdAt', isGreaterThanOrEqualTo: s)
-          .where('createdAt', isLessThanOrEqualTo: e)
-          .orderBy('createdAt', descending: true);
-    }
-
-    final stream = query.limit(limit).snapshots(includeMetadataChanges: true).map(
-      (snapshot) {
-        final history = _buildFuelHistoryFromDocs(snapshot.docs);
-        _fuelSalesHistoryCache[cacheKey] = history;
-        return history;
-      },
-    );
-
-    if (cached == null) return stream;
-
-    return (() async* {
-      yield cached;
-      await for (final value in stream) {
-        yield value;
-      }
-    })();
   }
 
   // Load stores from Firestore
@@ -1465,7 +1312,7 @@ class RetailProvider extends ChangeNotifier {
         storeId: storeId,
       );
 
-      await loadProducts(storeId: storeId);
+      await loadProducts(storeId: storeId, forceRefresh: true);
     } catch (e) {
       _errorMessage = 'Failed to add product: $e';
       notifyListeners();
@@ -1511,7 +1358,7 @@ class RetailProvider extends ChangeNotifier {
         storeId: storeId,
       );
 
-      await loadProducts(storeId: storeId);
+      await loadProducts(storeId: storeId, forceRefresh: true);
     } catch (e) {
       _errorMessage = 'Failed to update product: $e';
       notifyListeners();
@@ -1550,7 +1397,7 @@ class RetailProvider extends ChangeNotifier {
         storeId: storeId,
       );
 
-      await loadProducts(storeId: storeId);
+      await loadProducts(storeId: storeId, forceRefresh: true);
     } catch (e) {
       _errorMessage = 'Failed to delete product: $e';
       notifyListeners();
@@ -1630,38 +1477,25 @@ class RetailProvider extends ChangeNotifier {
   }
 
   // Cart management methods
-  bool addToCart(String productId, {int qty = 1, String? pricingMode}) {
-    if (qty <= 0) return false;
+  void addToCart(String productId, {int qty = 1, String? pricingMode}) {
+    if (qty <= 0) return;
     _ensureActiveCart();
     final existingMode = _activePricingModes()[productId];
     final resolvedMode =
         pricingMode == 'wholesale' || pricingMode == 'retail'
             ? pricingMode!
             : (existingMode ?? activeCartPricingMode);
-
-    final isNewItem = !_cart.containsKey(productId);
-    if (isNewItem && _cart.length >= maxCartItemsPerCart) {
-      _cartLimitMessage =
-          'Cart limit reached. You can only add up to $maxCartItemsPerCart unique products per cart.';
-      _errorMessage = _cartLimitMessage;
-      notifyListeners();
-      return false;
-    }
-
-    _cartLimitMessage = null;
     _cart.update(productId, (v) => v + qty, ifAbsent: () => qty);
     _activePricingModes()[productId] = resolvedMode;
     _syncActiveCartSnapshot();
     _queueCartCacheSave();
     notifyListeners();
-    return true;
   }
 
   /// Remove product from cart
   void removeFromCart(String productId) {
     _cart.remove(productId);
     _activePricingModes().remove(productId);
-    _cartLimitMessage = null;
     _syncActiveCartSnapshot();
     _queueCartCacheSave();
     notifyListeners();
@@ -1688,7 +1522,8 @@ class RetailProvider extends ChangeNotifier {
   bool addByBarcode(String barcode, {int qty = 1}) {
     final p = getProductByBarcode(barcode);
     if (p != null) {
-      return addToCart(p.id, qty: qty);
+      addToCart(p.id, qty: qty);
+      return true;
     }
     return false;
   }
@@ -1700,7 +1535,6 @@ class RetailProvider extends ChangeNotifier {
     } else {
       _cart[productId] = qty;
     }
-    _cartLimitMessage = null;
     _syncActiveCartSnapshot();
     _queueCartCacheSave();
     notifyListeners();
@@ -1708,7 +1542,6 @@ class RetailProvider extends ChangeNotifier {
 
   void clearCart() {
     _resetActiveCartState();
-    _cartLimitMessage = null;
     _queueCartCacheSave();
     notifyListeners();
   }
@@ -1924,6 +1757,30 @@ class RetailProvider extends ChangeNotifier {
         // Save orderId back to the sale document for tracking
         await saleRef.update({'orderId': orderId});
 
+        // ── Quota optimisation: update daily sales summary ─────────────
+        // One atomic increment per sale so the dashboard can read a single
+        // summary doc instead of fetching every sale in the date range.
+        try {
+          final now = DateTime.now();
+          final dayKey =
+              '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+          await _firestore
+              .collection('businesses')
+              .doc(_businessId)
+              .collection('salesSummaries')
+              .doc(dayKey)
+              .set({
+            'date': dayKey,
+            'totalSales': FieldValue.increment(finalTotal),
+            'totalTransactions': FieldValue.increment(1),
+            'lastUpdated': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        } catch (e) {
+          // Non-fatal — dashboard falls back gracefully if summary is absent.
+          debugPrint('[Checkout] salesSummaries update failed: $e');
+        }
+        // ────────────────────────────────────────────────────────────────
+
         // Update product stock in inventory collection
         for (final entry in activeCartEntries.entries) {
           final product = _findProductForCart(entry.key);
@@ -1934,6 +1791,13 @@ class RetailProvider extends ChangeNotifier {
           final newQuantity =
               (product.stock - stockReduction).clamp(0.0, 999999.0);
           await _writeInventoryStock(product, newQuantity, storeId: storeId);
+
+          // Update in-memory stock immediately so the POS grid shows the
+          // correct quantity without waiting for the next loadProducts call.
+          final idx = _products.indexWhere((p) => p.id == product.id);
+          if (idx != -1) {
+            _products[idx].stock = newQuantity;
+          }
 
           // Notify if stock is low (use integer for notifications)
           if (newQuantity < 10) {

@@ -84,6 +84,26 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+
+    // ── Quota optimisation: Firestore offline persistence ───────────────
+    // Serves recently-read documents and query results from the on-device
+    // cache, reducing Firestore reads on repeat visits to the same screen.
+    // 100MB cache (default is 40MB) reduces evictions for larger catalogues.
+    if (!kIsWeb) {
+      FirebaseFirestore.instance.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: 104857600, // 100 MB
+      );
+    } else {
+      await FirebaseFirestore.instance
+          .enablePersistence(
+            const PersistenceSettings(synchronizeTabs: true),
+          )
+          .catchError((_) {
+        // Unavailable in private/incognito mode — safe to ignore.
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────
   } on FirebaseException catch (e) {
     if (e.code != 'duplicate-app') {
       rethrow;
