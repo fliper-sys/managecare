@@ -66,6 +66,7 @@ class _BusinessDashboardScreenState extends State<BusinessDashboardScreen> {
           await Future.sync(() => context.read<PharmacyProvider>().setBusinessId(widget.businessId));
           break;
         case 'retail':
+        case 'bakery':
           await Future.sync(() => context.read<RetailProvider>().setBusinessId(widget.businessId));
           break;
         case 'drink':
@@ -229,6 +230,7 @@ class _BusinessDashboardScreenState extends State<BusinessDashboardScreen> {
       case 'farming':
         return _buildAgricultureContent(context, provider);
       case 'retail':
+      case 'bakery':
       case 'shop':
       case 'store':
         return _buildRetailContent(context, provider);

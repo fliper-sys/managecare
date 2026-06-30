@@ -23,6 +23,10 @@ class Product {
   final String unit; // e.g., L, cyl
   final String saleUnit;
   final double saleUnitMultiplier;
+  final bool trackExpiry;
+  final DateTime? expiryDate;
+  final String? batchLabel;
+  final int? shelfLifeDays;
 
   Product({
     required this.id,
@@ -38,6 +42,10 @@ class Product {
     this.unit = 'pc',
     this.saleUnit = '',
     this.saleUnitMultiplier = 1.0,
+    this.trackExpiry = false,
+    this.expiryDate,
+    this.batchLabel,
+    this.shelfLifeDays,
   });
 
   String get resolvedSaleUnit => saleUnit.trim().isEmpty ? unit : saleUnit;
@@ -70,6 +78,12 @@ class Product {
       saleUnit: (data['saleUnit'] ?? data['unit'] ?? 'pc').toString(),
       saleUnitMultiplier:
           (data['saleUnitMultiplier'] as num?)?.toDouble() ?? 1.0,
+      trackExpiry: data['trackExpiry'] == true,
+      expiryDate: parseTimestamp(
+        data['expiryDate'] ?? data['expiry'] ?? data['bestBeforeDate'],
+      ),
+      batchLabel: data['batchLabel']?.toString(),
+      shelfLifeDays: (data['shelfLifeDays'] as num?)?.toInt(),
     );
   }
 
@@ -87,6 +101,11 @@ class Product {
       'wholesalePrice': wholesalePrice,
       'saleUnit': resolvedSaleUnit,
       'saleUnitMultiplier': resolvedSaleUnitMultiplier,
+      'trackExpiry': trackExpiry,
+      if (expiryDate != null) 'expiryDate': expiryDate,
+      if (batchLabel != null && batchLabel!.trim().isNotEmpty)
+        'batchLabel': batchLabel!.trim(),
+      if (shelfLifeDays != null) 'shelfLifeDays': shelfLifeDays,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
@@ -1393,6 +1412,13 @@ class RetailProvider extends ChangeNotifier {
         'barcode': product.barcode,
         'emoji': product.emoji,
         'imageUrl': product.imageUrl,
+        'trackExpiry': product.trackExpiry,
+        if (product.expiryDate != null) 'expiryDate': product.expiryDate,
+        if (product.batchLabel != null &&
+            product.batchLabel!.trim().isNotEmpty)
+          'batchLabel': product.batchLabel!.trim(),
+        if (product.shelfLifeDays != null)
+          'shelfLifeDays': product.shelfLifeDays,
         'createdAt': DateTime.now().toIso8601String(),
         'updatedAt': DateTime.now().toIso8601String(),
       };
@@ -1439,6 +1465,13 @@ class RetailProvider extends ChangeNotifier {
         'barcode': product.barcode,
         'emoji': product.emoji,
         'imageUrl': product.imageUrl,
+        'trackExpiry': product.trackExpiry,
+        if (product.expiryDate != null) 'expiryDate': product.expiryDate,
+        if (product.batchLabel != null &&
+            product.batchLabel!.trim().isNotEmpty)
+          'batchLabel': product.batchLabel!.trim(),
+        if (product.shelfLifeDays != null)
+          'shelfLifeDays': product.shelfLifeDays,
         'updatedAt': DateTime.now().toIso8601String(),
       };
       if (storeId != null && storeId.isNotEmpty) updateData['storeId'] = storeId;

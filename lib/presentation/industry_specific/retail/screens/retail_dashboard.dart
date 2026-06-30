@@ -12,7 +12,11 @@ import '../../../../core/utils/whatsapp_utils.dart';
 
 
 class RetailDashboard extends StatefulWidget {
-  const RetailDashboard({super.key});
+  final bool isBakery;
+
+  const RetailDashboard({super.key}) : isBakery = false;
+
+  const RetailDashboard.bakery({super.key}) : isBakery = true;
 
   @override
   State<RetailDashboard> createState() => _RetailDashboardState();
@@ -54,6 +58,10 @@ class _RetailDashboardState extends State<RetailDashboard>
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final accentColor =
+        widget.isBakery ? const Color(0xFFD97706) : AppColors.primary;
+    final accentDark =
+        widget.isBakery ? const Color(0xFF92400E) : AppColors.primaryDark;
     return Scaffold(
       backgroundColor: colorScheme.surface, // Softer background
       body: Consumer<RetailProvider>(
@@ -74,17 +82,18 @@ class _RetailDashboardState extends State<RetailDashboard>
                 expandedHeight: 200.0,
                 floating: false,
                 pinned: true,
-                backgroundColor: AppColors.primary,
+                backgroundColor: accentColor,
                 elevation: 0,
                 flexibleSpace: FlexibleSpaceBar(
+                  title: Text(widget.isBakery ? 'Bakery' : 'Retail Store'),
                   background: Container(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [
-                          AppColors.primary,
-                          AppColors.primaryDark,
+                          accentColor,
+                          accentDark,
                         ],
                       ),
                     ),
@@ -111,7 +120,9 @@ class _RetailDashboardState extends State<RetailDashboard>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Total Estimated Revenue',
+                                widget.isBakery
+                                    ? 'Bakery Stock Value'
+                                    : 'Total Estimated Revenue',
                                 style: TextStyle(
                                   color: Colors.white.withOpacity(0.8),
                                   fontSize: 14,
@@ -180,21 +191,27 @@ class _RetailDashboardState extends State<RetailDashboard>
                       physics: const BouncingScrollPhysics(),
                       children: [
                         _HorizontalStatCard(
-                          label: 'Products',
+                          label: widget.isBakery ? 'Bakery Items' : 'Products',
                           value: '${retailProvider.products.length}',
-                          icon: Icons.inventory_2_outlined,
-                          color: Colors.blue,
+                          icon: widget.isBakery
+                              ? Icons.bakery_dining_outlined
+                              : Icons.inventory_2_outlined,
+                          color: widget.isBakery
+                              ? const Color(0xFFD97706)
+                              : Colors.blue,
                         ),
                         const SizedBox(width: 12),
                         _HorizontalStatCard(
-                          label: 'Stores',
+                          label: widget.isBakery ? 'Outlets' : 'Stores',
                           value: '${retailProvider.stores.length}',
                           icon: Icons.storefront_outlined,
-                          color: Colors.purple,
+                          color: widget.isBakery
+                              ? const Color(0xFFB45309)
+                              : Colors.purple,
                         ),
                         const SizedBox(width: 12),
                         _HorizontalStatCard(
-                          label: 'Low Stock',
+                          label: widget.isBakery ? 'Low Batches' : 'Low Stock',
                           value: '$lowStockCount',
                           icon: Icons.warning_amber_rounded,
                           color: Colors.orange,
@@ -219,12 +236,12 @@ class _RetailDashboardState extends State<RetailDashboard>
                     child: Row(
                       children: [
                         _SegmentedTab(
-                          label: 'Top Items',
+                          label: widget.isBakery ? 'Fresh Items' : 'Top Items',
                           isSelected: _selectedTabIndex == 0,
                           onTap: () => setState(() => _selectedTabIndex = 0),
                         ),
                         _SegmentedTab(
-                          label: 'Stores',
+                          label: widget.isBakery ? 'Outlets' : 'Stores',
                           isSelected: _selectedTabIndex == 1,
                           onTap: () => setState(() => _selectedTabIndex = 1),
                         ),
@@ -251,10 +268,12 @@ class _RetailDashboardState extends State<RetailDashboard>
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.pushNamed(context, Routes.retailPos),
-        backgroundColor: AppColors.primary,
+        backgroundColor: accentColor,
         elevation: 4,
-        icon: const Icon(Icons.add_shopping_cart),
-        label: const Text('New Sale'),
+        icon: Icon(
+          widget.isBakery ? Icons.bakery_dining : Icons.add_shopping_cart,
+        ),
+        label: Text(widget.isBakery ? 'New Bakery Sale' : 'New Sale'),
       ),
     );
   }
@@ -270,7 +289,11 @@ class _RetailDashboardState extends State<RetailDashboard>
         ..sort((a, b) => b.price.compareTo(a.price));
       final displayed = topProducts.take(10).toList();
 
-      if (displayed.isEmpty) return _buildEmptySliver('No products found');
+      if (displayed.isEmpty) {
+        return _buildEmptySliver(
+          widget.isBakery ? 'No bakery items found' : 'No products found',
+        );
+      }
 
       return SliverPadding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -286,7 +309,13 @@ class _RetailDashboardState extends State<RetailDashboard>
     } else if (_selectedTabIndex == 1) {
       // --- Stores List ---
       final stores = retailProvider.stores;
-      if (stores.isEmpty) return _buildEmptySliver('No stores configured');
+      if (stores.isEmpty) {
+        return _buildEmptySliver(
+          widget.isBakery
+              ? 'No bakery outlets configured'
+              : 'No stores configured',
+        );
+      }
 
       return SliverPadding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -364,31 +393,65 @@ class _RetailDashboardState extends State<RetailDashboard>
     }
 
     if (isOwner) {
-      add(Icons.point_of_sale, 'Open POS', Routes.retailPos, AppColors.primary);
-      add(Icons.storefront, 'Manage Stores', Routes.retailStores,
-          AppColors.info);
-      add(Icons.event_busy, 'Expiry Tracker', Routes.expiryTracker, Colors.red);
-      add(Icons.add_box, 'Add Product', Routes.retailAddProduct,
-          AppColors.success);
-      add(Icons.local_shipping, 'Suppliers', Routes.retailSuppliers,
-          Colors.orange);
+      add(
+        Icons.point_of_sale,
+        widget.isBakery ? 'Bakery POS' : 'Open POS',
+        Routes.retailPos,
+        widget.isBakery ? const Color(0xFFD97706) : AppColors.primary,
+      );
+      add(
+        Icons.storefront,
+        widget.isBakery ? 'Bakery Outlets' : 'Manage Stores',
+        Routes.retailStores,
+        AppColors.info,
+      );
+      add(
+        Icons.event_busy,
+        widget.isBakery ? 'Freshness Tracker' : 'Expiry Tracker',
+        Routes.expiryTracker,
+        Colors.red,
+      );
+      add(
+        Icons.add_box,
+        widget.isBakery ? 'Add Bakery Item' : 'Add Product',
+        Routes.retailAddProduct,
+        AppColors.success,
+      );
+      add(
+        Icons.local_shipping,
+        widget.isBakery ? 'Ingredient Suppliers' : 'Suppliers',
+        Routes.retailSuppliers,
+        Colors.orange,
+      );
       add(Icons.bar_chart, 'Reports', Routes.retailStoreReports, Colors.teal);
       add(Icons.print, 'Printer Settings', Routes.printerSettings, Colors.teal);
     } else {
       if (WorkerPermissions.canManageSalesForUser(role, currentPermissions)) {
-        add(Icons.point_of_sale, 'Open POS', Routes.retailPos,
-            AppColors.primary);
+        add(
+          Icons.point_of_sale,
+          widget.isBakery ? 'Bakery POS' : 'Open POS',
+          Routes.retailPos,
+          widget.isBakery ? const Color(0xFFD97706) : AppColors.primary,
+        );
       }
       if (WorkerPermissions.canViewInventoryForUser(role, currentPermissions)) {
-        add(Icons.event_busy, 'Expiry Tracker', Routes.expiryTracker,
-            Colors.red);
+        add(
+          Icons.event_busy,
+          widget.isBakery ? 'Freshness Tracker' : 'Expiry Tracker',
+          Routes.expiryTracker,
+          Colors.red,
+        );
       }
       if (WorkerPermissions.canManageInventoryForUser(
         role,
         currentPermissions,
       )) {
-        add(Icons.add_box, 'Add Product', Routes.retailAddProduct,
-            AppColors.success);
+        add(
+          Icons.add_box,
+          widget.isBakery ? 'Add Bakery Item' : 'Add Product',
+          Routes.retailAddProduct,
+          AppColors.success,
+        );
       }
       if (can(WorkerPermissions.canViewAnalytics) ||
           AccessControl.canViewReports(context)) {

@@ -590,7 +590,7 @@ class AppRouter {
         return _buildRoute(const RetailDashboard());
 
       case Routes.bakeryDashboard:
-        return _buildRoute(const RetailDashboard());
+        return _buildRoute(const RetailDashboard.bakery());
 
       case Routes.wholesaleDashboard:
         return _buildRoute(const WarehouseDashboardScreen());

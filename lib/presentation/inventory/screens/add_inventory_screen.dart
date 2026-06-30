@@ -48,6 +48,12 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   bool _showSuggestions = false;
 
   final List<String> _categories = [
+    'Bread',
+    'Pastry',
+    'Cake',
+    'Snacks',
+    'Ingredient',
+    'Packaging',
     'Electronics',
     'Clothing',
     'Food',
@@ -59,13 +65,86 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     'Other'
   ];
 
-  final List<String> _units = ['pcs', 'kg', 'ltr', 'box', 'pack' , 'crate', 'dozen', 'set', 'ton'];
+  final List<String> _units = [
+    'pcs',
+    'kg',
+    'g',
+    'bag',
+    'tray',
+    'box',
+    'pack',
+    'crate',
+    'dozen',
+    'set',
+    'ltr',
+    'ton'
+  ];
 
   @override
   void initState() {
     super.initState();
     _loadProductNameSuggestions();
     _nameController.addListener(_onNameChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_isBakeryBusiness()) return;
+      setState(() {
+        _selectedCategory = 'Bread';
+        _selectedUnit = 'pcs';
+        _trackExpiry = true;
+        _expiryDate = DateTime.now().add(const Duration(days: 2));
+        _minStockController.text = '10';
+      });
+    });
+  }
+
+  bool _isBakeryBusiness() {
+    final type = context
+            .read<BusinessProvider>()
+            .currentBusiness
+            ?.businessType
+            .toLowerCase() ??
+        '';
+    final normalized = type.replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return normalized == 'bakery' ||
+        normalized == 'bakeryshop' ||
+        normalized == 'bakeshop';
+  }
+
+  int? _bakeryShelfLifeDays(String category) {
+    switch (category) {
+      case 'Bread':
+        return 2;
+      case 'Pastry':
+      case 'Snacks':
+        return 1;
+      case 'Cake':
+        return 3;
+      case 'Ingredient':
+        return 90;
+      case 'Packaging':
+        return 365;
+    }
+    return null;
+  }
+
+  void _applyBakeryCategoryDefaults(String category) {
+    final shelfLifeDays = _bakeryShelfLifeDays(category) ?? 7;
+    setState(() {
+      _selectedCategory = category;
+      _selectedUnit = category == 'Ingredient' ? 'kg' : 'pcs';
+      _trackExpiry = category != 'Packaging';
+      _expiryDate = DateTime.now().add(Duration(days: shelfLifeDays));
+      if (_emojiController.text.trim().isEmpty ||
+          _emojiController.text == '📦') {
+        _emojiController.text = category == 'Ingredient'
+            ? 'flour'
+            : category == 'Cake'
+                ? 'cake'
+                : category == 'Pastry'
+                    ? 'pie'
+                    : 'bread';
+      }
+    });
   }
 
   Future<void> _loadProductNameSuggestions() async {

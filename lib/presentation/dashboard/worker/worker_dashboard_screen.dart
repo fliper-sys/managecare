@@ -318,9 +318,12 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
         dashboard = const PharmacyDashboard();
         break;
       case 'retail':
-      case 'bakery':
         print('[WorkerDashboard] Showing Retail Dashboard');
         dashboard = const RetailDashboard();
+        break;
+      case 'bakery':
+        print('[WorkerDashboard] Showing Bakery Dashboard');
+        dashboard = const RetailDashboard.bakery();
         break;
       case 'gas':
       case 'petroleum':

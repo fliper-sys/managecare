@@ -49,6 +49,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
   late String _selectedSaleUnit;
   DateTime? _selectedExpiryDate;
 
+  static const Map<String, int> _bakeryShelfLifeDays = {
+    'Bread': 2,
+    'Pastry': 1,
+    'Cake': 3,
+    'Snacks': 1,
+    'Ingredient': 90,
+    'Packaging': 365,
+  };
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +85,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _saleUnitMultiplierController = TextEditingController(
       text: widget.product?.resolvedSaleUnitMultiplier.toString() ?? '1',
     );
+    _batchLabelController = TextEditingController(
+      text: widget.product?.batchLabel ?? '',
+    );
+    _selectedExpiryDate = widget.product?.expiryDate;
   }
 
   @override
@@ -89,7 +102,52 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _barcodeController.dispose();
     _emojiController.dispose();
     _saleUnitMultiplierController.dispose();
+    _batchLabelController.dispose();
     super.dispose();
+  }
+
+  bool _isBakeryBusiness(BuildContext context) {
+    final type = context
+            .read<BusinessProvider>()
+            .currentBusiness
+            ?.businessType
+            .toLowerCase() ??
+        '';
+    final normalized = type.replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return normalized == 'bakery' ||
+        normalized == 'bakeryshop' ||
+        normalized == 'bakeshop';
+  }
+
+  void _applyBakeryCategory(String category) {
+    final shelfLife = _bakeryShelfLifeDays[category] ?? 1;
+    setState(() {
+      _categoryController.text = category;
+      _selectedUnit = category == 'Ingredient' ? 'kg' : 'pcs';
+      _selectedSaleUnit = category == 'Ingredient' ? 'kg' : 'pcs';
+      _selectedExpiryDate = DateTime.now().add(Duration(days: shelfLife));
+      if (_batchLabelController.text.trim().isEmpty) {
+        _batchLabelController.text =
+            '$category ${DateTime.now().day}/${DateTime.now().month}';
+      }
+    });
+  }
+
+  Future<void> _selectBakeryExpiryDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedExpiryDate ?? DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 730)),
+    );
+    if (picked != null) {
+      setState(() => _selectedExpiryDate = picked);
+    }
+  }
+
+  String _dateLabel(DateTime? date) {
+    if (date == null) return 'Select best-before date';
+    return '${date.day}/${date.month}/${date.year}';
   }
 
   Future<void> _pickAndUploadImage() async {
@@ -305,6 +363,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
         saleUnit: _selectedSaleUnit,
         saleUnitMultiplier:
             double.tryParse(_saleUnitMultiplierController.text.trim()) ?? 1.0,
+        trackExpiry: _isBakeryBusiness(context) || _selectedExpiryDate != null,
+        expiryDate: _selectedExpiryDate,
+        batchLabel: _batchLabelController.text.trim(),
+        shelfLifeDays: _bakeryShelfLifeDays[_categoryController.text.trim()],
       );
 
       if (widget.product == null) {
@@ -348,11 +410,17 @@ class _AddProductScreenState extends State<AddProductScreen> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.product != null;
+    final isBakery = _isBakeryBusiness(context);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isEditing ? 'Edit Product' : 'Add Product'),
-        backgroundColor: AppColors.primary,
+        title: Text(
+          isBakery
+              ? (isEditing ? 'Edit Bakery Item' : 'Add Bakery Item')
+              : (isEditing ? 'Edit Product' : 'Add Product'),
+        ),
+        backgroundColor:
+            isBakery ? const Color(0xFFD97706) : AppColors.primary,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -389,7 +457,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
             TextField(
               controller: _categoryController,
               decoration: InputDecoration(
-                hintText: 'Category',
+                hintText: isBakery ? 'Bread, Pastry, Cake...' : 'Category',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -399,6 +467,72 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 ),
               ),
             ),
+            if (isBakery) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _bakeryShelfLifeDays.keys.map((category) {
+                  final selected = _categoryController.text == category;
+                  return ChoiceChip(
+                    label: Text(category),
+                    selected: selected,
+                    selectedColor: const Color(0xFFD97706).withOpacity(0.18),
+                    onSelected: (_) => _applyBakeryCategory(category),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFF59E0B)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Bakery freshness setup',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _batchLabelController,
+                      decoration: const InputDecoration(
+                        labelText: 'Batch label',
+                        hintText: 'Example: Morning Bread Batch',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    InkWell(
+                      onTap: _selectBakeryExpiryDate,
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Best-before / expiry date',
+                          border: OutlineInputBorder(),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.event_busy_rounded),
+                            const SizedBox(width: 10),
+                            Text(_dateLabel(_selectedExpiryDate)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'These fields power freshness tracking, batch review, and daily bakery stock control.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ],
 
             const SizedBox(height: 12),
             Consumer<RetailProvider>(builder: (context, retail, _) {
