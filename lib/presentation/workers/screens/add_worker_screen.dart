@@ -43,6 +43,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
   // support multiple roles for workers (salon/barber may need multiple roles)
   final Set<String> _selectedRoles = {'staff'}; 
   final List<String> _selectedServiceIds = [];
+  final Set<String> _selectedPumpIds = {};
   bool _obscurePassword = true;
   bool _isLoading = false;
   bool _sendInvitationEmail = true;
@@ -113,7 +114,9 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
   }
 
   List<String> _getRolesForBusiness(String businessType) {
-    switch (businessType.toLowerCase()) {
+    final normalized =
+        businessType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    switch (normalized) {
       case 'restaurant':
         return ['sub_admin', 'manager', 'chef', 'cashier', 'waiter', 'staff'];
       case 'salon':
@@ -136,7 +139,6 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           'staff',
         ];
       case 'auto':
-      case 'auto repair':
       case 'autorepair':
         return [
           'manager',
@@ -147,9 +149,34 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           'vulcanizer',
           'staff',
         ];
+      case 'gas':
+      case 'petroleum':
+      case 'petrolstation':
+      case 'petroleumstation':
+      case 'fillingstation':
+        return ['pump_operator', 'sales_rep', 'staff', 'cashier', 'manager'];
       default:
-        return ['manager', 'cashier', 'staff', 'assistant'];
+        return WorkerPermissions.getAvailableRoles(businessType);
     }
+  }
+
+  bool _isFuelStationBusiness(String businessType) {
+    final normalized =
+        businessType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return normalized == 'gas' ||
+        normalized == 'petroleum' ||
+        normalized == 'petrolstation' ||
+        normalized == 'petroleumstation' ||
+        normalized == 'fillingstation';
+  }
+
+  CollectionReference<Map<String, dynamic>>? _pumpCollection() {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return null;
+    return FirebaseFirestore.instance
+        .collection('businesses')
+        .doc(businessId)
+        .collection('pump_configurations');
   }
 
   String _readableRole(String role) {
@@ -421,6 +448,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
               'businessId': authProvider.currentUser!.businessId,
               'businessType': businessType,
               'storeId': _selectedStoreId,
+              'assignedPumpIds': _selectedPumpIds.toList(),
+              'assignedPumpCount': _selectedPumpIds.length,
               'pin': _pinController.text.trim(),
               'isActive': true,
               'hireDate': DateTime.now().toString().split(' ')[0],
@@ -575,6 +604,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           'businessId': authProvider.currentUser!.businessId,
           'businessType': businessType,
           'storeId': _selectedStoreId,
+          'assignedPumpIds': _selectedPumpIds.toList(),
+          'assignedPumpCount': _selectedPumpIds.length,
           'pin': _pinController.text.trim(),
           'isActive': true,
           'hireDate': DateTime.now()
@@ -888,13 +919,16 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
               Builder(builder: (context) {
                 final businessType = context.read<BusinessProvider>().currentBusiness?.businessType ?? '';
                 final roles = _getRolesForBusiness(businessType);
+                final isFuelStation = _isFuelStationBusiness(businessType);
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('Role', style: TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 4),
                     Text(
-                      'Choose one or more roles for this worker.',
+                      isFuelStation
+                          ? 'Choose one station role. Petroleum workers get a dedicated dashboard based on this role.'
+                          : 'Choose one or more roles for this worker.',
                       style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                     ),
                     const SizedBox(height: 8),
@@ -907,6 +941,12 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                           label: Text(_readableRole(r)),
                           selected: selected,
                           onSelected: (_) => setState(() {
+                            if (isFuelStation) {
+                              _selectedRoles
+                                ..clear()
+                                ..add(r);
+                              return;
+                            }
                             if (selected) {
                               _selectedRoles.remove(r);
                               if (_selectedRoles.isEmpty) _selectedRoles.add('staff');
@@ -988,6 +1028,98 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                   ],
                 );
               }),
+              const SizedBox(height: 12),
+
+              Builder(builder: (context) {
+                final businessType = context
+                        .read<BusinessProvider>()
+                        .currentBusiness
+                        ?.businessType ??
+                    '';
+                if (!_isFuelStationBusiness(businessType)) {
+                  return const SizedBox.shrink();
+                }
+                final pumps = _pumpCollection();
+                if (pumps == null) return const SizedBox.shrink();
+
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: pumps
+                      .where('isActive', isEqualTo: true)
+                      .orderBy('pumpNumber')
+                      .snapshots(includeMetadataChanges: true),
+                  builder: (context, snapshot) {
+                    final pumpDocs = snapshot.data?.docs ?? [];
+                    if (pumpDocs.isEmpty) {
+                      return Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.orange),
+                        ),
+                        child: const Text(
+                          'No pumps configured yet. Add pumps from Pump Configuration before assigning pump operators.',
+                        ),
+                      );
+                    }
+
+                    return Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.blueGrey.withOpacity(0.18),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Assigned Pumps',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Select the pump(s) this worker can operate. Pump operators will only see assigned pumps during sales.',
+                            style: TextStyle(
+                              color: Colors.grey.shade700,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: pumpDocs.map((doc) {
+                              final data = doc.data();
+                              final selected = _selectedPumpIds.contains(doc.id);
+                              final label =
+                                  'Pump ${data['pumpNumber'] ?? ''} - ${data['productName'] ?? 'Fuel'}';
+                              return FilterChip(
+                                label: Text(label),
+                                selected: selected,
+                                onSelected: (value) {
+                                  setState(() {
+                                    if (value) {
+                                      _selectedPumpIds.add(doc.id);
+                                    } else {
+                                      _selectedPumpIds.remove(doc.id);
+                                    }
+                                  });
+                                },
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              }),
+
               const SizedBox(height: 12),
 
               // Store assignment (optional)

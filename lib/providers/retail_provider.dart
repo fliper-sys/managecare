@@ -2138,6 +2138,9 @@ class RetailProvider extends ChangeNotifier {
     String? customerEmail,
     String? customerName,
     String? storeId,
+    String? pumpId,
+    String? pumpNumber,
+    String? pumpName,
   }) async {
     if (_businessId == null) throw Exception('No business selected');
 
@@ -2214,6 +2217,10 @@ class RetailProvider extends ChangeNotifier {
       'customerName': customerName,
       'createdAt': FieldValue.serverTimestamp(),
       if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
+      if (pumpId != null && pumpId.isNotEmpty) 'pumpId': pumpId,
+      if (pumpNumber != null && pumpNumber.isNotEmpty)
+        'pumpNumber': pumpNumber,
+      if (pumpName != null && pumpName.isNotEmpty) 'pumpName': pumpName,
       'category': 'Fuel',
     };
 

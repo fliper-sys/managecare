@@ -1,4 +1,5 @@
 import 'package:business_manager/core/extensions/list_extensions.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../providers/retail_provider.dart';
@@ -22,14 +23,151 @@ class GasPumpScreen extends StatefulWidget {
 
 class _GasPumpScreenState extends State<GasPumpScreen> {
   String? _selectedProductId;
+  String? _selectedPumpId;
+  String? _selectedPumpNumber;
+  String? _selectedPumpName;
+  final Set<String> _assignedPumpIds = {};
+  bool _assignmentLoaded = false;
   bool _sellByAmount = true;
   final _amountController = TextEditingController();
   final _qtyController = TextEditingController();
   bool _processing = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadAssignedPumps());
+  }
+
+  Future<void> _loadAssignedPumps() async {
+    final user = context.read<AuthProvider>().currentUser;
+    if (user == null || user.id.isEmpty) {
+      if (mounted) setState(() => _assignmentLoaded = true);
+      return;
+    }
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('workers')
+          .doc(user.id)
+          .get();
+      final ids = ((doc.data()?['assignedPumpIds'] as List<dynamic>?) ?? [])
+          .map((id) => id.toString())
+          .where((id) => id.isNotEmpty);
+      if (!mounted) return;
+      setState(() {
+        _assignedPumpIds
+          ..clear()
+          ..addAll(ids);
+        _assignmentLoaded = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _assignmentLoaded = true);
+    }
+  }
+
+  Widget _buildPumpSelector({
+    required bool isPumpOperator,
+    required String businessId,
+  }) {
+    if (isPumpOperator && !_assignmentLoaded) {
+      return const Padding(
+        padding: EdgeInsets.only(bottom: 16),
+        child: LinearProgressIndicator(),
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(businessId)
+          .collection('pump_configurations')
+          .where('isActive', isEqualTo: true)
+          .orderBy('pumpNumber')
+          .snapshots(includeMetadataChanges: true),
+      builder: (context, snapshot) {
+        final allPumps = snapshot.data?.docs ?? [];
+        final pumps = isPumpOperator && _assignedPumpIds.isNotEmpty
+            ? allPumps.where((doc) => _assignedPumpIds.contains(doc.id)).toList()
+            : allPumps;
+
+        if (isPumpOperator && pumps.isEmpty) {
+          return Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.orange.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.orange),
+            ),
+            child: const Text(
+              'No pump is assigned to this account. Ask the owner or manager to assign a pump before recording sales.',
+            ),
+          );
+        }
+
+        if (pumps.isEmpty) return const SizedBox.shrink();
+
+        final selectedPump = pumps.firstWhereOrNull(
+              (doc) => doc.id == _selectedPumpId,
+            ) ??
+            pumps.first;
+        final selectedData = selectedPump.data();
+        if (_selectedPumpId == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() {
+              _selectedPumpId = selectedPump.id;
+              _selectedPumpNumber = selectedData['pumpNumber']?.toString();
+              _selectedPumpName = 'Pump ${selectedData['pumpNumber'] ?? ''}';
+              _selectedProductId = selectedData['productId']?.toString();
+            });
+          });
+        }
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: DropdownButtonFormField<String>(
+            value: selectedPump.id,
+            decoration: const InputDecoration(
+              labelText: 'Select Pump',
+              border: OutlineInputBorder(),
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            ),
+            items: pumps.map((doc) {
+              final data = doc.data();
+              return DropdownMenuItem(
+                value: doc.id,
+                child: Text(
+                  'Pump ${data['pumpNumber'] ?? ''} - ${data['productName'] ?? 'Fuel'}',
+                ),
+              );
+            }).toList(),
+            onChanged: (value) {
+              final pump = pumps.firstWhereOrNull((doc) => doc.id == value);
+              final data = pump?.data();
+              setState(() {
+                _selectedPumpId = value;
+                _selectedPumpNumber = data?['pumpNumber']?.toString();
+                _selectedPumpName =
+                    data == null ? null : 'Pump ${data['pumpNumber'] ?? ''}';
+                _selectedProductId = data?['productId']?.toString();
+              });
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     final retail = context.watch<RetailProvider>();
+    final auth = context.watch<AuthProvider>();
+    final business = context.watch<BusinessProvider>().currentBusiness;
+    final isPumpOperator =
+        (auth.currentUser?.role.toLowerCase() ?? '') == 'pump_operator';
     final products = retail.products.where((p) {
       final category = p.category.toLowerCase();
       return category == 'fuel' ||
@@ -41,6 +179,12 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
     }).toList();
 
     final selected = products.firstWhereOrNull((p) => p.id == _selectedProductId) ?? (products.isNotEmpty ? products.first : null);
+
+    if (business == null) {
+      return const Scaffold(
+        body: Center(child: Text('No business selected')),
+      );
+    }
 
     double computedQty = 0.0;
     double computedAmt = 0.0;
@@ -72,6 +216,10 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _buildPumpSelector(
+                    isPumpOperator: isPumpOperator,
+                    businessId: business.id,
+                  ),
                   DropdownButtonFormField<String>(
                     decoration: const InputDecoration(
                       labelText: 'Select Fuel Product',
@@ -80,7 +228,9 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                     ),
                     value: _selectedProductId ?? (products.isNotEmpty ? products.first.id : null),
                     items: products.map((p) => DropdownMenuItem(value: p.id, child: Text('${p.name} • ${p.price.toStringAsFixed(2)}/${p.unit}'))).toList(),
-                    onChanged: (v) => setState(() => _selectedProductId = v),
+                    onChanged: _selectedPumpId == null
+                        ? (v) => setState(() => _selectedProductId = v)
+                        : null,
                   ),
                   const SizedBox(height: 24),
                   Center(
@@ -172,6 +322,18 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid amount or volume')));
                                     return;
                                   }
+                                  if (isPumpOperator &&
+                                      (_selectedPumpId == null ||
+                                          _selectedPumpId!.isEmpty)) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Select an assigned pump before recording this sale',
+                                        ),
+                                      ),
+                                    );
+                                    return;
+                                  }
 
                                   // Show payment-method sheet and perform the sale using the selected method
                                   final selectedPayment = await showModalBottomSheet<String?>(
@@ -195,7 +357,10 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                     paymentMethod: selectedPayment,
                                     workerId: workerId,
                                     workerName: workerName,
-                                    storeId: Provider.of<BusinessProvider>(context, listen: false).currentBusiness?.id,
+                                    storeId: business.id,
+                                    pumpId: _selectedPumpId,
+                                    pumpNumber: _selectedPumpNumber,
+                                    pumpName: _selectedPumpName,
                                   );
 
                                   // Immediate feedback
@@ -221,6 +386,9 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                     'cashier': workerName,
                                     'createdBy': workerId,
                                     'businessLocation': business?.address ?? '',
+                                    'pumpId': _selectedPumpId,
+                                    'pumpNumber': _selectedPumpNumber,
+                                    'pumpName': _selectedPumpName,
                                   }; 
 
                                     // Attempt to send receipt email and owner notification (if online)

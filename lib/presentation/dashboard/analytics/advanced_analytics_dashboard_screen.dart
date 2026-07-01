@@ -637,7 +637,7 @@ class _AdvancedAnalyticsDashboardScreenState
         stream: FirebaseFirestore.instance
             .collection('businesses')
             .doc(businessId)
-            .collection('pump_daily_uploads')
+            .collection('sales')
             .snapshots(includeMetadataChanges: true),
         builder: (context, snapshot) {
           final docs = snapshot.data?.docs ?? [];
@@ -645,9 +645,15 @@ class _AdvancedAnalyticsDashboardScreenState
           final operatorRevenue = <String, double>{};
           for (final doc in docs) {
             final data = doc.data();
-            final amount =
-                (data['expectedAmount'] as num?)?.toDouble() ?? 0.0;
-            final pump = 'Pump ${data['pumpNumber'] ?? data['pumpId'] ?? ''}';
+            final pumpId = data['pumpId']?.toString() ?? '';
+            if (pumpId.isEmpty) continue;
+            final amount = (data['totalAmount'] as num?)?.toDouble() ??
+                (data['total'] as num?)?.toDouble() ??
+                (data['expectedAmount'] as num?)?.toDouble() ??
+                0.0;
+            final pump = (data['pumpName'] ??
+                    'Pump ${data['pumpNumber'] ?? data['pumpId'] ?? ''}')
+                .toString();
             final operator =
                 (data['workerName'] ?? data['workerId'] ?? 'Unknown')
                     .toString();

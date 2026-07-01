@@ -288,6 +288,8 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
 
       final repository =
           InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
+      final isBakery = _isBakeryBusiness();
+      final shelfLifeDays = isBakery ? _bakeryShelfLifeDays(_selectedCategory) : null;
 
       final inventoryData = {
         'businessId': businessProvider.currentBusiness!.id,
@@ -304,6 +306,11 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
         'minStock': int.tryParse(_minStockController.text) ?? 10,
         'trackExpiry': _trackExpiry,
         'expiryDate': _expiryDate, // store as DateTime (Firestore will save as Timestamp)
+        if (isBakery) 'businessSection': 'bakery',
+        if (shelfLifeDays != null) 'shelfLifeDays': shelfLifeDays,
+        if (isBakery)
+          'batchLabel':
+              '${_selectedCategory}_${DateTime.now().millisecondsSinceEpoch}',
         'emoji': _emojiController.text.isEmpty ? '📦' : _emojiController.text,
         'createdAt': DateTime.now().toIso8601String(),
       };
@@ -569,12 +576,34 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                         }).toList(),
                         onChanged: (value) {
                           if (value != null) {
-                            setState(() => _selectedCategory = value);
+                            if (_isBakeryBusiness() &&
+                                _bakeryShelfLifeDays(value) != null) {
+                              _applyBakeryCategoryDefaults(value);
+                            } else {
+                              setState(() => _selectedCategory = value);
+                            }
                           }
                         },
                       ),
                     ),
                   ),
+
+                  if (_isBakeryBusiness()) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFFBEB),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFF59E0B)),
+                      ),
+                      child: const Text(
+                        'Bakery mode: bread, pastry, cake, snacks, ingredients, and packaging automatically apply sensible units, shelf-life, expiry tracking, and batch metadata.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
 
                   const SizedBox(height: 16),
 

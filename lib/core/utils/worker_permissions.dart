@@ -94,12 +94,8 @@ class WorkerPermissions {
     ],
     'pharmacy_assistant': ['sales', 'view_inventory'],
     'bartender': ['sales', 'view_inventory'],
-    'pump_operator': ['sales', 'view_inventory'],
-    'sales_rep': [
-      'sales',
-      'view_inventory',
-      'view_sales_history',
-    ],
+    'pump_operator': ['sales'],
+    'sales_rep': ['sales', 'view_inventory'],
     'station_attendant': ['sales', 'view_inventory', 'view_sales_history'],
     'fuel_manager': [
       'sales',
@@ -546,7 +542,25 @@ class WorkerPermissions {
         'manager'
       ],
     };
-    return rolesByBusiness[businessType.toLowerCase()] ??
+    final normalizedBusinessType =
+        businessType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    const aliases = {
+      'petrolstation': 'petroleum',
+      'petroleumstation': 'petroleum',
+      'fillingstation': 'petroleum',
+      'gasstation': 'gas',
+      'retailstore': 'retail',
+      'bakeryshop': 'bakery',
+      'bakeshop': 'bakery',
+    };
+    final lookupKey = aliases[normalizedBusinessType] ??
+        rolesByBusiness.keys.firstWhere(
+          (key) =>
+              key.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '') ==
+              normalizedBusinessType,
+          orElse: () => businessType.toLowerCase(),
+        );
+    return rolesByBusiness[lookupKey] ??
         ['staff', 'manager', 'worker'];
   }
 
@@ -598,15 +612,19 @@ class WorkerPermissions {
       'body_technician': 'Restores panels, dents, and structural bodywork.',
       'painter': 'Manages prep, spray, and finishing work.',
       'vulcanizer': 'Handles tyres, wheel balancing, and alignment support.',
-      'manager': 'Oversees workflow, approvals, and staff coordination.',
-      'staff': 'General support for service and workshop operations.',
+      'manager':
+          'Oversees operations, reports, uploads, expenses, inventory, and staff coordination.',
+      'staff':
+          'General staff support with access to both sales and inventory where allowed.',
       'receptionist': 'Welcomes customers, manages bookings, and assigns jobs.',
       'pharmacist': 'Dispenses medications and manages prescriptions.',
       'trainer': 'Leads classes, sessions, and member guidance.',
       'beautician': 'Delivers beauty services and customer care.',
       'field_officer': 'Manages field visits, follow-ups, and property updates.',
-      'pump_operator': 'Handles fuel pump sales and station checkout.',
-      'sales_rep': 'Handles minimart and retail product sales.',
+      'pump_operator':
+          'Dispenses fuel and records pump sales only. No minimart, uploads, reports, or pump history access.',
+      'sales_rep':
+          'Operates the station mini mart and sells gas cylinders, oil, accessories, and other retail products.',
       'station_attendant': 'Serves customers, records fuel sales, and checks stock.',
       'fuel_manager': 'Oversees fuel stock, procurement, reports, and station staff.',
       'baker': 'Manages baked goods, production stock, and bakery inventory.',

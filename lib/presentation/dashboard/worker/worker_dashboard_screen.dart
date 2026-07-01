@@ -634,11 +634,6 @@ class _PumpOperatorDashboard extends StatelessWidget {
         businessType.contains('filling');
     final pumpRoute =
         isPetroleumStation ? Routes.petroleumPump : Routes.gasPump;
-    final uploadRoute =
-        isPetroleumStation ? Routes.petroleumPumpUpload : Routes.gasPumpUpload;
-    final uploadHistoryRoute = isPetroleumStation
-        ? Routes.petroleumPumpUploadHistory
-        : Routes.gasPumpUploadHistory;
 
     return WillPopScope(
       onWillPop: () async {
@@ -666,31 +661,25 @@ class _PumpOperatorDashboard extends StatelessWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Pump Operator'),
-          actions: [
-            IconButton(
-              tooltip: 'Upload History',
-              icon: const Icon(Icons.history_rounded),
-              onPressed: () => Navigator.pushNamed(
-                context,
-                uploadHistoryRoute,
-              ),
-            ),
-          ],
         ),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            Text(
+              isPetroleumStation ? 'Petroleum Pump Sales' : 'Gas Pump Sales',
+              style: AppTextStyles.heading5,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This account is limited to dispensing and recording fuel sales only.',
+              style: AppTextStyles.body2Secondary,
+            ),
+            const SizedBox(height: 16),
             _PumpOperatorActionCard(
               title: 'Pump Sale',
               subtitle: 'Record individual fuel sales by amount or volume',
               icon: Icons.local_gas_station_rounded,
               onTap: () => Navigator.pushNamed(context, pumpRoute),
-            ),
-            _PumpOperatorActionCard(
-              title: 'Total Sales Upload',
-              subtitle: 'Upload opening and closing pump readings',
-              icon: Icons.cloud_upload_rounded,
-              onTap: () => Navigator.pushNamed(context, uploadRoute),
             ),
           ],
         ),
