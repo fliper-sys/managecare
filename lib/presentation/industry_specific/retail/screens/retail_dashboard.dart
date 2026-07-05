@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'dart:ui'; // For glassmorphism effects
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
@@ -22,19 +21,12 @@ class RetailDashboard extends StatefulWidget {
   State<RetailDashboard> createState() => _RetailDashboardState();
 }
 
-class _RetailDashboardState extends State<RetailDashboard>
-    with SingleTickerProviderStateMixin {
+class _RetailDashboardState extends State<RetailDashboard> {
   int _selectedTabIndex = 0;
-  late AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-    _controller.forward();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final businessId = Provider.of<BusinessProvider>(context, listen: false)
@@ -50,230 +42,275 @@ class _RetailDashboardState extends State<RetailDashboard>
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final auth = context.watch<AuthProvider>();
+    final user = auth.currentUser;
     final accentColor =
-        widget.isBakery ? const Color(0xFFD97706) : AppColors.primary;
-    final accentDark =
-        widget.isBakery ? const Color(0xFF92400E) : AppColors.primaryDark;
-    return Scaffold(
-      backgroundColor: colorScheme.surface, // Softer background
-      body: Consumer<RetailProvider>(
-        builder: (context, retailProvider, _) {
-          // Pre-calculate stats
-          final lowStockCount =
-              retailProvider.products.where((p) => p.stock < 10).length;
-          final totalRevenue = retailProvider.products.fold<double>(
-            0,
-            (sum, p) => sum + (p.price * (100 - p.stock)),
-          );
+        widget.isBakery ? const Color(0xFFFF8A18) : AppColors.primary;
 
-          return CustomScrollView(
-            physics: const BouncingScrollPhysics(),
-            slivers: [
-              // 1. Modern Sliver Header with Revenue
-              SliverAppBar(
-                expandedHeight: 200.0,
-                floating: false,
-                pinned: true,
-                backgroundColor: accentColor,
-                elevation: 0,
-                flexibleSpace: FlexibleSpaceBar(
-                  title: Text(widget.isBakery ? 'Bakery' : 'Retail Store'),
-                  background: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          accentColor,
-                          accentDark,
-                        ],
-                      ),
-                    ),
-                    child: Stack(
-                      children: [
-                        // Decorative Circle
-                        Positioned(
-                          right: -30,
-                          top: -30,
-                          child: Container(
-                            width: 150,
-                            height: 150,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.1),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                        // Revenue Content
-                        Positioned(
-                          bottom: 60,
-                          left: 20,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                widget.isBakery
-                                    ? 'Bakery Stock Value'
-                                    : 'Total Estimated Revenue',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.8),
-                                  fontSize: 14,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                '₦${(totalRevenue / 1000).toStringAsFixed(1)}k',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 36,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: -1,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+    return Scaffold(
+      backgroundColor:
+          widget.isBakery ? const Color(0xFFF8F6F1) : const Color(0xFFF5F8FF),
+      body: SafeArea(
+        child: Consumer<RetailProvider>(
+          builder: (context, retailProvider, _) {
+            final lowStockCount =
+                retailProvider.products.where((p) => p.stock < 10).length;
+            final totalRevenue = retailProvider.products.fold<double>(
+              0,
+              (sum, p) => sum + (p.price * (100 - p.stock)),
+            );
+            final quickActions = _getQuickActionItems(context).take(6).toList();
+
+            return SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildRetailHero(
+                    context,
+                    accentColor: accentColor,
+                    totalRevenue: totalRevenue,
+                    userName: user?.fullName ?? 'User',
                   ),
-                ),
-                
-                actions: [
-                  Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.notifications_outlined,
-                          color: Colors.white),
-                      onPressed: () {},
-                    ),
-                  ),
-                  Container(
-                    margin: const EdgeInsets.only(right: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.logout, color: Colors.white),
-                      onPressed: () async {
-                        try {
-                          await context.read<AuthProvider>().logout();
-                          if (context.mounted) Navigator.of(context).pushReplacementNamed(Routes.login);
-                        } catch (e) {
-                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Logout failed: $e')));
-                        }
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              // 2. Horizontal Stats Row (Overlapping the header slightly)
-              SliverToBoxAdapter(
-                child: Transform.translate(
-                  offset: const Offset(0, -40),
-                  child: SizedBox(
-                    height: 124,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      physics: const BouncingScrollPhysics(),
-                      children: [
-                        _HorizontalStatCard(
-                          label: widget.isBakery ? 'Bakery Items' : 'Products',
-                          value: '${retailProvider.products.length}',
-                          icon: widget.isBakery
-                              ? Icons.bakery_dining_outlined
-                              : Icons.inventory_2_outlined,
-                          color: widget.isBakery
-                              ? const Color(0xFFD97706)
-                              : Colors.blue,
-                        ),
-                        const SizedBox(width: 12),
-                        _HorizontalStatCard(
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _RetailStatCard(
                           label: widget.isBakery ? 'Outlets' : 'Stores',
                           value: '${retailProvider.stores.length}',
-                          icon: Icons.storefront_outlined,
-                          color: widget.isBakery
-                              ? const Color(0xFFB45309)
-                              : Colors.purple,
+                          caption: widget.isBakery ? 'Active outlets' : 'Active stores',
+                          icon: Icons.storefront_rounded,
+                          color: accentColor,
                         ),
-                        const SizedBox(width: 12),
-                        _HorizontalStatCard(
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _RetailStatCard(
                           label: widget.isBakery ? 'Low Batches' : 'Low Stock',
                           value: '$lowStockCount',
-                          icon: Icons.warning_amber_rounded,
-                          color: Colors.orange,
-                          isAlert: lowStockCount > 0,
+                          caption: 'Needs attention',
+                          icon: Icons.inventory_2_outlined,
+                          color: widget.isBakery
+                              ? const Color(0xFFEBA33A)
+                              : AppColors.warning,
+                          showChevron: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 18,
+                          offset: const Offset(0, 8),
                         ),
                       ],
-                    ),
-                  ),
-                ),
-              ),
-
-              // 3. Tab Selector
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: colorScheme.surfaceContainer,
-                      borderRadius: BorderRadius.circular(16),
                     ),
                     child: Row(
                       children: [
-                        _SegmentedTab(
+                        _RetailSegment(
+                          icon: Icons.eco_outlined,
                           label: widget.isBakery ? 'Fresh Items' : 'Top Items',
                           isSelected: _selectedTabIndex == 0,
+                          color: accentColor,
                           onTap: () => setState(() => _selectedTabIndex = 0),
                         ),
-                        _SegmentedTab(
+                        _RetailSegment(
+                          icon: Icons.storefront_outlined,
                           label: widget.isBakery ? 'Outlets' : 'Stores',
                           isSelected: _selectedTabIndex == 1,
+                          color: accentColor,
                           onTap: () => setState(() => _selectedTabIndex = 1),
                         ),
-                        _SegmentedTab(
+                        _RetailSegment(
+                          icon: Icons.flash_on_rounded,
                           label: 'Actions',
                           isSelected: _selectedTabIndex == 2,
+                          color: accentColor,
                           onTap: () => setState(() => _selectedTabIndex = 2),
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(height: 20),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: quickActions.length,
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 1.95,
+                    ),
+                    itemBuilder: (context, index) => quickActions[index],
+                  ),
+                  const SizedBox(height: 24),
+                  _RetailCtaCard(
+                    title: widget.isBakery ? 'New Bakery Sale' : 'New Retail Sale',
+                    subtitle: 'Create a new sale transaction',
+                    color: accentColor,
+                    onTap: () => Navigator.pushNamed(context, Routes.retailPos),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRetailHero(
+    BuildContext context, {
+    required Color accentColor,
+    required double totalRevenue,
+    required String userName,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: widget.isBakery
+              ? const [Color(0xFFFFF2D8), Color(0xFFFFC56F), Color(0xFFD97706)]
+              : [AppColors.primary.withOpacity(0.18), Colors.white],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 58,
+                height: 58,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  widget.isBakery
+                      ? Icons.bakery_dining_outlined
+                      : Icons.storefront_rounded,
+                  color: accentColor,
+                  size: 30,
                 ),
               ),
-
-              const SliverPadding(padding: EdgeInsets.only(top: 20)),
-
-              // 4. Dynamic Content Area
-              _buildSliverContent(context, retailProvider),
-
-              const SliverPadding(padding: EdgeInsets.only(bottom: 80)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Good evening',
+                      style: TextStyle(
+                        color: Colors.black.withOpacity(0.76),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      widget.isBakery ? 'Bakery' : 'Retail Store',
+                      style: const TextStyle(
+                        color: Color(0xFF06111F),
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      userName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Color(0xFF06111F),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _RetailCircleButton(
+                icon: Icons.notifications_none_rounded,
+                onTap: () => Navigator.pushNamed(context, Routes.notifications),
+              ),
+              const SizedBox(width: 10),
+              _RetailCircleButton(
+                icon: Icons.logout_rounded,
+                onTap: () async {
+                  try {
+                    await context.read<AuthProvider>().logout();
+                    if (context.mounted) {
+                      Navigator.of(context).pushReplacementNamed(Routes.login);
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Logout failed: $e')),
+                      );
+                    }
+                  }
+                },
+              ),
             ],
-          );
-        },
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.pushNamed(context, Routes.retailPos),
-        backgroundColor: accentColor,
-        elevation: 4,
-        icon: Icon(
-          widget.isBakery ? Icons.bakery_dining : Icons.add_shopping_cart,
-        ),
-        label: Text(widget.isBakery ? 'New Bakery Sale' : 'New Sale'),
+          ),
+          const SizedBox(height: 22),
+          Container(
+            width: 300,
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: const Color(0xFF071225),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.isBakery
+                            ? 'Bakery Stock Value'
+                            : 'Retail Stock Value',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.68),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'N${(totalRevenue / 1000).toStringAsFixed(1)}k',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 30,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Total inventory value',
+                        style: TextStyle(color: Colors.white.withOpacity(0.60)),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.show_chart_rounded, color: accentColor, size: 42),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -470,6 +507,246 @@ class _RetailDashboardState extends State<RetailDashboard>
 }
 
 // --- MODERNIZED COMPONENTS ---
+
+class _RetailCircleButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _RetailCircleButton({
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: const Color(0xFF06111F)),
+      ),
+    );
+  }
+}
+
+class _RetailStatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final String caption;
+  final IconData icon;
+  final Color color;
+  final bool showChevron;
+
+  const _RetailStatCard({
+    required this.label,
+    required this.value,
+    required this.caption,
+    required this.icon,
+    required this.color,
+    this.showChevron = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.16),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: color),
+              ),
+              const Spacer(),
+              if (showChevron)
+                const Icon(Icons.chevron_right_rounded,
+                    color: Color(0xFF687082)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF06111F),
+            ),
+          ),
+          Text(
+            label,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF06111F),
+            ),
+          ),
+          const Divider(height: 24),
+          Text(
+            caption,
+            style: TextStyle(color: Colors.black.withOpacity(0.48)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RetailSegment extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isSelected;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _RetailSegment({
+    required this.icon,
+    required this.label,
+    required this.isSelected,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? color : Colors.transparent,
+            borderRadius: BorderRadius.circular(15),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon,
+                  size: 18,
+                  color: isSelected ? Colors.white : const Color(0xFF06111F)),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color:
+                        isSelected ? Colors.white : const Color(0xFF06111F),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RetailCtaCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _RetailCtaCard({
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.30),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 54,
+              height: 54,
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.20),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child:
+                  const Icon(Icons.local_fire_department, color: Colors.white),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 17,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(color: Colors.white.withOpacity(0.78)),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              width: 50,
+              height: 50,
+              decoration: const BoxDecoration(
+                color: Color(0xFF071225),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.arrow_forward_rounded,
+                  color: Colors.white),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _HorizontalStatCard extends StatelessWidget {
   final String label;
@@ -751,60 +1028,60 @@ class _QuickActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
       child: Container(
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerHighest.withOpacity(0.96),
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.8)),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(
-                  colorScheme.brightness == Brightness.dark ? 0.26 : 0.05),
-              blurRadius: 14,
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 18,
               offset: const Offset(0, 8),
             ),
           ],
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.14),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: color, size: 22),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.16),
+                borderRadius: BorderRadius.circular(14),
               ),
-              const Spacer(),
-              Text(
-                label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
-                  height: 1.1,
-                  color: colorScheme.onSurface,
-                ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF06111F),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Quick access',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.black.withOpacity(0.48)),
+                  ),
+                ],
               ),
-              const SizedBox(height: 6),
-              Text(
-                'Quick access',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Color(0xFF687082)),
+          ],
         ),
       ),
     );

@@ -32,7 +32,6 @@ import '../../../services/business_restriction_service.dart';
 import '../../../data/models/business_model.dart';
 import '../../../data/repositories/analytics_repository_impl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../../widgets/date_range_selector.dart';
 import '../../../widgets/business_switcher.dart';
 // App header is inlined via _buildUserHeader; no import required
 
@@ -108,20 +107,13 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final authProvider = context.watch<AuthProvider>();
-    final backgroundGradient = LinearGradient(
-      colors: isDark
-          ? const [
-              Color(0xFF0E1628),
-              Color(0xFF111E33),
-              Color(0xFF0B1322),
-            ]
-          : const [
-              Color(0xFFF5F8FF),
-              Color(0xFFFDFEFF),
-              Color(0xFFF3F6FB),
-            ],
+    const backgroundGradient = LinearGradient(
+      colors: [
+        Color(0xFF020817),
+        Color(0xFF071226),
+        Color(0xFF020817),
+      ],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
     );
@@ -153,7 +145,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
           return false;
         },
         child: Scaffold(
-          backgroundColor: Colors.transparent,
+          backgroundColor: const Color(0xFF020817),
           extendBody: true,
           body: SafeArea(
             child: DecoratedBox(
@@ -181,7 +173,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   }
 
   Widget _buildBottomNavBar(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isCompact = screenWidth < 390;
     final horizontalPadding = screenWidth < 420 ? 12.0 : 24.0;
@@ -192,65 +183,44 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       _BottomNavItem(icon: Icons.person_rounded, label: 'Profile', index: 3),
     ];
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isDark
-              ? const [Color(0xFF101B2F), Color(0xFF0B1322)]
-              : const [Color(0xFFF7FAFF), Color(0xFFF1F5FF)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
+    return SafeArea(
+      top: false,
+      minimum: EdgeInsets.fromLTRB(
+        horizontalPadding,
+        6,
+        horizontalPadding,
+        isCompact ? 10 : 14,
       ),
-      child: SafeArea(
-        top: false,
-        minimum: EdgeInsets.fromLTRB(
-          horizontalPadding,
-          6,
-          horizontalPadding,
-          isCompact ? 12 : 18,
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        padding: EdgeInsets.symmetric(
+          horizontal: isCompact ? 8 : 10,
+          vertical: isCompact ? 8 : 10,
         ),
-        child: Container(
-          clipBehavior: Clip.antiAlias,
-          padding: EdgeInsets.symmetric(
-            horizontal: isCompact ? 6 : 8,
-            vertical: isCompact ? 6 : 8,
-          ),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: isDark
-                  ? const [Color(0xFF182538), Color(0xFF101B2C)]
-                  : const [Colors.white, Color(0xFFF5F8FF)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+        decoration: BoxDecoration(
+          color: const Color(0xFF101A30).withOpacity(0.96),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: Colors.white.withOpacity(0.08)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.34),
+              blurRadius: 28,
+              offset: const Offset(0, 14),
             ),
-            borderRadius: BorderRadius.circular(isCompact ? 28 : 32),
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withOpacity(0.10)
-                  : AppColors.border.withOpacity(0.65),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.30 : 0.10),
-                blurRadius: 26,
-                offset: const Offset(0, 14),
-              ),
-            ],
-          ),
-          child: Row(
-            children: navigationItems
-                .map(
-                  (item) => Expanded(
-                    child: _buildNavBarItem(
-                      item,
-                      isDark,
-                      isCompact: isCompact,
-                    ),
+          ],
+        ),
+        child: Row(
+          children: navigationItems
+              .map(
+                (item) => Expanded(
+                  child: _buildNavBarItem(
+                    item,
+                    true,
+                    isCompact: isCompact,
                   ),
-                )
-                .toList(),
-          ),
+                ),
+              )
+              .toList(),
         ),
       ),
     );
@@ -263,8 +233,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   }) {
     final isSelected = item.index == _selectedTabIndex;
     final activeColor = AppColors.primary;
-    final inactiveColor = isDark ? Colors.grey[400] : Colors.grey[500];
-    final showInlineLabel = isSelected && !isCompact;
+    final inactiveColor = Colors.white.withOpacity(0.72);
 
     return GestureDetector(
       onTap: () {
@@ -279,98 +248,42 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           AnimatedContainer(
-            duration: const Duration(milliseconds: 280),
+            duration: const Duration(milliseconds: 240),
             curve: Curves.easeOutCubic,
-            margin: EdgeInsets.symmetric(horizontal: isCompact ? 2 : 4),
-            padding: EdgeInsets.symmetric(
-              horizontal: showInlineLabel ? 12 : 0,
-              vertical: isCompact ? 6 : 8,
-            ),
+            width: isCompact ? 34 : 38,
+            height: isCompact ? 34 : 38,
             decoration: BoxDecoration(
-              gradient: showInlineLabel
-                  ? LinearGradient(
-                      colors: [
-                        activeColor,
-                        activeColor.withOpacity(0.82),
-                      ],
-                    )
-                  : null,
               color: isSelected
-                  ? (isCompact ? activeColor.withOpacity(0.14) : null)
-                  : (isDark
-                      ? Colors.white.withOpacity(0.04)
-                      : Colors.transparent),
-              borderRadius: BorderRadius.circular(22),
+                  ? activeColor.withOpacity(0.18)
+                  : Colors.white.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: isSelected
+                  ? [
+                      BoxShadow(
+                        color: activeColor.withOpacity(0.34),
+                        blurRadius: 18,
+                        offset: const Offset(0, 8),
+                      ),
+                    ]
+                  : null,
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: isCompact ? 32 : 34,
-                  height: isCompact ? 32 : 34,
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? (isCompact
-                            ? activeColor.withOpacity(0.16)
-                            : Colors.white.withOpacity(0.18))
-                        : (isDark
-                            ? Colors.white.withOpacity(0.05)
-                            : activeColor.withOpacity(0.10)),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(
-                    item.icon,
-                    color: isSelected && !isCompact
-                        ? Colors.white
-                        : (isSelected ? activeColor : inactiveColor),
-                    size: isCompact ? 18 : 19,
-                  ),
-                ),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 220),
-                  transitionBuilder: (child, animation) => FadeTransition(
-                    opacity: animation,
-                    child: SizeTransition(
-                      sizeFactor: animation,
-                      axis: Axis.horizontal,
-                      child: child,
-                    ),
-                  ),
-                  child: showInlineLabel
-                      ? Padding(
-                          key: ValueKey(item.label),
-                          padding: const EdgeInsets.only(left: 10, right: 4),
-                          child: Text(
-                            item.label,
-                            style: AppTextStyles.body2.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-              ],
+            child: Icon(
+              item.icon,
+              color: isSelected ? activeColor : inactiveColor,
+              size: isCompact ? 18 : 20,
             ),
           ),
-          if (!showInlineLabel) ...[
-            SizedBox(height: isCompact ? 4 : 2),
-            AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 200),
-              style: AppTextStyles.caption.copyWith(
-                color: isSelected ? activeColor : inactiveColor,
-                fontWeight: FontWeight.w600,
-                fontSize: isCompact ? 10 : 10.5,
-              ),
-              child: Text(
-                item.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                softWrap: false,
-              ),
+          const SizedBox(height: 5),
+          Text(
+            item.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.caption.copyWith(
+              color: isSelected ? activeColor : inactiveColor,
+              fontWeight: FontWeight.w700,
+              fontSize: isCompact ? 10 : 10.5,
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -878,21 +791,19 @@ class _HomeTabState extends State<_HomeTab> {
         onRefresh: _handleRefresh,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 118),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header with User Info
-              const SizedBox(height: 4),
               _buildUserHeader(user, isDark),
-              const SizedBox(height: 24),
+              const SizedBox(height: 26),
 
               // Search Bar
               _buildSearchBar(isDark)
                   .animate()
                   .fadeIn(duration: 500.ms, delay: 100.ms)
                   .slideY(begin: -0.1),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
 
               // Business Info Card or Switcher
               if (business != null) ...[
@@ -900,24 +811,8 @@ class _HomeTabState extends State<_HomeTab> {
                     .animate()
                     .fadeIn(duration: 500.ms, delay: 200.ms)
                     .scale(begin: const Offset(0.5, 0.5)),
-                const SizedBox(height: 20),
+                const SizedBox(height: 14),
 
-                // Date Range Selector
-                DateRangeSelector(
-                  onRangeChanged: (newRange) {
-                    setState(() {
-                      _selectedDateRange = newRange;
-                      _loadingSalesMetrics = true;
-                    });
-                    // 🔥 OPTIMIZATION: Debounce sales metrics reload on date change
-                    _debouncedLoadSalesMetrics();
-                  },
-                  initialRange: _selectedDateRange,
-                  backgroundColor: const Color.fromARGB(255, 31, 54, 104),
-                ).animate().fadeIn(duration: 500.ms, delay: 250.ms),
-                const SizedBox(height: 20),
-
-                // Quick Metrics
                 _buildQuickMetrics(
                   isDark,
                   businessType: business.businessType,
@@ -940,7 +835,7 @@ class _HomeTabState extends State<_HomeTab> {
                     .animate()
                     .fadeIn(duration: 500.ms, delay: 300.ms)
                     .slideY(begin: 0.1),
-                const SizedBox(height: 24),
+                const SizedBox(height: 28),
               ] else if (userBusinesses.isNotEmpty) ...[
                 // Show business switcher if user has businesses but none selected
                 _buildBusinessSwitcher(userBusinesses, isDark)
@@ -957,13 +852,37 @@ class _HomeTabState extends State<_HomeTab> {
 
               // Quick Actions
               if (business != null && _filteredItems.isNotEmpty) ...[
-                Text(
-                  'Quick Actions',
-                  style: AppTextStyles.heading5.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Quick Actions',
+                        style: AppTextStyles.heading5.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 17,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: widget.onOpenWorkTab,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white.withOpacity(0.70),
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(74, 36),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('View all'),
+                          SizedBox(width: 4),
+                          Icon(Icons.chevron_right_rounded, size: 18),
+                        ],
+                      ),
+                    ),
+                  ],
                 ).animate().fadeIn(duration: 500.ms, delay: 400.ms),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
 
                 // Build quick actions, allow dynamic insertion for Gas businesses
                 Builder(builder: (ctx) {
@@ -1559,8 +1478,6 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildUserHeader(user, bool isDark) {
-    // Prefer explicit user photo; if missing, fall back to business-level
-    // profilePhotoUrl (settings) so updates from Settings are reflected.
     final settingsProvider = context.read<SettingsProvider>();
     final fallbackPhoto = settingsProvider.profilePhotoUrl;
     final resolvedPhoto = (user?.photoUrl != null && user!.photoUrl!.isNotEmpty)
@@ -1570,17 +1487,23 @@ class _HomeTabState extends State<_HomeTab> {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(2),
+          padding: const EdgeInsets.all(2.5),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(
-              color: AppColors.primary,
-              width: 2,
+            gradient: const LinearGradient(
+              colors: [Color(0xFF2B6BFF), Color(0xFF7C4DFF)],
             ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withOpacity(0.32),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
           child: ProfileAvatar(
-            radius: 28,
-            backgroundColor: AppColors.primary.withAlpha((0.15 * 255).toInt()),
+            radius: 33,
+            backgroundColor: const Color(0xFF111A30),
             photoUrl: resolvedPhoto,
             initials: user?.initials ?? 'U',
           ),
@@ -1592,41 +1515,41 @@ class _HomeTabState extends State<_HomeTab> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'Welcome back👋',
+                'Welcome back',
                 style: AppTextStyles.body2Secondary.copyWith(
-                  color: isDark ? Colors.grey[400] : AppColors.textSecondary,
-                  fontSize: 12,
+                  color: Colors.white.withOpacity(0.62),
+                  fontSize: 13,
                 ),
               ),
               Text(
                 user?.fullName ?? 'User',
                 style: AppTextStyles.heading4.copyWith(
-                  color: isDark ? Colors.white : AppColors.textPrimary,
+                  color: Colors.white,
                   fontWeight: FontWeight.w800,
-                  fontSize: 18,
+                  fontSize: 20,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 2),
-              // Current business display with quick switch dropdown
+              const SizedBox(height: 3),
               Builder(builder: (ctx) {
                 final bp = ctx.watch<BusinessProvider>();
                 final current = bp.currentBusiness;
                 return Row(
                   children: [
-                    Icon(Icons.storefront_rounded,
-                        size: 14, color: AppColors.primary.withOpacity(0.8)),
-                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.storefront_rounded,
+                      size: 15,
+                      color: Colors.white.withOpacity(0.72),
+                    ),
+                    const SizedBox(width: 6),
                     Flexible(
                       child: Text(
                         bp.isSwitchingBusiness
                             ? 'Syncing workspace...'
                             : current?.name ?? 'No business selected',
                         style: AppTextStyles.body2.copyWith(
-                          color: isDark
-                              ? Colors.grey[300]
-                              : AppColors.textSecondary,
+                          color: Colors.white.withOpacity(0.72),
                           fontWeight: FontWeight.w600,
                           fontSize: 13,
                         ),
@@ -1634,27 +1557,7 @@ class _HomeTabState extends State<_HomeTab> {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    if (bp.isSwitchingBusiness) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          'Updating',
-                          style: AppTextStyles.caption.copyWith(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 3),
                     const BusinessSwitcher(),
                   ],
                 );
@@ -1662,9 +1565,9 @@ class _HomeTabState extends State<_HomeTab> {
             ],
           ),
         ),
-        // Add Business quick action button (owner convenience)
-        IconButton(
+        _headerIconButton(
           tooltip: 'Add Business',
+          icon: Icons.add_business_rounded,
           onPressed: () async {
             final chosen = await _showBusinessTypeChooser(context);
             if (chosen != null) {
@@ -1675,19 +1578,55 @@ class _HomeTabState extends State<_HomeTab> {
               );
             }
           },
-          icon:
-              const Icon(Icons.add_business_rounded, color: AppColors.primary),
         ),
-
-        // Notifications (moved to top-right)
-        IconButton(
+        const SizedBox(width: 8),
+        _headerIconButton(
           tooltip: 'Notifications',
+          icon: Icons.notifications_rounded,
           onPressed: () => Navigator.pushNamed(context, Routes.notifications),
-          icon: const Icon(
-            Icons.notifications_rounded,
-            color: AppColors.primary,
+          showDot: true,
+        ),
+      ],
+    );
+  }
+
+  Widget _headerIconButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onPressed,
+    bool showDot = false,
+  }) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        SizedBox(
+          width: 44,
+          height: 44,
+          child: IconButton(
+            tooltip: tooltip,
+            onPressed: onPressed,
+            icon: Icon(icon, color: Colors.white, size: 21),
+            style: IconButton.styleFrom(
+              backgroundColor: const Color(0xFF111A30),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
           ),
         ),
+        if (showDot)
+          Positioned(
+            top: 6,
+            right: 7,
+            child: Container(
+              width: 6,
+              height: 6,
+              decoration: const BoxDecoration(
+                color: Color(0xFF2F6BFF),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -1715,52 +1654,69 @@ class _HomeTabState extends State<_HomeTab> {
 
   Widget _buildSearchBar(bool isDark) {
     return Container(
+      height: 56,
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.primary.withAlpha((0.15 * 255).toInt()),
-          width: 1.5,
-        ),
+        color: const Color(0xFF091224),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withAlpha((0.05 * 255).toInt()),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(0.18),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
       child: TextField(
         controller: _searchController,
         style: AppTextStyles.body1.copyWith(
-          color: isDark ? Colors.white : AppColors.textPrimary,
+          color: Colors.white,
           fontWeight: FontWeight.w500,
         ),
         decoration: InputDecoration(
           hintText: 'Search actions, features...',
           hintStyle: AppTextStyles.body2.copyWith(
-            color: isDark ? Colors.grey[500] : AppColors.textTertiary,
-            fontStyle: FontStyle.italic,
+            color: Colors.white.withOpacity(0.38),
           ),
           prefixIcon: Icon(
             Icons.search_rounded,
-            color: AppColors.primary.withAlpha((0.5 * 255).toInt()),
-            size: 22,
+            color: Colors.white.withOpacity(0.40),
+            size: 24,
           ),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? GestureDetector(
-                  onTap: () => _searchController.clear(),
-                  child: Icon(
-                    Icons.close_rounded,
-                    color:
-                        AppColors.textSecondary.withAlpha((0.5 * 255).toInt()),
-                    size: 20,
-                  ),
-                )
-              : null,
+          suffixIcon: Container(
+            width: 42,
+            height: 42,
+            margin: const EdgeInsets.only(right: 7),
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(21),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withOpacity(0.35),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: IconButton(
+              tooltip: _searchController.text.isEmpty ? 'Filter' : 'Clear search',
+              onPressed: () {
+                if (_searchController.text.isNotEmpty) {
+                  _searchController.clear();
+                }
+              },
+              icon: Icon(
+                _searchController.text.isEmpty
+                    ? Icons.tune_rounded
+                    : Icons.close_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+          ),
           border: InputBorder.none,
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 17),
           filled: false,
         ),
         cursorColor: AppColors.primary,
@@ -1770,99 +1726,54 @@ class _HomeTabState extends State<_HomeTab> {
 
   Widget _buildBusinessCard(BusinessModel business, bool isDark) {
     final businessProvider = context.watch<BusinessProvider>();
-    final colorScheme = Theme.of(context).colorScheme;
     final isSyncingThisBusiness = businessProvider.isSwitchingBusiness &&
         businessProvider.pendingBusinessId == business.id;
-    final baseColor = BusinessTypes.getColor(business.businessType);
-    final secondary = baseColor.withOpacity(0.78);
     final logoUrl = business.photoUrl ?? business.logoUrl;
-    final surfaceOverlay = isDark ? 0.10 : 0.08;
     final daysLeft = business.subscriptionEndDate == null
         ? null
         : (business.subscriptionEndDate!.difference(DateTime.now()).inDays)
             .clamp(0, 999);
+    final businessInitial = business.name.isNotEmpty
+        ? business.name.trim()[0].toUpperCase()
+        : '?';
 
     return GestureDetector(
-      onTap: () {
-        widget.onOpenWorkTab?.call();
-      },
-      onLongPress: () async {
-        await _showBusinessSwitcherSheet();
-      },
+      onTap: () => widget.onOpenWorkTab?.call(),
+      onLongPress: _showBusinessSwitcherSheet,
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              isDark ? colorScheme.surfaceContainerHighest : baseColor.withOpacity(0.96),
-              isDark ? colorScheme.surfaceContainerHigh : secondary,
-            ],
+          gradient: const LinearGradient(
+            colors: [Color(0xFF24366E), Color(0xFF182A59), Color(0xFF222D65)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          borderRadius: BorderRadius.circular(26),
-          border: Border.all(
-            color: isDark
-                ? colorScheme.outlineVariant.withOpacity(0.82)
-                : Colors.white.withOpacity(0.12),
-          ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFF5F6EFF).withOpacity(0.34)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.28 : 0.16),
-              blurRadius: 26,
+              color: const Color(0xFF1C2D73).withOpacity(0.40),
+              blurRadius: 24,
               offset: const Offset(0, 14),
             ),
           ],
         ),
-        child: Stack(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Positioned(
-              top: -48,
-              right: -24,
-              child: Container(
-                width: 130,
-                height: 130,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isDark
-                      ? colorScheme.onSurface.withOpacity(0.08)
-                      : Colors.white.withOpacity(surfaceOverlay),
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: -60,
-              left: -22,
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isDark
-                      ? colorScheme.onSurface.withOpacity(0.05)
-                      : Colors.white.withOpacity(surfaceOverlay / 2),
-                ),
-              ),
-            ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                Stack(
+                  clipBehavior: Clip.none,
                   children: [
                     Container(
-                      width: 74,
-                      height: 74,
+                      width: 78,
+                      height: 78,
                       decoration: BoxDecoration(
-                        color: isDark
-                            ? colorScheme.surface.withOpacity(0.55)
-                            : Colors.white.withOpacity(0.14),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: isDark
-                              ? colorScheme.outlineVariant.withOpacity(0.9)
-                              : Colors.white.withOpacity(0.16),
-                        ),
+                        color: Colors.white.withOpacity(0.07),
+                        borderRadius: BorderRadius.circular(19),
+                        border: Border.all(color: Colors.white.withOpacity(0.10)),
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(18),
@@ -1870,19 +1781,12 @@ class _HomeTabState extends State<_HomeTab> {
                             ? CachedNetworkImage(
                                 imageUrl: logoUrl,
                                 fit: BoxFit.cover,
-                                placeholder: (context, url) => Container(
-                                  color: isDark
-                                      ? colorScheme.surface.withOpacity(0.32)
-                                      : Colors.white.withOpacity(0.08),
-                                ),
                                 errorWidget: (context, url, error) => Center(
                                   child: Text(
-                                    business.name.isNotEmpty
-                                        ? business.name[0].toUpperCase()
-                                        : '?',
+                                    businessInitial,
                                     style: const TextStyle(
                                       color: Colors.white,
-                                      fontSize: 28,
+                                      fontSize: 34,
                                       fontWeight: FontWeight.w800,
                                     ),
                                   ),
@@ -1890,234 +1794,172 @@ class _HomeTabState extends State<_HomeTab> {
                               )
                             : Center(
                                 child: Text(
-                                  business.name.isNotEmpty
-                                      ? business.name[0].toUpperCase()
-                                      : '?',
+                                  businessInitial,
                                   style: const TextStyle(
                                     color: Colors.white,
-                                    fontSize: 28,
+                                    fontSize: 34,
                                     fontWeight: FontWeight.w800,
                                   ),
                                 ),
                               ),
                       ),
                     ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.14),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  isSyncingThisBusiness
-                                      ? 'Syncing workspace'
-                                      : 'Active business',
-                                  style: AppTextStyles.caption.copyWith(
-                                    color: isDark
-                                        ? colorScheme.onSurface
-                                        : Colors.white,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isDark
-                                      ? colorScheme.surface
-                                      : Colors.white,
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  business.subscriptionTier.toUpperCase(),
-                                  style: AppTextStyles.caption.copyWith(
-                                    color: isDark ? colorScheme.onSurface : baseColor,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                              if (isSyncingThisBusiness)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.14),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      SizedBox(
-                                        width: 12,
-                                        height: 12,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          valueColor: AlwaysStoppedAnimation<Color>(
-                                            isDark ? colorScheme.onSurface : Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Refreshing',
-                                        style: AppTextStyles.caption.copyWith(
-                                          color: isDark
-                                              ? colorScheme.onSurface
-                                              : Colors.white,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            business.name,
-                            style: AppTextStyles.heading4.copyWith(
-                              color: isDark ? colorScheme.onSurface : Colors.white,
-                              fontWeight: FontWeight.w900,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            BusinessTypes.getName(business.businessType),
-                            style: AppTextStyles.body2.copyWith(
-                              color: isDark
-                                  ? colorScheme.onSurfaceVariant
-                                  : Colors.white.withOpacity(0.86),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _buildBusinessActionButton(
-                      icon: Icons.swap_horiz_rounded,
-                      tooltip: 'Switch Business',
-                      onPressed: _showBusinessSwitcherSheet,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    _buildBusinessMetaPill(
-                      icon: Icons.storefront_rounded,
-                      label: BusinessTypes.getName(business.businessType),
-                    ),
-                    if (business.city != null && business.city!.isNotEmpty)
-                      _buildBusinessMetaPill(
-                        icon: Icons.location_on_outlined,
-                        label: business.city!,
-                      ),
-                    if (business.phone != null && business.phone!.isNotEmpty)
-                      _buildBusinessMetaPill(
-                        icon: Icons.phone_outlined,
-                        label: business.phone!,
-                      ),
-                    if (daysLeft != null)
-                      _buildBusinessMetaPill(
-                        icon: Icons.schedule_rounded,
-                        label: '$daysLeft day${daysLeft == 1 ? '' : 's'} left',
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: (((business?.businessType ?? '')
-                              .toLowerCase()) ==
-                            'auto' ||
-                          ((business?.businessType ?? '')
-                              .toLowerCase()) ==
-                            'autorepair')
-                        ? _smallStatChip(
-                          context.watch<AutoProvider>().parts.length
-                            .toString(),
-                          'Parts',
-                          onTap: () => Navigator.pushNamed(
-                            context, Routes.autoPartsInventory),
-                        )
-                        : _smallStatChip(
-                          '${business.totalProducts ?? 0}',
-                          'Products',
-                          onTap: () =>
-                            Navigator.pushNamed(context, Routes.inventory),
-                        ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _smallStatChip(
-                        '${business.totalCustomers ?? 0}',
-                        'Customers',
-                        onTap: () =>
-                            Navigator.pushNamed(context, Routes.customers),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () => widget.onOpenWorkTab?.call(),
-                        icon: const Icon(Icons.work_outline_rounded),
-                        label: const Text('Open Workspace'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              isDark ? colorScheme.surface : Colors.white,
-                          foregroundColor: isDark ? colorScheme.onSurface : baseColor,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
+                    Positioned(
+                      right: 7,
+                      bottom: 7,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF27D35F),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: const Color(0xFF24366E), width: 2),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    _buildBusinessActionButton(
-                      icon: Icons.dashboard_customize_rounded,
-                      tooltip: 'Open Industry Dashboard',
-                      onPressed: () => _navigateToIndustryDashboard(business),
-                    ),
-                    if (business.website != null &&
-                        business.website!.isNotEmpty) ...[
-                      const SizedBox(width: 10),
-                      _buildBusinessActionButton(
-                        icon: Icons.public_rounded,
-                        tooltip: 'Visit Website',
-                        onPressed: () =>
-                            _launchBusinessWebsite(business.website!),
+                  ],
+                ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF27D35F),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              isSyncingThisBusiness ? 'Syncing business' : 'Active business',
+                              style: AppTextStyles.caption.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 9),
+                      Text(
+                        business.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.heading4.copyWith(
+                          color: Colors.white,
+                          fontSize: 23,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        BusinessTypes.getName(business.businessType),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.body2.copyWith(
+                          color: Colors.white.withOpacity(0.78),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0B1428).withOpacity(0.48),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          business.subscriptionTier.toUpperCase(),
+                          style: AppTextStyles.caption.copyWith(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
                       ),
                     ],
-                  ],
+                  ),
+                ),
+                _buildBusinessActionButton(
+                  icon: Icons.swap_horiz_rounded,
+                  tooltip: 'Switch Business',
+                  onPressed: _showBusinessSwitcherSheet,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildBusinessMetaPill(
+                  icon: Icons.storefront_rounded,
+                  label: BusinessTypes.getName(business.businessType),
+                ),
+                if (business.city != null && business.city!.isNotEmpty)
+                  _buildBusinessMetaPill(
+                    icon: Icons.location_on_outlined,
+                    label: business.city!,
+                  ),
+                if (business.phone != null && business.phone!.isNotEmpty)
+                  _buildBusinessMetaPill(
+                    icon: Icons.phone_outlined,
+                    label: business.phone!,
+                  ),
+                if (daysLeft != null)
+                  _buildBusinessMetaPill(
+                    icon: Icons.schedule_rounded,
+                    label: '$daysLeft day${daysLeft == 1 ? '' : 's'} left',
+                  ),
+                _buildBusinessMetaPill(
+                  icon: Icons.inventory_2_outlined,
+                  label: '${business.totalProducts ?? 0} Products',
+                ),
+                _buildBusinessMetaPill(
+                  icon: Icons.people_alt_outlined,
+                  label: '${business.totalCustomers ?? 0} Customers',
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: () => widget.onOpenWorkTab?.call(),
+                      icon: const Icon(Icons.business_center_outlined, size: 19),
+                      label: const Text('Open Workspace'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.08),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                _buildBusinessActionButton(
+                  icon: Icons.dashboard_customize_rounded,
+                  tooltip: 'Open Industry Dashboard',
+                  onPressed: () => _navigateToIndustryDashboard(business),
                 ),
               ],
             ),
@@ -2262,7 +2104,6 @@ class _HomeTabState extends State<_HomeTab> {
     int customersCount = 0,
     int workersCount = 0,
     bool isLoadingCounts = false,
-    // Real estate metrics
     int totalProperties = 0,
     int occupiedUnits = 0,
     int vacantUnits = 0,
@@ -2271,239 +2112,151 @@ class _HomeTabState extends State<_HomeTab> {
     bool isLoadingRealEstate = false,
   }) {
     final type = businessType.toLowerCase().replaceAll(' ', '');
-
-    if (type == 'realestate') {
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: AppColors.border.withAlpha((0.4 * 255).toInt()),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha((0.05 * 255).toInt()),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final isCompact = constraints.maxWidth < 560;
-            final cardWidth = isCompact
-                ? (constraints.maxWidth - 8) / 2
-                : (constraints.maxWidth - 24) / 3;
-
-            final cards = [
-              _buildMetricTile(
-                'Properties',
-                isLoadingRealEstate ? '...' : totalProperties.toString(),
-                Icons.apartment_rounded,
-                Colors.blue,
-                isDark,
-                route: Routes.realEstateProperties,
-              ),
-              _buildMetricTile(
-                'Occupied',
-                isLoadingRealEstate ? '...' : occupiedUnits.toString(),
-                Icons.home_rounded,
-                Colors.green,
-                isDark,
-                route: Routes.realEstateProperties,
-              ),
-              _buildMetricTile(
-                'Vacant',
-                isLoadingRealEstate ? '...' : vacantUnits.toString(),
-                Icons.home_work_rounded,
-                Colors.orange,
-                isDark,
-                route: Routes.realEstateProperties,
-              ),
-              _buildMetricTile(
-                'Overdue',
-                isLoadingRealEstate ? '...' : overdueRents.toString(),
-                Icons.warning_rounded,
-                Colors.red,
-                isDark,
-                route: Routes.realEstateRentCollection,
-              ),
-              _buildMetricTile(
-                'Monthly Rent',
-                isLoadingRealEstate
-                    ? '...'
-                    : formatCurrency(monthlyRentCollection),
-                Icons.attach_money_rounded,
-                Colors.teal,
-                isDark,
-                route: Routes.realEstateRentCollection,
-              ),
-            ];
-
-            return Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: cards
-                  .map((card) => SizedBox(width: cardWidth, child: card))
-                  .toList(),
-            );
-          },
-        ),
-      );
-    }
-
-    // Default retail metrics
+    final isRealEstate = type == 'realestate';
     final averageTicket = transactions > 0 ? revenue / transactions : 0.0;
 
-    final colorScheme = Theme.of(context).colorScheme;
+    final metrics = isRealEstate
+        ? [
+            _MetricView('Properties', isLoadingRealEstate ? '...' : totalProperties.toString(), Icons.apartment_rounded, const Color(0xFF169BFF), Routes.realEstateProperties),
+            _MetricView('Occupied', isLoadingRealEstate ? '...' : occupiedUnits.toString(), Icons.home_rounded, const Color(0xFF28C76F), Routes.realEstateProperties),
+            _MetricView('Vacant', isLoadingRealEstate ? '...' : vacantUnits.toString(), Icons.home_work_rounded, const Color(0xFFFFB020), Routes.realEstateProperties),
+            _MetricView('Overdue', isLoadingRealEstate ? '...' : overdueRents.toString(), Icons.warning_rounded, const Color(0xFF9B5CFF), Routes.realEstateRentCollection),
+            _MetricView('Monthly Rent', isLoadingRealEstate ? '...' : formatCurrency(monthlyRentCollection), Icons.query_stats_rounded, const Color(0xFF10C6FF), Routes.realEstateRentCollection),
+          ]
+        : [
+            _MetricView('Sales', isLoading ? '...' : formatCurrency(sales), Icons.shopping_bag_rounded, const Color(0xFF169BFF), Routes.salesHistory),
+            _MetricView('Orders', isLoading ? '...' : transactions.toString(), Icons.receipt_rounded, const Color(0xFF28C76F), Routes.salesReport),
+            _MetricView('Customers', isLoadingCounts ? '...' : customersCount.toString(), Icons.people_rounded, const Color(0xFFFFB020), Routes.customers),
+            _MetricView('Workers', isLoadingCounts ? '...' : workersCount.toString(), Icons.badge_rounded, const Color(0xFF9B5CFF), Routes.workers),
+            _MetricView('Avg Ticket', isLoading ? '...' : formatCurrency(averageTicket), Icons.query_stats_rounded, const Color(0xFF10C6FF), Routes.advancedAnalytics),
+          ];
+
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withOpacity(isDark ? 0.92 : 1),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withOpacity(isDark ? 0.9 : 0.8),
-          width: 1,
-        ),
+        color: const Color(0xFF101A2F).withOpacity(0.96),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.20 : 0.05),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
+            color: Colors.black.withOpacity(0.24),
+            blurRadius: 22,
+            offset: const Offset(0, 12),
           ),
         ],
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final isCompact = constraints.maxWidth < 560;
-          final cardWidth = isCompact
-              ? (constraints.maxWidth - 10) / 2
-              : (constraints.maxWidth - 30) / 4;
-
-          final cards = [
-            _buildMetricTile(
-              'Sales',
-              isLoading ? '...' : formatCurrency(sales),
-              Icons.shopping_bag_rounded,
-              AppColors.primary,
-              isDark,
-              route: Routes.salesHistory,
-            ),
-            _buildMetricTile(
-              'Orders',
-              isLoading ? '...' : transactions.toString(),
-              Icons.receipt_rounded,
-              Colors.green,
-              isDark,
-              route: Routes.salesReport,
-            ),
-            _buildMetricTile(
-              'Customers',
-              isLoadingCounts ? '...' : customersCount.toString(),
-              Icons.people_rounded,
-              Colors.orange,
-              isDark,
-              route: Routes.customers,
-            ),
-            _buildMetricTile(
-              'Workers',
-              isLoadingCounts ? '...' : workersCount.toString(),
-              Icons.badge_rounded,
-              Colors.purple,
-              isDark,
-              route: Routes.workers,
-            ),
-            _buildMetricTile(
-              'Avg Ticket',
-              isLoading ? '...' : formatCurrency(averageTicket),
-              Icons.query_stats_rounded,
-              Colors.blue,
-              isDark,
-              route: Routes.advancedAnalytics,
-            ),
-          ];
-
+          final cellWidth = (constraints.maxWidth - 2) / 3;
           return Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: cards
-                .map((card) => SizedBox(width: cardWidth, child: card))
-                .toList(),
+            spacing: 1,
+            runSpacing: 1,
+            children: [
+              for (final metric in metrics.take(5))
+                SizedBox(
+                  width: cellWidth,
+                  height: 72,
+                  child: _buildMetricTile(metric),
+                ),
+              SizedBox(
+                width: cellWidth,
+                height: 72,
+                child: _buildMiniChartTile(),
+              ),
+            ],
           );
         },
       ),
     );
   }
 
-  Widget _buildMetricTile(
-      String label, String value, IconData icon, Color color, bool isDark,
-      {String? route}) {
-    final colorScheme = Theme.of(context).colorScheme;
+  Widget _buildMetricTile(_MetricView metric) {
     return InkWell(
-      onTap: route != null ? () => Navigator.pushNamed(context, route) : null,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-        decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerHighest.withOpacity(isDark ? 0.92 : 1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: color.withOpacity(isDark ? 0.30 : 0.18),
-            width: 1,
-          ),
-        ),
-        child: Column(
+      onTap: metric.route != null ? () => Navigator.pushNamed(context, metric.route!) : null,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  padding: const EdgeInsets.all(7),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(isDark ? 0.18 : 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: color, size: 16),
-                ),
-                const Spacer(),
-                if (route != null)
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: 18,
-                    color: isDark
-                        ? Colors.white.withOpacity(0.45)
-                        : AppColors.textSecondary,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Text(
-              value,
-              style: AppTextStyles.subtitle2.copyWith(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: isDark ? Colors.white : AppColors.textPrimary,
-                letterSpacing: -0.2,
+            Container(
+              width: 31,
+              height: 31,
+              decoration: BoxDecoration(
+                color: metric.color.withOpacity(0.16),
+                borderRadius: BorderRadius.circular(10),
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              child: Icon(metric.icon, color: metric.color, size: 17),
             ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: AppTextStyles.caption.copyWith(
-                fontSize: 11,
-                color: isDark ? Colors.grey[400] : AppColors.textSecondary,
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    metric.value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.subtitle2.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    metric.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.caption.copyWith(
+                      color: Colors.white.withOpacity(0.56),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildMiniChartTile() {
+    return Padding(
+      padding: const EdgeInsets.only(left: 6, right: 2, top: 6, bottom: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: CustomPaint(
+              painter: _MiniChartPainter(),
+              child: const SizedBox.expand(),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0B1428).withOpacity(0.72),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'This Week',
+                  style: AppTextStyles.caption.copyWith(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 3),
+                const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 13),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2555,20 +2308,21 @@ class _HomeTabState extends State<_HomeTab> {
 
   Widget _buildQuickActionsGrid(bool isDark,
       [List<_QuickActionItem>? actions]) {
-    final list = actions ?? _filteredItems;
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        mainAxisExtent: 134,
+    final list = (actions ?? _filteredItems).take(12).toList();
+    return SizedBox(
+      height: 112,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        clipBehavior: Clip.none,
+        itemCount: list.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          return SizedBox(
+            width: 84,
+            child: _buildActionCard(list[index], index, true),
+          );
+        },
       ),
-      itemCount: list.length,
-      itemBuilder: (context, index) {
-        return _buildActionCard(list[index], index, isDark);
-      },
     );
   }
 
@@ -2586,105 +2340,65 @@ class _HomeTabState extends State<_HomeTab> {
     return GestureDetector(
       onTap: handleTap,
       child: Container(
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest
-              .withOpacity(isDark ? 0.92 : 1),
+          color: const Color(0xFF111A30),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: Theme.of(context)
-                .colorScheme
-                .outlineVariant
-                .withOpacity(isDark ? 0.88 : 0.8),
-            width: 1,
-          ),
+          border: Border.all(color: Colors.white.withOpacity(0.07)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.20 : 0.05),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
+              color: Colors.black.withOpacity(0.20),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: handleTap,
-            borderRadius: BorderRadius.circular(18),
-            splashColor: item.color.withOpacity(isDark ? 0.2 : 0.1),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: item.color.withOpacity(isDark ? 0.15 : 0.1),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Icon(
-                      item.icon,
-                      color: item.color,
-                      size: 22,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.title,
-                          textAlign: TextAlign.left,
-                          style: AppTextStyles.subtitle2.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: Theme.of(context).colorScheme.onSurface,
-                            fontSize: 13,
-                            height: 1.15,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          item.subtitle,
-                          textAlign: TextAlign.left,
-                          style: AppTextStyles.caption.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            fontSize: 10.5,
-                            height: 1.15,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.bottomRight,
-                    child: Icon(
-                      Icons.arrow_outward_rounded,
-                      size: 16,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurfaceVariant
-                          .withOpacity(0.7),
-                    ),
-                  ),
-                ],
+        child: Column(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: item.color.withOpacity(0.16),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(item.icon, color: item.color, size: 23),
+            ),
+            const Spacer(),
+            Text(
+              item.title,
+              maxLines: 2,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.caption.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                fontSize: 11,
+                height: 1.12,
               ),
             ),
-          ),
+            const SizedBox(height: 3),
+            Text(
+              item.subtitle,
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.caption.copyWith(
+                color: Colors.white.withOpacity(0.52),
+                fontSize: 9,
+                height: 1.05,
+              ),
+            ),
+          ],
         ),
       ),
     )
         .animate()
         .scale(
           duration: 400.ms,
-          delay: Duration(milliseconds: 200 + (index * 30)),
+          delay: Duration(milliseconds: 120 + (index * 25)),
         )
-        .fadeIn(duration: 500.ms);
+        .fadeIn(duration: 450.ms);
   }
 
   void _navigateToIndustryDashboard(BusinessModel business) {
@@ -3887,6 +3601,106 @@ class _ProfileTab extends StatelessWidget {
 // ============================================================================
 // MODELS & HELPERS
 // ============================================================================
+
+class _MetricView {
+  const _MetricView(
+    this.label,
+    this.value,
+    this.icon,
+    this.color,
+    this.route,
+  );
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final String? route;
+}
+
+class _MiniChartPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(0, size.height * 0.72)
+      ..cubicTo(
+        size.width * 0.18,
+        size.height * 0.44,
+        size.width * 0.28,
+        size.height * 0.56,
+        size.width * 0.42,
+        size.height * 0.36,
+      )
+      ..cubicTo(
+        size.width * 0.56,
+        size.height * 0.18,
+        size.width * 0.68,
+        size.height * 0.54,
+        size.width * 0.82,
+        size.height * 0.28,
+      )
+      ..cubicTo(
+        size.width * 0.92,
+        size.height * 0.38,
+        size.width,
+        size.height * 0.24,
+        size.width,
+        size.height * 0.48,
+      )
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+
+    final paint = Paint()
+      ..shader = const LinearGradient(
+        colors: [Color(0xFF9B5CFF), Color(0xFF3A6DFF), Color(0xFF11D6FF)],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ).createShader(Offset.zero & size);
+
+    canvas.drawPath(path, paint);
+
+    final glow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..shader = const LinearGradient(
+        colors: [Color(0xFFB78BFF), Color(0xFF72A1FF)],
+      ).createShader(Offset.zero & size);
+
+    final line = Path()
+      ..moveTo(0, size.height * 0.72)
+      ..cubicTo(
+        size.width * 0.18,
+        size.height * 0.44,
+        size.width * 0.28,
+        size.height * 0.56,
+        size.width * 0.42,
+        size.height * 0.36,
+      )
+      ..cubicTo(
+        size.width * 0.56,
+        size.height * 0.18,
+        size.width * 0.68,
+        size.height * 0.54,
+        size.width * 0.82,
+        size.height * 0.28,
+      )
+      ..cubicTo(
+        size.width * 0.92,
+        size.height * 0.38,
+        size.width,
+        size.height * 0.24,
+        size.width,
+        size.height * 0.48,
+      );
+
+    canvas.drawPath(line, glow);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
 
 class _BottomNavItem {
   final IconData icon;

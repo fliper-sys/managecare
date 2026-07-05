@@ -25,7 +25,7 @@ import '../../../services/analytics_service.dart';
 import '../../../core/utils/currency.dart';
 import '../../../widgets/custom_button.dart';
 import '../../../widgets/async_button.dart';
-import '../../../widgets/app_header.dart';
+import '../../../widgets/profile_avatar.dart';
 import '../../../providers/retail_provider.dart';
 import '../../../providers/connectivity_provider.dart';
 import '../../../providers/pharmacy_provider.dart';
@@ -101,8 +101,6 @@ class _SalesScreenState extends State<SalesScreen>
   String _productSort = 'none'; // 'none' | 'priceAsc' | 'priceDesc' | 'name'
   bool _isGridView = true; // Toggle between grid and list view
   String _globalPricingMode = 'retail'; // 'retail' | 'wholesale' - global mode for all items
-  bool _isCartPreviewCollapsed = false; // Toggle for cart preview collapse
-
   // Save reference to RetailProvider for safe cleanup in dispose()
   late RetailProvider _retailProvider;
 
@@ -1038,14 +1036,23 @@ class _SalesScreenState extends State<SalesScreen>
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
-    final showProcurementFab = widget.showOwnerProcurementFab &&
-        (context.watch<AuthProvider>().currentUser?.isOwner == true);
+    final salesBg = isDark ? const Color(0xFF020B18) : scheme.surface;
+    final salesPanel =
+        isDark ? const Color(0xFF101B2D) : scheme.surfaceContainerHighest;
+    final salesOnBg = isDark ? Colors.white : scheme.onSurface;
 
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
+      backgroundColor: salesBg,
       appBar: AppBar(
-        title: Text(widget.title),
+        title: const SizedBox.shrink(),
+        toolbarHeight: 64,
+        backgroundColor: salesBg,
+        foregroundColor: salesOnBg,
         elevation: 0,
+        leading: _salesTopButton(
+          icon: Icons.arrow_back_rounded,
+          onPressed: () => Navigator.maybePop(context),
+        ),
         actions: [
           if (widget.title.toLowerCase().contains('quick sale'))
             IconButton(
@@ -1175,14 +1182,13 @@ class _SalesScreenState extends State<SalesScreen>
       // Procurement FAB moved to Inventory screen per UX change.
       body: Column(
         children: [
-          const AppHeader(showBusinessSwitcher: false),
-          _buildCartSessionStrip(context, retail),
+          _buildSalesHero(context, retail),
           if (widget.enableStoreSwitcher)
             _buildStoreSwitcher(retail),
           // Handheld scanner input (keyboard wedge)
           if (_handheldMode)
             Container(
-              color: theme.cardColor,
+              color: salesPanel,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(
                 children: [
@@ -1212,23 +1218,18 @@ class _SalesScreenState extends State<SalesScreen>
                 ],
               ),
             ),
-          // Search Bar
           Container(
-            color: AppColors.primary,
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            color: salesBg,
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
             child: TextField(
               controller: _mainSearchController,
               onChanged: (_) => setState(() {}),
-              style: TextStyle(color: Theme.of(context).colorScheme.onPrimary),
+              style: TextStyle(color: salesOnBg),
               decoration: InputDecoration(
                 hintText: 'Search products...',
-                hintStyle: TextStyle(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onPrimary
-                        .withOpacity(0.7)),
-                prefixIcon: Icon(Icons.search,
-                    color: Theme.of(context).colorScheme.onPrimary),
+                hintStyle: TextStyle(color: salesOnBg.withOpacity(0.42)),
+                prefixIcon:
+                    Icon(Icons.search, color: salesOnBg.withOpacity(0.56)),
                 suffixIcon: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1238,7 +1239,8 @@ class _SalesScreenState extends State<SalesScreen>
                           setState(() => _isGridView = !_isGridView),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.filter_list, color: Colors.white),
+                      icon: Icon(Icons.filter_list_rounded,
+                          color: salesOnBg),
                       onPressed: () async {
                         final res =
                             await showModalBottomSheet<Map<String, dynamic>>(
@@ -1341,10 +1343,9 @@ class _SalesScreenState extends State<SalesScreen>
                   ],
                 ),
                 filled: true,
-                fillColor:
-                    Theme.of(context).colorScheme.onPrimary.withOpacity(0.12),
+                fillColor: salesPanel,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(28),
                   borderSide: BorderSide.none,
                 ),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1352,13 +1353,16 @@ class _SalesScreenState extends State<SalesScreen>
             ),
           ),
 
-          // Category Tabs
           Container(
-            color: Theme.of(context).cardColor,
+            margin: const EdgeInsets.symmetric(horizontal: 20),
+            decoration: BoxDecoration(
+              color: salesPanel,
+              borderRadius: BorderRadius.circular(12),
+            ),
             child: TabBar(
               controller: _tabController,
               labelColor: AppColors.primary,
-              unselectedLabelColor: AppColors.textSecondary,
+              unselectedLabelColor: salesOnBg.withOpacity(0.62),
               indicatorColor: AppColors.primary,
               indicatorWeight: 3,
               labelStyle:
@@ -1398,14 +1402,17 @@ class _SalesScreenState extends State<SalesScreen>
           ),
 
           // Cart Preview (shown on Products tab)
-          if (_tabController.index == 0 && retail.cartCount > 0)
+          if (_tabController.index == 0)
             Container(
-              padding: const EdgeInsets.all(20),
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
+                color: salesPanel,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: salesOnBg.withOpacity(0.06)),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
+                    color: Colors.black.withOpacity(0.22),
                     blurRadius: 20,
                     offset: const Offset(0, -5),
                   ),
@@ -1413,43 +1420,360 @@ class _SalesScreenState extends State<SalesScreen>
               ),
               child: SafeArea(
                 top: false,
-                child: ExpansionTile(
-                  initiallyExpanded: !_isCartPreviewCollapsed,
-                  onExpansionChanged: (expanded) {
-                    setState(() {
-                      _isCartPreviewCollapsed = !expanded;
-                    });
-                  },
-                  title: Row(
-                    children: [
-                      Icon(
-                        Icons.shopping_cart_rounded,
-                        color: Theme.of(context).colorScheme.primary,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '${retail.activeCartLabel} • ${retail.cartCount} items',
-                        style: AppTextStyles.body2Secondary,
-                      ),
-                      const Spacer(),
-                      Text(
-                        formatCurrency(retail.cartTotal),
-                        style: AppTextStyles.price,
-                      ),
-                    ],
-                  ),
+                child: Row(
                   children: [
-                    const SizedBox(height: 12),
-                    CustomButton(
-                      text: 'View Cart',
-                      onPressed: () => _showCheckout(context, retail),
-                      icon: Icons.shopping_cart_rounded,
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child:  Icon(Icons.shopping_cart_outlined,
+                          color: isDark ? Colors.white : scheme.onPrimary),
+                    ),
+                    const SizedBox(width: 14),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Cart Total',
+                          style: AppTextStyles.caption.copyWith(
+                            color: salesOnBg.withOpacity(0.70),
+                          ),
+                        ),
+                        Text(
+                          formatCurrency(retail.cartTotal),
+                          style: AppTextStyles.heading4.copyWith(
+                            color: salesOnBg,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        Text(
+                          '${retail.cartCount} items',
+                          style: AppTextStyles.caption.copyWith(
+                            color: salesOnBg.withOpacity(0.56),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    SizedBox(
+                      height: 48,
+                      width: 150,
+                      child: ElevatedButton(
+                        onPressed: retail.cartCount == 0
+                            ? null
+                            : () => _showCheckout(context, retail),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor:
+                              AppColors.primary.withOpacity(0.36),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('View Cart'),
+                            SizedBox(width: 8),
+                            Icon(Icons.chevron_right_rounded),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _salesTopButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    String? tooltip,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(left: 10, top: 8, bottom: 8),
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        icon: Icon(icon, color: isDark ? Colors.white : scheme.onSurface),
+        style: IconButton.styleFrom(
+          backgroundColor:
+              isDark ? const Color(0xFF101B2D) : scheme.surfaceContainerHighest,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSalesHero(BuildContext context, RetailProvider retail) {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF020B18) : scheme.surface;
+    final onBg = isDark ? Colors.white : scheme.onSurface;
+    final auth = context.watch<AuthProvider>();
+    final user = auth.currentUser;
+    final totalSales = _salesHistory.fold<double>(
+      0,
+      (sum, sale) => sum + ((sale['total'] ?? sale['amount'] ?? 0) as num).toDouble(),
+    );
+    final itemsSold = retail.products.fold<int>(
+      0,
+      (sum, product) => sum + (product.stock < 100 ? (100 - product.stock).round() : 0),
+    );
+    final avgSale = _salesHistory.isEmpty ? 0.0 : totalSales / _salesHistory.length;
+
+    return Container(
+      color: bg,
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              ProfileAvatar(
+                radius: 31,
+                backgroundColor: AppColors.primary.withOpacity(0.18),
+                photoUrl: user?.photoUrl,
+                initials: user?.initials ?? 'U',
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Welcome back',
+                      style: AppTextStyles.caption.copyWith(
+                        color: onBg.withOpacity(0.65),
+                        fontSize: 13,
+                      ),
+                    ),
+                    Text(
+                      user?.fullName ?? 'User',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.heading5.copyWith(
+                        color: onBg,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Stack(
+                children: [
+                  _salesTopButton(
+                    icon: Icons.notifications_none_rounded,
+                    tooltip: 'Notifications',
+                    onPressed: () => Navigator.pushNamed(context, Routes.notifications),
+                  ),
+                  Positioned(
+                    top: 6,
+                    right: 4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const Text(
+                        '9+',
+                        style: TextStyle(color: Colors.white, fontSize: 9),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sales',
+                      style: AppTextStyles.heading4.copyWith(
+                        color: onBg,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      'Manage your sales and products',
+                      style: AppTextStyles.body2.copyWith(
+                        color: onBg.withOpacity(0.62),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: () {},
+                icon: const Icon(Icons.add_circle_outline_rounded, size: 17),
+                label: const Text('New Sale'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: _salesSummaryCard(
+                  title: 'Open Carts',
+                  value: retail.activeCartLabel,
+                  subtitle: 'View all carts',
+                  icon: Icons.shopping_cart_outlined,
+                  color: AppColors.primary,
+                  badge: retail.cartCount.toString(),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: _salesSummaryCard(
+                  title: 'Total Sales',
+                  value: formatCurrency(totalSales),
+                  subtitle: 'Today',
+                  icon: Icons.shopping_bag_outlined,
+                  color: const Color(0xFF18B875),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: _salesSummaryCard(
+                  title: 'Items Sold',
+                  value: itemsSold.toString(),
+                  subtitle: 'Today',
+                  icon: Icons.inventory_2_outlined,
+                  color: const Color(0xFF8B5CF6),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: _salesSummaryCard(
+                  title: 'Avg. Sale',
+                  value: formatCurrency(avgSale),
+                  subtitle: 'Today',
+                  icon: Icons.trending_up_rounded,
+                  color: const Color(0xFFF59E0B),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _salesSummaryCard({
+    required String title,
+    required String value,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    String? badge,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final panel =
+        isDark ? const Color(0xFF101B2D) : scheme.surfaceContainerHighest;
+    final onPanel = isDark ? Colors.white : scheme.onSurface;
+    return Container(
+      height: 128,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: panel,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: onPanel.withOpacity(0.05)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(icon, color: color, size: 18),
+              ),
+              const Spacer(),
+              if (badge != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.20),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    badge,
+                    style: AppTextStyles.caption.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const Spacer(),
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.caption.copyWith(
+              color: onPanel,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.subtitle2.copyWith(
+              color: badge == null ? onPanel : AppColors.primary,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.caption.copyWith(
+              color: onPanel.withOpacity(0.55),
+            ),
+          ),
         ],
       ),
     );
@@ -2073,7 +2397,7 @@ class _ProductsGrid extends StatelessWidget {
               crossAxisCount: crossAxisCount,
               crossAxisSpacing: 16,
               mainAxisSpacing: 16,
-              childAspectRatio: 0.75,
+              childAspectRatio: 0.58,
             ),
             itemCount: products.length,
             itemBuilder: (context, index) {
@@ -2113,10 +2437,16 @@ class _ProductCard extends StatelessWidget {
   final VoidCallback onAdd;
   final String globalPricingMode;
 
-  const _ProductCard({required this.product, required this.onAdd, required this.globalPricingMode});
+  const _ProductCard({
+    required this.product,
+    required this.onAdd,
+    required this.globalPricingMode,
+  });
 
   double getEffectivePrice() {
-    if (globalPricingMode == 'wholesale' && product.hasWholesalePricing && product.wholesalePrice != null) {
+    if (globalPricingMode == 'wholesale' &&
+        product.hasWholesalePricing &&
+        product.wholesalePrice != null) {
       return product.wholesalePrice!;
     }
     return product.price;
@@ -2124,110 +2454,136 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final panel =
+        isDark ? const Color(0xFF101B2D) : scheme.surfaceContainerHighest;
+    final onPanel = isDark ? Colors.white : scheme.onSurface;
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: AppColors.cardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.1),
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-              child: product.imageUrl != null
-                  ? ClipRRect(
-                      borderRadius:
-                          const BorderRadius.vertical(top: Radius.circular(16)),
-                      child: CachedNetworkImage(
-                        imageUrl: product.imageUrl!,
-                        fit: BoxFit.cover,
-                        placeholder: (c, u) => Center(
-                            child: Text(product.emoji,
-                                style: const TextStyle(fontSize: 48))),
-                        errorWidget: (c, u, e) => Center(
-                            child: Text(product.emoji,
-                                style: const TextStyle(fontSize: 48))),
-                      ),
-                    )
-                  : Center(
-                      child: Text(
-                        product.emoji,
-                        style: const TextStyle(fontSize: 48),
-                      ),
-                    ),
-            ),
+        color: panel,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: onPanel.withOpacity(0.05)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.22 : 0.07),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
           ),
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(
+              aspectRatio: 1.08,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: product.imageUrl != null
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(11),
+                        child: CachedNetworkImage(
+                          imageUrl: product.imageUrl!,
+                          fit: BoxFit.cover,
+                          placeholder: (c, u) => Center(
+                            child: Text(product.emoji,
+                                style: const TextStyle(fontSize: 42)),
+                          ),
+                          errorWidget: (c, u, e) => Center(
+                            child: Text(product.emoji,
+                                style: const TextStyle(fontSize: 42)),
+                          ),
+                        ),
+                      )
+                    : Center(
+                        child: Text(product.emoji,
+                            style: const TextStyle(fontSize: 42)),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              product.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.subtitle1.copyWith(
+                color: onPanel,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.13),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                product.category.isEmpty ? 'item' : product.category,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.caption.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              formatCurrency(getEffectivePrice()),
+              style: AppTextStyles.subtitle2.copyWith(
+                color: const Color(0xFF1ED08F),
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Stock: ${product.stock}',
+              style: AppTextStyles.body2Secondary.copyWith(
+                color: onPanel.withOpacity(0.58),
+              ),
+            ),
+            const Spacer(),
+            Row(
               children: [
-                Text(
-                  product.name,
-                  style: AppTextStyles.subtitle1,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                if (product.category.toLowerCase() == 'pharmacy' ||
-                    product.id.startsWith('pharmacy:'))
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.pharmacy.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('💊', style: TextStyle(fontSize: 12)),
-                        const SizedBox(width: 6),
-                        Text('Pharmacy',
-                            style: AppTextStyles.caption
-                                .copyWith(color: AppColors.pharmacy)),
-                      ],
-                    ),
+                Container(
+                  width: 38,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: onPanel.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(9),
                   ),
-                const SizedBox(height: 4),
-                Text(
-                  '₦${globalPricingMode == 'wholesale' && product.hasWholesalePricing && product.wholesalePrice != null ? product.wholesalePrice!.toStringAsFixed(2) : product.price.toStringAsFixed(2)}',
-                  style: AppTextStyles.heading5.copyWith(
-                    color: AppColors.success,
-                  ),
+                  child: Icon(Icons.info_outline_rounded,
+                      color: onPanel.withOpacity(0.52), size: 17),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Stock: ${product.stock}',
-                  style: AppTextStyles.body2Secondary,
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: onAdd,
-                    icon: const Icon(Icons.add_shopping_cart, size: 16),
-                    label: const Text('Add'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SizedBox(
+                    height: 36,
+                    child: ElevatedButton.icon(
+                      onPressed: onAdd,
+                      icon: const Icon(Icons.add_shopping_cart, size: 15),
+                      label: const Text('Add'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.zero,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
