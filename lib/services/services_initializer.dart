@@ -21,37 +21,43 @@ class ServicesInitializer {
   /// Initialize all services
   Future<void> initializeAll() async {
     if (_isInitialized) return;
-
+    // Initialize Firebase (must be done first)
     try {
-      // Initialize Firebase (must be done first) - safe to call multiple times
-      try {
-        await FirebaseService.initialize();
-        print('✓ Firebase Service initialized');
-      } catch (e) {
-        print('Firebase Service initialization: $e');
-      }
+      await FirebaseService.initialize();
+      print('✓ Firebase Service initialized');
+    } catch (e) {
+      print('Firebase Service initialization: $e');
+    }
 
-      // Initialize Analytics
+    // Initialize Analytics (non-critical)
+    try {
       final analyticsService = AnalyticsService();
       await analyticsService.initialize();
       print('✓ Analytics Service initialized');
+    } catch (e) {
+      print('Analytics initialization warning: $e');
+    }
 
-      // Initialize Barcode Service
+    // Initialize Barcode Service (may not be available on all platforms)
+    try {
       final barcodeService = BarcodeService();
       await barcodeService.initializeScanner();
       print('✓ Barcode Service initialized');
+    } catch (e) {
+      print('Barcode initialization warning: $e');
+    }
 
-      // Initialize Cloud Storage
+    // Initialize Cloud Storage (no-op in this implementation)
+    try {
       final cloudStorageService = CloudStorageService();
       await cloudStorageService.initialize();
       print('✓ Cloud Storage Service initialized');
-
-      _isInitialized = true;
-      print('✓ All services initialized successfully');
     } catch (e) {
-      print('✗ Error initializing services: $e');
-      rethrow;
+      print('Cloud storage initialization warning: $e');
     }
+
+    _isInitialized = true;
+    print('✓ All services initialization attempted');
   }
 
   /// Get analytics service instance

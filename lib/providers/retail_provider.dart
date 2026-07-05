@@ -267,6 +267,7 @@ class RetailProvider extends ChangeNotifier {
   String _activeCartId = 'cart_1';
   int _cartSessionCounter = 1;
   static const String _cartCacheKeyPrefix = 'retail_cart_state_v1_';
+  static const String _pendingPumpSalesKeyPrefix = 'pending_pump_sales_v1_';
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -285,6 +286,11 @@ class RetailProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String get activeCartId => _activeCartId;
+  Future<int> get pendingPumpSaleCount async {
+    final businessId = _businessId;
+    if (businessId == null || businessId.isEmpty) return 0;
+    return (await _loadPendingPumpSales(businessId)).length;
+  }
   String get activeCartLabel => _cartLabels[_activeCartId] ?? 'Cart 1';
   String get activeCartPricingMode =>
       _cartDefaultPricingModes[_activeCartId] ?? 'retail';
@@ -770,6 +776,7 @@ class RetailProvider extends ChangeNotifier {
     }
     _businessId = businessId;
     _ensureActiveCart();
+    unawaited(syncPendingPumpSales());
     
     // Check if we should skip initialization (already initialized recently)
     if (!isBusinessSwitch && _isInitialized && _lastInitTime != null) {
@@ -1078,6 +1085,18 @@ class RetailProvider extends ChangeNotifier {
     };
   }
 
+  bool _isFuelText(String value) {
+    final text = value.trim().toLowerCase();
+    return text.contains('fuel') ||
+        text.contains('gas') ||
+        text.contains('pump') ||
+        text.contains('petrol') ||
+        text.contains('petroleum') ||
+        text.contains('diesel') ||
+        text.contains('deseal') ||
+        text.contains('kerosene');
+  }
+
   Future<List<Map<String, dynamic>>> _calculateFuelSalesHistorySnapshot(
     QuerySnapshot<Map<String, dynamic>> snapshot,
   ) async {
@@ -1094,7 +1113,10 @@ class RetailProvider extends ChangeNotifier {
       final data = doc.data();
       final items = (data['items'] as List<dynamic>?) ?? [];
       double fuelVolume = 0.0;
-      bool hasFuel = false;
+      bool hasFuel = _isFuelText(data['category']?.toString() ?? '') ||
+          _isFuelText(data['saleType']?.toString() ?? '') ||
+          _isFuelText(data['order_type']?.toString() ?? '') ||
+          (data['pumpId']?.toString().isNotEmpty == true);
       for (final it in items) {
         if (it is! Map<String, dynamic>) continue;
         final pid = (it['productId'] as String?) ?? '';
@@ -1107,18 +1129,21 @@ class RetailProvider extends ChangeNotifier {
         }
 
         final category = productCategory[pid] ?? '';
-        if (category.contains('fuel') ||
-            category.contains('petrol') ||
-            category.contains('gas')) {
+        if (_isFuelText(category) ||
+            _isFuelText(it['category']?.toString() ?? '') ||
+            _isFuelText(it['productName']?.toString() ?? '') ||
+            _isFuelText(it['name']?.toString() ?? '')) {
           hasFuel = true;
           fuelVolume += qty;
         }
       }
 
       if (hasFuel) {
+        final createdAt = _readTimestamp(data['createdAt']);
         results.add({
           'id': doc.id,
-          'createdAt': data['createdAt'],
+          'createdAt': createdAt,
+          'createdAtRaw': data['createdAt'],
           'customerName': data['customerName'] ?? data['customer'] ?? 'Walk-in',
           'totalAmount': (data['totalAmount'] as num?)?.toDouble() ??
               (data['total'] as num?)?.toDouble() ??
@@ -2126,6 +2151,140 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
+  String _pendingPumpSalesKey(String businessId) =>
+      '$_pendingPumpSalesKeyPrefix$businessId';
+
+  Future<List<Map<String, dynamic>>> _loadPendingPumpSales(
+    String businessId,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_pendingPumpSalesKey(businessId));
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return decoded.whereType<Map<String, dynamic>>().toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _savePendingPumpSales(
+    String businessId,
+    List<Map<String, dynamic>> sales,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_pendingPumpSalesKey(businessId), jsonEncode(sales));
+  }
+
+  Future<void> _queuePendingPumpSale(
+    String businessId,
+    Map<String, dynamic> pendingSale,
+  ) async {
+    final pending = await _loadPendingPumpSales(businessId);
+    final orderId = pendingSale['orderId']?.toString() ?? '';
+    final existingIndex =
+        pending.indexWhere((sale) => sale['orderId']?.toString() == orderId);
+    if (existingIndex == -1) {
+      pending.add(pendingSale);
+    } else {
+      pending[existingIndex] = pendingSale;
+    }
+    await _savePendingPumpSales(businessId, pending);
+  }
+
+  Map<String, dynamic> _serverPumpSaleData(Map<String, dynamic> pendingSale) {
+    final data = Map<String, dynamic>.from(
+      pendingSale['saleData'] as Map<String, dynamic>? ?? {},
+    );
+    data['createdAt'] = FieldValue.serverTimestamp();
+    data['updatedAt'] = FieldValue.serverTimestamp();
+    data['offlineSyncedAt'] = FieldValue.serverTimestamp();
+    data['offlineQueued'] = false;
+    data['orderId'] = pendingSale['orderId'];
+    return data;
+  }
+
+  Future<void> _syncPendingPumpSale(
+    String businessId,
+    Map<String, dynamic> pendingSale,
+  ) async {
+    final orderId = pendingSale['orderId']?.toString() ?? '';
+    final productId = pendingSale['productId']?.toString() ?? '';
+    final quantity = (pendingSale['quantity'] as num?)?.toDouble() ?? 0.0;
+    if (orderId.isEmpty || productId.isEmpty || quantity <= 0) {
+      throw Exception('Invalid pending pump sale');
+    }
+
+    final saleRef = _firestore
+        .collection('businesses')
+        .doc(businessId)
+        .collection('sales')
+        .doc(orderId);
+    final inventoryRef = _firestore
+        .collection('businesses')
+        .doc(businessId)
+        .collection('inventory')
+        .doc(productId);
+
+    await _firestore.runTransaction((transaction) async {
+      final existingSale = await transaction.get(saleRef);
+      final existingSaleData = existingSale.data() ?? <String, dynamic>{};
+      final shouldApplyInventory = !existingSale.exists ||
+          (pendingSale['saleWrittenOnline'] == true &&
+              existingSaleData['offlineInventorySynced'] != true);
+      final inventorySnapshot =
+          shouldApplyInventory ? await transaction.get(inventoryRef) : null;
+      final serverSaleData = _serverPumpSaleData(pendingSale);
+      if (shouldApplyInventory) {
+        serverSaleData['offlineInventorySynced'] = true;
+      }
+      transaction.set(saleRef, serverSaleData, SetOptions(merge: true));
+      if (!shouldApplyInventory) return;
+      if (inventorySnapshot == null) return;
+
+      final inventoryData = inventorySnapshot.data() ?? <String, dynamic>{};
+      final currentStock =
+          (inventoryData['quantity'] as num?)?.toDouble() ??
+              (inventoryData['stock'] as num?)?.toDouble() ??
+              0.0;
+      final nextStock = (currentStock - quantity).clamp(0.0, 999999999.0);
+      transaction.set(
+        inventoryRef,
+        {
+          'quantity': nextStock,
+          'stock': nextStock,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    });
+  }
+
+  Future<int> syncPendingPumpSales() async {
+    final businessId = _businessId;
+    if (businessId == null || businessId.isEmpty) return 0;
+    final pending = await _loadPendingPumpSales(businessId);
+    if (pending.isEmpty) return 0;
+
+    final remaining = <Map<String, dynamic>>[];
+    var synced = 0;
+    for (final sale in pending) {
+      try {
+        await _syncPendingPumpSale(businessId, sale);
+        synced += 1;
+      } catch (e) {
+        debugPrint('[RetailProvider] Pending pump sale sync failed: $e');
+        remaining.add(sale);
+      }
+    }
+    await _savePendingPumpSales(businessId, remaining);
+    if (synced > 0) {
+      await loadProducts(forceRefresh: true);
+      notifyListeners();
+    }
+    return synced;
+  }
+
   /// Fuel / Gas sale flow: sell fuel by amount or by volume (litres/kg)
   /// Returns the created sale document id and the sale map for post-sale actions.
   Future<Map<String, dynamic>> fuelSale({
@@ -2230,14 +2389,67 @@ class RetailProvider extends ChangeNotifier {
       saleData['workerName'] = workerName ?? 'Unknown';
     }
 
-    // Persist sale
-    final saleRef = await _firestore.collection('businesses').doc(_businessId).collection('sales').add(saleData);
+    final saleRef = _firestore
+        .collection('businesses')
+        .doc(_businessId)
+        .collection('sales')
+        .doc();
     final orderId = saleRef.id;
-    await saleRef.update({'orderId': orderId});
+    saleData['id'] = orderId;
+    saleData['orderId'] = orderId;
+    saleData['status'] = 'completed';
+    saleData['saleStatus'] = 'completed';
+    saleData['paymentStatus'] = 'paid';
 
-    // Update inventory quantity (allow decimal quantities)
-    final newQty = (product.stock.toDouble() - qty).clamp(0.0, 999999.0);
-    await _writeInventoryStock(product, newQty);
+    final newQty =
+        (product.stock.toDouble() - qty).clamp(0.0, 999999.0).toDouble();
+
+    var saleWrittenOnline = false;
+    try {
+      await saleRef.set(saleData);
+      saleWrittenOnline = true;
+      await _writeInventoryStock(product, newQty);
+      final productIndex = _products.indexWhere((p) => p.id == product.id);
+      if (productIndex != -1) {
+        _products[productIndex].stock = newQty;
+        notifyListeners();
+      }
+      unawaited(syncPendingPumpSales());
+    } catch (e) {
+      final queuedAt = DateTime.now();
+      final offlineSaleData = Map<String, dynamic>.from(saleData);
+      offlineSaleData['createdAt'] = queuedAt.toIso8601String();
+      offlineSaleData['updatedAt'] = queuedAt.toIso8601String();
+      offlineSaleData['offlineQueued'] = true;
+      offlineSaleData['offlineQueuedAt'] = queuedAt.toIso8601String();
+
+      await _queuePendingPumpSale(_businessId!, {
+        'orderId': orderId,
+        'productId': product.id,
+        'quantity': qty,
+        'saleWrittenOnline': saleWrittenOnline,
+        'queuedAt': queuedAt.toIso8601String(),
+        'saleData': offlineSaleData,
+      });
+
+      final productIndex = _products.indexWhere((p) => p.id == product.id);
+      if (productIndex != -1) {
+        _products[productIndex].stock = newQty;
+      }
+      notifyListeners();
+
+      return {
+        ...offlineSaleData,
+        'id': orderId,
+        'total': paid,
+        'quantity': qty,
+        'offlineQueued': true,
+        'syncStatus': 'pending',
+        'status': 'completed',
+        'saleStatus': 'completed',
+        'paymentStatus': 'paid',
+      };
+    }
 
     // Notify if low stock
     if (newQty < 10) {
@@ -2368,10 +2580,16 @@ class RetailProvider extends ChangeNotifier {
 
     // Return sale info for UI to show receipt/printing actions
     final result = {
+      ...saleData,
       'id': orderId,
+      'createdAt': DateTime.now(),
       'total': paid,
-      'items': saleData['items'],
       'quantity': qty,
+      'offlineQueued': false,
+      'syncStatus': 'synced',
+      'status': 'completed',
+      'saleStatus': 'completed',
+      'paymentStatus': 'paid',
     };
     return result;
     }  

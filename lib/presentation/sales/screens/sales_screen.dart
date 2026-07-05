@@ -40,14 +40,32 @@ import 'customer_tracking_screen.dart';
 import 'receipt_detail_screen.dart';
 import 'sales_history_screen.dart';
 
+bool _isFuelProduct(Product product) {
+  final text = [
+    product.category,
+    product.name,
+    product.unit,
+  ].join(' ').toLowerCase();
+
+  return text.contains('fuel') ||
+      text.contains('petrol') ||
+      text.contains('petroleum') ||
+      text.contains('diesel') ||
+      text.contains('kerosene') ||
+      text.contains('pump') ||
+      text.contains('gas');
+}
+
 class SalesScreen extends StatefulWidget {
   final String title;
   final bool enableStoreSwitcher;
+  final bool showOwnerProcurementFab;
 
   const SalesScreen({
     super.key,
     this.title = 'New Sale',
     this.enableStoreSwitcher = false,
+    this.showOwnerProcurementFab = false,
   });
 
   @override
@@ -940,7 +958,8 @@ class _SalesScreenState extends State<SalesScreen>
     Product? fuzzyMatch; // Fallback for close matches
     double bestFuzzyScore = 0.0;
 
-    for (final p in retail.products) {
+    for (final p
+        in retail.products.where((product) => !_isFuelProduct(product))) {
       if ((p.barcode ?? '').trim().isNotEmpty) {
         // Try exact match first
         if (SearchUtils.matchesBarcode(p.barcode, b)) {
@@ -1019,6 +1038,8 @@ class _SalesScreenState extends State<SalesScreen>
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
+    final showProcurementFab = widget.showOwnerProcurementFab &&
+        (context.watch<AuthProvider>().currentUser?.isOwner == true);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -1151,6 +1172,7 @@ class _SalesScreenState extends State<SalesScreen>
           ),
         ],
       ),
+      // Procurement FAB moved to Inventory screen per UX change.
       body: Column(
         children: [
           const AppHeader(showBusinessSwitcher: false),
@@ -1973,7 +1995,8 @@ class _ProductsGrid extends StatelessWidget {
       merged['name:${p.name.toLowerCase()}'] = p; // override if exists
     }
 
-    final combined = merged.values.toList();
+    final combined =
+        merged.values.where((product) => !_isFuelProduct(product)).toList();
 
     // Filter products based on search query using enhanced search
     var products = searchQuery.isEmpty

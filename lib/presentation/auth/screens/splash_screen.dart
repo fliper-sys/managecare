@@ -6,6 +6,7 @@ import '../../../widgets/loading_indicator.dart';
 import '../../../core/constants/routes.dart';
 import '../../../core/utils/connectivity_helper.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../providers/business_provider.dart';
 import '../../../services/subscription_service.dart';
 import '../../../services/business_restriction_service.dart';
 
@@ -71,9 +72,11 @@ class _SplashScreenState extends State<SplashScreen>
         final isOnline = await ConnectivityHelper.hasInternetConnection();
         if (!isOnline) {
           final user = authProvider.currentUser!;
-          Navigator.of(context).pushReplacementNamed(
-            user.isOwner ? Routes.ownerDashboard : Routes.workerDashboard,
-          );
+          if (user.isOwner) {
+            Navigator.of(context).pushReplacementNamed(Routes.ownerDashboard);
+          } else {
+            await _navigateWorkerToDashboard(user);
+          }
           return;
         }
 
@@ -165,8 +168,7 @@ class _SplashScreenState extends State<SplashScreen>
             Navigator.of(context).pushReplacementNamed(Routes.ownerDashboard);
           }
         } else {
-          // Non-owner (worker) — always go to worker dashboard
-          Navigator.of(context).pushReplacementNamed(Routes.workerDashboard);
+          await _navigateWorkerToDashboard(user);
         }
       } else {
         print('[SplashScreen] User not authenticated, navigating to login');
@@ -245,6 +247,38 @@ class _SplashScreenState extends State<SplashScreen>
       print('[SplashScreen] Error fetching subscription status: $e');
       return null;
     }
+  }
+
+  Future<void> _navigateWorkerToDashboard(dynamic user) async {
+    final businessProvider = context.read<BusinessProvider>();
+    final businessId = user.businessId?.toString() ?? '';
+
+    if (businessId.isNotEmpty) {
+      try {
+        await businessProvider.loadBusinessById(businessId);
+      } catch (_) {}
+    } else {
+      try {
+        await businessProvider.ensureBusinessForWorker(
+          user.id,
+          workerEmail: user.email,
+        );
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
+
+    var industryRoute = businessProvider.getIndustryRouteForCurrentBusiness();
+    if (industryRoute == null || industryRoute.isEmpty) {
+      industryRoute =
+          businessProvider.getIndustryRouteForType(user.businessType);
+    }
+
+    Navigator.of(context).pushReplacementNamed(
+      industryRoute?.isNotEmpty == true
+          ? industryRoute!
+          : Routes.workerDashboard,
+    );
   }
 
   @override

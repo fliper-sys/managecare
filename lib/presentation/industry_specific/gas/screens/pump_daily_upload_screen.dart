@@ -1,13 +1,17 @@
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../providers/retail_provider.dart';
+import '../../../../core/extensions/list_extensions.dart';
 import '../../../../services/email_service.dart';
+import '../utils/pump_config_cache.dart';
 
 class PumpDailyUploadScreen extends StatefulWidget {
   const PumpDailyUploadScreen({super.key});
@@ -19,18 +23,42 @@ class PumpDailyUploadScreen extends StatefulWidget {
 class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   final _openingController = TextEditingController();
   final _closingController = TextEditingController();
+  final _analogClosingController = TextEditingController();
+  final _shiftOpeningCashController = TextEditingController();
+  final _shiftCloseCashController = TextEditingController();
   final _cashController = TextEditingController();
   final _posController = TextEditingController();
   String? _selectedPumpId;
+  String? _shiftOpeningCashPhotoUrl;
+  String? _shiftOpeningCashPhotoPath;
+  String? _shiftCloseCashPhotoUrl;
+  String? _shiftCloseCashPhotoPath;
   String? _openingPhotoUrl;
+  String? _openingPhotoPath;
   String? _closingPhotoUrl;
+  String? _closingPhotoPath;
   bool _isSaving = false;
   double? _previousClosingVolume;
+  double? _previousAnalogClosingVolume;
+  String? _lastLoadedPumpId;
+  String? _loadingPumpId;
+  bool _isLoadingPreviousClosing = false;
+  List<Map<String, dynamic>> _cachedPumps = [];
+  bool _cacheLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadCachedPumps());
+  }
 
   @override
   void dispose() {
     _openingController.dispose();
     _closingController.dispose();
+    _analogClosingController.dispose();
+    _shiftOpeningCashController.dispose();
+    _shiftCloseCashController.dispose();
     _cashController.dispose();
     _posController.dispose();
     super.dispose();
@@ -45,53 +73,417 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         .collection(name);
   }
 
-  Future<void> _loadPreviousClosing(String pumpId) async {
-    final uploads = _collection('pump_daily_uploads');
-    if (uploads == null) return;
-    final snapshot = await uploads
-        .where('pumpId', isEqualTo: pumpId)
-        .orderBy('uploadedAt', descending: true)
-        .limit(1)
-        .get();
-    final value = snapshot.docs.isEmpty
-        ? null
-        : (snapshot.docs.first.data()['closingVolume'] as num?)?.toDouble();
+  Map<String, dynamic>? _getPumpById(
+    List<Map<String, dynamic>> pumps,
+    String? pumpId,
+  ) {
+    if (pumpId == null || pumpId.isEmpty) return null;
+    for (final pump in pumps) {
+      if (pump['id']?.toString() == pumpId) {
+        return pump;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _loadCachedPumps() async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return;
+    final cachedPumps = await PumpConfigCache.load(businessId);
     if (!mounted) return;
     setState(() {
-      _previousClosingVolume = value;
-      if (value != null && _openingController.text.trim().isEmpty) {
-        _openingController.text = value.toStringAsFixed(3);
-      }
+      _cachedPumps = cachedPumps;
+      _cacheLoaded = true;
     });
   }
 
-  Future<void> _pickAndUploadPhoto(bool opening) async {
+  void _syncCacheFromSnapshot(
+    String businessId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final remotePumps = PumpConfigCache.sort(
+      docs.map(PumpConfigCache.fromDoc).toList(),
+    );
+    if (remotePumps.isEmpty || PumpConfigCache.same(remotePumps, _cachedPumps)) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await PumpConfigCache.save(businessId, remotePumps);
+      if (!mounted) return;
+      setState(() {
+        _cachedPumps = remotePumps;
+        _cacheLoaded = true;
+      });
+    });
+  }
+
+  Future<QueryDocumentSnapshot<Map<String, dynamic>>?> _findLatestUpload(
+    CollectionReference<Map<String, dynamic>> uploads,
+    String pumpId, {
+    String? pumpNumber,
+  }) async {
+    QuerySnapshot<Map<String, dynamic>>? snapshot;
+
+    Future<QuerySnapshot<Map<String, dynamic>>?> _runQuery(
+      Query<Map<String, dynamic>> query,
+    ) async {
+      try {
+        return await query.limit(1).get();
+      } catch (error) {
+        debugPrint('Pump upload query failed: $error');
+        return null;
+      }
+    }
+
+    snapshot = await _runQuery(
+      uploads
+          .where('pumpId', isEqualTo: pumpId)
+          .orderBy('uploadedAt', descending: true),
+    );
+    if (snapshot != null && snapshot.docs.isNotEmpty) {
+      return snapshot.docs.first;
+    }
+
+    if (pumpNumber != null && pumpNumber.isNotEmpty) {
+      snapshot = await _runQuery(
+        uploads
+            .where('pumpNumber', isEqualTo: pumpNumber)
+            .orderBy('uploadedAt', descending: true),
+      );
+      if (snapshot != null && snapshot.docs.isNotEmpty) {
+        return snapshot.docs.first;
+      }
+
+      final numericPumpNumber = num.tryParse(pumpNumber);
+      if (numericPumpNumber != null) {
+        snapshot = await _runQuery(
+          uploads
+              .where('pumpNumber', isEqualTo: numericPumpNumber)
+              .orderBy('uploadedAt', descending: true),
+        );
+        if (snapshot != null && snapshot.docs.isNotEmpty) {
+          return snapshot.docs.first;
+        }
+      }
+    }
+
+    // Last-resort fallback: inspect recent uploads for a matching pump ID or number.
+    try {
+      snapshot = await uploads.orderBy('uploadedAt', descending: true).limit(100).get();
+    } catch (error) {
+      debugPrint('Pump upload fallback scan failed: $error');
+      return null;
+    }
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      if (data['pumpId']?.toString() == pumpId) return doc;
+      if (pumpNumber != null && pumpNumber.isNotEmpty) {
+        if (data['pumpNumber']?.toString() == pumpNumber) return doc;
+        final numericPumpNumber = num.tryParse(pumpNumber);
+        if (numericPumpNumber != null && data['pumpNumber'] == numericPumpNumber) {
+          return doc;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  double? _parseNumber(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString());
+  }
+
+  Future<void> _loadPreviousClosing(
+    String pumpId, {
+    String? pumpNumber,
+  }) async {
+    final uploads = _collection('pump_daily_uploads');
+    if (uploads == null) return;
+    if (_isLoadingPreviousClosing && _loadingPumpId == pumpId) return;
+
+    setState(() {
+      _isLoadingPreviousClosing = true;
+      _loadingPumpId = pumpId;
+      _previousClosingVolume = null;
+    });
+
+    try {
+      final latest = await _findLatestUpload(
+        uploads,
+        pumpId,
+        pumpNumber: pumpNumber,
+      );
+      final value = latest == null
+          ? null
+          : _parseNumber(latest.data()['closingVolume']);
+      if (!mounted) return;
+      setState(() {
+        _previousClosingVolume = value;
+        _lastLoadedPumpId = pumpId;
+        if (value != null && _openingController.text.trim().isEmpty) {
+          _openingController.text = value.toStringAsFixed(3);
+        }
+      });
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingPreviousClosing = false;
+        _loadingPumpId = null;
+        _lastLoadedPumpId = pumpId;
+      });
+    }
+
+    await _loadPreviousAnalogClosing(pumpId, pumpNumber: pumpNumber);
+  }
+
+  Future<void> _loadPreviousAnalogClosing(
+    String pumpId, {
+    String? pumpNumber,
+  }) async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return;
+
+    final cachedValue = await PumpAnalogClosingCache.load(businessId, pumpId);
+    double? value = cachedValue;
+
+    final uploads = _collection('pump_daily_uploads');
+    if (uploads != null) {
+      final latest = await _findLatestUpload(
+        uploads,
+        pumpId,
+        pumpNumber: pumpNumber,
+      );
+      if (latest != null) {
+        final remoteValue = _parseNumber(latest.data()['analogClosingVolume']);
+        if (remoteValue != null) {
+          value = remoteValue;
+        }
+      }
+    }
+
+    if (value != null) {
+      await PumpAnalogClosingCache.save(businessId, pumpId, value);
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _previousAnalogClosingVolume = value;
+    });
+  }
+
+  Future<void> _loadDraft(String pumpId) async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return;
+    final draft = await PumpUploadDraftCache.load(businessId, pumpId);
+    if (!mounted || _selectedPumpId != pumpId) return;
+    setState(() {
+      _openingController.text = draft['openingVolume']?.toString() ??
+          _openingController.text;
+      _closingController.text = draft['closingVolume']?.toString() ?? '';
+      _analogClosingController.text =
+          draft['analogClosingVolume']?.toString() ?? '';
+      _shiftOpeningCashController.text =
+          draft['shiftOpeningCash']?.toString() ?? '';
+      _shiftCloseCashController.text =
+          draft['shiftCloseCash']?.toString() ?? '';
+      _cashController.text = draft['todayPumpCash']?.toString() ?? '';
+      _posController.text = draft['posAmount']?.toString() ?? '';
+      _shiftOpeningCashPhotoUrl =
+          draft['shiftOpeningCashPhotoUrl']?.toString();
+      _shiftOpeningCashPhotoPath =
+          draft['shiftOpeningCashPhotoPath']?.toString();
+      _shiftCloseCashPhotoUrl =
+          draft['shiftCloseCashPhotoUrl']?.toString();
+      _shiftCloseCashPhotoPath =
+          draft['shiftCloseCashPhotoPath']?.toString();
+      _openingPhotoUrl = draft['openingPhotoUrl']?.toString();
+      _openingPhotoPath = draft['openingPhotoPath']?.toString();
+      _closingPhotoUrl = draft['closingPhotoUrl']?.toString();
+      _closingPhotoPath = draft['closingPhotoPath']?.toString();
+    });
+  }
+
+  Future<void> _saveDraft() async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    final pumpId = _selectedPumpId;
+    if (businessId == null ||
+        businessId.isEmpty ||
+        pumpId == null ||
+        pumpId.isEmpty) {
+      return;
+    }
+    await PumpUploadDraftCache.save(businessId, pumpId, {
+      'openingVolume': _openingController.text.trim(),
+      'closingVolume': _closingController.text.trim(),
+      'analogClosingVolume': _analogClosingController.text.trim(),
+      'shiftOpeningCash': _shiftOpeningCashController.text.trim(),
+      'shiftCloseCash': _shiftCloseCashController.text.trim(),
+      'todayPumpCash': _cashController.text.trim(),
+      'posAmount': _posController.text.trim(),
+      'shiftOpeningCashPhotoUrl': _shiftOpeningCashPhotoUrl,
+      'shiftOpeningCashPhotoPath': _shiftOpeningCashPhotoPath,
+      'shiftCloseCashPhotoUrl': _shiftCloseCashPhotoUrl,
+      'shiftCloseCashPhotoPath': _shiftCloseCashPhotoPath,
+      'openingPhotoUrl': _openingPhotoUrl,
+      'openingPhotoPath': _openingPhotoPath,
+      'closingPhotoUrl': _closingPhotoUrl,
+      'closingPhotoPath': _closingPhotoPath,
+      'updatedAt': DateTime.now().toIso8601String(),
+    });
+  }
+
+  void _setPhotoDraft({
+    required String kind,
+    String? url,
+    String? path,
+  }) {
+    setState(() {
+      if (kind == 'shiftOpeningCash') {
+        if (url != null) _shiftOpeningCashPhotoUrl = url;
+        if (path != null) _shiftOpeningCashPhotoPath = path;
+      } else if (kind == 'shiftCloseCash') {
+        if (url != null) _shiftCloseCashPhotoUrl = url;
+        if (path != null) _shiftCloseCashPhotoPath = path;
+      } else if (kind == 'opening') {
+        if (url != null) _openingPhotoUrl = url;
+        if (path != null) _openingPhotoPath = path;
+      } else {
+        if (url != null) _closingPhotoUrl = url;
+        if (path != null) _closingPhotoPath = path;
+      }
+    });
+    _saveDraft();
+  }
+
+  Future<void> _pickAndUploadPhoto(String kind) async {
     final picked = await ImagePicker().pickImage(
       source: ImageSource.camera,
       imageQuality: 80,
       maxWidth: 1600,
     );
     if (picked == null) return;
+    if (!kIsWeb) {
+      _setPhotoDraft(kind: kind, path: picked.path);
+    }
     setState(() => _isSaving = true);
     try {
-      final url = await EmailService().uploadFile(File(picked.path));
+      String? url;
+      if (kIsWeb) {
+        final bytes = await picked.readAsBytes();
+        final filename = picked.name.isNotEmpty ? picked.name : 'photo.jpg';
+        url = await EmailService().uploadBytes(bytes, filename);
+      } else {
+        url = await EmailService().uploadFile(File(picked.path));
+      }
       if (!mounted) return;
       if (url == null || url.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Photo upload failed')),
+          const SnackBar(
+            content: Text('Photo saved locally. It will upload on submit.'),
+          ),
         );
         return;
       }
-      setState(() {
-        if (opening) {
-          _openingPhotoUrl = url;
-        } else {
-          _closingPhotoUrl = url;
-        }
-      });
+      _setPhotoDraft(kind: kind, url: url);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Photo saved locally. It will upload on submit.'),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  Future<String?> _ensurePhotoUrl({
+    required String label,
+    String? url,
+    String? path,
+  }) async {
+    if (url != null && url.isNotEmpty) return url;
+    if (path == null || path.isEmpty || kIsWeb) return null;
+    try {
+      return await EmailService().uploadFile(File(path));
+    } catch (_) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to upload $label image')),
+      );
+      return null;
+    }
+  }
+
+  Future<Map<String, double>> _resolveCurrentProductInfo(
+    String businessId,
+    String productId,
+    Map<String, dynamic> pump,
+  ) async {
+    final fallbackPrice = (pump['productPrice'] as num?)?.toDouble() ?? 0.0;
+    if (productId.isEmpty) {
+      return {'price': fallbackPrice};
+    }
+
+    final productDoc = await FirebaseFirestore.instance
+        .collection('businesses')
+        .doc(businessId)
+        .collection('inventory')
+        .doc(productId)
+        .get();
+
+    final productData = productDoc.data();
+    final currentPrice =
+        (productData?['price'] as num?)?.toDouble() ?? fallbackPrice;
+
+    if (currentPrice > 0) {
+      if ((currentPrice - fallbackPrice).abs() > 0.0001) {
+        final pumpId = pump['id']?.toString();
+        if (pumpId != null && pumpId.isNotEmpty) {
+          await FirebaseFirestore.instance
+              .collection('businesses')
+              .doc(businessId)
+              .collection('pump_configurations')
+              .doc(pumpId)
+              .set({'productPrice': currentPrice}, SetOptions(merge: true));
+          await PumpConfigCache.upsert(businessId, pumpId, {
+            ...pump,
+            'productPrice': currentPrice,
+          });
+        }
+      }
+    }
+
+    return {'price': currentPrice};
+  }
+
+  double _currentProductPrice(
+    RetailProvider retail,
+    Map<String, dynamic> pump,
+  ) {
+    final productId = pump['productId']?.toString() ?? '';
+    if (productId.isEmpty) {
+      return (pump['productPrice'] as num?)?.toDouble() ?? 0.0;
+    }
+
+    final product = retail.products.firstWhere(
+      (prod) => prod.id == productId,
+      orElse: () => Product(
+        id: productId,
+        name: pump['productName']?.toString() ?? 'Unknown',
+        price: 0.0,
+        stock: 0.0,
+        category: 'Unknown',
+      ),
+    );
+
+    return product.price > 0
+        ? product.price
+        : (pump['productPrice'] as num?)?.toDouble() ?? 0.0;
   }
 
   Future<void> _saveUpload(Map<String, dynamic> pump) async {
@@ -101,11 +493,20 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
 
     final opening = double.tryParse(_openingController.text.trim()) ?? 0.0;
     final closing = double.tryParse(_closingController.text.trim()) ?? 0.0;
+    final analogClosing =
+        double.tryParse(_analogClosingController.text.trim()) ?? 0.0;
+    final shiftOpeningCash =
+        double.tryParse(_shiftOpeningCashController.text.trim()) ?? 0.0;
+    final shiftCloseCash =
+        double.tryParse(_shiftCloseCashController.text.trim()) ?? 0.0;
     final cash = double.tryParse(_cashController.text.trim()) ?? 0.0;
     final pos = double.tryParse(_posController.text.trim()) ?? 0.0;
-    if (closing <= opening) {
+
+    if (opening <= closing) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Closing volume must exceed opening volume')),
+        const SnackBar(
+          content: Text('closing volume must exceed Opening volume'),
+        ),
       );
       return;
     }
@@ -114,41 +515,117 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Opening volume must match previous closing (${_previousClosingVolume!.toStringAsFixed(3)})',
+            'closing volume must match previous Opening (${_previousClosingVolume!.toStringAsFixed(3)})',
           ),
         ),
       );
       return;
     }
-    if (_openingPhotoUrl == null || _closingPhotoUrl == null) {
+
+    final soldVolume = opening - closing;
+    final shiftOpeningCashPhotoUrl = await _ensurePhotoUrl(
+      label: 'shift opening cash',
+      url: _shiftOpeningCashPhotoUrl,
+      path: _shiftOpeningCashPhotoPath,
+    );
+    final shiftCloseCashPhotoUrl = await _ensurePhotoUrl(
+      label: 'shift close cash',
+      url: _shiftCloseCashPhotoUrl,
+      path: _shiftCloseCashPhotoPath,
+    );
+    final openingPhotoUrl = await _ensurePhotoUrl(
+      label: 'closing pump volume',
+      url: _openingPhotoUrl,
+      path: _openingPhotoPath,
+    );
+    final closingPhotoUrl = await _ensurePhotoUrl(
+      label: 'Opening pump volume',
+      url: _closingPhotoUrl,
+      path: _closingPhotoPath,
+    );
+    if (shiftOpeningCashPhotoUrl == null ||
+        shiftCloseCashPhotoUrl == null ||
+        openingPhotoUrl == null ||
+        closingPhotoUrl == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Upload opening and closing photos')),
+        const SnackBar(
+          content: Text('Upload all cash and pump volume images'),
+        ),
       );
       return;
     }
+    _shiftOpeningCashPhotoUrl = shiftOpeningCashPhotoUrl;
+    _shiftCloseCashPhotoUrl = shiftCloseCashPhotoUrl;
+    _openingPhotoUrl = openingPhotoUrl;
+    _closingPhotoUrl = closingPhotoUrl;
+    await _saveDraft();
 
     setState(() => _isSaving = true);
     try {
       final auth = context.read<AuthProvider>().currentUser;
+      final retail = context.read<RetailProvider>();
+      await retail.loadProducts(forceRefresh: true);
       final productId = pump['productId']?.toString() ?? '';
-      final price = (pump['productPrice'] as num?)?.toDouble() ?? 0.0;
-      final soldVolume = closing - opening;
-      final expectedAmount = soldVolume * price;
-      final inventoryRef = FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('inventory')
-          .doc(productId);
-      final uploadRef = uploads.doc();
+      if (productId.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pump product is not configured')), 
+        );
+        return;
+      }
 
+      final productInfo =
+          await _resolveCurrentProductInfo(businessId, productId, pump);
+      final price = productInfo['price'] ?? 0.0;
+      if (price <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to resolve current product price')),
+        );
+        return;
+      }
+
+      final expectedAmount = soldVolume * price;
+      final totalPaid = cash + pos;
+      if (expectedAmount > 0 && totalPaid <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Enter cash or POS amount matching the sale amount',
+            ),
+          ),
+        );
+        return;
+      }
+      if ((totalPaid - expectedAmount).abs() > 0.01) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Cash + POS must equal expected amount: ${expectedAmount.toStringAsFixed(2)}',
+            ),
+          ),
+        );
+        return;
+      }
+
+      final paymentMethod = cash > 0 && pos > 0
+          ? 'mixed'
+          : pos > 0
+              ? 'pos'
+              : 'cash';
+
+      final saleData = await retail.fuelSale(
+        productId: productId,
+        quantity: soldVolume,
+        amountPaid: totalPaid > 0 ? totalPaid : null,
+        paymentMethod: paymentMethod,
+        workerId: auth?.id,
+        workerName: auth?.fullName ?? auth?.email,
+        pumpId: _selectedPumpId,
+        pumpNumber: pump['pumpNumber']?.toString(),
+        pumpName: pump['productName']?.toString(),
+      );
+
+      final uploadRef = uploads.doc();
       await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final inventorySnapshot = await transaction.get(inventoryRef);
-        final inventoryData = inventorySnapshot.data() ?? <String, dynamic>{};
-        final currentStock =
-            (inventoryData['quantity'] as num?)?.toDouble() ??
-                (inventoryData['stock'] as num?)?.toDouble() ??
-                0.0;
-        final newStock = (currentStock - soldVolume).clamp(0.0, 999999999.0);
         transaction.set(uploadRef, {
           'pumpId': _selectedPumpId,
           'pumpNumber': pump['pumpNumber'],
@@ -158,28 +635,29 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
           'productPrice': price,
           'openingVolume': opening,
           'closingVolume': closing,
+          'analogClosingVolume': analogClosing,
+          'previousAnalogClosingVolume': _previousAnalogClosingVolume,
           'soldVolume': soldVolume,
           'expectedAmount': expectedAmount,
+          'shiftOpeningCash': shiftOpeningCash,
+          'shiftCloseCash': shiftCloseCash,
+          'todayPumpCash': cash,
           'cashAmount': cash,
           'posAmount': pos,
-          'openingPhotoUrl': _openingPhotoUrl,
-          'closingPhotoUrl': _closingPhotoUrl,
+          'saleId': saleData['id'] ?? saleData['orderId'],
+          'shiftOpeningCashPhotoUrl': shiftOpeningCashPhotoUrl,
+          'shiftCloseCashPhotoUrl': shiftCloseCashPhotoUrl,
+          'openingPhotoUrl': openingPhotoUrl,
+          'closingPhotoUrl': closingPhotoUrl,
           'workerId': auth?.id,
           'workerName': auth?.fullName ?? auth?.email,
           'uploadedAt': FieldValue.serverTimestamp(),
           'createdAt': FieldValue.serverTimestamp(),
           'category': 'pump_daily_upload',
         });
-        transaction.set(
-          inventoryRef,
-          {
-            'quantity': newStock,
-            'stock': newStock,
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
       });
+      await PumpAnalogClosingCache.save(businessId, _selectedPumpId!, analogClosing);
+      await PumpUploadDraftCache.clear(businessId, _selectedPumpId!);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -194,63 +672,209 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   @override
   Widget build(BuildContext context) {
     final pumps = _collection('pump_configurations');
-    final soldVolume = (double.tryParse(_closingController.text.trim()) ?? 0) -
-        (double.tryParse(_openingController.text.trim()) ?? 0);
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    final soldVolume = (double.tryParse(_openingController.text.trim()) ?? 0) -
+        (double.tryParse(_closingController.text.trim()) ?? 0);
     return Scaffold(
-      appBar: AppBar(title: const Text('Total Sales Upload')),
+      appBar: AppBar(title: const Text('Pump Volume Upload')),
       body: pumps == null
           ? const Center(child: Text('No business selected'))
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: pumps
                   .where('isActive', isEqualTo: true)
-                  .orderBy('pumpNumber')
                   .snapshots(includeMetadataChanges: true),
               builder: (context, snapshot) {
                 final pumpDocs = snapshot.data?.docs ?? [];
-                final selectedPump = pumpDocs
-                    .where((doc) => doc.id == _selectedPumpId)
-                    .map((doc) => doc.data())
-                    .cast<Map<String, dynamic>?>()
-                    .firstWhere((pump) => pump != null, orElse: () => null);
-                final price =
-                    (selectedPump?['productPrice'] as num?)?.toDouble() ?? 0.0;
-                final expectedAmount = soldVolume > 0 ? soldVolume * price : 0.0;
-
+                if (businessId != null && businessId.isNotEmpty) {
+                  _syncCacheFromSnapshot(businessId, pumpDocs);
+                }
+                final remotePumps = PumpConfigCache.sort(
+                  pumpDocs.map(PumpConfigCache.fromDoc).toList(),
+                );
+                final availablePumps =
+                    remotePumps.isNotEmpty ? remotePumps : _cachedPumps;
+                final selectedPump = _getPumpById(availablePumps, _selectedPumpId);
+                final selectedPumpId = selectedPump?['id']?.toString();
+                if (selectedPumpId != null &&
+                    _lastLoadedPumpId != selectedPumpId) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    final pumpNumber = selectedPump?['pumpNumber']?.toString();
+                    _loadPreviousClosing(selectedPumpId, pumpNumber: pumpNumber);
+                  });
+                }
+                final retail = context.watch<RetailProvider>();
+                final price = selectedPump == null
+                    ? 0.0
+                    : _currentProductPrice(retail, selectedPump);
+                final expectedAmount = soldVolume * price;
                 return ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
                     DropdownButtonFormField<String>(
-                      value: _selectedPumpId,
+                      value: selectedPumpId,
                       decoration: const InputDecoration(
                         labelText: 'Select pump',
                         border: OutlineInputBorder(),
                       ),
-                      items: pumpDocs
+                      items: availablePumps
                           .map(
-                            (doc) => DropdownMenuItem(
-                              value: doc.id,
+                            (pump) => DropdownMenuItem(
+                              value: pump['id']?.toString(),
                               child: Text(
-                                'Pump ${doc.data()['pumpNumber']} - ${doc.data()['productName']}',
+                                'Pump ${pump['pumpNumber']} - ${pump['productName']}',
                               ),
                             ),
                           )
                           .toList(),
                       onChanged: (value) {
-                        setState(() => _selectedPumpId = value);
-                        if (value != null) _loadPreviousClosing(value);
+                        final selectedPump = _getPumpById(availablePumps, value);
+                        final pumpNumber = selectedPump?['pumpNumber']?.toString();
+                        setState(() {
+                          _selectedPumpId = value;
+                          _previousClosingVolume = null;
+                          _previousAnalogClosingVolume = null;
+                          _lastLoadedPumpId = null;
+                          _shiftOpeningCashPhotoUrl = null;
+                          _shiftOpeningCashPhotoPath = null;
+                          _shiftCloseCashPhotoUrl = null;
+                          _shiftCloseCashPhotoPath = null;
+                          _openingPhotoUrl = null;
+                          _openingPhotoPath = null;
+                          _closingPhotoUrl = null;
+                          _closingPhotoPath = null;
+                          _openingController.clear();
+                          _closingController.clear();
+                          _analogClosingController.clear();
+                          _shiftOpeningCashController.clear();
+                          _shiftCloseCashController.clear();
+                          _cashController.clear();
+                          _posController.clear();
+                        });
+                        if (value != null) {
+                          _loadPreviousClosing(value, pumpNumber: pumpNumber);
+                          _loadDraft(value);
+                        }
                       },
+                    ),
+                    if (availablePumps.isEmpty && _cacheLoaded)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 12),
+                        child: Text(
+                          'No configured pumps found. Add a pump in Pump Configuration first.',
+                        ),
+                      ),
+                    const SizedBox(height: 16),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Shift Cash Uploads',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _shiftOpeningCashController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              decoration: const InputDecoration(
+                                labelText: 'Shift opening cash value',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (_) => _saveDraft(),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _isSaving
+                                  ? null
+                                  : () => _pickAndUploadPhoto(
+                                        'shiftOpeningCash',
+                                      ),
+                              icon: Icon(
+                                _shiftOpeningCashPhotoUrl == null &&
+                                        _shiftOpeningCashPhotoPath == null
+                                    ? Icons.camera_alt_outlined
+                                    : Icons.check_circle_outline,
+                                color: _shiftOpeningCashPhotoUrl == null &&
+                                        _shiftOpeningCashPhotoPath == null
+                                    ? null
+                                    : Colors.green,
+                              ),
+                              label: Text(
+                                _shiftOpeningCashPhotoUrl == null &&
+                                        _shiftOpeningCashPhotoPath == null
+                                    ? 'Upload shift opening cash image'
+                                    : 'Shift opening cash image saved',
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: _shiftCloseCashController,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              decoration: const InputDecoration(
+                                labelText: 'Shift close cash value',
+                                border: OutlineInputBorder(),
+                              ),
+                              onChanged: (_) => _saveDraft(),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _isSaving
+                                  ? null
+                                  : () => _pickAndUploadPhoto(
+                                        'shiftCloseCash',
+                                      ),
+                              icon: Icon(
+                                _shiftCloseCashPhotoUrl == null &&
+                                        _shiftCloseCashPhotoPath == null
+                                    ? Icons.camera_alt_outlined
+                                    : Icons.check_circle_outline,
+                                color: _shiftCloseCashPhotoUrl == null &&
+                                        _shiftCloseCashPhotoPath == null
+                                    ? null
+                                    : Colors.green,
+                              ),
+                              label: Text(
+                                _shiftCloseCashPhotoUrl == null &&
+                                        _shiftCloseCashPhotoPath == null
+                                    ? 'Upload shift close cash image'
+                                    : 'Shift close cash image saved',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed:
-                                _isSaving ? null : () => _pickAndUploadPhoto(true),
-                            icon: const Icon(Icons.camera_alt_outlined),
-                            label: Text(_openingPhotoUrl == null
-                                ? 'Opening Photo'
-                                : 'Opening Uploaded'),
+                            onPressed: _isSaving
+                                ? null
+                                : () => _pickAndUploadPhoto('opening'),
+                            icon: Icon(
+                              _openingPhotoUrl == null &&
+                                      _openingPhotoPath == null
+                                  ? Icons.camera_alt_outlined
+                                  : Icons.check_circle_outline,
+                              color: _openingPhotoUrl == null &&
+                                      _openingPhotoPath == null
+                                  ? null
+                                  : Colors.green,
+                            ),
+                            label: Text(_openingPhotoUrl == null &&
+                                    _openingPhotoPath == null
+                                ? 'Closing pump volume upload'
+                                : 'Closing pump volume saved'),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -258,11 +882,21 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                           child: OutlinedButton.icon(
                             onPressed: _isSaving
                                 ? null
-                                : () => _pickAndUploadPhoto(false),
-                            icon: const Icon(Icons.camera_alt_outlined),
-                            label: Text(_closingPhotoUrl == null
-                                ? 'Closing Photo'
-                                : 'Closing Uploaded'),
+                                : () => _pickAndUploadPhoto('closing'),
+                            icon: Icon(
+                              _closingPhotoUrl == null &&
+                                      _closingPhotoPath == null
+                                  ? Icons.camera_alt_outlined
+                                  : Icons.check_circle_outline,
+                              color: _closingPhotoUrl == null &&
+                                      _closingPhotoPath == null
+                                  ? null
+                                  : Colors.green,
+                            ),
+                            label: Text(_closingPhotoUrl == null &&
+                                    _closingPhotoPath == null
+                                ? 'Opening pump volume upload'
+                                : 'Opening pump volume saved'),
                           ),
                         ),
                       ],
@@ -274,13 +908,18 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                         decimal: true,
                       ),
                       decoration: InputDecoration(
-                        labelText: 'Opening volume',
-                        helperText: _previousClosingVolume == null
-                            ? 'No previous closing recorded for this pump'
-                            : 'Must match previous closing: ${_previousClosingVolume!.toStringAsFixed(3)}',
+                        labelText: 'Closing volume',
+                        helperText: _isLoadingPreviousClosing
+                            ? 'Loading previous Opening...'
+                            : _previousClosingVolume == null
+                                ? 'No previous Opening recorded for this pump'
+                                : 'Must match previous Opening: ${_previousClosingVolume!.toStringAsFixed(3)}',
                         border: const OutlineInputBorder(),
                       ),
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (_) {
+                        setState(() {});
+                        _saveDraft();
+                      },
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -289,11 +928,38 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                         decimal: true,
                       ),
                       decoration: const InputDecoration(
-                        labelText: 'Closing volume',
+                        labelText: 'Opening volume',
                         border: OutlineInputBorder(),
                       ),
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (_) {
+                        setState(() {});
+                        _saveDraft();
+                      },
                     ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _analogClosingController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Today analog entry',
+                        helperText: 'Saved without analog difference checks',
+                        border: const OutlineInputBorder(),
+                      ),
+                      onChanged: (_) {
+                        setState(() {});
+                        _saveDraft();
+                      },
+                    ),
+                    if (_previousAnalogClosingVolume != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'Previous day analog entry: ${_previousAnalogClosingVolume!.toStringAsFixed(3)}',
+                          style: const TextStyle(color: Colors.black54),
+                        ),
+                      ),
                     const SizedBox(height: 16),
                     Card(
                       child: ListTile(
@@ -312,9 +978,10 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                         decimal: true,
                       ),
                       decoration: const InputDecoration(
-                        labelText: 'Cash amount',
+                        labelText: 'Today total pump cash',
                         border: OutlineInputBorder(),
                       ),
+                      onChanged: (_) => _saveDraft(),
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -326,6 +993,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                         labelText: 'POS / transfer / card amount',
                         border: OutlineInputBorder(),
                       ),
+                      onChanged: (_) => _saveDraft(),
                     ),
                     const SizedBox(height: 20),
                     ElevatedButton.icon(

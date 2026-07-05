@@ -30,6 +30,18 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
   StreamSubscription<Map<String, dynamic>>? _metricsSubscription;
   StreamSubscription<List<Map<String, dynamic>>>? _historySubscription;
 
+  DateTime? _readDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is num) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    return DateTime.tryParse(value?.toString() ?? '');
+  }
+
+  double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -285,11 +297,13 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
       separatorBuilder: (_, __) => const Divider(),
       itemBuilder: (context, index) {
         final sale = _sales[index];
-        final created = sale['createdAt'] as DateTime?;
+        final created = _readDate(sale['createdAt']);
         final dateText = created != null
             ? DateFormat.yMd().add_jm().format(created)
             : (sale['createdAtRaw']?.toString() ?? '');
         final saleId = sale['id']?.toString() ?? '';
+        final totalAmount = _readDouble(sale['totalAmount']);
+        final fuelVolume = _readDouble(sale['fuelVolume']);
 
         return ListTile(
           onTap: saleId.isEmpty
@@ -326,14 +340,14 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'NGN ${(sale['totalAmount'] ?? 0.0).toStringAsFixed(2)}',
+                'NGN ${totalAmount.toStringAsFixed(2)}',
                 style: AppTextStyles.body1.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                '${(sale['fuelVolume'] ?? 0.0).toStringAsFixed(3)} L',
+                '${fuelVolume.toStringAsFixed(3)} L',
                 style: AppTextStyles.caption,
               ),
             ],
@@ -372,16 +386,11 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
           itemBuilder: (context, index) {
             final doc = docs[index];
             final data = doc.data();
-            final createdAt = data['createdAt'] is Timestamp
-                ? (data['createdAt'] as Timestamp).toDate()
-                : data['timestamp'] is Timestamp
-                    ? (data['timestamp'] as Timestamp).toDate()
-                    : null;
-            final amount = ((data['totalAmount'] ??
-                        data['total'] ??
-                        data['amount']) as num?)
-                    ?.toDouble() ??
-                0.0;
+            final createdAt =
+                _readDate(data['createdAt']) ?? _readDate(data['timestamp']);
+            final amount = _readDouble(
+              data['totalAmount'] ?? data['total'] ?? data['amount'],
+            );
             final itemCount = data['items'] is List
                 ? (data['items'] as List).length
                 : ((data['quantity'] as num?)?.toInt() ?? 0);
@@ -455,9 +464,10 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
           separatorBuilder: (_, __) => const Divider(),
           itemBuilder: (context, index) {
             final data = docs[index].data();
-            final uploadedAt = data['uploadedAt'] is Timestamp
-                ? (data['uploadedAt'] as Timestamp).toDate()
-                : null;
+            final uploadedAt =
+                _readDate(data['uploadedAt']) ?? _readDate(data['createdAt']);
+            final soldVolume = _readDouble(data['soldVolume']);
+            final expectedAmount = _readDouble(data['expectedAmount']);
             return ListTile(
               leading: const CircleAvatar(child: Icon(Icons.cloud_upload)),
               title: Text(
@@ -473,11 +483,11 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    '${((data['soldVolume'] as num?)?.toDouble() ?? 0).toStringAsFixed(3)} L',
+                    '${soldVolume.toStringAsFixed(3)} L',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    'NGN ${((data['expectedAmount'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                    'NGN ${expectedAmount.toStringAsFixed(2)}',
                   ),
                 ],
               ),

@@ -53,6 +53,7 @@ import '../presentation/settings/screens/notification_logs_screen.dart';
 import '../presentation/settings/screens/thermal_receipt_settings_screen.dart';
 import '../presentation/settings/screens/printer_settings_screen.dart';
 import '../presentation/settings/screens/subscription_screen.dart';
+import '../presentation/settings/screens/subscription_transactions_screen.dart';
 import '../presentation/settings/screens/tax_settings_screen.dart';
 
 // Restaurant screens
@@ -379,6 +380,9 @@ class AppRouter {
       case Routes.subscription:
         return _buildRoute(const SubscriptionScreen());
 
+      case Routes.subscriptionTransactions:
+        return _buildRoute(const SubscriptionTransactionsScreen());
+
       case Routes.taxSettings:
         return _buildRoute(const TaxSettingsScreen());
 
@@ -515,17 +519,42 @@ class AppRouter {
         final args = settings.arguments;
         if (args is Map<String, dynamic>) {
           // If a full sale map was passed (contains items), show ReceiptScreen directly to avoid Firestore race
-          if (args.containsKey('items') && (args.containsKey('id') || args.containsKey('saleId') || args.containsKey('orderId'))) {
-            final saleMap = args.containsKey('id') ? args : ({
-              'id': args['saleId'] ?? args['orderId'] ?? args['id'],
+          final rawSaleId =
+              args['saleId'] ?? args['orderId'] ?? args['receiptId'] ?? args['id'];
+          final saleId = rawSaleId?.toString().trim() ?? '';
+          if (args.containsKey('items') && saleId.isNotEmpty) {
+            final saleMap = {
               ...args,
-            });
-            return _buildRoute(ReceiptScreen(sale: saleMap, isSubscriptionReceipt: false, isInvoice: false));
+              'id': args['id']?.toString().trim().isNotEmpty == true
+                  ? args['id']
+                  : saleId,
+            };
+            return _buildRoute(
+              ReceiptScreen(
+                sale: saleMap,
+                isSubscriptionReceipt: false,
+                isInvoice: false,
+              ),
+            );
           }
-          final saleId = (args['saleId'] ?? args['orderId'] ?? args['receiptId'] ?? args['id']) as String? ?? '';
+          if (saleId.isEmpty) {
+            return _buildRoute(
+              const Scaffold(
+                body: Center(child: Text('Missing sale reference')),
+              ),
+            );
+          }
           return _buildRoute(SalesReceiptLoaderScreen(saleId: saleId));
         } else if (args is String) {
-          return _buildRoute(SalesReceiptLoaderScreen(saleId: args));
+          final saleId = args.trim();
+          if (saleId.isEmpty) {
+            return _buildRoute(
+              const Scaffold(
+                body: Center(child: Text('Missing sale reference')),
+              ),
+            );
+          }
+          return _buildRoute(SalesReceiptLoaderScreen(saleId: saleId));
         }
         return _buildRoute(const Scaffold(body: Center(child: Text('Invalid sale reference'))));
 

@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/utils/worker_permissions.dart';
 import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
@@ -35,6 +37,24 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
   DateTime _selectedDate = DateTime.now();
   StreamSubscription<Map<String, dynamic>>? _metricsSubscription;
   StreamSubscription<List<Map<String, dynamic>>>? _historySubscription;
+
+  DateTime? _readDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is num) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    return DateTime.tryParse(value?.toString() ?? '');
+  }
+
+  double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+
+  String _shortSaleId(dynamic value) {
+    final id = value?.toString() ?? '';
+    if (id.isEmpty) return 'PENDING';
+    return id.length <= 6 ? id : id.substring(0, 6);
+  }
 
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
@@ -161,6 +181,96 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     final pumpConfigurationRoute = isPetroleumStation
         ? Routes.petroleumPumpConfiguration
         : Routes.gasPumpConfiguration;
+    final stationRole = WorkerPermissions.normalizeRole(
+      context.watch<AuthProvider>().currentUser?.role ?? '',
+    );
+    final isPumpOperator =
+        isPetroleumStation && stationRole == 'pump_operator';
+    final isMiniMartSeller = isPetroleumStation &&
+        (stationRole == 'sales_rep' || stationRole == 'cashier');
+    final isStationStaff = isPetroleumStation && stationRole == 'staff';
+    final showAllOperations =
+        !isPetroleumStation ||
+            stationRole == 'manager' ||
+            stationRole == 'owner' ||
+            stationRole == 'admin' ||
+            stationRole == 'sub_admin' ||
+            (!isPumpOperator && !isMiniMartSeller && !isStationStaff);
+    final operationCards = <Widget>[
+      if (showAllOperations || isPumpOperator || isStationStaff)
+        _OperationCard(
+            title: 'Pump Sale',
+            icon: Icons.local_gas_station,
+            color: Colors.purple,
+            onTap: () =>
+                Navigator.pushNamed(context, pumpRoute)
+                    .then((_) => _loadMetrics())),
+      if (showAllOperations)
+        _OperationCard(
+            title: 'Fuel Stock',
+            icon: Icons.inventory_2,
+            color: Colors.brown,
+            onTap: () => Navigator.pushNamed(context, stockRoute)
+                .then((_) => _loadMetrics())),
+      if (showAllOperations || isPumpOperator || isStationStaff)
+        _OperationCard(
+            title: 'Pump Upload',
+            icon: Icons.cloud_upload_outlined,
+            color: Colors.deepPurple,
+            onTap: () => Navigator.pushNamed(context, pumpUploadRoute)
+                .then((_) => _loadMetrics())),
+      if (showAllOperations || isPumpOperator || isStationStaff)
+        _OperationCard(
+            title: 'Upload History',
+            icon: Icons.fact_check_outlined,
+            color: Colors.blueGrey,
+            onTap: () =>
+                Navigator.pushNamed(context, pumpUploadHistoryRoute)),
+      if (showAllOperations)
+        _OperationCard(
+            title: 'Pump Config',
+            icon: Icons.tune_outlined,
+            color: Colors.cyan,
+            onTap: () => Navigator.pushNamed(context, pumpConfigurationRoute)),
+      if (showAllOperations || isMiniMartSeller || isStationStaff)
+        _OperationCard(
+            title: 'Shop POS',
+            icon: Icons.point_of_sale,
+            color: Colors.indigo,
+            onTap: () => Navigator.pushNamed(context, Routes.retailPos)
+                .then((_) => _loadMetrics())),
+      if (showAllOperations)
+        _OperationCard(
+            title: 'Procurement',
+            icon: Icons.shopping_bag_outlined,
+            color: Colors.orange,
+            onTap: () => Navigator.pushNamed(context, Routes.procurement)
+                .then((_) => _loadMetrics())),
+      if (showAllOperations)
+        _OperationCard(
+            title: 'Expenses',
+            icon: Icons.receipt_long_outlined,
+            color: Colors.brown,
+            onTap: () => Navigator.pushNamed(context, Routes.expenseReport)),
+      if (showAllOperations)
+        _OperationCard(
+            title: 'Printer settings',
+            icon: Icons.print,
+            color: Colors.teal,
+            onTap: () => Navigator.pushNamed(context, Routes.printerSettings)),
+      if (showAllOperations)
+        _OperationCard(
+            title: 'Customer Care',
+            icon: Icons.support_agent_rounded,
+            color: Colors.green,
+            onTap: () => WhatsAppUtils.openCustomerSupport(context)),
+      if (showAllOperations || isMiniMartSeller || isStationStaff)
+        _OperationCard(
+            title: 'History',
+            icon: Icons.history,
+            color: Colors.teal,
+            onTap: () => Navigator.pushNamed(context, historyRoute)),
+    ];
     return Scaffold(
       backgroundColor: colorScheme.surface,
       body: Stack(
@@ -322,76 +432,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                         crossAxisSpacing: 16,
                         mainAxisSpacing: 16,
                         childAspectRatio: 1.4,
-                        children: [
-                          _OperationCard(
-                              title: 'Pump Sale',
-                              icon: Icons.local_gas_station,
-                              color: Colors.purple,
-                              onTap: () =>
-                                  Navigator.pushNamed(context, pumpRoute)
-                                      .then((_) => _loadMetrics())),
-                          _OperationCard(
-                              title: 'Fuel Stock',
-                              icon: Icons.inventory_2,
-                              color: Colors.brown,
-                              onTap: () => Navigator.pushNamed(context, stockRoute)
-                                  .then((_) => _loadMetrics())),
-                          _OperationCard(
-                              title: 'Pump Upload',
-                              icon: Icons.cloud_upload_outlined,
-                              color: Colors.deepPurple,
-                              onTap: () => Navigator.pushNamed(
-                                      context, pumpUploadRoute)
-                                  .then((_) => _loadMetrics())),
-                          _OperationCard(
-                              title: 'Upload History',
-                              icon: Icons.fact_check_outlined,
-                              color: Colors.blueGrey,
-                              onTap: () => Navigator.pushNamed(
-                                  context, pumpUploadHistoryRoute)),
-                          _OperationCard(
-                              title: 'Pump Config',
-                              icon: Icons.tune_outlined,
-                              color: Colors.cyan,
-                              onTap: () => Navigator.pushNamed(
-                                  context, pumpConfigurationRoute)),
-                          _OperationCard(
-                              title: 'Shop POS',
-                              icon: Icons.point_of_sale,
-                              color: Colors.indigo,
-                              onTap: () => Navigator.pushNamed(
-                                      context, Routes.sales)
-                                  .then((_) => _loadMetrics())),
-                          _OperationCard(
-                              title: 'Procurement',
-                              icon: Icons.shopping_bag_outlined,
-                              color: Colors.orange,
-                              onTap: () => Navigator.pushNamed(
-                                      context, Routes.procurement)
-                                  .then((_) => _loadMetrics())),
-                          _OperationCard(
-                              title: 'Expenses',
-                              icon: Icons.receipt_long_outlined,
-                              color: Colors.brown,
-                              onTap: () => Navigator.pushNamed(
-                                  context, Routes.expenseReport)),
-                          _OperationCard(
-                              title: 'Printer settings',
-                              icon: Icons.print,
-                              color: Colors.teal,
-                              onTap: () => Navigator.pushNamed(
-                                  context, Routes.printerSettings)),
-                          _OperationCard(
-                              title: 'Customer Care',
-                              icon: Icons.support_agent_rounded,
-                              color: Colors.green,
-                              onTap: () => WhatsAppUtils.openCustomerSupport(context)),
-                          _OperationCard(
-                              title: 'History',
-                              icon: Icons.history,
-                              color: Colors.teal,
-                              onTap: () => Navigator.pushNamed(context, historyRoute)),
-                        ],
+                        children: operationCards,
                       ),
 
                       const SizedBox(height: 24),
@@ -422,10 +463,15 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                                   itemCount: _recentSales.length,
                                   itemBuilder: (context, index) {
                                     final s = _recentSales[index];
-                                    final created = s['createdAt'] as DateTime?;
+                                    final created = _readDate(s['createdAt']);
                                     final dateStr = created != null
                                         ? DateFormat.jm().format(created)
                                         : '';
+                                    final saleId = _shortSaleId(s['id']);
+                                    final totalAmount =
+                                        _readDouble(s['totalAmount']);
+                                    final fuelVolume =
+                                        _readDouble(s['fuelVolume']);
                                     return Container(
                                       margin: const EdgeInsets.only(bottom: 12),
                                       padding: const EdgeInsets.all(12),
@@ -455,7 +501,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                                                     CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
-                                                      'Sale #${(s['id'] ?? '').toString().substring(0, 6)}...',
+                                                      'Sale #$saleId...',
                                                       style: const TextStyle(
                                                           fontWeight:
                                                               FontWeight.bold)),
@@ -475,13 +521,13 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
                                                   CrossAxisAlignment.end,
                                               children: [
                                                 Text(
-                                                    '₦${(s['totalAmount'] ?? 0.0).toStringAsFixed(2)}',
+                                                    '₦${totalAmount.toStringAsFixed(2)}',
                                                     style: const TextStyle(
                                                         fontWeight:
                                                             FontWeight.bold)),
                                                 const SizedBox(height: 4),
                                                 Text(
-                                                  '${(s['fuelVolume'] ?? 0.0).toStringAsFixed(2)} L',
+                                                  '${fuelVolume.toStringAsFixed(2)} L',
                                                   style: theme.textTheme
                                                       .bodySmall
                                                       ?.copyWith(

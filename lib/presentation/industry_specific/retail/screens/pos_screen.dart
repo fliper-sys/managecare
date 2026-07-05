@@ -10,6 +10,7 @@ class PosScreen extends StatelessWidget {
     return const SalesScreen(
       title: 'Quick Sale',
       enableStoreSwitcher: true,
+      showOwnerProcurementFab: true,
     );
   }
 }

@@ -50,6 +50,39 @@ function admsConfig(serial) {
   ].join('\n');
 }
 
+function isAdmsEndpoint(path, endpoint, query = {}) {
+  const normalizedPath = (path || '').toString().toLowerCase();
+  const normalizedEndpoint = `/${endpoint}`;
+  if (
+    normalizedPath === normalizedEndpoint ||
+    normalizedPath.endsWith(normalizedEndpoint) ||
+    normalizedPath.endsWith(`/iclock${normalizedEndpoint}`)
+  ) {
+    return true;
+  }
+
+  // Some proxies/firmware variants route directly to the function root and
+  // identify the ADMS operation only through query params.
+  if (endpoint === 'cdata') {
+    return (
+      normalizedPath === '/' &&
+      (
+        (query.options || '').toString().toLowerCase() === 'all' ||
+        (query.table || '').toString().trim().length > 0
+      )
+    );
+  }
+
+  if (endpoint === 'getrequest') {
+    return (
+      normalizedPath === '/' &&
+      (query.request || '').toString().toLowerCase() === 'getrequest'
+    );
+  }
+
+  return false;
+}
+
 function attendancePunchId(serial, terminalUserId, punchTime, rawStatusCode, verifyMethod) {
   return crypto
     .createHash('sha1')
@@ -1009,21 +1042,31 @@ exports.iclock = functions.https.onRequest(async (req, res) => {
   const path = (req.path || req.url || '').split('?')[0].toLowerCase();
 
   try {
-    if (req.method === 'GET' && path.endsWith('/cdata')) {
+    if (req.method === 'GET' && isAdmsEndpoint(path, 'cdata', req.query)) {
       if ((req.query.options || '').toString().toLowerCase() === 'all') {
         return textResponse(res, 200, admsConfig(serial || 'UNKNOWN'));
       }
       return textResponse(res, 200, 'OK');
     }
 
-    if (req.method === 'GET' && path.endsWith('/getrequest')) {
+    if (
+      req.method === 'GET' &&
+      (
+        isAdmsEndpoint(path, 'getrequest', req.query) ||
+        isAdmsEndpoint(path, 'devicecmd', req.query)
+      )
+    ) {
       // The terminal polls this endpoint for queued commands. We do not manage
       // remote enrollment yet, so return OK/no-op. Later this can read a
       // business attendance_device_commands subcollection.
       return textResponse(res, 200, 'OK');
     }
 
-    if (req.method === 'POST' && path.endsWith('/cdata') && table === 'ATTLOG') {
+    if (
+      req.method === 'POST' &&
+      isAdmsEndpoint(path, 'cdata', req.query) &&
+      table === 'ATTLOG'
+    ) {
       if (!serial) return textResponse(res, 400, 'Missing SN');
 
       // ADMS sends tab-separated plain text, not JSON. Firebase exposes the

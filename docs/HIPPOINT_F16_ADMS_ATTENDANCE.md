@@ -20,7 +20,88 @@ POST /iclock/cdata?SN=<serial>&table=ATTLOG
 GET  /iclock/getrequest?SN=<serial>
 ```
 
-If the terminal separates the host and path fields, use:
+## Package Strategy
+
+Two Flutter packages were reviewed for this ZKTeco workflow:
+
+```text
+flutter_zkteco
+zkfinger10
+```
+
+Recommendation:
+
+Use `flutter_zkteco` only for optional LAN/admin operations, and keep ADMS push
+as the production attendance path.
+
+Why:
+
+- `flutter_zkteco` connects to network fingerprint machines over TCP/IP.
+- It can retrieve attendance logs.
+- It can retrieve device users.
+- It lets the app test whether the terminal is reachable on LAN.
+- The constructor accepts a custom port, so this device can be tested with
+  `5005` instead of the common ZKTeco `4370`.
+
+Do not use `zkfinger10` for this wall-mounted attendance terminal.
+
+Why:
+
+- `zkfinger10` targets USB ZKTeco fingerprint scanners such as SLK20R, ZK9500,
+  ZK6500, and ZK8500R.
+- It is useful for a separate Android USB enrollment station.
+- It does not manage this Ethernet/WiFi attendance terminal over ADMS or TCP/IP.
+
+Best-fit architecture:
+
+```text
+Production:
+F16 terminal -> ADMS relay/server -> Firebase iclock function -> Firestore
+
+Optional LAN tools:
+Manage Care app/admin device -> flutter_zkteco -> F16 terminal on same LAN
+```
+
+Use `flutter_zkteco` for:
+
+- Test LAN connection to the device IP.
+- Pull attendance logs manually when ADMS is unavailable.
+- Pull user list to help map terminal IDs to app workers.
+- Compare terminal users against worker cards in `Attendance -> Device Setup`.
+
+Do not rely on `flutter_zkteco` alone for:
+
+- Cloud/offsite attendance sync.
+- Devices behind NAT where the phone cannot reach the terminal IP.
+- Full user enrollment workflows such as face/fingerprint capture.
+- Every low-level device configuration screen.
+
+Use the physical terminal for enrollment and sensitive operations:
+
+```text
+MENU -> User -> Enroll
+MENU -> User -> Browse
+MENU -> User -> Modify
+MENU -> User -> Delete
+DevSet -> Set COMM -> Network
+```
+
+Implemented LAN tool path:
+
+1. `flutter_zkteco` is added to `pubspec.yaml`.
+2. The app uses a guarded LAN service with a stub for unsupported platforms.
+3. Each saved device card includes actions:
+   - Test connection
+   - Pull users
+   - Pull attendance logs
+4. Pulled terminal users can be mapped to app workers.
+5. Worker cards can still be edited manually when LAN access is unavailable.
+
+Keep the current ADMS backend even after LAN tools are added. ADMS is the better
+production path because the terminal pushes attendance without requiring an
+admin phone to be online on the same local network.
+
+If the terminal supports DNS/hostnames and path fields, use:
 
 ```text
 Server host: us-central1-manage-care-1e96b.cloudfunctions.net
@@ -28,6 +109,60 @@ Port: 443
 Path/function: iclock
 Protocol: HTTPS, if the firmware provides that option
 ```
+
+Your photographed terminal variant stores the server name as `www.fkweb.com`,
+but the practical test fields are `Server IP` and `SerPortNo`. For that model,
+use an IP-based ADMS relay/server:
+
+```text
+Server IP: <public relay IP>
+SerPortNo: 7005
+```
+
+The relay should forward the terminal ADMS requests to:
+
+```text
+https://us-central1-manage-care-1e96b.cloudfunctions.net/iclock
+```
+
+For quick testing on a reachable Windows/Linux machine or VPS, this repo now
+includes a simple relay:
+
+```bash
+node tools/zkteco_adms_relay.js
+```
+
+It listens on port `7005` by default. Set the terminal `Server IP` to that
+machine's reachable IP address and `SerPortNo` to `7005`.
+
+Optional environment variables:
+
+```text
+PORT=7005
+HOST=0.0.0.0
+ZK_UPSTREAM_HOST=us-central1-manage-care-1e96b.cloudfunctions.net
+ZK_UPSTREAM_FUNCTION=iclock
+```
+
+The photographed terminal screens show the factory/FKWeb ADMS relay settings:
+
+```text
+DevSet -> Set COMM -> Network
+Server Req: Yes
+
+Network -> Server Set
+DNS: Yes
+Server Name: www.fkweb.com
+SerPortNo: 7005
+
+Network -> Ethernet
+DHCP: No
+Port No: 5005
+```
+
+For this firmware, leave the stored `www.fkweb.com` server name as-is if the
+device does not allow editing it. Place a relay/proxy in front of the Firebase
+function and point the terminal to the relay IP.
 
 ## What Users Should See In The App
 
@@ -49,7 +184,7 @@ The screen also includes:
 
 - The cloud endpoint to enter on the terminal
 - Registered F16 devices
-- Workers that still need terminal user IDs
+- Worker terminal ID cards that can be tapped to add, edit, or clear IDs
 - Device setup instructions
 - App setup instructions
 - Attendance sorting explanation
@@ -83,20 +218,58 @@ Use the terminal menu on the Hippoint F16.
 1. Connect the F16 to Ethernet/LAN.
 2. Confirm the terminal has internet access.
 3. Set the terminal date and time correctly.
-4. Open `Comm -> Cloud Server Setting`.
-5. Set the server host to:
+4. Open `DevSet -> Set COMM -> Network`.
+5. In `Ethernet`, configure the LAN values and keep `Port No` as:
+
+```text
+5005
+```
+
+6. In `Network`, set:
+
+```text
+Server Req: Yes
+```
+
+7. Open `Server Set`.
+8. The stored `Server Name` on this unit is `www.fkweb.com`. Leave it as-is if
+the terminal does not allow editing it.
+9. Enter the public IP of the ADMS relay/server in `Server IP` and set
+`SerPortNo` to:
+
+```text
+7005
+```
+
+The relay should forward `/iclock/cdata` and `/iclock/getrequest` requests to
+the Firebase function.
+
+10. If the firmware supports DNS/hostnames, direct Firebase testing can use this
+server host:
 
 ```text
 us-central1-manage-care-1e96b.cloudfunctions.net
 ```
 
-6. Set the port to:
+and this port:
 
 ```text
 443
 ```
 
-7. Set the path/function to one of these values depending on firmware:
+The photos show the default FKWeb relay host and port instead:
+
+```text
+DNS: Yes
+Server Name: www.fkweb.com
+SerPortNo: 7005
+```
+
+Those default FKWeb settings will not post directly to the Firebase function
+unless FKWeb is configured to forward to this app.
+
+11. Set the path/function to one of these values if the firmware exposes a path
+field:
 
 ```text
 iclock
@@ -108,14 +281,73 @@ or:
 /iclock
 ```
 
-8. Enable ADMS/cloud push mode if the device has a switch for it.
-9. Save the settings.
-10. Restart or reconnect the terminal if it does not sync immediately.
-11. Enroll each worker with face/fingerprint.
-12. Record the terminal user ID assigned to each worker.
+12. Enable ADMS/cloud push mode if the device has a switch for it.
+13. Save the settings.
+14. Restart or reconnect the terminal if it does not sync immediately.
+15. Enroll each worker with face/fingerprint.
+16. Record the terminal user ID assigned to each worker.
 
 The terminal user ID is the most important mapping value. The backend uses it
 to decide which app worker owns each punch.
+
+## Manual Quick Reference
+
+Keypad:
+
+- `MENU`: open device menu.
+- `OK`: confirm.
+- `ESC`: exit or cancel.
+- Up/down keys: move between menu options.
+- `0`: change input method while editing text or numbers.
+
+Add a user:
+
+```text
+MENU -> User -> Enroll
+```
+
+Enter the device user `ID` and `Name`, then register face, finger, card, or
+password. The `ID` is the value to save in the app worker terminal ID field.
+
+Browse or modify a user:
+
+```text
+MENU -> User -> Browse
+```
+
+Select a user to modify ID, name, card, password, position, privilege, face, or
+finger records. Use this when you need to confirm the terminal ID before saving
+it in the app.
+
+Privileges:
+
+- `User`: normal attendance user.
+- `Admin`: can enter menus and operate the device.
+
+Use `Admin` only for managers or trusted operators. If no admin is set, anyone
+can enter the menu.
+
+USB/download:
+
+- `Report.xls`: attendance report in Excel format.
+- `Log.txt`: attendance record in text format.
+- The manual recommends FAT32 USB drives under 32GB from common brands.
+
+Network:
+
+- `Server Req`: set to `Yes`.
+- Ethernet `Port No`: `5005`.
+- ADMS `SerPortNo`: `7005`.
+- Keep the date, time, and timezone correct before testing punches.
+
+WiFi:
+
+```text
+Network -> WIFI Setting -> Enable -> Search
+```
+
+Choose the WiFi network and enter the password. Use DHCP unless your local
+network requires a static IP.
 
 ## App Device Setup
 
@@ -128,8 +360,11 @@ Attendance -> Device Setup -> Add F16 Device
 Enter:
 
 - Device name: example `Hippoint F16 Main Gate`
-- LAN IP address: the local IP shown on the device
-- TCP port: usually `4370`
+- LAN IP address: the local IP shown on the device, optional for ADMS push
+- Ethernet Port No: `5005`, matching the photographed Ethernet screen
+- Stored Server Name: `www.fkweb.com`
+- Server IP: the public IP of your ADMS relay/server
+- SerPortNo: `7005`, matching the photographed server port
 - Serial number: the exact serial printed on the device or box
 
 The serial number must match the value sent by the device as `SN`.
@@ -145,7 +380,15 @@ Important fields:
 ```text
 serialNumber: "2510200453"
 model: "F16"
-port: 4370
+protocol: "zkteco_adms"
+syncMode: "adms_push"
+ethernetPort: 5005
+serverIp: "203.0.113.10"
+serverName: "www.fkweb.com"
+serverPort: 7005
+firebaseAdmsHost: "us-central1-manage-care-1e96b.cloudfunctions.net"
+firebaseAdmsPort: 443
+firebaseAdmsPath: "iclock"
 isActive: true
 ```
 
@@ -156,14 +399,12 @@ Each worker must have a terminal user ID matching the ID enrolled on the F16.
 Open:
 
 ```text
-Workers -> Edit Permissions
+Attendance -> Device Setup -> Worker terminal IDs
 ```
 
-Set:
-
-```text
-Attendance terminal user ID
-```
+Tap the worker card, enter the device `ID`, and save. The app stores the same
+value in `terminalUserId`, `deviceUserId`, and `attendanceDeviceUserId` so older
+records and backend matching paths stay compatible.
 
 The backend checks these worker fields:
 
@@ -330,7 +571,12 @@ Register a device in Firestore first:
 businesses/{businessId}/attendance_devices/{deviceId}
 serialNumber: "2510200453"
 name: "Hippoint F16"
-port: 4370
+protocol: "zkteco_adms"
+syncMode: "adms_push"
+ethernetPort: 5005
+serverIp: "203.0.113.10"
+serverName: "www.fkweb.com"
+serverPort: 7005
 isActive: true
 ```
 
@@ -370,7 +616,10 @@ Add the F16 in `Attendance -> Device Setup`. Use the exact serial number.
 
 No punches today:
 
-Check LAN internet, cloud server host, port `443`, ADMS path, and terminal time.
+Check LAN internet, `Server Req=Yes`, Server IP, ADMS server port, ADMS path,
+and terminal time. For this IP-only firmware, the Server IP must be an ADMS
+relay/proxy that forwards to the Firebase `iclock` function. The photographed
+`www.fkweb.com:7005` setting only works if that relay is forwarding to this app.
 
 Unmatched punches:
 

@@ -629,6 +629,7 @@ class _PumpOperatorDashboard extends StatelessWidget {
     final businessType =
         context.watch<BusinessProvider>().currentBusiness?.businessType.toLowerCase() ??
             'gas';
+    final isOwner = context.watch<AuthProvider>().currentUser?.isOwner == true;
     final isPetroleumStation = businessType.contains('petroleum') ||
         businessType.contains('petrol') ||
         businessType.contains('filling');
@@ -696,6 +697,7 @@ class _StationSalesRepDashboard extends StatelessWidget {
     final businessType =
         context.watch<BusinessProvider>().currentBusiness?.businessType.toLowerCase() ??
             'gas';
+    final isOwner = context.watch<AuthProvider>().currentUser?.isOwner == true;
     final isPetroleumStation = businessType.contains('petroleum') ||
         businessType.contains('petrol') ||
         businessType.contains('filling');
@@ -737,6 +739,13 @@ class _StationSalesRepDashboard extends StatelessWidget {
             ),
           ],
         ),
+        floatingActionButton: isOwner
+            ? FloatingActionButton.extended(
+                onPressed: () => Navigator.pushNamed(context, Routes.procurement),
+                icon: const Icon(Icons.shopping_bag_outlined),
+                label: const Text('Procurement'),
+              )
+            : null,
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [

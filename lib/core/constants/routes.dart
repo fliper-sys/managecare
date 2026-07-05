@@ -67,6 +67,7 @@ class Routes {
   static const String settings = '/settings';
   static const String businessSettings = '/settings/business';
   static const String subscription = '/settings/subscription';
+    static const String subscriptionTransactions = '/settings/subscription/transactions';
   static const String printerSettings = '/settings/printer';
   static const String taxSettings = '/settings/tax';
   static const String profile = '/settings/profile';

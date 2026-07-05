@@ -45,6 +45,7 @@ class AuthProvider with ChangeNotifier {
   UserModel? _currentUser;
   String? _errorMessage;
   bool _subscriptionValidated = false;
+  bool _isInitializingLocalStorage = true;
 
   AuthStatus get status => _status;
   UserModel? get currentUser => _currentUser;
@@ -86,18 +87,50 @@ class AuthProvider with ChangeNotifier {
     _initializeLocalStorage();
 
     // Listen to auth state changes
-    _authService.authStateChanges.listen((User? firebaseUser) {
+    _authService.authStateChanges.listen((User? firebaseUser) async {
       if (firebaseUser != null) {
         _loadCurrentUser(
           firebaseUser.uid,
           allowSelfRecovery: _status == AuthStatus.loading,
         );
       } else {
+        if (_isInitializingLocalStorage) {
+          return;
+        }
+
+        if (_currentUser != null) {
+          final hasNetwork = await _hasNetworkConnection();
+          if (!hasNetwork) {
+            _subscriptionValidated = true;
+            _status = AuthStatus.authenticated;
+            _errorMessage = null;
+            notifyListeners();
+            return;
+          }
+        }
+
         _status = AuthStatus.unauthenticated;
         _currentUser = null;
         notifyListeners();
       }
     });
+  }
+
+  Future<void> _restoreCachedUserForOfflineStartup(UserModel cachedUser) async {
+    print(
+        '[AuthProvider] Offline auto-login: restoring cached user ${cachedUser.email}');
+    _currentUser = cachedUser;
+    _status = AuthStatus.authenticated;
+    _errorMessage = null;
+    _subscriptionValidated = true;
+
+    try {
+      await _cacheBusinessForUser(_resolveCurrentBusinessId(cachedUser));
+    } catch (e) {
+      print('[AuthProvider] Error restoring cached business for offline user: $e');
+    }
+
+    notifyListeners();
   }
 
   /// Initialize local storage and attempt auto-login
@@ -116,15 +149,19 @@ class AuthProvider with ChangeNotifier {
         final cachedUser = _localStorage!.getCachedUser();
         if (cachedUser != null) {
           final firebaseUser = FirebaseAuth.instance.currentUser;
+          final hasNetwork = await _hasNetworkConnection();
           if (firebaseUser == null) {
-            print(
-              '[AuthProvider] Auto-login skipped for cached user ${cachedUser.email} because there is no active Firebase session.',
-            );
-            await _localStorage!.clearUser();
-            _status = AuthStatus.unauthenticated;
-            _currentUser = null;
-            _errorMessage = null;
-            notifyListeners();
+            if (!hasNetwork) {
+              await _restoreCachedUserForOfflineStartup(cachedUser);
+            } else {
+              print(
+                '[AuthProvider] Auto-login skipped for cached user ${cachedUser.email} because there is no active Firebase session.',
+              );
+              _status = AuthStatus.unauthenticated;
+              _currentUser = null;
+              _errorMessage = null;
+              notifyListeners();
+            }
             return;
           }
 
@@ -134,7 +171,6 @@ class AuthProvider with ChangeNotifier {
           _status = AuthStatus.authenticated;
           _errorMessage = null;
 
-          final hasNetwork = await _hasNetworkConnection();
           if (!hasNetwork) {
             _subscriptionValidated = true;
             notifyListeners();
@@ -263,6 +299,14 @@ class AuthProvider with ChangeNotifier {
     } catch (e) {
       print('[AuthProvider] Error initializing local storage: $e');
       _status = AuthStatus.unauthenticated;
+    } finally {
+      _isInitializingLocalStorage = false;
+      if (_currentUser == null &&
+          FirebaseAuth.instance.currentUser == null &&
+          _status == AuthStatus.initial) {
+        _status = AuthStatus.unauthenticated;
+        notifyListeners();
+      }
     }
   }
 

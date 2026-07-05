@@ -1530,9 +1530,10 @@ class BusinessProvider with ChangeNotifier {
     _userBusinesses = map.values.toList();
   }
 
-  /// Clear all cached business data on logout
-  Future<void> clearCachedBusinessData() async {
-    if (_localStorage != null) {
+  /// Clear business session state. Local storage is only cleared on explicit
+  /// logout so startup/auth transitions do not erase offline cache.
+  Future<void> clearCachedBusinessData({bool clearLocalStorage = true}) async {
+    if (clearLocalStorage && _localStorage != null) {
       await _localStorage!.clearAllBusinessData();
       print('[BusinessProvider] Cleared all cached business data');
     }

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
+import '../utils/pump_config_cache.dart';
 
 class PumpConfigurationScreen extends StatefulWidget {
   const PumpConfigurationScreen({super.key});
@@ -14,6 +15,10 @@ class PumpConfigurationScreen extends StatefulWidget {
 }
 
 class _PumpConfigurationScreenState extends State<PumpConfigurationScreen> {
+  List<Map<String, dynamic>> _cachedPumps = [];
+  bool _cacheLoaded = false;
+  bool _isRefreshing = false;
+
   bool _isFuelProduct(Product product) {
     final category = product.category.toLowerCase();
     return category.contains('fuel') ||
@@ -40,12 +45,23 @@ class _PumpConfigurationScreenState extends State<PumpConfigurationScreen> {
       final businessId = context.read<BusinessProvider>().currentBusiness?.id;
       if (businessId == null || businessId.isEmpty) return;
       final retail = context.read<RetailProvider>();
+      final cachedPumps = await PumpConfigCache.load(businessId);
+      if (mounted) {
+        setState(() {
+          _cachedPumps = cachedPumps;
+          _cacheLoaded = true;
+        });
+      }
       await retail.initialize(businessId);
     });
   }
 
-  Future<void> _showPumpDialog({DocumentSnapshot<Map<String, dynamic>>? doc}) async {
-    final data = doc?.data() ?? {};
+  Future<void> _showPumpDialog({
+    DocumentSnapshot<Map<String, dynamic>>? doc,
+    Map<String, dynamic>? cachedPump,
+  }) async {
+    final data = doc?.data() ?? cachedPump ?? {};
+    final pumpId = doc?.id ?? cachedPump?['id']?.toString();
     final pumpNumberController =
         TextEditingController(text: data['pumpNumber']?.toString() ?? '');
     final modelController =
@@ -151,7 +167,8 @@ class _PumpConfigurationScreenState extends State<PumpConfigurationScreen> {
 
     if (!confirmed) return;
     final pumps = _pumpCollection();
-    if (pumps == null) return;
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (pumps == null || businessId == null || businessId.isEmpty) return;
     final retail = context.read<RetailProvider>();
     final product = retail.products.firstWhere(
       (item) => item.id == selectedProductId,
@@ -177,22 +194,170 @@ class _PumpConfigurationScreenState extends State<PumpConfigurationScreen> {
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
-    if (doc == null) {
-      await pumps.add({
+    if (pumpId == null || pumpId.isEmpty) {
+      final docRef = pumps.doc();
+      final pumpData = {
         ...payload,
         'createdAt': FieldValue.serverTimestamp(),
         'isActive': true,
-      });
+      };
+      await PumpConfigCache.upsert(businessId, docRef.id, pumpData);
+      if (mounted) {
+        setState(() {
+          _cachedPumps = PumpConfigCache.sort([
+            ..._cachedPumps.where((pump) => pump['id'] != docRef.id),
+            {
+              ...pumpData,
+              'id': docRef.id,
+            },
+          ]);
+        });
+      }
+      await docRef.set(pumpData);
     } else {
-      await pumps.doc(doc.id).set(payload, SetOptions(merge: true));
+      final pumpData = {
+        ...data,
+        ...payload,
+        'id': pumpId,
+        'isActive': data['isActive'] ?? true,
+      };
+      await PumpConfigCache.upsert(businessId, pumpId, pumpData);
+      if (mounted) {
+        setState(() {
+          _cachedPumps = PumpConfigCache.sort([
+            ..._cachedPumps.where((pump) => pump['id'] != pumpId),
+            pumpData,
+          ]);
+        });
+      }
+      await pumps.doc(pumpId).set(payload, SetOptions(merge: true));
+    }
+  }
+
+  void _syncCacheFromSnapshot(
+    String businessId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final remotePumps = PumpConfigCache.sort(
+      docs.map(PumpConfigCache.fromDoc).toList(),
+    );
+    if (remotePumps.isEmpty || PumpConfigCache.same(remotePumps, _cachedPumps)) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await PumpConfigCache.save(businessId, remotePumps);
+      if (!mounted) return;
+      setState(() {
+        _cachedPumps = remotePumps;
+        _cacheLoaded = true;
+      });
+    });
+  }
+
+  Future<void> _deletePump(Map<String, dynamic> data) async {
+    final pumpId = data['id']?.toString();
+    if (pumpId == null || pumpId.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Delete pump'),
+            content: Text('Delete pump ${data['pumpNumber'] ?? ''}?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+
+    final pumps = _pumpCollection();
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (pumps == null || businessId == null || businessId.isEmpty) return;
+
+    try {
+      await pumps.doc(pumpId).set({'isActive': false}, SetOptions(merge: true));
+      await PumpConfigCache.remove(businessId, pumpId);
+      if (!mounted) return;
+      setState(() {
+        _cachedPumps = PumpConfigCache.sort(
+          _cachedPumps.where((pump) => pump['id'] != pumpId).toList(),
+        );
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pump deleted')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to delete pump: $error')),
+      );
+    }
+  }
+
+  Future<void> _refreshPumps() async {
+    final pumps = _pumpCollection();
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (pumps == null || businessId == null || businessId.isEmpty) return;
+
+    setState(() => _isRefreshing = true);
+    try {
+      await context.read<RetailProvider>().loadProducts(forceRefresh: true);
+      final snapshot =
+          await pumps.where('isActive', isEqualTo: true).get();
+      final activePumps = PumpConfigCache.sort(
+        snapshot.docs.map(PumpConfigCache.fromDoc).toList(),
+      );
+      await PumpConfigCache.save(businessId, activePumps);
+      if (!mounted) return;
+      setState(() {
+        _cachedPumps = activePumps;
+        _cacheLoaded = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pumps refreshed')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to refresh pumps: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final pumps = _pumpCollection();
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     return Scaffold(
-      appBar: AppBar(title: const Text('Pump Configuration')),
+      appBar: AppBar(
+        title: const Text('Pump Configuration'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh pumps',
+            onPressed: _isRefreshing ? null : _refreshPumps,
+            icon: _isRefreshing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showPumpDialog(),
         icon: const Icon(Icons.add),
@@ -203,26 +368,40 @@ class _PumpConfigurationScreenState extends State<PumpConfigurationScreen> {
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: pumps
                   .where('isActive', isEqualTo: true)
-                  .orderBy('pumpNumber')
                   .snapshots(includeMetadataChanges: true),
               builder: (context, snapshot) {
                 final docs = snapshot.data?.docs ?? [];
+                if (businessId != null && businessId.isNotEmpty) {
+                  _syncCacheFromSnapshot(businessId, docs);
+                }
+                final remotePumps = PumpConfigCache.sort(
+                  docs.map(PumpConfigCache.fromDoc).toList(),
+                );
+                final displayPumps =
+                    remotePumps.isNotEmpty ? remotePumps : _cachedPumps;
                 if (snapshot.connectionState == ConnectionState.waiting &&
-                    docs.isEmpty) {
+                    displayPumps.isEmpty &&
+                    !_cacheLoaded) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                if (docs.isEmpty) {
+                if (displayPumps.isEmpty) {
                   return const Center(
                     child: Text('No pumps configured yet'),
                   );
                 }
                 return ListView.separated(
                   padding: const EdgeInsets.all(16),
-                  itemCount: docs.length,
+                  itemCount: displayPumps.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
-                    final doc = docs[index];
-                    final data = doc.data();
+                    final data = displayPumps[index];
+                    DocumentSnapshot<Map<String, dynamic>>? doc;
+                    for (final item in docs) {
+                      if (item.id == data['id']) {
+                        doc = item;
+                        break;
+                      }
+                    }
                     return Card(
                       child: ListTile(
                         leading: const CircleAvatar(
@@ -234,10 +413,23 @@ class _PumpConfigurationScreenState extends State<PumpConfigurationScreen> {
                           ' • ${data['manufacturer'] ?? ''}'
                           ' ${data['model'] ?? ''}',
                         ),
-                        trailing: IconButton(
-                          tooltip: 'Edit pump',
-                          icon: const Icon(Icons.edit_outlined),
-                          onPressed: () => _showPumpDialog(doc: doc),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Edit pump',
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: () => _showPumpDialog(
+                                doc: doc,
+                                cachedPump: data,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Delete pump',
+                              icon: const Icon(Icons.delete_outline),
+                              onPressed: () => _deletePump(data),
+                            ),
+                          ],
                         ),
                       ),
                     );

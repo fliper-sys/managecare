@@ -354,23 +354,23 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               ],
             ),
           ),
-          SizedBox(height: isCompact ? 4 : 2),
-          AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 200),
-            style: AppTextStyles.caption.copyWith(
-              color: isSelected
-                  ? (isCompact ? activeColor : Colors.transparent)
-                  : inactiveColor,
-              fontWeight: FontWeight.w600,
-              fontSize: isCompact ? 10 : 10.5,
+          if (!showInlineLabel) ...[
+            SizedBox(height: isCompact ? 4 : 2),
+            AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 200),
+              style: AppTextStyles.caption.copyWith(
+                color: isSelected ? activeColor : inactiveColor,
+                fontWeight: FontWeight.w600,
+                fontSize: isCompact ? 10 : 10.5,
+              ),
+              child: Text(
+                item.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                softWrap: false,
+              ),
             ),
-            child: Text(
-              item.label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              softWrap: false,
-            ),
-          ),
+          ],
         ],
       ),
     );
@@ -2563,7 +2563,7 @@ class _HomeTabState extends State<_HomeTab> {
         crossAxisCount: 3,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
-        childAspectRatio: 1.08,
+        mainAxisExtent: 134,
       ),
       itemCount: list.length,
       itemBuilder: (context, index) {
@@ -2612,7 +2612,7 @@ class _HomeTabState extends State<_HomeTab> {
             borderRadius: BorderRadius.circular(18),
             splashColor: item.color.withOpacity(isDark ? 0.2 : 0.1),
             child: Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -2629,31 +2629,38 @@ class _HomeTabState extends State<_HomeTab> {
                       size: 22,
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  Text(
-                    item.title,
-                    textAlign: TextAlign.left,
-                    style: AppTextStyles.subtitle2.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 13,
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.title,
+                          textAlign: TextAlign.left,
+                          style: AppTextStyles.subtitle2.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontSize: 13,
+                            height: 1.15,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          item.subtitle,
+                          textAlign: TextAlign.left,
+                          style: AppTextStyles.caption.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            fontSize: 10.5,
+                            height: 1.15,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    item.subtitle,
-                    textAlign: TextAlign.left,
-                    style: AppTextStyles.caption.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontSize: 10.5,
-                      height: 1.2,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const Spacer(),
                   Align(
                     alignment: Alignment.bottomRight,
                     child: Icon(

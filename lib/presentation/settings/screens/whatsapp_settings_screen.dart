@@ -16,6 +16,9 @@ class WhatsAppSettingsScreen extends StatefulWidget {
 }
 
 class _WhatsAppSettingsScreenState extends State<WhatsAppSettingsScreen> {
+  static const Color _whatsappGreen = Color(0xFF25D366);
+  static const Color _whatsappDark = Color(0xFF075E54);
+
   final _phoneNumberIdCtrl = TextEditingController();
   final _accessTokenCtrl = TextEditingController();
   final _ownerNumberCtrl = TextEditingController();
@@ -160,88 +163,171 @@ class _WhatsAppSettingsScreenState extends State<WhatsAppSettingsScreen> {
             }
 
             // allowed
+            final scheme = Theme.of(context).colorScheme;
             return Scaffold(
-              appBar: AppBar(title: const Text('WhatsApp Settings')),
-              body: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 8),
-                    const Text('WhatsApp Phone Number ID',
-                        style: AppTextStyles.body2),
-                    const SizedBox(height: 6),
-                    TextField(
-                        controller: _phoneNumberIdCtrl,
-                        decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            hintText: 'WhatsApp Phone Number ID')),
-                    const SizedBox(height: 12),
-                    const Text('WhatsApp Access Token',
-                        style: AppTextStyles.body2),
-                    const SizedBox(height: 6),
-                    TextField(
-                        controller: _accessTokenCtrl,
-                        decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            hintText: 'Access Token')),
-                    const SizedBox(height: 12),
-                    const Text('Owner WhatsApp Number',
-                        style: AppTextStyles.body2),
-                    const SizedBox(height: 6),
-                    TextField(
-                        controller: _ownerNumberCtrl,
-                        decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            hintText: '+2348012345678')),
-                    const SizedBox(height: 20),
-                    Row(
+              appBar: AppBar(
+                title: const Text('WhatsApp Settings'),
+                backgroundColor: _whatsappDark,
+                foregroundColor: Colors.white,
+              ),
+              body: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: Color.alphaBlend(
+                        _whatsappGreen.withOpacity(
+                          Theme.of(context).brightness == Brightness.dark
+                              ? 0.18
+                              : 0.12,
+                        ),
+                        scheme.surface,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: _whatsappGreen.withOpacity(0.35),
+                      ),
+                    ),
+                    child: Row(
                       children: [
+                        Container(
+                          height: 48,
+                          width: 48,
+                          decoration: BoxDecoration(
+                            color: _whatsappGreen,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.chat_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
                         Expanded(
-                          child: ElevatedButton(
-                            onPressed: _saving ? null : _save,
-                            child: _saving
-                                ? const SizedBox(
-                                    height: 18,
-                                    width: 18,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2, color: Colors.white))
-                                : const Text('Save'),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'WhatsApp Business',
+                                style: AppTextStyles.heading4.copyWith(
+                                  color: scheme.onSurface,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Connect Meta WhatsApp Cloud API credentials and owner recipients for automated business messages.',
+                                style: AppTextStyles.caption.copyWith(
+                                  color: scheme.onSurface.withOpacity(0.72),
+                                  height: 1.4,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pushNamed(
-                                context, Routes.notificationLogs),
-                            child: const Text('View Notification Logs'),
+                  ),
+                  const SizedBox(height: 14),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Cloud API credentials',
+                            style: AppTextStyles.heading5.copyWith(
+                              color: scheme.onSurface,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 12),
+                          _settingsField(
+                            controller: _phoneNumberIdCtrl,
+                            label: 'Phone Number ID',
+                            hint: 'WhatsApp Phone Number ID',
+                            icon: Icons.numbers_rounded,
+                          ),
+                          const SizedBox(height: 12),
+                          _settingsField(
+                            controller: _accessTokenCtrl,
+                            label: 'Access Token',
+                            hint: 'Meta access token',
+                            icon: Icons.key_rounded,
+                          ),
+                          const SizedBox(height: 12),
+                          _settingsField(
+                            controller: _ownerNumberCtrl,
+                            label: 'Owner WhatsApp Number(s)',
+                            hint: '+2348012345678, +2348098765432',
+                            icon: Icons.phone_rounded,
+                            maxLines: 2,
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pushNamed(
-                                context, Routes.thermalReceiptSettings),
-                            child: const Text('Configure Thermal Receipt'),
-                          ),
-                        ),
-                      ],
-                    )
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 14),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _whatsappGreen,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: _saving ? null : _save,
+                    icon: _saving
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.save_rounded),
+                    label: Text(_saving ? 'Saving...' : 'Save WhatsApp Settings'),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        Navigator.pushNamed(context, Routes.notificationLogs),
+                    icon: const Icon(Icons.receipt_long_rounded),
+                    label: const Text('View Notification Logs'),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.pushNamed(
+                        context, Routes.thermalReceiptSettings),
+                    icon: const Icon(Icons.print_rounded),
+                    label: const Text('Configure Thermal Receipt'),
+                  ),
+                ],
               ),
             );
           },
         );
       },
+    );
+  }
+
+  Widget _settingsField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    int maxLines = 1,
+  }) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon),
+        border: const OutlineInputBorder(),
+      ),
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:business_manager/core/utils/datetime_utils.dart';
 import 'package:business_manager/core/utils/formatters.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 
 import 'notification_and_email_service.dart';
 import '../core/config.dart';
@@ -106,6 +107,341 @@ class WhatsAppService {
     }
 
     return 0.0;
+  }
+
+  bool _isFuelStationBusiness(Map<String, dynamic> businessData) {
+    final businessType = (businessData['businessType'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
+    return businessType.contains('petroleum') ||
+        businessType.contains('petrol') ||
+        businessType.contains('gas station') ||
+        businessType.contains('fuel station') ||
+        businessType.contains('gas');
+  }
+
+  Future<String> _buildPetrolDailyTransactionsMessage({
+    required String businessId,
+    required String businessName,
+    required DateTime date,
+  }) async {
+    final start = DateTime(date.year, date.month, date.day);
+    final end = DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
+
+    final pumpConfigSnapshot = await _firestore
+        .collection('businesses')
+        .doc(businessId)
+        .collection('pump_configurations')
+        .where('isActive', isEqualTo: true)
+        .get();
+
+    final pumpUploadsSnapshot = await _firestore
+        .collection('businesses')
+        .doc(businessId)
+        .collection('pump_daily_uploads')
+        .where('uploadedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('uploadedAt', isLessThanOrEqualTo: Timestamp.fromDate(end))
+        .orderBy('uploadedAt', descending: true)
+        .get();
+
+    final salesSnapshot = await _firestore
+        .collection('businesses')
+        .doc(businessId)
+        .collection('sales')
+        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(end))
+        .orderBy('createdAt', descending: true)
+        .get();
+
+    final pumpEntries = <Map<String, dynamic>>[];
+    for (final doc in pumpConfigSnapshot.docs) {
+      final data = doc.data();
+      pumpEntries.add({
+        'id': doc.id,
+        'pumpNumber': data['pumpNumber']?.toString() ?? '',
+        'productName': data['productName']?.toString() ?? 'Fuel',
+      });
+    }
+
+    final uploadsByPumpKey = <String, List<Map<String, dynamic>>>{};
+    for (final doc in pumpUploadsSnapshot.docs) {
+      final data = doc.data();
+      final pumpNumber = data['pumpNumber']?.toString() ?? '';
+      final pumpId = data['pumpId']?.toString() ?? '';
+      final key = pumpId.isNotEmpty
+          ? pumpId
+          : (pumpNumber.isNotEmpty ? 'number:$pumpNumber' : 'unknown');
+      uploadsByPumpKey.putIfAbsent(key, () => []).add(data);
+    }
+
+    final fuelSalesByPumpKey = <String, List<Map<String, dynamic>>>{};
+    for (final doc in salesSnapshot.docs) {
+      final data = doc.data();
+      final category = (data['category'] ?? '').toString().toLowerCase();
+      final pumpNumber = data['pumpNumber']?.toString() ?? '';
+      final pumpId = data['pumpId']?.toString() ?? '';
+      if (category != 'fuel' && category != 'petrol' && category != 'gas') {
+        continue;
+      }
+      final key = pumpId.isNotEmpty
+          ? pumpId
+          : (pumpNumber.isNotEmpty ? 'number:$pumpNumber' : 'unknown');
+      fuelSalesByPumpKey.putIfAbsent(key, () => []).add(data);
+    }
+
+    final sortedPumpEntries = List<Map<String, dynamic>>.from(pumpEntries)
+      ..sort((a, b) {
+        final aNumber = double.tryParse(a['pumpNumber']?.toString() ?? '');
+        final bNumber = double.tryParse(b['pumpNumber']?.toString() ?? '');
+        if (aNumber != null && bNumber != null) {
+          return aNumber.compareTo(bNumber);
+        }
+        return (a['pumpNumber']?.toString() ?? '')
+            .compareTo(b['pumpNumber']?.toString() ?? '');
+      });
+
+    final buffer = StringBuffer();
+    buffer.writeln('Daily transactions for "$businessName"');
+    buffer.writeln('Date: ${DateFormat.yMMMMd().format(date)}');
+    buffer.writeln('');
+    buffer.writeln('PUMP UPLOADS');
+
+    if (sortedPumpEntries.isEmpty && uploadsByPumpKey.isEmpty) {
+      buffer.writeln('- No pump configurations or uploads found for today.');
+    } else {
+      final seenPumpKeys = <String>{};
+      for (final pump in sortedPumpEntries) {
+        final pumpNumber = pump['pumpNumber']?.toString() ?? '';
+        final pumpLabel = pumpNumber.isNotEmpty
+            ? 'Pump $pumpNumber'
+            : 'Pump ${pump['id']?.toString() ?? ''}';
+        final pumpKey = pump['id']?.toString().isNotEmpty == true
+            ? pump['id'].toString()
+            : (pumpNumber.isNotEmpty ? 'number:$pumpNumber' : 'unknown');
+        seenPumpKeys.add(pumpKey);
+
+        final uploads = uploadsByPumpKey[pumpKey] ?? const <Map<String, dynamic>>[];
+        if (uploads.isEmpty) {
+          buffer.writeln('- $pumpLabel: no upload recorded');
+          continue;
+        }
+
+        final totalVolume = uploads.fold<double>(0.0, (sum, upload) {
+          final value = _readDouble(upload['soldVolume']);
+          return sum + value;
+        });
+        final totalAmount = uploads.fold<double>(0.0, (sum, upload) {
+          final value = _readDouble(upload['expectedAmount']);
+          return sum + value;
+        });
+
+        buffer.writeln(
+          '- $pumpLabel: ${totalVolume.toStringAsFixed(3)}L • ${formatCurrency(totalAmount)}',
+        );
+
+        final workerSummaries = <String, Map<String, dynamic>>{};
+        for (final upload in uploads) {
+          final workerName = (upload['workerName'] ?? upload['workerId'] ?? 'Unknown')
+              .toString();
+          final existing = workerSummaries[workerName] ?? {
+            'volume': 0.0,
+            'amount': 0.0,
+          };
+          existing['volume'] = _readDouble(existing['volume']) + _readDouble(upload['soldVolume']);
+          existing['amount'] = _readDouble(existing['amount']) + _readDouble(upload['expectedAmount']);
+          workerSummaries[workerName] = existing;
+        }
+
+        for (final entry in workerSummaries.entries.toList()) {
+          final workerName = entry.key;
+          final summary = entry.value;
+          final volume = _readDouble(summary['volume']);
+          final amount = _readDouble(summary['amount']);
+          buffer.writeln(
+            '  • $workerName: ${volume.toStringAsFixed(3)}L • ${formatCurrency(amount)}',
+          );
+        }
+      }
+
+      final uploadOnlyPumps = uploadsByPumpKey.entries.where((entry) {
+        final key = entry.key;
+        return !seenPumpKeys.contains(key);
+      }).toList();
+      for (final entry in uploadOnlyPumps) {
+        final pumpNumber = entry.key.startsWith('number:')
+            ? entry.key.substring('number:'.length)
+            : entry.key;
+        final uploads = entry.value;
+        final totalVolume = uploads.fold<double>(0.0, (sum, upload) {
+          return sum + _readDouble(upload['soldVolume']);
+        });
+        final totalAmount = uploads.fold<double>(0.0, (sum, upload) {
+          return sum + _readDouble(upload['expectedAmount']);
+        });
+        buffer.writeln('- Pump $pumpNumber: ${totalVolume.toStringAsFixed(3)}L • ${formatCurrency(totalAmount)}');
+        final workerSummaries = <String, Map<String, dynamic>>{};
+        for (final upload in uploads) {
+          final workerName = (upload['workerName'] ?? upload['workerId'] ?? 'Unknown')
+              .toString();
+          final existing = workerSummaries[workerName] ?? {
+            'volume': 0.0,
+            'amount': 0.0,
+          };
+          existing['volume'] = _readDouble(existing['volume']) + _readDouble(upload['soldVolume']);
+          existing['amount'] = _readDouble(existing['amount']) + _readDouble(upload['expectedAmount']);
+          workerSummaries[workerName] = existing;
+        }
+        for (final entry in workerSummaries.entries.toList()) {
+          final workerName = entry.key;
+          final summary = entry.value;
+          buffer.writeln(
+            '  • $workerName: ${_readDouble(summary['volume']).toStringAsFixed(3)}L • ${formatCurrency(_readDouble(summary['amount']))}',
+          );
+        }
+      }
+    }
+
+    buffer.writeln('');
+    buffer.writeln('PUMP SALES');
+
+    if (sortedPumpEntries.isEmpty && fuelSalesByPumpKey.isEmpty) {
+      buffer.writeln('- No pump sales recorded for today.');
+    } else {
+      final seenPumpKeys = <String>{};
+      for (final pump in sortedPumpEntries) {
+        final pumpNumber = pump['pumpNumber']?.toString() ?? '';
+        final pumpLabel = pumpNumber.isNotEmpty
+            ? 'Pump $pumpNumber'
+            : 'Pump ${pump['id']?.toString() ?? ''}';
+        final pumpKey = pump['id']?.toString().isNotEmpty == true
+            ? pump['id'].toString()
+            : (pumpNumber.isNotEmpty ? 'number:$pumpNumber' : 'unknown');
+        seenPumpKeys.add(pumpKey);
+
+        final sales = fuelSalesByPumpKey[pumpKey] ?? const <Map<String, dynamic>>[];
+        if (sales.isEmpty) {
+          buffer.writeln('- $pumpLabel: no pump sales recorded');
+          continue;
+        }
+
+        final totalAmount = sales.fold<double>(0.0, (sum, sale) {
+          return sum + _readDouble(sale['totalAmount']) > 0
+              ? _readDouble(sale['totalAmount'])
+              : _readDouble(sale['finalAmount']) > 0
+                  ? _readDouble(sale['finalAmount'])
+                  : _readDouble(sale['total']);
+        });
+        buffer.writeln('- $pumpLabel: ${formatCurrency(totalAmount)}');
+
+        final workerSummaries = <String, Map<String, dynamic>>{};
+        for (final sale in sales) {
+          final workerName = (sale['workerName'] ?? sale['workerId'] ?? 'Unknown').toString();
+          final existing = workerSummaries[workerName] ?? {'amount': 0.0};
+          existing['amount'] = _readDouble(existing['amount']) + (_readDouble(sale['totalAmount']) > 0
+              ? _readDouble(sale['totalAmount'])
+              : _readDouble(sale['finalAmount']) > 0
+                  ? _readDouble(sale['finalAmount'])
+                  : _readDouble(sale['total']));
+          workerSummaries[workerName] = existing;
+        }
+
+        for (final entry in workerSummaries.entries.toList()) {
+          final workerName = entry.key;
+          final amount = _readDouble(entry.value['amount']);
+          buffer.writeln('  • $workerName: ${formatCurrency(amount)}');
+        }
+      }
+
+      final salesOnlyPumps = fuelSalesByPumpKey.entries.where((entry) {
+        return !seenPumpKeys.contains(entry.key);
+      }).toList();
+      for (final entry in salesOnlyPumps) {
+        final pumpNumber = entry.key.startsWith('number:')
+            ? entry.key.substring('number:'.length)
+            : entry.key;
+        final sales = entry.value;
+        final totalAmount = sales.fold<double>(0.0, (sum, sale) {
+          return sum + (_readDouble(sale['totalAmount']) > 0
+              ? _readDouble(sale['totalAmount'])
+              : _readDouble(sale['finalAmount']) > 0
+                  ? _readDouble(sale['finalAmount'])
+                  : _readDouble(sale['total']));
+        });
+        buffer.writeln('- Pump $pumpNumber: ${formatCurrency(totalAmount)}');
+        final workerSummaries = <String, Map<String, dynamic>>{};
+        for (final sale in sales) {
+          final workerName = (sale['workerName'] ?? sale['workerId'] ?? 'Unknown').toString();
+          final existing = workerSummaries[workerName] ?? {'amount': 0.0};
+          existing['amount'] = _readDouble(existing['amount']) + (_readDouble(sale['totalAmount']) > 0
+              ? _readDouble(sale['totalAmount'])
+              : _readDouble(sale['finalAmount']) > 0
+                  ? _readDouble(sale['finalAmount'])
+                  : _readDouble(sale['total']));
+          workerSummaries[workerName] = existing;
+        }
+        for (final entry in workerSummaries.entries.toList()) {
+          final workerName = entry.key;
+          final amount = _readDouble(entry.value['amount']);
+          buffer.writeln('  • $workerName: ${formatCurrency(amount)}');
+        }
+      }
+    }
+
+    buffer.writeln('');
+    buffer.writeln('MINI MART SALES');
+
+    final miniMartSales = <Map<String, dynamic>>[];
+    for (final doc in salesSnapshot.docs) {
+      final data = doc.data();
+      final category = (data['category'] ?? '').toString().toLowerCase();
+      if (category == 'fuel' || category == 'petrol' || category == 'gas') {
+        continue;
+      }
+      miniMartSales.add(data);
+    }
+
+    double miniMartTotal = 0.0;
+    for (final sale in miniMartSales) {
+      miniMartTotal += _readDouble(sale['totalAmount']) > 0
+          ? _readDouble(sale['totalAmount'])
+          : _readDouble(sale['finalAmount']) > 0
+              ? _readDouble(sale['finalAmount'])
+              : _readDouble(sale['total']);
+    }
+
+    buffer.writeln('Total sales: ${formatCurrency(miniMartTotal)}');
+    if (miniMartSales.isEmpty) {
+      buffer.writeln('- No mini mart sales recorded today.');
+    } else {
+      for (final sale in miniMartSales.take(10)) {
+        final saleTime = parseTimestamp(sale['createdAt']).toLocal();
+        final saleTotal = _readDouble(sale['totalAmount']) > 0
+            ? _readDouble(sale['totalAmount'])
+            : _readDouble(sale['finalAmount']) > 0
+                ? _readDouble(sale['finalAmount'])
+                : _readDouble(sale['total']);
+        final paymentMethod = (sale['paymentMethod'] ?? 'Cash').toString();
+        final workerName = (sale['workerName'] ?? sale['workerId'] ?? 'Unknown').toString();
+        final items = (sale['items'] as List<dynamic>?) ?? [];
+        final itemSummary = items.isEmpty
+            ? 'No item details'
+            : items.take(3).map((item) {
+                if (item is Map) {
+                  final product = (item['productName'] ?? item['name'] ?? 'Item').toString();
+                  final qty = _readDouble(item['quantity']).toStringAsFixed(0);
+                  return '$product x$qty';
+                }
+                return item.toString();
+              }).join(', ');
+        buffer.writeln(
+          '- ${DateFormat.jm().format(saleTime)} • ${formatCurrency(saleTotal)} • $paymentMethod • $workerName',
+        );
+        buffer.writeln('  Items: $itemSummary');
+      }
+    }
+
+    return buffer.toString();
   }
 
   /// Send a text notification to the business owner for a new order.
@@ -446,7 +782,13 @@ class WhatsAppService {
 
       final businessName = data['name'] ?? 'Your business';
       String message;
-      if (txs.isEmpty) {
+      if (_isFuelStationBusiness(data)) {
+        message = await _buildPetrolDailyTransactionsMessage(
+          businessId: businessId,
+          businessName: businessName,
+          date: DateTime.now(),
+        );
+      } else if (txs.isEmpty) {
         message = 'No recent transactions found for "$businessName".\n'
             'We will email you a detailed report if available.';
       } else {

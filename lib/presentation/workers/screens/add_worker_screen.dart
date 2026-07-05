@@ -24,6 +24,7 @@ import '../../../data/repositories/auth_repository_impl.dart';
 import '../../../data/repositories/worker_repository_impl.dart';
 import '../../../core/utils/worker_permissions.dart';
 import '../../../widgets/loading_indicator.dart';
+import '../../industry_specific/gas/utils/pump_config_cache.dart';
 
 class AddWorkerScreen extends StatefulWidget {
   const AddWorkerScreen({super.key});
@@ -44,6 +45,8 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
   final Set<String> _selectedRoles = {'staff'}; 
   final List<String> _selectedServiceIds = [];
   final Set<String> _selectedPumpIds = {};
+  List<Map<String, dynamic>> _cachedPumps = [];
+  bool _pumpCacheLoaded = false;
   bool _obscurePassword = true;
   bool _isLoading = false;
   bool _sendInvitationEmail = true;
@@ -58,6 +61,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
         final retail = context.read<RetailProvider>();
         if (retail.stores.isEmpty) retail.loadStores();
       } catch (_) {}
+      _loadCachedPumps();
     });
     // Prefill a simple 4-digit PIN to make onboarding quick
     _pinController.text = _generateRandomPin();
@@ -158,6 +162,38 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
       default:
         return WorkerPermissions.getAvailableRoles(businessType);
     }
+  }
+
+  Future<void> _loadCachedPumps() async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return;
+    final cachedPumps = await PumpConfigCache.load(businessId);
+    if (!mounted) return;
+    setState(() {
+      _cachedPumps = cachedPumps;
+      _pumpCacheLoaded = true;
+    });
+  }
+
+  void _syncPumpCacheFromSnapshot(
+    String businessId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final remotePumps = PumpConfigCache.sort(
+      docs.map(PumpConfigCache.fromDoc).toList(),
+    );
+    if (remotePumps.isEmpty || PumpConfigCache.same(remotePumps, _cachedPumps)) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await PumpConfigCache.save(businessId, remotePumps);
+      if (!mounted) return;
+      setState(() {
+        _cachedPumps = remotePumps;
+        _pumpCacheLoaded = true;
+      });
+    });
   }
 
   bool _isFuelStationBusiness(String businessType) {
@@ -1041,15 +1077,30 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                 }
                 final pumps = _pumpCollection();
                 if (pumps == null) return const SizedBox.shrink();
+                final businessId = context
+                        .read<BusinessProvider>()
+                        .currentBusiness
+                        ?.id ??
+                    '';
 
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: pumps
                       .where('isActive', isEqualTo: true)
-                      .orderBy('pumpNumber')
                       .snapshots(includeMetadataChanges: true),
                   builder: (context, snapshot) {
                     final pumpDocs = snapshot.data?.docs ?? [];
-                    if (pumpDocs.isEmpty) {
+                    if (businessId.isNotEmpty) {
+                      _syncPumpCacheFromSnapshot(businessId, pumpDocs);
+                    }
+                    final remotePumps = PumpConfigCache.sort(
+                      pumpDocs.map(PumpConfigCache.fromDoc).toList(),
+                    );
+                    final availablePumps =
+                        remotePumps.isNotEmpty ? remotePumps : _cachedPumps;
+                    if (availablePumps.isEmpty && !_pumpCacheLoaded) {
+                      return const LinearProgressIndicator();
+                    }
+                    if (availablePumps.isEmpty) {
                       return Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
@@ -1093,20 +1144,20 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                           Wrap(
                             spacing: 8,
                             runSpacing: 8,
-                            children: pumpDocs.map((doc) {
-                              final data = doc.data();
-                              final selected = _selectedPumpIds.contains(doc.id);
+                            children: availablePumps.map((pump) {
+                              final pumpId = pump['id']?.toString() ?? '';
+                              final selected = _selectedPumpIds.contains(pumpId);
                               final label =
-                                  'Pump ${data['pumpNumber'] ?? ''} - ${data['productName'] ?? 'Fuel'}';
+                                  'Pump ${pump['pumpNumber'] ?? ''} - ${pump['productName'] ?? 'Fuel'}';
                               return FilterChip(
                                 label: Text(label),
                                 selected: selected,
                                 onSelected: (value) {
                                   setState(() {
                                     if (value) {
-                                      _selectedPumpIds.add(doc.id);
+                                      _selectedPumpIds.add(pumpId);
                                     } else {
-                                      _selectedPumpIds.remove(doc.id);
+                                      _selectedPumpIds.remove(pumpId);
                                     }
                                   });
                                 },

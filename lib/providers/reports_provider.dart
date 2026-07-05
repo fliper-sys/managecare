@@ -189,6 +189,47 @@ class ReportsProvider extends ChangeNotifier {
     return null;
   }
 
+  List<Map<String, dynamic>> _normalizeSaleProducts(dynamic rawItems) {
+    if (rawItems is! List) return const [];
+    return rawItems.map<Map<String, dynamic>>((raw) {
+      final item =
+          raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+      final name = _extractStringValue(
+            item['productName'] ??
+                item['name'] ??
+                item['title'] ??
+                item['product'],
+          ) ??
+          'Unknown Product';
+      final unitPrice = _toDouble(
+            item['unitPrice'] ??
+                item['price'] ??
+                item['unit_price'] ??
+                item['sellingPrice'],
+          ) ??
+          0.0;
+      final quantity = _toDouble(
+            item['quantity'] ??
+                item['qty'] ??
+                item['volume'] ??
+                item['litres'] ??
+                item['liters'] ??
+                item['quantity_sold'] ??
+                item['quantitySold'],
+          ) ??
+          1.0;
+      return {
+        'id': (item['productId'] ?? item['id'] ?? '').toString(),
+        'name': name,
+        'quantity': quantity,
+        'unitPrice': unitPrice,
+        'unit': item['unit'] ?? item['uom'] ?? item['saleUnit'],
+        'total': _toDouble(item['total'] ?? item['lineTotal'] ?? item['amount']) ??
+            (quantity * unitPrice),
+      };
+    }).toList();
+  }
+
   /// Helper to extract error message from wrapped or unwrapped exceptions
   static String extractErrorMessage(dynamic error) {
     try {
@@ -1150,29 +1191,7 @@ class ReportsProvider extends ChangeNotifier {
         final date = _parseDate(data['createdAt'] ?? data['timestamp']);
 
         // Extract items/products and payment information
-        final items = (data['items'] as List?) ?? [];
-        final products = items.map<Map<String, dynamic>>((it) {
-          final name = _extractStringValue(it is Map &&
-                      (it['name'] ?? it['productName'] ?? it['title']) != null
-                  ? (it['name'] ?? it['productName'] ?? it['title'])
-                  : it.toString()) ??
-              'Unknown Item';
-          final unitPrice = (it is Map)
-              ? (it['price'] ??
-                  it['unitPrice'] ??
-                  it['sellingPrice'] ??
-                  it['amount'] ??
-                  0)
-              : 0;
-          return {
-            'id': (it is Map) ? (it['productId'] ?? it['id'] ?? '') : '',
-            'name': name,
-            'quantity': (it is Map) ? (it['quantity'] ?? it['qty'] ?? 1) : 1,
-            'unitPrice': (unitPrice is num)
-                ? unitPrice.toDouble()
-                : double.tryParse(unitPrice.toString()) ?? 0.0,
-          };
-        }).toList();
+        final products = _normalizeSaleProducts(data['items']);
 
         return SaleReport(
           date: date,
@@ -1226,29 +1245,7 @@ class ReportsProvider extends ChangeNotifier {
             final data = doc.data();
             final date = _parseDate(data['createdAt'] ?? data['timestamp']);
 
-            final items = (data['items'] as List?) ?? [];
-            final products = items.map<Map<String, dynamic>>((it) {
-              final name = (it is Map &&
-                      (it['name'] ?? it['productName'] ?? it['title']) != null)
-                  ? (it['name'] ?? it['productName'] ?? it['title'])
-                  : it.toString();
-              final unitPrice = (it is Map)
-                  ? (it['price'] ??
-                      it['unitPrice'] ??
-                      it['sellingPrice'] ??
-                      it['amount'] ??
-                      0)
-                  : 0;
-              return {
-                'id': (it is Map) ? (it['productId'] ?? it['id'] ?? '') : '',
-                'name': name,
-                'quantity':
-                    (it is Map) ? (it['quantity'] ?? it['qty'] ?? 1) : 1,
-                'unitPrice': (unitPrice is num)
-                    ? unitPrice.toDouble()
-                    : double.tryParse(unitPrice.toString()) ?? 0.0,
-              };
-            }).toList();
+            final products = _normalizeSaleProducts(data['items']);
 
             return SaleReport(
               date: date,
@@ -2300,27 +2297,17 @@ class ReportsProvider extends ChangeNotifier {
             // Populate using timestamp results
             _salesReports = tsSnapshot.docs.map((doc) {
               final data = doc.data();
-              final items = data['items'] as List?;
-              List<String> productNames = [];
-              if (items != null) {
-                for (var item in items) {
-                  if (item is Map<String, dynamic>) {
-                    final productName = item['productName'] ??
-                        item['name'] ??
-                        item['product'] ??
-                        'Unknown Product';
-                    productNames.add(productName.toString());
-                  }
-                }
-              }
+              final products = _normalizeSaleProducts(data['items']);
               return SaleReport(
                 date: _parseDate(data['createdAt'] ?? data['timestamp']),
                 totalAmount:
                     ((data['total'] ?? data['totalAmount'] ?? 0) as num)
                         .toDouble(),
-                itemsCount: items?.length ?? 0,
+                itemsCount: products.length,
                 category: data['category'] ?? 'General',
-                productNames: productNames,
+                productNames: products.map((p) => p['name'].toString()).toList(),
+                products: products,
+                receiptId: doc.id,
                 paymentMethod: data['paymentMethod'] ?? 'Cash',
                 cashier: data['cashier'] ??
                     data['workerName'] ??
@@ -2337,29 +2324,17 @@ class ReportsProvider extends ChangeNotifier {
       _salesReports = snapshot.docs.map((doc) {
         final data = doc.data();
 
-        // Extract product names from items
-        List<String> productNames = [];
-        final items = data['items'] as List?;
-        if (items != null) {
-          for (var item in items) {
-            if (item is Map<String, dynamic>) {
-              // Check multiple possible field names for product name
-              final productName = item['productName'] ??
-                  item['name'] ??
-                  item['product'] ??
-                  'Unknown Product';
-              productNames.add(productName.toString());
-            }
-          }
-        }
+        final products = _normalizeSaleProducts(data['items']);
 
         return SaleReport(
           date: _parseDate(data['createdAt'] ?? data['timestamp']),
           totalAmount:
               ((data['total'] ?? data['totalAmount'] ?? 0) as num).toDouble(),
-          itemsCount: items?.length ?? 0,
+          itemsCount: products.length,
           category: data['category'] ?? 'General',
-          productNames: productNames,
+          productNames: products.map((p) => p['name'].toString()).toList(),
+          products: products,
+          receiptId: doc.id,
           paymentMethod: data['paymentMethod'] ?? 'Cash',
           cashier:
               data['cashier'] ?? data['workerName'] ?? data['soldBy'] ?? 'N/A',

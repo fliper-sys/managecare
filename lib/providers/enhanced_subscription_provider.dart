@@ -8,8 +8,8 @@ import '../services/local_business_storage.dart';
 
 /// Provider for subscription management with background checking and feature enforcement
 class EnhancedSubscriptionProvider extends ChangeNotifier {
-  late final BackgroundSubscriptionChecker _subscriptionChecker;
-  late final SubscriptionFeatureGuard _featureGuard;
+  BackgroundSubscriptionChecker? _subscriptionChecker;
+  SubscriptionFeatureGuard? _featureGuard;
   late final FirebaseFirestore _firestore;
 
   // State
@@ -41,7 +41,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
       );
 
       _featureGuard = SubscriptionFeatureGuard(
-        subscriptionChecker: _subscriptionChecker,
+        subscriptionChecker: _subscriptionChecker!,
       );
 
       _isInitialized = true;
@@ -63,7 +63,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
     );
 
     _featureGuard = SubscriptionFeatureGuard(
-      subscriptionChecker: _subscriptionChecker,
+      subscriptionChecker: _subscriptionChecker!,
     );
 
     _isInitialized = true;
@@ -80,7 +80,14 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
       return;
     }
 
-    _subscriptionChecker.startBackgroundChecking(userId, userRole: userRole);
+    if (!_isInitialized || _subscriptionChecker == null) {
+      debugPrint(
+        '[EnhancedSubscriptionProvider] initializeForUser called before provider initialization for user: $userId',
+      );
+      return;
+    }
+
+    _subscriptionChecker!.startBackgroundChecking(userId, userRole: userRole);
   }
 
   /// Check if user can access a feature
@@ -90,7 +97,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
     required String context,
     String? userRole,
   }) async {
-    if (!_isInitialized) {
+    if (!_isInitialized || _subscriptionChecker == null || _featureGuard == null) {
       try {
         final local = await LocalBusinessStorage.create();
         await initialize(local);
@@ -101,7 +108,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
       }
     }
 
-    return await _featureGuard.canAccessFeature(
+    return await _featureGuard!.canAccessFeature(
       business: business,
       feature: feature,
       context: context,
@@ -116,7 +123,18 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
     required String context,
     String? userRole,
   }) async {
-    return await _featureGuard.assertFeatureAccess(
+    if (!_isInitialized || _featureGuard == null) {
+      try {
+        final local = await LocalBusinessStorage.create();
+        await initialize(local);
+      } catch (e) {
+        _lastError = 'Subscription system not ready: $e';
+        debugPrint(_lastError);
+        throw StateError(_lastError!);
+      }
+    }
+
+    return await _featureGuard!.assertFeatureAccess(
       business: business,
       feature: feature,
       context: context,
@@ -130,11 +148,11 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
     required String feature,
     String? userRole,
   }) {
-    return _featureGuard.needsUpgrade(
-      business: business,
-      feature: feature,
-      userRole: userRole,
-    );
+    return _featureGuard?.needsUpgrade(
+          business: business,
+          feature: feature,
+          userRole: userRole,
+        ) ?? false;
   }
 
   /// Get upgrade path for feature
@@ -143,7 +161,11 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
     required String feature,
     String? userRole,
   }) {
-    return _featureGuard.getUpgradePath(
+    if (!_isInitialized || _featureGuard == null) {
+      throw StateError('EnhancedSubscriptionProvider is not initialized');
+    }
+
+    return _featureGuard!.getUpgradePath(
       business: business,
       feature: feature,
       userRole: userRole,
@@ -158,17 +180,23 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
   /// Get all subscription statuses
   Future<List<SubscriptionStatus>> getAllSubscriptionStatuses(
       String userId) async {
-    return await _subscriptionChecker.getAllSubscriptionStatuses(userId);
+    if (!_isInitialized || _subscriptionChecker == null) {
+      throw StateError('EnhancedSubscriptionProvider is not initialized');
+    }
+    return await _subscriptionChecker!.getAllSubscriptionStatuses(userId);
   }
 
   /// Get feature availability matrix
   Map<String, Map<String, bool>> getFeatureMatrix() {
-    return _featureGuard.getFeatureMatrix();
+    if (!_isInitialized || _featureGuard == null) {
+      return {};
+    }
+    return _featureGuard!.getFeatureMatrix();
   }
 
   /// Get feature tier requirement
   String? getFeatureTierRequirement(String feature) {
-    return _featureGuard.getFeatureTierRequirement(feature);
+    return _featureGuard?.getFeatureTierRequirement(feature);
   }
 
   /// Get access logs
@@ -177,7 +205,10 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
     String? feature,
     int limit = 100,
   }) {
-    return _featureGuard.getAccessLogs(
+    if (!_isInitialized || _featureGuard == null) {
+      return [];
+    }
+    return _featureGuard!.getAccessLogs(
       businessId: businessId,
       feature: feature,
       limit: limit,
@@ -186,12 +217,15 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
 
   /// Export access logs
   List<Map<String, dynamic>> exportAccessLogs() {
-    return _featureGuard.exportAccessLogs();
+    if (!_isInitialized || _featureGuard == null) {
+      return [];
+    }
+    return _featureGuard!.exportAccessLogs();
   }
 
   /// Clear access logs
   void clearAccessLogs() {
-    _featureGuard.clearAccessLogs();
+    _featureGuard?.clearAccessLogs();
   }
 
   /// Check subscription status now (manual check)
@@ -202,7 +236,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
       notifyListeners();
 
       final statuses =
-          await _subscriptionChecker.getAllSubscriptionStatuses(userId);
+          await _subscriptionChecker!.getAllSubscriptionStatuses(userId);
       for (final status in statuses) {
         _subscriptionStatuses[status.businessId] = status;
       }
@@ -217,7 +251,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
 
   /// Stop background checking
   void stopBackgroundChecking() {
-    _subscriptionChecker.stopBackgroundChecking();
+    _subscriptionChecker!.stopBackgroundChecking();
   }
 
   /// Activate subscription immediately after plan selection
@@ -483,7 +517,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
     final accessible = <String>[];
 
     for (final feature in allFeatures) {
-      final required = _featureGuard.getFeatureTierRequirement(feature);
+      final required = _featureGuard!.getFeatureTierRequirement(feature);
       if (required == null) {
         accessible.add(feature);
         continue;
@@ -503,7 +537,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
   @override
   void dispose() {
     if (_isInitialized) {
-      _subscriptionChecker.dispose();
+      _subscriptionChecker!.dispose();
     }
     super.dispose();
   }

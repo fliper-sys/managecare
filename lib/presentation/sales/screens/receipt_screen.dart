@@ -207,25 +207,75 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 
     // Normalize items and map common field names to expected ones
     final rawItems = sale['items'];
-    final items = _normalizeItems(rawItems).map((item) {
+    final rawItemList = _normalizeItems(rawItems);
+    final singleItemSale = rawItemList.length == 1;
+    final saleQuantity = _asQuantity(
+      sale['quantity'] ??
+          sale['qty'] ??
+          sale['volume'] ??
+          sale['litres'] ??
+          sale['liters'],
+    );
+    var saleTotal = 0.0;
+    for (final value in [
+      sale['finalAmount'],
+      sale['totalAmount'],
+      sale['total'],
+      sale['amount'],
+      sale['subtotal'],
+    ]) {
+      final amount = _asDouble(value);
+      if (amount > 0) {
+        saleTotal = amount;
+        break;
+      }
+    }
+
+    final items = rawItemList.map((item) {
       final name = item['name'] ??
           item['productName'] ??
           item['menuItemName'] ??
           item['product'] ??
           item['productName'] ??
           'Item';
-      final quantity = (item['quantity'] ?? item['qty'] ?? 1);
+      final quantity = (item['quantity'] ??
+          item['qty'] ??
+          item['volume'] ??
+          item['litres'] ??
+          item['liters'] ??
+          item['quantity_sold'] ??
+          item['quantitySold'] ??
+          0);
       final price = (item['price'] ?? item['unitPrice'] ?? item['unit_price'] ?? item['unitPriceN'] ?? 0.0);
       final desc = item['description'] ?? item['productDescription'] ?? item['desc'];
-      final qtyNum = _asQuantity(quantity);
+      var qtyNum = _asQuantity(quantity);
       final priceNum = (price is num) ? (price).toDouble() : double.tryParse(price.toString()) ?? 0.0;
-      final itemTotal = (item['total'] ?? qtyNum * priceNum);
+      var itemTotalNum = _asDouble(
+        item['total'] ??
+            item['lineTotal'] ??
+            item['amount'] ??
+            item['totalAmount'],
+      );
+
+      if (itemTotalNum <= 0 && singleItemSale && saleTotal > 0) {
+        itemTotalNum = saleTotal;
+      }
+      if (qtyNum <= 0 && singleItemSale && saleQuantity > 0) {
+        qtyNum = saleQuantity;
+      }
+      if (qtyNum <= 0 && priceNum > 0 && itemTotalNum > 0) {
+        qtyNum = itemTotalNum / priceNum;
+      }
+      if (itemTotalNum <= 0 && qtyNum > 0 && priceNum > 0) {
+        itemTotalNum = qtyNum * priceNum;
+      }
+
       return <String, dynamic>{
         'productName':
             item['productName'] ?? item['menuItemName'] ?? item['name'],
         'name': name,
         'quantity': qtyNum,
-        'quantityRaw': quantity,
+        'quantityRaw': qtyNum,
         'price': priceNum,
         'description': desc,
         'pricingMode': item['pricingMode'] ?? item['priceType'],
@@ -233,19 +283,42 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
         'inventoryUnit': item['inventoryUnit'],
         'unit': item['unit'] ?? item['uom'] ?? item['saleUnit'] ?? item['inventoryUnit'],
         'uom': item['uom'] ?? item['unit'] ?? item['saleUnit'] ?? item['inventoryUnit'],
-        'total': (itemTotal is num) ? (itemTotal).toDouble() : double.tryParse(itemTotal.toString()) ?? (qtyNum * priceNum),
+        'total': itemTotalNum,
       };
     }).toList();
 
     sale['items'] = items;
 
+    final itemsTotal =
+        items.fold<double>(0.0, (p, e) => p + _asDouble(e['total']));
+
+    double _firstPositiveAmount(List<dynamic> values, double fallback) {
+      for (final value in values) {
+        final amount = _asDouble(value);
+        if (amount > 0) return amount;
+      }
+      return fallback;
+    }
+
     // Totals: subtotal, tax, discount, finalAmount
-    final subtotal = (sale['subtotal'] ?? sale['subTotal'] ?? items.fold<double>(0.0, (p, e) => p + ((e['total'] ?? 0) as num).toDouble()));
+    final subtotal = _firstPositiveAmount(
+      [sale['subtotal'], sale['subTotal'], sale['totalAmount'], sale['total']],
+      itemsTotal,
+    );
     final tax = (sale['tax'] ?? sale['taxAmount'] ?? 0.0);
     final discount = (sale['discount'] ?? sale['discountAmount'] ?? 0.0);
-    final finalAmount = (sale['finalAmount'] ?? sale['totalAmount'] ?? sale['total'] ?? sale['finalTotal'] ?? subtotal - discount + (tax ?? 0.0));
+    final finalAmount = _firstPositiveAmount(
+      [
+        sale['finalAmount'],
+        sale['totalAmount'],
+        sale['total'],
+        sale['finalTotal'],
+        sale['amount'],
+      ],
+      subtotal - _asDouble(discount) + _asDouble(tax),
+    );
 
-    sale['subtotal'] = (subtotal is num) ? (subtotal).toDouble() : double.tryParse(subtotal.toString()) ?? 0.0;
+    sale['subtotal'] = subtotal;
     sale['tax'] = (tax is num) ? (tax).toDouble() : double.tryParse(tax.toString()) ?? 0.0;
     sale['discount'] = (discount is num) ? (discount).toDouble() : double.tryParse(discount.toString()) ?? 0.0;
     sale['finalAmount'] = (finalAmount is num) ? (finalAmount).toDouble() : double.tryParse(finalAmount.toString()) ?? 0.0;

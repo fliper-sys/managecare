@@ -34,6 +34,8 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   List<Map<String, dynamic>> _products = [];
   List<Map<String, dynamic>> _filteredProducts = [];
+  List<String> _categories = [];
+  String? _selectedCategory;
   bool _isLoading = true;
 
   // Selection for batch procurement: productId -> { 'quantity': num/double, 'cost': double, 'product': Map }
@@ -64,6 +66,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     // Reset the filtered list and reload all products
     _searchController.clear();
     _barcodeController.clear();
+    _selectedCategory = null;
     if (mounted) {
       setState(() => _isLoading = true);
     }
@@ -189,6 +192,14 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         setState(() {
           _products = allProducts;
           _filteredProducts = allProducts;
+          // derive categories from products
+          final cats = <String>{};
+          for (final p in allProducts) {
+            final c = (p['category'] ?? 'Uncategorized').toString().trim();
+            if (c.isNotEmpty) cats.add(c);
+          }
+          _categories = ['All', ...cats.toList()..sort()];
+          _selectedCategory = null;
           _isLoading = false;
         });
       }
@@ -203,7 +214,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   void _filterProducts() {
     final query = _searchController.text;
     setState(() {
-      _filteredProducts = query.isEmpty
+      final base = query.isEmpty
           ? _products
           : _products.where((product) {
               final name = (product['name'] ?? '').toString();
@@ -217,6 +228,17 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                   SearchUtils.matchesSearchQuery(sku, null, query) ||
                   SearchUtils.matchesSearchQuery(category, null, query);
             }).toList();
+
+      if (_selectedCategory == null || _selectedCategory == 'All') {
+        _filteredProducts = base.toList();
+      } else {
+        _filteredProducts = base
+            .where((p) => (p['category'] ?? 'Uncategorized')
+                .toString()
+                .toLowerCase()
+                .trim() == _selectedCategory!.toLowerCase().trim())
+            .toList();
+      }
     });
   }
 
@@ -473,6 +495,36 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                   ),
                   onChanged: (_) => setState(() {}),
                 ),
+                const SizedBox(height: 8),
+                // Category filter chips
+                if (_categories.isNotEmpty)
+                  SizedBox(
+                    height: 40,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.only(top: 6, bottom: 6),
+                      itemBuilder: (context, idx) {
+                        final cat = _categories[idx];
+                        final isSelected = (_selectedCategory == null && cat == 'All') || (_selectedCategory != null && _selectedCategory == cat);
+                        return ChoiceChip(
+                          label: Text(cat),
+                          selected: isSelected,
+                          onSelected: (_) {
+                            setState(() {
+                              if (cat == 'All') {
+                                _selectedCategory = null;
+                              } else {
+                                _selectedCategory = cat;
+                              }
+                              _filterProducts();
+                            });
+                          },
+                        );
+                      },
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      itemCount: _categories.length,
+                    ),
+                  ),
               ],
             ),
           ),

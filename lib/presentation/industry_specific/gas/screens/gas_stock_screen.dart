@@ -1,9 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
 
@@ -26,6 +29,69 @@ class _GasStockScreenState extends State<GasStockScreen> {
         normalized.contains('diesel') ||
         normalized.contains('kerosene') ||
         normalized.contains('gas');
+  }
+
+  bool _isFuelProduct(Product product) {
+    final normalized = [
+      product.category,
+      product.name,
+      product.unit,
+    ].join(' ').trim().toLowerCase();
+    return _isFuelCategory(normalized);
+  }
+
+  CollectionReference<Map<String, dynamic>>? _historyCollection() {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return null;
+    return FirebaseFirestore.instance
+        .collection('businesses')
+        .doc(businessId)
+        .collection('fuel_stock_procurement_history');
+  }
+
+  Future<void> _recordFuelStockHistory({
+    required Product product,
+    required double previousStock,
+    required double nextStock,
+    required double previousPrice,
+    required double nextPrice,
+    required double previousCost,
+    required double nextCost,
+    required String action,
+    required double quantityChange,
+  }) async {
+    final history = _historyCollection();
+    if (history == null) return;
+    final user = context.read<AuthProvider>().currentUser;
+    await history.add({
+      'productId': product.id,
+      'productName': product.name,
+      'category': product.category,
+      'unit': product.unit,
+      'action': action,
+      'quantityChange': quantityChange,
+      'previousStock': previousStock,
+      'nextStock': nextStock,
+      'previousPrice': previousPrice,
+      'nextPrice': nextPrice,
+      'previousCost': previousCost,
+      'nextCost': nextCost,
+      'priceChanged': (previousPrice - nextPrice).abs() > 0.0001,
+      'stockChanged': (previousStock - nextStock).abs() > 0.0001,
+      'createdBy': user?.id,
+      'createdByName': user?.fullName ?? user?.email,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  void _openProcurementHistory() {
+    final history = _historyCollection();
+    if (history == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _FuelStockProcurementHistoryScreen(history: history),
+      ),
+    );
   }
 
   @override
@@ -190,6 +256,26 @@ class _GasStockScreenState extends State<GasStockScreen> {
       ),
     );
 
+    await _recordFuelStockHistory(
+      product: Product(
+        id: '',
+        name: name,
+        price: price,
+        cost: cost,
+        stock: stock,
+        category: category,
+        unit: unit,
+      ),
+      previousStock: 0,
+      nextStock: stock,
+      previousPrice: 0,
+      nextPrice: price,
+      previousCost: 0,
+      nextCost: cost,
+      action: 'add_product',
+      quantityChange: stock,
+    );
+
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -316,6 +402,17 @@ class _GasStockScreenState extends State<GasStockScreen> {
         saleUnitMultiplier: product.resolvedSaleUnitMultiplier,
       ),
     );
+    await _recordFuelStockHistory(
+      product: product,
+      previousStock: product.stock,
+      nextStock: nextStock,
+      previousPrice: product.price,
+      nextPrice: price,
+      previousCost: product.cost,
+      nextCost: cost,
+      action: addToStock ? 'add_stock' : 'set_stock',
+      quantityChange: addToStock ? quantity : nextStock - product.stock,
+    );
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -333,7 +430,7 @@ class _GasStockScreenState extends State<GasStockScreen> {
     return Consumer<RetailProvider>(
       builder: (context, retail, _) {
         final fuelProducts = retail.products
-            .where((product) => _isFuelCategory(product.category))
+            .where(_isFuelProduct)
             .where((product) {
               if (_query.isEmpty) return true;
               return product.name.toLowerCase().contains(_query) ||
@@ -354,6 +451,19 @@ class _GasStockScreenState extends State<GasStockScreen> {
             title: const Text('Fuel Stock'),
             backgroundColor: AppColors.primary,
             elevation: 0,
+            actions: [
+              IconButton(
+                tooltip: 'Procurement history',
+                icon: const Icon(Icons.history_rounded),
+                onPressed: _openProcurementHistory,
+              ),
+              IconButton(
+                tooltip: 'Procurement',
+                icon: const Icon(Icons.shopping_bag_outlined),
+                onPressed: () =>
+                    Navigator.pushNamed(context, Routes.procurement),
+              ),
+            ],
           ),
           floatingActionButton: FloatingActionButton.extended(
             onPressed: _showAddFuelDialog,
@@ -769,6 +879,92 @@ class _PriceBadge extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.w800),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _FuelStockProcurementHistoryScreen extends StatelessWidget {
+  const _FuelStockProcurementHistoryScreen({required this.history});
+
+  final CollectionReference<Map<String, dynamic>> history;
+
+  DateTime? _readDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value?.toString() ?? '');
+  }
+
+  double _readDouble(Map<String, dynamic> data, String key) {
+    final value = data[key];
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Fuel Procurement History'),
+        backgroundColor: AppColors.primary,
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: history
+            .orderBy('createdAt', descending: true)
+            .limit(200)
+            .snapshots(includeMetadataChanges: true),
+        builder: (context, snapshot) {
+          final docs = snapshot.data?.docs ?? [];
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              docs.isEmpty) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (docs.isEmpty) {
+            return const Center(
+              child: Text('No fuel stock changes recorded yet.'),
+            );
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: docs.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final data = docs[index].data();
+              final createdAt = _readDate(data['createdAt']);
+              final quantityChange = _readDouble(data, 'quantityChange');
+              final previousStock = _readDouble(data, 'previousStock');
+              final nextStock = _readDouble(data, 'nextStock');
+              final previousPrice = _readDouble(data, 'previousPrice');
+              final nextPrice = _readDouble(data, 'nextPrice');
+              final unit = data['unit']?.toString() ?? '';
+
+              return Card(
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: AppColors.primary.withOpacity(0.12),
+                    child: const Icon(Icons.inventory_2_outlined),
+                  ),
+                  title: Text(data['productName']?.toString() ?? 'Fuel'),
+                  subtitle: Text(
+                    '${data['action'] ?? 'stock_change'}'
+                    '${createdAt == null ? '' : ' • ${createdAt.toLocal()}'}\n'
+                    'Stock: ${previousStock.toStringAsFixed(2)} → ${nextStock.toStringAsFixed(2)} $unit\n'
+                    'Price: ${formatCurrency(previousPrice)} → ${formatCurrency(nextPrice)}',
+                  ),
+                  isThreeLine: true,
+                  trailing: Text(
+                    '${quantityChange >= 0 ? '+' : ''}${quantityChange.toStringAsFixed(2)}',
+                    style: TextStyle(
+                      color: quantityChange >= 0 ? Colors.green : Colors.red,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }

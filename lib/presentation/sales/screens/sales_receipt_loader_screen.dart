@@ -27,6 +27,12 @@ class _SalesReceiptLoaderScreenState extends State<SalesReceiptLoaderScreen> {
 
   Future<Map<String, dynamic>?> _loadSaleData() async {
     try {
+      final saleId = widget.saleId.trim();
+      if (saleId.isEmpty) {
+        debugPrint('Error loading sale data: empty sale id');
+        return null;
+      }
+
       final businessId =
           context.read<BusinessProvider>().currentBusiness?.id;
       final firestore = FirebaseFirestore.instance;
@@ -36,7 +42,7 @@ class _SalesReceiptLoaderScreenState extends State<SalesReceiptLoaderScreen> {
             .collection('businesses')
             .doc(businessId)
             .collection('sales')
-            .doc(widget.saleId)
+            .doc(saleId)
             .get();
 
         if (nestedSaleDoc.exists) {
@@ -50,7 +56,7 @@ class _SalesReceiptLoaderScreenState extends State<SalesReceiptLoaderScreen> {
 
       final rootSaleDoc = await firestore
           .collection('sales')
-          .doc(widget.saleId)
+          .doc(saleId)
           .get();
 
       if (rootSaleDoc.exists) {

@@ -20,6 +20,16 @@ class FileUploadService {
   /// Uploads [file] and returns a public URL on success or null on failure.
   /// Will attempt up to [retries] times for transient errors.
   Future<String?> uploadFile(File file, {int retries = 2}) async {
+    if (kIsWeb) {
+      try {
+        final bytes = await file.readAsBytes();
+        final filename = file.path.split('/').last;
+        return uploadBytes(bytes, filename, retries: retries);
+      } catch (e) {
+        lastError = 'Web upload failed: $e';
+        return null;
+      }
+    }
     if (!await file.exists()) return null;
     return uploadBytes(await file.readAsBytes(), file.path.split('/').last, retries: retries);
   }

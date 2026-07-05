@@ -59,6 +59,9 @@ class TestRetailProvider extends RetailProvider {
     String? customerEmail,
     String? customerName,
     String? storeId,
+    String? pumpId,
+    String? pumpNumber,
+    String? pumpName,
   }) async {
     // Simulate a quick network/db write and return a sale map
     await Future.delayed(const Duration(milliseconds: 10));

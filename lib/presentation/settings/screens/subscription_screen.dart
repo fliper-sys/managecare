@@ -373,6 +373,16 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 _buildBillingInfoCard(business, currentPlan, subscriptionEndDate),
                 const SizedBox(height: 24),
 
+                ListTile(
+                  leading: const Icon(Icons.receipt_long),
+                  title: const Text('View subscription transactions'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).pushNamed(Routes.subscriptionTransactions);
+                  },
+                ),
+                const SizedBox(height: 12),
+
                 // Available Plans
                 Text(
                   'Available Plans',

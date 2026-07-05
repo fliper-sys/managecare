@@ -13,6 +13,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../providers/connectivity_provider.dart';
 import '../../../../core/utils/receipt_utility.dart';
 import '../../../shared/payment_method_sheet.dart';
+import '../utils/pump_config_cache.dart';
 
 class GasPumpScreen extends StatefulWidget {
   const GasPumpScreen({super.key});
@@ -27,7 +28,10 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
   String? _selectedPumpNumber;
   String? _selectedPumpName;
   final Set<String> _assignedPumpIds = {};
+  List<Map<String, dynamic>> _cachedPumps = [];
+  bool _pumpCacheLoaded = false;
   bool _assignmentLoaded = false;
+  bool _syncingPendingSales = false;
   bool _sellByAmount = true;
   final _amountController = TextEditingController();
   final _qtyController = TextEditingController();
@@ -36,7 +40,59 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadAssignedPumps());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadAssignedPumps();
+      _loadCachedPumps();
+      _syncPendingPumpSales();
+    });
+  }
+
+  Future<void> _syncPendingPumpSales() async {
+    if (_syncingPendingSales) return;
+    _syncingPendingSales = true;
+    try {
+      final synced = await context.read<RetailProvider>().syncPendingPumpSales();
+      if (!mounted || synced <= 0) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$synced pending pump sale(s) synced')),
+      );
+    } catch (e) {
+      debugPrint('[GasPump] Pending pump sale sync skipped: $e');
+    } finally {
+      _syncingPendingSales = false;
+    }
+  }
+
+  Future<void> _loadCachedPumps() async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return;
+    final cachedPumps = await PumpConfigCache.load(businessId);
+    if (!mounted) return;
+    setState(() {
+      _cachedPumps = cachedPumps;
+      _pumpCacheLoaded = true;
+    });
+  }
+
+  void _syncCacheFromSnapshot(
+    String businessId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final remotePumps = PumpConfigCache.sort(
+      docs.map(PumpConfigCache.fromDoc).toList(),
+    );
+    if (remotePumps.isEmpty || PumpConfigCache.same(remotePumps, _cachedPumps)) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await PumpConfigCache.save(businessId, remotePumps);
+      if (!mounted) return;
+      setState(() {
+        _cachedPumps = remotePumps;
+        _pumpCacheLoaded = true;
+      });
+    });
   }
 
   Future<void> _loadAssignedPumps() async {
@@ -82,13 +138,28 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
           .doc(businessId)
           .collection('pump_configurations')
           .where('isActive', isEqualTo: true)
-          .orderBy('pumpNumber')
           .snapshots(includeMetadataChanges: true),
       builder: (context, snapshot) {
-        final allPumps = snapshot.data?.docs ?? [];
+        final pumpDocs = snapshot.data?.docs ?? [];
+        _syncCacheFromSnapshot(businessId, pumpDocs);
+        final remotePumps = PumpConfigCache.sort(
+          pumpDocs.map(PumpConfigCache.fromDoc).toList(),
+        );
+        final allPumps = remotePumps.isNotEmpty ? remotePumps : _cachedPumps;
         final pumps = isPumpOperator && _assignedPumpIds.isNotEmpty
-            ? allPumps.where((doc) => _assignedPumpIds.contains(doc.id)).toList()
+            ? allPumps
+                .where((pump) => _assignedPumpIds.contains(pump['id']))
+                .toList()
             : allPumps;
+
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            pumps.isEmpty &&
+            !_pumpCacheLoaded) {
+          return const Padding(
+            padding: EdgeInsets.only(bottom: 16),
+            child: LinearProgressIndicator(),
+          );
+        }
 
         if (isPumpOperator && pumps.isEmpty) {
           return Container(
@@ -109,18 +180,18 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
         if (pumps.isEmpty) return const SizedBox.shrink();
 
         final selectedPump = pumps.firstWhereOrNull(
-              (doc) => doc.id == _selectedPumpId,
+              (pump) => pump['id'] == _selectedPumpId,
             ) ??
             pumps.first;
-        final selectedData = selectedPump.data();
         if (_selectedPumpId == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
             setState(() {
-              _selectedPumpId = selectedPump.id;
-              _selectedPumpNumber = selectedData['pumpNumber']?.toString();
-              _selectedPumpName = 'Pump ${selectedData['pumpNumber'] ?? ''}';
-              _selectedProductId = selectedData['productId']?.toString();
+              _selectedPumpId = selectedPump['id']?.toString();
+              _selectedPumpNumber = selectedPump['pumpNumber']?.toString();
+              _selectedPumpName =
+                  'Pump ${selectedPump['pumpNumber'] ?? ''}';
+              _selectedProductId = selectedPump['productId']?.toString();
             });
           });
         }
@@ -128,31 +199,31 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
         return Padding(
           padding: const EdgeInsets.only(bottom: 16),
           child: DropdownButtonFormField<String>(
-            value: selectedPump.id,
+            value: selectedPump['id']?.toString(),
             decoration: const InputDecoration(
               labelText: 'Select Pump',
               border: OutlineInputBorder(),
               contentPadding:
                   EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             ),
-            items: pumps.map((doc) {
-              final data = doc.data();
+            items: pumps.map((data) {
               return DropdownMenuItem(
-                value: doc.id,
+                value: data['id']?.toString(),
                 child: Text(
                   'Pump ${data['pumpNumber'] ?? ''} - ${data['productName'] ?? 'Fuel'}',
                 ),
               );
             }).toList(),
             onChanged: (value) {
-              final pump = pumps.firstWhereOrNull((doc) => doc.id == value);
-              final data = pump?.data();
+              final pump = pumps.firstWhereOrNull(
+                (item) => item['id'] == value,
+              );
               setState(() {
                 _selectedPumpId = value;
-                _selectedPumpNumber = data?['pumpNumber']?.toString();
+                _selectedPumpNumber = pump?['pumpNumber']?.toString();
                 _selectedPumpName =
-                    data == null ? null : 'Pump ${data['pumpNumber'] ?? ''}';
-                _selectedProductId = data?['productId']?.toString();
+                    pump == null ? null : 'Pump ${pump['pumpNumber'] ?? ''}';
+                _selectedProductId = pump?['productId']?.toString();
               });
             },
           ),
@@ -165,6 +236,7 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
   Widget build(BuildContext context) {
     final retail = context.watch<RetailProvider>();
     final auth = context.watch<AuthProvider>();
+    final connectivity = context.watch<ConnectivityProvider>();
     final business = context.watch<BusinessProvider>().currentBusiness;
     final isPumpOperator =
         (auth.currentUser?.role.toLowerCase() ?? '') == 'pump_operator';
@@ -179,6 +251,12 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
     }).toList();
 
     final selected = products.firstWhereOrNull((p) => p.id == _selectedProductId) ?? (products.isNotEmpty ? products.first : null);
+
+    if (connectivity.isConnected) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _syncPendingPumpSales();
+      });
+    }
 
     if (business == null) {
       return const Scaffold(
@@ -206,6 +284,9 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
         computedQty = q;
       }
     }
+    final theme = Theme.of(context);
+    final summaryColor = theme.cardColor;
+    final summaryBorderColor = theme.dividerColor.withOpacity(0.35);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Pump Sale')),
@@ -226,7 +307,7 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                     ),
-                    value: _selectedProductId ?? (products.isNotEmpty ? products.first.id : null),
+                    value: selected?.id,
                     items: products.map((p) => DropdownMenuItem(value: p.id, child: Text('${p.name} • ${p.price.toStringAsFixed(2)}/${p.unit}'))).toList(),
                     onChanged: _selectedPumpId == null
                         ? (v) => setState(() => _selectedProductId = v)
@@ -259,9 +340,9 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
+                        color: summaryColor,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
+                        border: Border.all(color: summaryBorderColor),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -291,9 +372,9 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
+                        color: summaryColor,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
+                        border: Border.all(color: summaryBorderColor),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -307,7 +388,7 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                       ),
                     ),
                   ],
-                  const Spacer(),
+                  const SizedBox(height: 24),
                   Row(
                     children: [
                       Expanded(
@@ -364,31 +445,89 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                   );
 
                                   // Immediate feedback
-                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sale recorded • ${res['quantity']} ${selected.unit} • ${res['total']} (Cashier: $workerName)')));
+                                  final offlineQueued =
+                                      res['offlineQueued'] == true;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        offlineQueued
+                                            ? 'Sale completed offline • queued for sync • ${res['quantity']} ${selected.unit} • ${res['total']}'
+                                            : 'Sale recorded • ${res['quantity']} ${selected.unit} • ${res['total']} (Cashier: $workerName)',
+                                      ),
+                                      backgroundColor: offlineQueued
+                                          ? Colors.orange
+                                          : null,
+                                    ),
+                                  );
+                                  if (mounted) {
+                                    setState(() => _processing = false);
+                                  }
 
                                   // Build a sale map similar to SalesScreen
-                                  final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
                                   final pm = (selectedPayment.isNotEmpty) ? (selectedPayment[0].toUpperCase() + selectedPayment.substring(1)) : 'Cash';
 
+                                  final receiptItems =
+                                      ((res['items'] as List?) ?? const [])
+                                          .map((item) {
+                                    final map = item is Map
+                                        ? Map<String, dynamic>.from(item)
+                                        : <String, dynamic>{};
+                                    final quantity = map['quantity'] ??
+                                        map['qty'] ??
+                                        res['quantity'] ??
+                                        computedQty;
+                                    final unitPrice = map['unitPrice'] ??
+                                        map['price'] ??
+                                        selected.price;
+                                    final total =
+                                        map['total'] ?? res['total'] ?? computedAmt;
+                                    return {
+                                      ...map,
+                                      'name': map['name'] ??
+                                          map['productName'] ??
+                                          selected.name,
+                                      'productName': map['productName'] ??
+                                          map['name'] ??
+                                          selected.name,
+                                      'quantity': quantity,
+                                      'qty': quantity,
+                                      'unit': map['unit'] ?? selected.unit,
+                                      'unitPrice': unitPrice,
+                                      'price': unitPrice,
+                                      'total': total,
+                                    };
+                                  }).toList();
+
                                   final saleMap = {
-                                    'id': res['id'] ?? 'SALE-${DateTime.now().millisecondsSinceEpoch}',
-                                    'referenceId': ReceiptUtility.generateReferenceId(business?.name),
-                                    'items': res['items'],
+                                    ...res,
+                                    'id': res['id'] ??
+                                        res['orderId'] ??
+                                        'SALE-${DateTime.now().millisecondsSinceEpoch}',
+                                    'orderId': res['orderId'] ?? res['id'],
+                                    'referenceId': ReceiptUtility.generateReferenceId(business.name),
+                                    'items': receiptItems,
                                     'subtotal': res['total'],
                                     'tax': 0.0,
                                     'taxRate': 0.0,
                                     'discount': 0.0,
                                     'total': res['total'],
+                                    'totalAmount': res['total'],
                                     'paymentMethod': pm,
-                                    'customerEmail': null,
-                                    'customerName': null,
-                                    'createdAt': DateTime.now(),
+                                    'customerEmail': res['customerEmail'],
+                                    'customerName': res['customerName'],
+                                    'createdAt': res['createdAt'] ?? DateTime.now(),
                                     'cashier': workerName,
+                                    'workerName': res['workerName'] ?? workerName,
                                     'createdBy': workerId,
-                                    'businessLocation': business?.address ?? '',
-                                    'pumpId': _selectedPumpId,
-                                    'pumpNumber': _selectedPumpNumber,
-                                    'pumpName': _selectedPumpName,
+                                    'workerId': res['workerId'] ?? workerId,
+                                    'businessLocation': business.address,
+                                    'pumpId': res['pumpId'] ?? _selectedPumpId,
+                                    'pumpNumber': res['pumpNumber'] ?? _selectedPumpNumber,
+                                    'pumpName': res['pumpName'] ?? _selectedPumpName,
+                                    'category': res['category'] ?? 'Fuel',
+                                    'status': res['status'] ?? 'completed',
+                                    'saleStatus': res['saleStatus'] ?? 'completed',
+                                    'paymentStatus': res['paymentStatus'] ?? 'paid',
                                   }; 
 
                                     // Attempt to send receipt email and owner notification (if online)
@@ -520,12 +659,18 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                       debugPrint('[GasPump] Receipt handling error: $e');
                                     }
 
-                                    // Navigate to receipt loader
-                                    Navigator.pushNamed(context, Routes.salesReceipt, arguments: res['id']);
+                                    // Stay on the pump screen after completion.
+                                    // Receipt and printing are handled by the
+                                    // post-sale action sheet above; forcing the
+                                    // receipt route here can leave the worker
+                                    // staring at a loader while Firestore
+                                    // catches up.
                                   } catch (e) {
                                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sale failed: $e')));
                                   } finally {
-                                    setState(() => _processing = false);
+                                    if (mounted && _processing) {
+                                      setState(() => _processing = false);
+                                    }
                                   }
                                 },
                           child: _processing ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator()) : const Text('Confirm Sale'),

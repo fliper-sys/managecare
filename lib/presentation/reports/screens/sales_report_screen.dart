@@ -469,62 +469,7 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                             DataCell(
                               SizedBox(
                                 width: 260,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Wrap(
-                                      spacing: 6,
-                                      runSpacing: 6,
-                                      children: report.products
-                                          .map((p) => Chip(
-                                                backgroundColor:
-                                                    AppColors.lightGrey,
-                                                label: Row(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    Flexible(
-                                                        child: Text(
-                                                            p['name']
-                                                                    ?.toString() ??
-                                                                'Item',
-                                                            style: AppTextStyles
-                                                                .body2,
-                                                            overflow:
-                                                                TextOverflow
-                                                                    .ellipsis)),
-                                                    const SizedBox(width: 6),
-                                                    Container(
-                                                      padding: const EdgeInsets
-                                                          .symmetric(
-                                                          horizontal: 6,
-                                                          vertical: 2),
-                                                      decoration: BoxDecoration(
-                                                        color: AppColors
-                                                            .primaryLight
-                                                            .withOpacity(0.15),
-                                                        borderRadius:
-                                                            BorderRadius
-                                                                .circular(12),
-                                                      ),
-                                                      child: Text(
-                                                          'x${p['quantity'] ?? 1}',
-                                                          style: AppTextStyles
-                                                              .captionBold
-                                                              .copyWith(
-                                                                  color: AppColors
-                                                                      .primary)),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ))
-                                          .toList(),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text('${report.products.length} items',
-                                        style: AppTextStyles.caption),
-                                  ],
-                                ),
+                                child: _buildProductsSummary(report),
                               ),
                             ),
                             DataCell(Text(
@@ -561,13 +506,18 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
                                 IconButton(
                                   tooltip: 'View receipt',
                                   icon: const Icon(Icons.receipt_long),
-                                  onPressed: () {
-                                    Navigator.pushNamed(
-                                        context, Routes.salesReceipt,
-                                        arguments: {
-                                          'saleId': report.receiptId ?? ''
-                                        });
-                                  },
+                                  onPressed:
+                                      (report.receiptId ?? '').trim().isEmpty
+                                          ? null
+                                          : () {
+                                              Navigator.pushNamed(
+                                                context,
+                                                Routes.salesReceipt,
+                                                arguments: {
+                                                  'saleId': report.receiptId,
+                                                },
+                                              );
+                                            },
                                 ),
                               ],
                             )),
@@ -632,6 +582,87 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  String _formatReportQuantity(dynamic value) {
+    final quantity = value is num
+        ? value.toDouble()
+        : double.tryParse(value?.toString() ?? '') ?? 0.0;
+    if (quantity == 0) return '0';
+    if (quantity % 1 == 0) return quantity.toInt().toString();
+    return quantity
+        .toStringAsFixed(3)
+        .replaceFirst(RegExp(r'\.?0+$'), '');
+  }
+
+  Widget _buildProductsSummary(SaleReport report) {
+    if (report.products.isEmpty) {
+      return Text('No products', style: AppTextStyles.caption);
+    }
+
+    final first = report.products.first;
+    final extraCount = report.products.length - 1;
+    final name = (first['name'] ?? 'Product').toString();
+    final unit = (first['unit'] ?? '').toString().trim();
+    final quantity = _formatReportQuantity(first['quantity']);
+    final quantityLabel = unit.isEmpty ? 'x$quantity' : '$quantity $unit';
+
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.body2.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                '${report.products.length} item${report.products.length == 1 ? '' : 's'}',
+                style: AppTextStyles.caption.copyWith(
+                  color: context.reportMutedText,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: AppColors.primaryLight.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            quantityLabel,
+            style: AppTextStyles.captionBold.copyWith(
+              color: AppColors.primary,
+            ),
+          ),
+        ),
+        if (extraCount > 0) ...[
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+            decoration: BoxDecoration(
+              color: context.reportSurface,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: context.reportBorder),
+            ),
+            child: Text(
+              '+$extraCount',
+              style: AppTextStyles.caption,
+            ),
+          ),
+        ],
+      ],
     );
   }
 

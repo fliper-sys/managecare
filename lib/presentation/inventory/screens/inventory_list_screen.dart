@@ -890,14 +890,42 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.pushNamed(context, Routes.inventoryAdd);
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Add Product'),
-        backgroundColor: AppColors.primary,
-      ),
+      floatingActionButton: Builder(builder: (context) {
+        final isOwner = Provider.of<AuthProvider>(context).currentUser?.isOwner == true;
+        if (isOwner) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: FloatingActionButton.extended(
+                  onPressed: () => Navigator.pushNamed(context, Routes.procurement),
+                  icon: const Icon(Icons.shopping_bag_outlined),
+                  label: const Text('Procurement'),
+                  backgroundColor: Colors.orange,
+                ),
+              ),
+              FloatingActionButton.extended(
+                onPressed: () {
+                  Navigator.pushNamed(context, Routes.inventoryAdd);
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('Add Product'),
+                backgroundColor: AppColors.primary,
+              ),
+            ],
+          );
+        }
+
+        return FloatingActionButton.extended(
+          onPressed: () {
+            Navigator.pushNamed(context, Routes.inventoryAdd);
+          },
+          icon: const Icon(Icons.add),
+          label: const Text('Add Product'),
+          backgroundColor: AppColors.primary,
+        );
+      }),
     );
   }
 }

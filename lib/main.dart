@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'services/local_business_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
@@ -115,11 +116,8 @@ void main() async {
   }
 
   // Initialize app services (analytics, barcode, cloud storage, etc.)
-  try {
-    await ServicesInitializer().initializeAll();
-  } catch (e) {
-    print('Services initialization warning: $e');
-  }
+  // Initialize non-critical services in background so startup isn't blocked
+  unawaited(ServicesInitializer().initializeAll());
 
   // Initialize notification service (only on mobile platforms)
   if (!kIsWeb) {
@@ -166,10 +164,16 @@ class MyApp extends StatelessWidget {
             // Ensure the BusinessProvider is in a clean state when auth changes
             previous ??= BusinessProvider();
 
-            // If user is not authenticated, clear any cached business data immediately
+            if (auth.status == AuthStatus.initial ||
+                auth.status == AuthStatus.loading) {
+              return previous;
+            }
+
+            // If user is not authenticated, clear any cached business data after
+            // auth initialization has finished.
             if (!auth.isAuthenticated || auth.currentUser == null) {
               try {
-                previous.clearCachedBusinessData();
+                previous.clearCachedBusinessData(clearLocalStorage: false);
                 print(
                     '[Main] Cleared BusinessProvider due to unauthenticated auth state');
               } catch (e) {
@@ -185,7 +189,7 @@ class MyApp extends StatelessWidget {
             if (previous.loadedForUserId != null &&
                 previous.loadedForUserId != userId) {
               try {
-                previous.clearCachedBusinessData();
+                previous.clearCachedBusinessData(clearLocalStorage: false);
                 print(
                     '[Main] Cleared BusinessProvider cache because authenticated user changed (old: ${previous.loadedForUserId}, new: $userId)');
               } catch (e) {

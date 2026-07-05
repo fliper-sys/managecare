@@ -8,6 +8,7 @@ import '../../../core/theme/text_styles.dart';
 import '../../../core/utils/worker_permissions.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
+import '../../../services/zkteco_lan_service.dart';
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -17,6 +18,15 @@ class AttendanceScreen extends StatefulWidget {
 }
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
+  static const String _admsFirebaseHost =
+      'us-central1-manage-care-1e96b.cloudfunctions.net';
+  static const String _admsFirebasePath = 'iclock';
+  static const int _admsFirebasePort = 443;
+  static const String _zkStoredServerName = 'www.fkweb.com';
+  static const String _zkDefaultRelayIp = '';
+  static const int _zkDefaultRelayPort = 7005;
+  static const int _zkEthernetPort = 5005;
+
   final _timeFormat = DateFormat('h:mm a');
 
   String? _selectedWorkerId;
@@ -156,19 +166,34 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     });
   }
 
-  Future<void> _showDeviceDialog() async {
+  Future<void> _showDeviceDialog([
+    QueryDocumentSnapshot<Map<String, dynamic>>? existing,
+  ]) async {
     final devices = _businessCollection('attendance_devices');
     if (devices == null) return;
 
-    final nameController = TextEditingController(text: 'Hippoint F16');
-    final ipController = TextEditingController();
-    final portController = TextEditingController(text: '4370');
-    final serialController = TextEditingController();
+    final existingData = existing?.data();
+
+    final nameController = TextEditingController(
+        text: existingData?['name']?.toString() ?? 'ZKTeco / Hippoint F16');
+    final ipController =
+        TextEditingController(text: existingData?['ipAddress']?.toString() ?? '');
+    final ethernetPortController = TextEditingController(
+        text: (existingData?['ethernetPort'] ?? existingData?['port'] ?? _zkEthernetPort)
+            .toString());
+    final serverIpController = TextEditingController(
+        text: existingData?['serverIp']?.toString() ?? _zkDefaultRelayIp);
+    final serverPortController = TextEditingController(
+        text: (existingData?['serverPort'] ?? _zkDefaultRelayPort).toString());
+    final serialController =
+        TextEditingController(text: existingData?['serialNumber']?.toString() ?? '');
+
+    final title = existing == null ? 'Add ZKTeco Device' : 'Edit ZKTeco Device';
 
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Add Attendance Device'),
+            title: Text(title),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -179,12 +204,33 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   ),
                   TextField(
                     controller: ipController,
-                    decoration: const InputDecoration(labelText: 'LAN IP address'),
+                    decoration: const InputDecoration(
+                      labelText: 'LAN IP address (optional)',
+                    ),
                   ),
                   TextField(
-                    controller: portController,
+                    controller: ethernetPortController,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'TCP port'),
+                    decoration: const InputDecoration(
+                      labelText: 'Ethernet Port No',
+                      helperText: 'The screen photo shows 5005.',
+                    ),
+                  ),
+                  TextField(
+                    controller: serverIpController,
+                    decoration: const InputDecoration(
+                      labelText: 'Server IP',
+                      helperText:
+                          'Enter the public IP of the ADMS relay/server.',
+                    ),
+                  ),
+                  TextField(
+                    controller: serverPortController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'SerPortNo',
+                      helperText: 'The screen photo shows 7005.',
+                    ),
                   ),
                   TextField(
                     controller: serialController,
@@ -208,20 +254,38 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         false;
 
     if (!confirmed) return;
-    await devices.add({
+
+    final payload = {
       'name': nameController.text.trim().isEmpty
-          ? 'Hippoint F16'
+          ? 'ZKTeco / Hippoint F16'
           : nameController.text.trim(),
       'model': 'F16',
       'ipAddress': ipController.text.trim(),
-      'port': int.tryParse(portController.text.trim()) ?? 4370,
+      'port': int.tryParse(ethernetPortController.text.trim()) ?? _zkEthernetPort,
+      'ethernetPort': int.tryParse(ethernetPortController.text.trim()) ??
+          _zkEthernetPort,
+      'serverIp': serverIpController.text.trim(),
+      'serverName': _zkStoredServerName,
+      'serverPort': int.tryParse(serverPortController.text.trim()) ??
+          _zkDefaultRelayPort,
       'serialNumber': serialController.text.trim(),
-      'protocol': 'zkteco_tcp_ip',
-      'syncMode': 'backend_required',
+      'dnsEnabled': true,
+      'serverRequestEnabled': true,
+      'protocol': 'zkteco_adms',
+      'syncMode': 'adms_push',
+      'firebaseAdmsHost': _admsFirebaseHost,
+      'firebaseAdmsPort': _admsFirebasePort,
+      'firebaseAdmsPath': _admsFirebasePath,
       'isActive': true,
-      'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    };
+
+    if (existing == null) {
+      payload['createdAt'] = FieldValue.serverTimestamp();
+      await devices.add(payload);
+    } else {
+      await devices.doc(existing.id).set(payload, SetOptions(merge: true));
+    }
   }
 
   Future<void> _showScheduleDialog(
@@ -381,6 +445,401 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  String _workerDisplayName(Map<String, dynamic> data, String fallback) {
+    return (data['name'] ??
+            data['fullName'] ??
+            data['displayName'] ??
+            data['email'] ??
+            fallback)
+        .toString();
+  }
+
+  String _workerTerminalId(Map<String, dynamic> data) {
+    return (data['terminalUserId'] ??
+            data['deviceUserId'] ??
+            data['attendanceDeviceUserId'] ??
+            '')
+        .toString()
+        .trim();
+  }
+
+  Future<void> _showWorkerTerminalIdDialog(
+    QueryDocumentSnapshot<Map<String, dynamic>> worker,
+  ) async {
+    final data = worker.data();
+    final name = _workerDisplayName(data, worker.id);
+    final terminalIdController =
+        TextEditingController(text: _workerTerminalId(data));
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Edit terminal ID'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: AppTextStyles.heading5),
+                const SizedBox(height: 8),
+                Text(
+                  'Use the ID shown on the device after enrolling or browsing this user.',
+                  style: AppTextStyles.caption,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: terminalIdController,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Device terminal ID',
+                    hintText: 'Example: 1',
+                    prefixIcon: Icon(Icons.badge_rounded),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context, true),
+                icon: const Icon(Icons.save_rounded),
+                label: const Text('Save'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed) return;
+    final terminalId = terminalIdController.text.trim();
+    await FirebaseFirestore.instance.collection('workers').doc(worker.id).set({
+      'terminalUserId': terminalId,
+      'deviceUserId': terminalId,
+      'attendanceDeviceUserId': terminalId,
+      'attendanceDeviceUpdatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          terminalId.isEmpty
+              ? 'Terminal ID cleared for $name'
+              : 'Terminal ID $terminalId saved for $name',
+        ),
+      ),
+    );
+  }
+
+  String _deviceLanIp(Map<String, dynamic> data) {
+    return (data['ipAddress'] ?? data['serverIp'] ?? '').toString().trim();
+  }
+
+  int _deviceLanPort(Map<String, dynamic> data) {
+    final value = data['ethernetPort'] ?? data['port'] ?? _zkEthernetPort;
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString()) ?? _zkEthernetPort;
+  }
+
+  String? _devicePassword(Map<String, dynamic> data) {
+    final value = (data['password'] ?? data['commPassword'] ?? '').toString().trim();
+    return value.isEmpty ? null : value;
+  }
+
+  Future<T?> _runLanOperation<T>(
+    String label,
+    Future<T> Function() action,
+  ) async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        content: Row(
+          children: [
+            const SizedBox(
+              height: 24,
+              width: 24,
+              child: CircularProgressIndicator(strokeWidth: 2.6),
+            ),
+            const SizedBox(width: 14),
+            Expanded(child: Text(label)),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final result = await action();
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      return result;
+    } catch (error) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('LAN operation failed: $error')),
+        );
+      }
+      return null;
+    }
+  }
+
+  Future<void> _testLanConnection(Map<String, dynamic> device) async {
+    final ip = _deviceLanIp(device);
+    final port = _deviceLanPort(device);
+    if (ip.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter the device LAN IP first.')),
+      );
+      return;
+    }
+
+    final result = await _runLanOperation(
+      'Testing LAN connection...',
+      () => ZktecoLanService().testConnection(
+        ipAddress: ip,
+        port: port,
+        password: _devicePassword(device),
+      ),
+    );
+    if (!mounted || result == null) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(result.connected ? 'Device connected' : 'Connection failed'),
+        content: Text(
+          [
+            result.message,
+            if (result.serialNumber?.isNotEmpty ?? false)
+              'Serial: ${result.serialNumber}',
+            if (result.deviceName?.isNotEmpty ?? false)
+              'Name: ${result.deviceName}',
+            if (result.os?.isNotEmpty ?? false) 'OS: ${result.os}',
+            if (result.version?.isNotEmpty ?? false)
+              'Version: ${result.version}',
+            if (result.deviceTime != null) 'Time: ${result.deviceTime}',
+          ].join('\n'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pullLanUsers(
+    Map<String, dynamic> device,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> workers,
+  ) async {
+    final ip = _deviceLanIp(device);
+    final port = _deviceLanPort(device);
+    if (ip.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter the device LAN IP first.')),
+      );
+      return;
+    }
+
+    final users = await _runLanOperation(
+      'Pulling terminal users...',
+      () => ZktecoLanService().getUsers(
+        ipAddress: ip,
+        port: port,
+        password: _devicePassword(device),
+      ),
+    );
+    if (!mounted || users == null) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Terminal users (${users.length})'),
+        content: SizedBox(
+          width: 520,
+          child: users.isEmpty
+              ? const Text('No users returned from the terminal.')
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: users.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final user = users[index];
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.person_rounded),
+                      ),
+                      title: Text(user.name.isEmpty ? 'Unnamed user' : user.name),
+                      subtitle: Text(
+                        'ID: ${user.userId}${user.uid == null ? '' : ' | UID: ${user.uid}'} | ${user.role}',
+                      ),
+                      trailing: TextButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _showMapTerminalUserDialog(user, workers);
+                        },
+                        child: const Text('Map'),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showMapTerminalUserDialog(
+    ZktecoLanUser terminalUser,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> workers,
+  ) async {
+    if (workers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Create workers before mapping IDs.')),
+      );
+      return;
+    }
+
+    var selectedWorkerId = workers.first.id;
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: const Text('Map terminal user'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${terminalUser.name.isEmpty ? 'Terminal user' : terminalUser.name} | ID ${terminalUser.userId}',
+                    style: AppTextStyles.heading5,
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: selectedWorkerId,
+                    decoration: const InputDecoration(
+                      labelText: 'App worker',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: workers.map((worker) {
+                      final data = worker.data();
+                      return DropdownMenuItem(
+                        value: worker.id,
+                        child: Text(_workerDisplayName(data, worker.id)),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setDialogState(() => selectedWorkerId = value);
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.pop(context, true),
+                  icon: const Icon(Icons.link_rounded),
+                  label: const Text('Map ID'),
+                ),
+              ],
+            ),
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+
+    final worker =
+        workers.firstWhere((worker) => worker.id == selectedWorkerId);
+    await FirebaseFirestore.instance.collection('workers').doc(worker.id).set({
+      'terminalUserId': terminalUser.userId,
+      'deviceUserId': terminalUser.userId,
+      'attendanceDeviceUserId': terminalUser.userId,
+      'attendanceDeviceUpdatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Mapped terminal ID ${terminalUser.userId} to ${_workerDisplayName(worker.data(), worker.id)}',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pullLanAttendanceLogs(Map<String, dynamic> device) async {
+    final ip = _deviceLanIp(device);
+    final port = _deviceLanPort(device);
+    if (ip.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter the device LAN IP first.')),
+      );
+      return;
+    }
+
+    final logs = await _runLanOperation(
+      'Pulling attendance logs...',
+      () => ZktecoLanService().getAttendanceLogs(
+        ipAddress: ip,
+        port: port,
+        password: _devicePassword(device),
+      ),
+    );
+    if (!mounted || logs == null) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('LAN logs (${logs.length})'),
+        content: SizedBox(
+          width: 520,
+          child: logs.isEmpty
+              ? const Text('No attendance logs returned from the terminal.')
+              : ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: logs.take(50).length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final log = logs[index];
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.history_rounded),
+                      title: Text('Terminal ID: ${log.userId}'),
+                      subtitle: Text(
+                        '${log.timestamp ?? 'No timestamp'}'
+                        '${log.state == null ? '' : ' | State: ${log.state}'}'
+                        '${log.type == null ? '' : ' | Type: ${log.type}'}',
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -949,6 +1408,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         return ListView(
                           padding: const EdgeInsets.all(16),
                           children: [
+                            _deviceSetupHero(
+                              devices: deviceDocs.length,
+                              mappedWorkers: mappedWorkers,
+                              workers: workerDocs.length,
+                            ),
+                            const SizedBox(height: 12),
                             _attendanceStatusPanel(
                               devices: deviceDocs.length,
                               workers: workerDocs.length,
@@ -957,12 +1422,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                               schedules: scheduleDocs.length,
                               punchesToday: punchDocs.length,
                               unmatchedPunches: unmatchedDocs.length,
-                            ),
-                            const SizedBox(height: 12),
-                            ElevatedButton.icon(
-                              onPressed: _showDeviceDialog,
-                              icon: const Icon(Icons.add),
-                              label: const Text('Add F16 Device'),
                             ),
                             const SizedBox(height: 12),
                             if (deviceDocs.isEmpty)
@@ -978,69 +1437,152 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                             else
                               ...deviceDocs.map((doc) {
                                 final data = doc.data();
+                                final scheme = Theme.of(context).colorScheme;
                                 return Card(
-                                  child: ListTile(
-                                    leading: const CircleAvatar(
-                                      child: Icon(Icons.fingerprint),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(14),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const CircleAvatar(
+                                          child: Icon(Icons.fingerprint),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                data['name']?.toString() ??
+                                                    'Hippoint F16',
+                                                style: AppTextStyles.heading5
+                                                    .copyWith(
+                                                  color: scheme.onSurface,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                'Ethernet: ${data['ipAddress'] ?? '-'}:${data['ethernetPort'] ?? data['port'] ?? _zkEthernetPort}\n'
+                                                'ADMS: ${data['serverIp'] ?? data['serverHost'] ?? '-'}:${data['serverPort'] ?? _zkDefaultRelayPort}\n'
+                                                'Stored name: ${data['serverName'] ?? _zkStoredServerName}\n'
+                                                'Serial: ${data['serialNumber'] ?? '-'}\n'
+                                                'Firebase test: $_admsFirebaseHost:$_admsFirebasePort/$_admsFirebasePath',
+                                                style: _setupBodyStyle(context),
+                                              ),
+                                              const SizedBox(height: 10),
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: 8,
+                                                children: [
+                                                  OutlinedButton.icon(
+                                                    onPressed: () =>
+                                                        _testLanConnection(data),
+                                                    icon: const Icon(
+                                                      Icons.cable_rounded,
+                                                    ),
+                                                    label: const Text('Test LAN'),
+                                                  ),
+                                                  OutlinedButton.icon(
+                                                    onPressed: () =>
+                                                        _pullLanUsers(
+                                                      data,
+                                                      workerDocs,
+                                                    ),
+                                                    icon: const Icon(
+                                                      Icons.people_alt_rounded,
+                                                    ),
+                                                    label: const Text('Pull users'),
+                                                  ),
+                                                  OutlinedButton.icon(
+                                                    onPressed: () =>
+                                                        _pullLanAttendanceLogs(
+                                                      data,
+                                                    ),
+                                                    icon: const Icon(
+                                                      Icons.history_rounded,
+                                                    ),
+                                                    label: const Text('Pull logs'),
+                                                  ),
+                                                      OutlinedButton.icon(
+                                                        onPressed: () =>
+                                                            _showDeviceDialog(doc),
+                                                        icon: const Icon(
+                                                          Icons.edit_rounded,
+                                                        ),
+                                                        label: const Text('Edit'),
+                                                      ),
+                                                      OutlinedButton.icon(
+                                                        onPressed: () async {
+                                                          final confirmed =
+                                                              await showDialog<bool>(
+                                                                    context: context,
+                                                                    builder:
+                                                                        (context) => AlertDialog(
+                                                                              title:
+                                                                                  const Text('Deactivate device'),
+                                                                              content: const Text('Are you sure you want to deactivate this device? This will stop it from accepting punches.'),
+                                                                              actions: [
+                                                                                TextButton(
+                                                                                  onPressed: () => Navigator.pop(context, false),
+                                                                                  child: const Text('Cancel'),
+                                                                                ),
+                                                                                ElevatedButton(
+                                                                                  onPressed: () => Navigator.pop(context, true),
+                                                                                  child: const Text('Deactivate'),
+                                                                                ),
+                                                                              ],
+                                                                            ),
+                                                                  ) ??
+                                                                  false;
+                                                          if (!confirmed) return;
+                                                          final devicesColl =
+                                                              _businessCollection('attendance_devices');
+                                                          if (devicesColl == null) return;
+                                                          await devicesColl.doc(doc.id).set({
+                                                            'isActive': false,
+                                                            'updatedAt': FieldValue.serverTimestamp(),
+                                                          }, SetOptions(merge: true));
+                                                          if (!mounted) return;
+                                                          ScaffoldMessenger.of(context)
+                                                              .showSnackBar(
+                                                            const SnackBar(
+                                                              content: Text('Device deactivated'),
+                                                            ),
+                                                          );
+                                                        },
+                                                        icon: const Icon(
+                                                          Icons.delete_outline,
+                                                        ),
+                                                        label: const Text('Deactivate'),
+                                                      ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    title: Text(
-                                      data['name']?.toString() ??
-                                          'Hippoint F16',
-                                    ),
-                                    subtitle: Text(
-                                      'IP: ${data['ipAddress'] ?? '-'}:${data['port'] ?? 4370}\n'
-                                      'Serial: ${data['serialNumber'] ?? '-'}\n'
-                                      'Endpoint: /iclock/cdata',
-                                    ),
-                                    isThreeLine: true,
                                   ),
                                 );
                               }),
-                            if (unmappedWorkers > 0)
-                              _guideCard(
-                                title: 'Workers needing terminal IDs',
-                                children: workerDocs
-                                    .where((doc) {
-                                      final data = doc.data();
-                                      return !(data['terminalUserId']
-                                                  ?.toString()
-                                                  .trim()
-                                                  .isNotEmpty ??
-                                              false) &&
-                                          !(data['deviceUserId']
-                                                  ?.toString()
-                                                  .trim()
-                                                  .isNotEmpty ??
-                                              false) &&
-                                          !(data['attendanceDeviceUserId']
-                                                  ?.toString()
-                                                  .trim()
-                                                  .isNotEmpty ??
-                                              false);
-                                    })
-                                    .take(8)
-                                    .map((doc) {
-                                      final data = doc.data();
-                                      final name = data['name'] ??
-                                          data['fullName'] ??
-                                          data['email'] ??
-                                          doc.id;
-                                      return '$name has no F16 terminal user ID yet.';
-                                    })
-                                    .toList(),
-                              ),
+                            _workerTerminalIdSection(workerDocs),
                             _endpointGuideCard(),
+                            _packageStrategyCard(),
+                            _manualGuideSection(),
                             _guideCard(
                               title: 'Device setup guide',
                               children: const [
                                 '1. Plug the F16 into Ethernet/LAN and confirm it has internet access.',
                                 '2. Set the terminal date/time correctly. Attendance sorting depends on the punch timestamp sent by the device.',
-                                '3. Open Comm -> Cloud Server Setting on the terminal.',
-                                '4. Server address: us-central1-manage-care-1e96b.cloudfunctions.net',
-                                '5. Server port: 443 for the deployed HTTPS function.',
-                                '6. Path/function: iclock if the firmware has a separate path field. If it asks for URL path, use /iclock.',
-                                '7. Enable ADMS/cloud push mode, save, then restart or reconnect the terminal.',
-                                '8. Register this device in the app with the exact serial number printed on the box/device.',
+                                '3. Open DevSet -> Set COMM -> Network.',
+                                '4. Ethernet: keep DHCP as needed for your LAN, set IP/subnet/gateway, and confirm Port No is 5005.',
+                                '5. Network: set Server Req to Yes, then open Server Set.',
+                                '6. The stored Server Name on this unit is www.fkweb.com. Leave it as-is if the terminal does not allow editing it.',
+                                '7. Enter the public Server IP of the ADMS relay/server and set SerPortNo to 7005. The relay should forward ADMS HTTP requests to the Firebase iclock function.',
+                                '8. Save, restart or reconnect the terminal, then register this device in the app with the exact serial number printed on the box/device.',
                               ],
                             ),
                             _guideCard(
@@ -1185,6 +1727,111 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
+  Widget _deviceSetupHero({
+    required int devices,
+    required int mappedWorkers,
+    required int workers,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(
+          scheme.primary.withOpacity(
+            Theme.of(context).brightness == Brightness.dark ? 0.20 : 0.10,
+          ),
+          scheme.surface,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: scheme.primary.withOpacity(0.25)),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 560;
+          final content = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'ZKTeco Device Setup',
+                style: AppTextStyles.heading4.copyWith(
+                  color: scheme.onSurface,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Configure ADMS live sync, LAN tools, worker IDs, and the physical terminal manual in one place.',
+                style: _setupBodyStyle(context),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _heroPill(Icons.devices_rounded, '$devices device(s)'),
+                  _heroPill(
+                    Icons.badge_rounded,
+                    '$mappedWorkers/$workers IDs mapped',
+                  ),
+                  _heroPill(Icons.cloud_done_rounded, 'ADMS + LAN ready'),
+                ],
+              ),
+            ],
+          );
+
+          final button = ElevatedButton.icon(
+            onPressed: _showDeviceDialog,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Add ZKTeco Device'),
+          );
+
+          if (compact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                content,
+                const SizedBox(height: 14),
+                button,
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: content),
+              const SizedBox(width: 16),
+              button,
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _heroPill(IconData icon, String label) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: scheme.surface.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: scheme.outline.withOpacity(0.18)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: scheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: AppTextStyles.captionBold.copyWith(color: scheme.onSurface),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _statusChip({
     required String label,
     required bool ok,
@@ -1228,25 +1875,372 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
+  Color _panelColor(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Color.alphaBlend(
+      scheme.primary.withOpacity(
+        Theme.of(context).brightness == Brightness.dark ? 0.05 : 0.02,
+      ),
+      scheme.surface,
+    );
+  }
+
+  TextStyle _setupTitleStyle(BuildContext context) {
+    return AppTextStyles.heading5.copyWith(
+      color: Theme.of(context).colorScheme.onSurface,
+      fontWeight: FontWeight.w800,
+    );
+  }
+
+  TextStyle _setupBodyStyle(BuildContext context) {
+    return AppTextStyles.caption.copyWith(
+      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.72),
+      height: 1.45,
+    );
+  }
+
+  Widget _setupPanel({
+    required Widget child,
+    EdgeInsetsGeometry padding = const EdgeInsets.all(16),
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: _panelColor(context),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outline.withOpacity(0.18)),
+      ),
+      child: DefaultTextStyle.merge(
+        style: TextStyle(color: scheme.onSurface),
+        child: child,
+      ),
+    );
+  }
+
+  Widget _setupHeader({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    Color? color,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final accent = color ?? scheme.primary;
+    return Row(
+      children: [
+        Container(
+          height: 42,
+          width: 42,
+          decoration: BoxDecoration(
+            color: accent.withOpacity(0.14),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: accent),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: _setupTitleStyle(context)),
+              const SizedBox(height: 2),
+              Text(subtitle, style: _setupBodyStyle(context)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _workerTerminalIdSection(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> workers,
+  ) {
+    final mapped = workers
+        .where((doc) => _workerTerminalId(doc.data()).isNotEmpty)
+        .length;
+    return _setupPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _setupHeader(
+            icon: Icons.badge_rounded,
+            title: 'Worker terminal IDs',
+            subtitle:
+                '$mapped of ${workers.length} workers mapped. Tap a worker card to add or edit the device ID.',
+          ),
+          const SizedBox(height: 14),
+          if (workers.isEmpty)
+            const ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.people_outline_rounded),
+              title: Text('No workers yet'),
+              subtitle: Text('Create worker accounts before mapping device IDs.'),
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final twoColumns = constraints.maxWidth >= 640;
+                return Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: workers
+                      .map(
+                        (doc) => SizedBox(
+                          width: twoColumns
+                              ? (constraints.maxWidth - 10) / 2
+                              : constraints.maxWidth,
+                          child: _workerTerminalIdCard(doc),
+                        ),
+                      )
+                      .toList(),
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _workerTerminalIdCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> worker,
+  ) {
+    final data = worker.data();
+    final name = _workerDisplayName(data, worker.id);
+    final email = (data['email'] ?? '').toString();
+    final role = (data['role'] ?? 'worker').toString();
+    final terminalId = _workerTerminalId(data);
+    final isMapped = terminalId.isNotEmpty;
+    final color = isMapped ? Colors.green : Colors.deepOrange;
+    final scheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: Color.alphaBlend(color.withOpacity(0.08), scheme.surface),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => _showWorkerTerminalIdDialog(worker),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withOpacity(0.32)),
+          ),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: color.withOpacity(0.16),
+                child: Icon(
+                  isMapped ? Icons.fingerprint_rounded : Icons.edit_rounded,
+                  color: color,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.body1.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      email.isEmpty ? role : '$role | $email',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _setupBodyStyle(context),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      isMapped ? 'Device ID: $terminalId' : 'No device ID set',
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _endpointGuideCard() {
-    return Card(
+    return _setupPanel(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.zero,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Cloud endpoint details', style: AppTextStyles.heading5),
-            const SizedBox(height: 8),
-            const SelectableText(
+            _setupHeader(
+              icon: Icons.cloud_done_rounded,
+              title: 'Cloud endpoint details',
+              subtitle:
+                  'The physical device uses Server IP and SerPortNo; the relay forwards traffic to Firebase.',
+              color: Colors.teal,
+            ),
+            const SizedBox(height: 12),
+            SelectableText(
               'https://us-central1-manage-care-1e96b.cloudfunctions.net/iclock',
+              style: AppTextStyles.monospace.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Use this as the ADMS/cloud server endpoint. Some F16 firmware splits this into host, port, and path fields.',
-              style: AppTextStyles.caption,
+              'This unit stores Server Name as $_zkStoredServerName, but testing should use the editable Server IP and SerPortNo fields. Point Server IP at an IP-based ADMS relay on port $_zkDefaultRelayPort. The relay should forward /iclock/cdata and /iclock/getrequest traffic to https://$_admsFirebaseHost/$_admsFirebasePath.',
+              style: _setupBodyStyle(context),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _packageStrategyCard() {
+    return _setupPanel(
+      child: Padding(
+        padding: EdgeInsets.zero,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _setupHeader(
+              icon: Icons.hub_rounded,
+              title: 'Connection strategy',
+              subtitle:
+                  'ADMS handles live sync; LAN tools are for local admin checks.',
+              color: Colors.green,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Use ADMS push for production attendance. Use flutter_zkteco LAN tools to test connection, pull terminal users, and pull logs when this app is on the same network as the device.',
+              style: _setupBodyStyle(context),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: const [
+                Chip(
+                  avatar: Icon(Icons.cloud_done_rounded, size: 18),
+                  label: Text('ADMS live sync'),
+                ),
+                Chip(
+                  avatar: Icon(Icons.router_rounded, size: 18),
+                  label: Text('LAN admin tools'),
+                ),
+                Chip(
+                  avatar: Icon(Icons.badge_rounded, size: 18),
+                  label: Text('Worker ID mapping'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _manualGuideSection() {
+    return _setupPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _setupHeader(
+            icon: Icons.menu_book_rounded,
+            title: 'Device manual notes',
+            subtitle:
+                'Quick reference from the fingerprint and facial time attendance guide.',
+            color: Colors.indigo,
+          ),
+          const SizedBox(height: 14),
+          _manualInfoTile(
+            icon: Icons.keyboard_alt_rounded,
+            title: 'Keypad',
+            text:
+                'MENU opens settings, OK confirms, ESC exits, up/down moves through options, and 0 changes input method while editing.',
+          ),
+          _manualInfoTile(
+            icon: Icons.person_add_alt_1_rounded,
+            title: 'Add a user',
+            text:
+                'MENU -> User -> Enroll. Enter the device ID and name, then register face, finger, card, or password.',
+          ),
+          _manualInfoTile(
+            icon: Icons.manage_accounts_rounded,
+            title: 'Browse or modify',
+            text:
+                'MENU -> User -> Browse opens registered users. Select a user to edit ID, name, card, password, position, or privilege.',
+          ),
+          _manualInfoTile(
+            icon: Icons.admin_panel_settings_rounded,
+            title: 'Privileges',
+            text:
+                'Use Admin for managers who can operate settings. Keep ordinary staff as User so attendance data and setup stay protected.',
+          ),
+          _manualInfoTile(
+            icon: Icons.download_rounded,
+            title: 'Download records',
+            text:
+                'USB download supports Report.xls and Log.txt. The manual recommends FAT32 USB drives under 32GB from common brands.',
+          ),
+          _manualInfoTile(
+            icon: Icons.router_rounded,
+            title: 'Network',
+            text:
+                'For TCP/IP, set Server Req to Yes, Port No to 5005, SerPortNo to 7005, and keep the device time zone correct.',
+          ),
+          _manualInfoTile(
+            icon: Icons.wifi_rounded,
+            title: 'WiFi',
+            text:
+                'For WiFi, enable WiFi, enable DHCP if needed, search for the network, choose it, then enter the password.',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _manualInfoTile({
+    required IconData icon,
+    required String title,
+    required String text,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: scheme.primary.withOpacity(0.78), size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTextStyles.body1.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: scheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(text, style: _setupBodyStyle(context)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
