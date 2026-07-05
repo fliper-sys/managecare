@@ -469,9 +469,9 @@ class AnalyticsProvider extends ChangeNotifier {
     if (_businessId == null) return [];
 
     try {
-      Map<String, double> revenueByPeriod = {};
-
+      final trendEntries = <Map<String, dynamic>>[];
       var currentDate = startDate;
+
       while (currentDate.isBefore(endDate)) {
         final periodEndDate = _getNextPeriodDate(currentDate, period);
         final adjustedEndDate =
@@ -494,14 +494,16 @@ class AnalyticsProvider extends ChangeNotifier {
         }
 
         final key = _formatPeriodKey(currentDate, period);
-        revenueByPeriod[key] = periodRevenue;
+        trendEntries.add({
+          'period': key,
+          'revenue': periodRevenue,
+          'date': currentDate,
+        });
 
         currentDate = adjustedEndDate;
       }
 
-      return revenueByPeriod.entries
-          .map((e) => {'period': e.key, 'revenue': e.value})
-          .toList();
+      return trendEntries;
     } catch (e) {
       debugPrint('[AnalyticsProvider] Error getting revenue trend: $e');
       return [];

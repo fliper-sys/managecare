@@ -69,6 +69,21 @@ Use `flutter_zkteco` for:
 - Pull user list to help map terminal IDs to app workers.
 - Compare terminal users against worker cards in `Attendance -> Device Setup`.
 
+LAN connection timeout checklist:
+
+- Run LAN tools from Android, Windows, or another native Flutter target. Flutter
+  web/Chrome cannot open raw TCP sockets to the terminal.
+- Use the terminal `IP Address` from `Network -> Ethernet` or `Network -> WIFI`,
+  not the ADMS `Server IP`.
+- The phone, tablet, or computer running the app must be on the same local
+  network as the terminal.
+- Confirm the saved device `Ethernet Port No` matches the terminal `Port No`.
+  The photographed manual/device screens show `5005`.
+- If the terminal is on guest WiFi, disable client isolation or move the app
+  device to the same normal LAN.
+- If TCP socket opens but the ZKTeco handshake fails, check the terminal
+  communication password and whether LAN SDK/TCP-IP access is enabled.
+
 Do not rely on `flutter_zkteco` alone for:
 
 - Cloud/offsite attendance sync.
@@ -360,7 +375,8 @@ Attendance -> Device Setup -> Add F16 Device
 Enter:
 
 - Device name: example `Hippoint F16 Main Gate`
-- LAN IP address: the local IP shown on the device, optional for ADMS push
+- Device LAN IP address: the local IP shown on the device; required for Test
+  LAN, Pull users, and Pull logs
 - Ethernet Port No: `5005`, matching the photographed Ethernet screen
 - Stored Server Name: `www.fkweb.com`
 - Server IP: the public IP of your ADMS relay/server

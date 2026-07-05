@@ -41,6 +41,9 @@ function forward(req, res, body) {
       },
     },
     (upstreamRes) => {
+      console.log(
+        `[zkteco-adms-relay] upstream ${upstreamRes.statusCode} ${req.method} ${upstreamPath}`
+      );
       res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
       upstreamRes.pipe(res);
     }

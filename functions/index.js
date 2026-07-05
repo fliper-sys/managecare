@@ -1040,12 +1040,22 @@ exports.iclock = functions.https.onRequest(async (req, res) => {
   const serial = (req.query.SN || req.query.sn || '').toString().trim();
   const table = (req.query.table || '').toString().trim().toUpperCase();
   const path = (req.path || req.url || '').split('?')[0].toLowerCase();
+  console.log('[iclock] request', {
+    method: req.method,
+    path,
+    serial,
+    table,
+    options: (req.query.options || '').toString(),
+    remoteAddress: req.ip || req.headers['x-forwarded-for'] || '',
+  });
 
   try {
     if (req.method === 'GET' && isAdmsEndpoint(path, 'cdata', req.query)) {
       if ((req.query.options || '').toString().toLowerCase() === 'all') {
+        console.log('[iclock] sending ADMS config', { serial: serial || 'UNKNOWN' });
         return textResponse(res, 200, admsConfig(serial || 'UNKNOWN'));
       }
+      console.log('[iclock] cdata GET OK', { serial });
       return textResponse(res, 200, 'OK');
     }
 
@@ -1059,6 +1069,7 @@ exports.iclock = functions.https.onRequest(async (req, res) => {
       // The terminal polls this endpoint for queued commands. We do not manage
       // remote enrollment yet, so return OK/no-op. Later this can read a
       // business attendance_device_commands subcollection.
+      console.log('[iclock] getrequest/devicecmd OK', { serial });
       return textResponse(res, 200, 'OK');
     }
 
@@ -1073,6 +1084,17 @@ exports.iclock = functions.https.onRequest(async (req, res) => {
       // unmodified bytes as req.rawBody; using req.body can corrupt ATTLOG rows.
       const rawBody = req.rawBody ? req.rawBody.toString('utf8') : '';
       const rows = parseAttlog(rawBody);
+      console.log('[iclock] ATTLOG received', {
+        serial,
+        rawBytes: req.rawBody ? req.rawBody.length : 0,
+        rowCount: rows.length,
+        sample: rows.slice(0, 3).map((row) => ({
+          terminalUserId: row.terminalUserId,
+          punchTime: row.punchTime ? row.punchTime.toISOString() : null,
+          rawStatusCode: row.rawStatusCode,
+          verifyMethod: row.verifyMethod,
+        })),
+      });
       const device = await resolveAttendanceDevice(serial);
       const businessId = device ? device.businessId : '';
       const batch = db.batch();
@@ -1192,9 +1214,20 @@ exports.iclock = functions.https.onRequest(async (req, res) => {
       }
 
       await batch.commit();
+      console.log('[iclock] ATTLOG processed', {
+        serial,
+        businessId,
+        rows: rows.length,
+      });
       return textResponse(res, 200, 'OK');
     }
 
+    console.log('[iclock] unhandled request', {
+      method: req.method,
+      path,
+      serial,
+      table,
+    });
     return textResponse(res, 404, 'Not Found');
   } catch (error) {
     console.error('[iclock] ADMS request failed', {

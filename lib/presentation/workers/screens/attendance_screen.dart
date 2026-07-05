@@ -43,6 +43,28 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         .collection(name);
   }
 
+  void _lanDebugLog(String message) {
+    debugPrint('[AttendanceLAN] $message');
+  }
+
+  String? _normalizeIpv4Address(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return '';
+
+    final parts = trimmed.split('.');
+    if (parts.length != 4) return null;
+
+    final octets = <int>[];
+    for (final part in parts) {
+      if (part.isEmpty) return null;
+      final octet = int.tryParse(part);
+      if (octet == null || octet < 0 || octet > 255) return null;
+      octets.add(octet);
+    }
+
+    return octets.join('.');
+  }
+
   bool _canManageAttendance(AuthProvider auth) {
     final user = auth.currentUser;
     if (auth.isOwnerUser || auth.isAdminUser) return true;
@@ -205,7 +227,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   TextField(
                     controller: ipController,
                     decoration: const InputDecoration(
-                      labelText: 'LAN IP address (optional)',
+                      labelText: 'Device LAN IP address',
+                      helperText:
+                          'Use the IP Address shown under Ethernet/WiFi on the terminal.',
                     ),
                   ),
                   TextField(
@@ -255,12 +279,25 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     if (!confirmed) return;
 
+    final normalizedIp = _normalizeIpv4Address(ipController.text);
+    if (normalizedIp == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Enter a valid terminal LAN IP address, for example 192.168.0.100.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final payload = {
       'name': nameController.text.trim().isEmpty
           ? 'ZKTeco / Hippoint F16'
           : nameController.text.trim(),
       'model': 'F16',
-      'ipAddress': ipController.text.trim(),
+      'ipAddress': normalizedIp,
       'port': int.tryParse(ethernetPortController.text.trim()) ?? _zkEthernetPort,
       'ethernetPort': int.tryParse(ethernetPortController.text.trim()) ??
           _zkEthernetPort,
@@ -538,17 +575,24 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   String _deviceLanIp(Map<String, dynamic> data) {
-    return (data['ipAddress'] ?? data['serverIp'] ?? '').toString().trim();
+    final rawValue = (data['ipAddress'] ?? '').toString().trim();
+    final value = _normalizeIpv4Address(rawValue) ?? rawValue;
+    _lanDebugLog('resolved device LAN IP="$value"');
+    return value;
   }
 
   int _deviceLanPort(Map<String, dynamic> data) {
     final value = data['ethernetPort'] ?? data['port'] ?? _zkEthernetPort;
-    if (value is num) return value.toInt();
-    return int.tryParse(value.toString()) ?? _zkEthernetPort;
+    final port = value is num
+        ? value.toInt()
+        : int.tryParse(value.toString()) ?? _zkEthernetPort;
+    _lanDebugLog('resolved device LAN port=$port raw="$value"');
+    return port;
   }
 
   String? _devicePassword(Map<String, dynamic> data) {
     final value = (data['password'] ?? data['commPassword'] ?? '').toString().trim();
+    _lanDebugLog('resolved device passwordSet=${value.isNotEmpty}');
     return value.isEmpty ? null : value;
   }
 
@@ -556,6 +600,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     String label,
     Future<T> Function() action,
   ) async {
+    _lanDebugLog('operation start "$label"');
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -576,9 +621,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     try {
       final result = await action();
+      _lanDebugLog('operation success "$label" resultType=${result.runtimeType}');
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
       return result;
     } catch (error) {
+      _lanDebugLog('operation failed "$label" error=$error');
       if (mounted) {
         Navigator.of(context, rootNavigator: true).pop();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -590,11 +637,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _testLanConnection(Map<String, dynamic> device) async {
+    _lanDebugLog(
+      'Test LAN tapped name=${device['name'] ?? '-'} serial=${device['serialNumber'] ?? '-'} serverIp=${device['serverIp'] ?? '-'}',
+    );
     final ip = _deviceLanIp(device);
     final port = _deviceLanPort(device);
     if (ip.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter the device LAN IP first.')),
+        const SnackBar(
+          content: Text(
+            'Enter the terminal LAN IP from Ethernet/WiFi settings. Do not use Server IP for LAN tools.',
+          ),
+        ),
       );
       return;
     }
@@ -608,6 +662,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       ),
     );
     if (!mounted || result == null) return;
+    _lanDebugLog(
+      'Test LAN result connected=${result.connected} message="${result.message}" serial=${result.serialNumber ?? '-'}',
+    );
 
     await showDialog<void>(
       context: context,
@@ -616,6 +673,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         content: Text(
           [
             result.message,
+            if (!result.connected)
+              'Use the terminal IP Address from Network -> Ethernet/WiFi, not the Server IP.',
+            if (!result.connected)
+              'The phone/computer running this app must be on the same LAN as the terminal.',
+            if (!result.connected)
+              'Try Port No 5005 first. If the device was changed, edit the saved device port.',
             if (result.serialNumber?.isNotEmpty ?? false)
               'Serial: ${result.serialNumber}',
             if (result.deviceName?.isNotEmpty ?? false)
@@ -640,11 +703,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     Map<String, dynamic> device,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> workers,
   ) async {
+    _lanDebugLog(
+      'Pull users tapped name=${device['name'] ?? '-'} serial=${device['serialNumber'] ?? '-'}',
+    );
     final ip = _deviceLanIp(device);
     final port = _deviceLanPort(device);
     if (ip.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter the device LAN IP first.')),
+        const SnackBar(
+          content: Text(
+            'Enter the terminal LAN IP from Ethernet/WiFi settings before pulling users.',
+          ),
+        ),
       );
       return;
     }
@@ -658,6 +728,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       ),
     );
     if (!mounted || users == null) return;
+    _lanDebugLog('Pull users returned count=${users.length}');
 
     await showDialog<void>(
       context: context,
@@ -707,6 +778,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     ZktecoLanUser terminalUser,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> workers,
   ) async {
+    _lanDebugLog(
+      'Map terminal user requested terminalUserId=${terminalUser.userId} terminalName=${terminalUser.name}',
+    );
     if (workers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Create workers before mapping IDs.')),
@@ -776,6 +850,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }, SetOptions(merge: true));
 
     if (!mounted) return;
+    _lanDebugLog(
+      'Mapped terminalUserId=${terminalUser.userId} to workerId=${worker.id}',
+    );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -786,11 +863,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _pullLanAttendanceLogs(Map<String, dynamic> device) async {
+    _lanDebugLog(
+      'Pull logs tapped name=${device['name'] ?? '-'} serial=${device['serialNumber'] ?? '-'}',
+    );
     final ip = _deviceLanIp(device);
     final port = _deviceLanPort(device);
     if (ip.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter the device LAN IP first.')),
+        const SnackBar(
+          content: Text(
+            'Enter the terminal LAN IP from Ethernet/WiFi settings before pulling logs.',
+          ),
+        ),
       );
       return;
     }
@@ -804,6 +888,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       ),
     );
     if (!mounted || logs == null) return;
+    _lanDebugLog('Pull logs returned count=${logs.length}');
 
     await showDialog<void>(
       context: context,
@@ -2123,7 +2208,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Use ADMS push for production attendance. Use flutter_zkteco LAN tools to test connection, pull terminal users, and pull logs when this app is on the same network as the device.',
+              'Use ADMS push for production attendance. Use flutter_zkteco LAN tools from Android/Windows/native builds to test connection, pull terminal users, and pull logs when this app is on the same network as the device. Flutter web cannot open raw TCP sockets to the terminal.',
               style: _setupBodyStyle(context),
             ),
             const SizedBox(height: 10),

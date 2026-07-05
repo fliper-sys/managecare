@@ -640,14 +640,29 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
       customPermissions,
     );
 
+    final auth = context.read<AuthProvider>();
+    final canEditPermissions = auth.isOwnerUser == true;
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Card(
           child: ExpansionTile(
-            title: Text(
-              roles.map((r) => WorkerPermissions.getRoleDisplayName(r)).join(', '),
-              style: const TextStyle(fontWeight: FontWeight.bold),
+                title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    roles.map((r) => WorkerPermissions.getRoleDisplayName(r)).join(', '),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                if (canEditPermissions)
+                  IconButton(
+                    tooltip: 'Edit permissions',
+                    icon: const Icon(Icons.edit, size: 20),
+                    onPressed: () => _showEditPermissionsDialog(),
+                  ),
+              ],
             ),
             subtitle: Text('${permissions.length} permissions'),
             children: [
@@ -680,6 +695,142 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
           ),
         ),
       ],
+    );
+  }
+
+  void _showEditPermissionsDialog() {
+    final roles = (_worker?['roles'] as List<dynamic>?)?.cast<String>() ?? [(_worker?['role'] as String?) ?? 'staff'];
+    final businessType = widget.businessType ?? (_worker?['businessType'] as String? ?? 'retail');
+    final availableRoles = WorkerPermissions.getAvailableRoles(businessType);
+    String selectedRole = roles.isNotEmpty ? roles.first : 'staff';
+
+    final currentCustom = (_worker?['customPermissions'] as List<dynamic>?)?.cast<String>() ?? [];
+    // Build a broad permissions list: role defaults + admin-grantable + all known permissions
+    final permissionOptionsSet = <String>{}
+      ..addAll(WorkerPermissions.getPermissionsForRole(selectedRole))
+      ..addAll(WorkerPermissions.getAdminGrantablePermissions())
+      ..addAll(WorkerPermissions.getAllPermissions());
+    final permissionOptions = permissionOptionsSet.toList()
+      ..sort((a, b) => WorkerPermissions.getPermissionLabel(a).compareTo(WorkerPermissions.getPermissionLabel(b)));
+
+    final selectedPermissions = <String>{...currentCustom};
+    bool useOverride = currentCustom.contains(WorkerPermissions.permissionOverrideMarker);
+
+    final terminalUserIdController = TextEditingController(text: (_worker?['terminalUserId'] ?? _worker?['deviceUserId'] ?? _worker?['attendanceDeviceUserId'] ?? '') as String? ?? '');
+
+    final isTargetOwner = (_worker?['isOwner'] == true);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setState) {
+        return AlertDialog(
+          title: Text('Edit Permissions for ${_worker?['name'] ?? 'worker'}'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Align(alignment: Alignment.centerLeft, child: Text('Role')),
+                  const SizedBox(height: 8),
+                  if (isTargetOwner)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.0),
+                      child: Text('This worker is an owner; role changes are disabled here.', style: TextStyle(color: Colors.red)),
+                    ),
+                  ...availableRoles.map((role) => RadioListTile<String>(
+                        title: Text(WorkerPermissions.getRoleDisplayName(role)),
+                        value: role,
+                        groupValue: selectedRole,
+                        onChanged: isTargetOwner
+                            ? null
+                            : (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  selectedRole = value;
+                                  // adapt selected permissions to new role defaults if no custom override
+                                  if (!useOverride) {
+                                    selectedPermissions
+                                      ..clear()
+                                      ..addAll(WorkerPermissions.getPermissionsForRole(value));
+                                  }
+                                });
+                              },
+                      )),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: terminalUserIdController,
+                    decoration: const InputDecoration(
+                      labelText: 'Attendance terminal user ID',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Use custom permission override'),
+                    value: useOverride,
+                    onChanged: (v) {
+                      setState(() {
+                        useOverride = v == true;
+                        if (!useOverride) {
+                          // revert to role defaults
+                          selectedPermissions
+                            ..clear()
+                            ..addAll(WorkerPermissions.getPermissionsForRole(selectedRole));
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  Align(alignment: Alignment.centerLeft, child: Text('Selectable permissions', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600))),
+                  const SizedBox(height: 8),
+                  ...permissionOptions.map((permission) => CheckboxListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(WorkerPermissions.getPermissionLabel(permission)),
+                        value: selectedPermissions.contains(permission),
+                        onChanged: (value) {
+                          setState(() {
+                            if (value == true) selectedPermissions.add(permission); else selectedPermissions.remove(permission);
+                          });
+                        },
+                      )),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () async {
+              // Build final permissions list
+              final savedPermissions = <String>[];
+              if (useOverride) savedPermissions.add(WorkerPermissions.permissionOverrideMarker);
+              savedPermissions.addAll(selectedPermissions.where((p) => p != WorkerPermissions.permissionOverrideMarker));
+
+              final updateMap = <String, dynamic>{
+                'role': selectedRole,
+                'roles': [selectedRole],
+                'customPermissions': savedPermissions,
+                'permissions': savedPermissions,
+                'terminalUserId': terminalUserIdController.text.trim(),
+                'deviceUserId': terminalUserIdController.text.trim(),
+                'attendanceDeviceUserId': terminalUserIdController.text.trim(),
+                'updatedAt': DateTime.now(),
+              };
+
+              try {
+                final workersProvider = context.read<WorkersProvider>();
+                await workersProvider.updateWorker(widget.workerId, updateMap, businessId: widget.businessId, roles: [selectedRole]);
+                await _loadWorker();
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Worker permissions updated')));
+              } catch (e) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update: $e')));
+              }
+              Navigator.of(ctx).pop();
+            }, child: const Text('Update')),
+          ],
+        );
+      }),
     );
   }
 

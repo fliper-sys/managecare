@@ -15,6 +15,45 @@ import '../../../providers/business_provider.dart';
 import '../../../widgets/custom_app_bar.dart';
 import '../../../widgets/date_range_selector.dart';
 
+DateTime? _parseChartDate(dynamic value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is Timestamp) return value.toDate();
+  if (value is String) {
+    return DateTime.tryParse(value);
+  }
+  return null;
+}
+
+String buildRevenueTrendLabel(
+  Map<String, dynamic> item,
+  String selectedPeriod,
+  int index,
+) {
+  final parsedDate = _parseChartDate(item['date'] ?? item['periodDate']);
+  final fallbackPeriod = item['period']?.toString() ?? '';
+
+  if (selectedPeriod == 'daily') {
+    if (parsedDate != null) {
+      return DateFormat('d MMM').format(parsedDate);
+    }
+    return fallbackPeriod.isNotEmpty ? fallbackPeriod : 'Day ${index + 1}';
+  }
+
+  if (selectedPeriod == 'weekly') {
+    if (parsedDate != null) {
+      return DateFormat('d MMM').format(parsedDate);
+    }
+    return fallbackPeriod.isNotEmpty ? fallbackPeriod : 'W${index + 1}';
+  }
+
+  if (parsedDate != null) {
+    return DateFormat('MMM').format(parsedDate);
+  }
+
+  return fallbackPeriod.isNotEmpty ? fallbackPeriod : 'M${index + 1}';
+}
+
 class AdvancedAnalyticsDashboardScreen extends StatefulWidget {
   const AdvancedAnalyticsDashboardScreen({super.key});
 
@@ -771,16 +810,7 @@ class _AdvancedAnalyticsDashboardScreenState
                 final item = trendData[index];
                 String label = '';
 
-                if (_selectedPeriod == 'daily') {
-                  label = DateFormat('d MMM').format(item['date']);
-                } else if (_selectedPeriod == 'weekly') {
-                  final date = item['date'];
-                  label = date is DateTime
-                      ? DateFormat('d MMM').format(date)
-                      : 'W${index + 1}';
-                } else {
-                  label = DateFormat('MMM').format(item['date']);
-                }
+                label = buildRevenueTrendLabel(item, _selectedPeriod, index);
                 
                 if (trendData.length > 5 && index % 2 != 0) {
                   return const SizedBox();
