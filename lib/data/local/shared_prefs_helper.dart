@@ -78,5 +78,14 @@ class SharedPrefsHelper {
     await _prefs?.remove('user_id');
     return true;
   }
+
+  // Generic string getter/setter by key
+  Future<bool> setStringForKey(String key, String value) async {
+    return await _prefs?.setString(key, value) ?? false;
+  }
+
+  String? getStringForKey(String key) {
+    return _prefs?.getString(key);
+  }
 }
 

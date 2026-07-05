@@ -20,6 +20,7 @@ import '../../../../services/notification_and_email_service.dart';
 import 'procurement_history_screen.dart';
 import 'product_procurements_screen.dart';
 import '../../../../data/repositories/procurement_repository.dart';
+import '../../../../data/local/shared_prefs_helper.dart';
 
 class ProcurementScreen extends StatefulWidget {
   const ProcurementScreen({super.key});
@@ -189,6 +190,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       }
 
       if (mounted) {
+        // attempt to load saved category for this business
+        final key = 'procurement_selected_category_${businessId ?? ''}';
+        await SharedPrefsHelper.instance.init();
+        final savedCat = SharedPrefsHelper.instance.getStringForKey(key);
         setState(() {
           _products = allProducts;
           _filteredProducts = allProducts;
@@ -199,7 +204,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
             if (c.isNotEmpty) cats.add(c);
           }
           _categories = ['All', ...cats.toList()..sort()];
-          _selectedCategory = null;
+          _selectedCategory = (savedCat != null && savedCat.isNotEmpty && _categories.contains(savedCat)) ? savedCat : null;
           _isLoading = false;
         });
       }
@@ -509,7 +514,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                         return ChoiceChip(
                           label: Text(cat),
                           selected: isSelected,
-                          onSelected: (_) {
+                          onSelected: (_) async {
                             setState(() {
                               if (cat == 'All') {
                                 _selectedCategory = null;
@@ -518,6 +523,18 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                               }
                               _filterProducts();
                             });
+                            try {
+                              final businessProvider = context.read<BusinessProvider>();
+                              final businessIdKey = businessProvider.currentBusiness?.id ?? '';
+                              final key = 'procurement_selected_category_$businessIdKey';
+                              await SharedPrefsHelper.instance.init();
+                              if (_selectedCategory == null) {
+                                // clear saved selection
+                                await SharedPrefsHelper.instance.setStringForKey(key, '');
+                              } else {
+                                await SharedPrefsHelper.instance.setStringForKey(key, _selectedCategory!);
+                              }
+                            } catch (_) {}
                           },
                         );
                       },
