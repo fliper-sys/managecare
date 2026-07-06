@@ -335,6 +335,8 @@ class _HomeTabState extends State<_HomeTab> {
 
   // Date range state
   late DateTimeRange _selectedDateRange;
+  String _selectedMetricRangeLabel = 'Today';
+  String _actionFilter = 'all';
   String? _lastBusinessId;
   String? _lastBusinessType;
   bool _isLoadingMetrics = false; // Prevent simultaneous loads
@@ -361,12 +363,7 @@ class _HomeTabState extends State<_HomeTab> {
     _workersProvider = context.read<WorkersProvider>();
     _customerProvider = context.read<CustomerProvider>();
 
-    // Initialize date range to today
-    final now = DateTime.now();
-    _selectedDateRange = DateTimeRange(
-      start: DateTime(now.year, now.month, now.day),
-      end: now.add(const Duration(days: 1)),
-    );
+    _selectedDateRange = _rangeForMetricLabel(_selectedMetricRangeLabel);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadSalesMetrics();
@@ -469,22 +466,154 @@ class _HomeTabState extends State<_HomeTab> {
         businessProvider.currentBusiness?.businessType ?? 'retail';
     setState(() {
       _allItems = _getQuickActionItems(businessType);
-      _filteredItems = _allItems;
     });
+    _filterItems();
   }
 
   void _filterItems() {
-    final query = _searchController.text.toLowerCase();
     setState(() {
-      if (query.isEmpty) {
-        _filteredItems = _allItems;
-      } else {
-        _filteredItems = _allItems.where((item) {
-          return item.title.toLowerCase().contains(query) ||
-              item.subtitle.toLowerCase().contains(query);
-        }).toList();
-      }
+      _filteredItems = _allItems.where(_matchesActionVisibility).toList();
     });
+  }
+
+  bool _matchesActionVisibility(_QuickActionItem item) {
+    final query = _searchController.text.toLowerCase();
+    final matchesQuery = query.isEmpty ||
+        item.title.toLowerCase().contains(query) ||
+        item.subtitle.toLowerCase().contains(query);
+    return matchesQuery && _matchesActionFilter(item);
+  }
+
+  bool _matchesActionFilter(_QuickActionItem item) {
+    if (_actionFilter == 'all') return true;
+    final text = '${item.title} ${item.subtitle} ${item.route ?? ''}'
+        .toLowerCase();
+    switch (_actionFilter) {
+      case 'sales':
+        return text.contains('sale') ||
+            text.contains('pos') ||
+            text.contains('order') ||
+            text.contains('checkout');
+      case 'inventory':
+        return text.contains('inventory') ||
+            text.contains('stock') ||
+            text.contains('product') ||
+            text.contains('procurement') ||
+            text.contains('supplier');
+      case 'people':
+        return text.contains('customer') ||
+            text.contains('worker') ||
+            text.contains('staff') ||
+            text.contains('tenant') ||
+            text.contains('guest');
+      case 'reports':
+        return text.contains('report') ||
+            text.contains('analytics') ||
+            text.contains('history') ||
+            text.contains('trend');
+      case 'settings':
+        return text.contains('setting') ||
+            text.contains('profile') ||
+            text.contains('notification') ||
+            text.contains('support');
+    }
+    return true;
+  }
+
+  DateTimeRange _rangeForMetricLabel(String label) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    switch (label) {
+      case 'This Week':
+        return DateTimeRange(
+          start: today.subtract(Duration(days: today.weekday - 1)),
+          end: now.add(const Duration(days: 1)),
+        );
+      case 'This Month':
+        return DateTimeRange(
+          start: DateTime(now.year, now.month),
+          end: DateTime(now.year, now.month + 1),
+        );
+      case 'This Year':
+        return DateTimeRange(
+          start: DateTime(now.year),
+          end: DateTime(now.year + 1),
+        );
+      case 'Today':
+      default:
+        return DateTimeRange(
+          start: today,
+          end: now.add(const Duration(days: 1)),
+        );
+    }
+  }
+
+  Future<void> _selectMetricRange() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        const labels = ['Today', 'This Week', 'This Month', 'This Year'];
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final label in labels)
+                RadioListTile<String>(
+                  title: Text(label),
+                  value: label,
+                  groupValue: _selectedMetricRangeLabel,
+                  onChanged: (value) => Navigator.pop(context, value),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selected == null || selected == _selectedMetricRangeLabel) return;
+    setState(() {
+      _selectedMetricRangeLabel = selected;
+      _selectedDateRange = _rangeForMetricLabel(selected);
+      _loadingSalesMetrics = true;
+      _loadingRealEstateMetrics = true;
+    });
+    await _loadSalesMetrics();
+  }
+
+  Future<void> _showActionFilterSheet() async {
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        const filters = <String, String>{
+          'all': 'All',
+          'sales': 'Sales',
+          'inventory': 'Inventory',
+          'people': 'People',
+          'reports': 'Reports',
+          'settings': 'Settings',
+        };
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final entry in filters.entries)
+                RadioListTile<String>(
+                  title: Text(entry.value),
+                  value: entry.key,
+                  groupValue: _actionFilter,
+                  onChanged: (value) => Navigator.pop(context, value),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selected == null || selected == _actionFilter) return;
+    _actionFilter = selected;
+    _filterItems();
   }
 
   /// Debounced sales metrics reload
@@ -858,7 +987,9 @@ class _HomeTabState extends State<_HomeTab> {
                       child: Text(
                         'Quick Actions',
                         style: AppTextStyles.heading5.copyWith(
-                          color: Colors.white,
+                          color: isDark
+                              ? Colors.white
+                              : Theme.of(context).colorScheme.onSurface,
                           fontWeight: FontWeight.w900,
                           fontSize: 17,
                         ),
@@ -867,7 +998,9 @@ class _HomeTabState extends State<_HomeTab> {
                     TextButton(
                       onPressed: widget.onOpenWorkTab,
                       style: TextButton.styleFrom(
-                        foregroundColor: Colors.white.withOpacity(0.70),
+                        foregroundColor: isDark
+                            ? Colors.white.withOpacity(0.70)
+                            : Theme.of(context).colorScheme.primary,
                         padding: EdgeInsets.zero,
                         minimumSize: const Size(74, 36),
                       ),
@@ -1151,7 +1284,21 @@ class _HomeTabState extends State<_HomeTab> {
                     }
                   }
 
-                  return _buildQuickActionsGrid(isDark, actions)
+                  final visibleActions = actions
+                      .where(_matchesActionVisibility)
+                      .fold<List<_QuickActionItem>>(
+                    <_QuickActionItem>[],
+                    (unique, item) {
+                      final key = '${item.title}|${item.route}|${item.subtitle}';
+                      final exists = unique.any((existing) =>
+                          '${existing.title}|${existing.route}|${existing.subtitle}' ==
+                          key);
+                      if (!exists) unique.add(item);
+                      return unique;
+                    },
+                  );
+
+                  return _buildQuickActionsGrid(isDark, visibleActions)
                       .animate()
                       .fadeIn(duration: 500.ms, delay: 450.ms);
                 }),
@@ -1653,15 +1800,20 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildSearchBar(bool isDark) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final fieldColor = isDark ? const Color(0xFF091224) : colorScheme.surface;
+    final textColor = isDark ? Colors.white : colorScheme.onSurface;
+    final borderColor =
+        isDark ? Colors.white.withOpacity(0.08) : colorScheme.outlineVariant;
     return Container(
       height: 56,
       decoration: BoxDecoration(
-        color: const Color(0xFF091224),
+        color: fieldColor,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: borderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.18),
+            color: Colors.black.withOpacity(isDark ? 0.18 : 0.06),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -1670,17 +1822,17 @@ class _HomeTabState extends State<_HomeTab> {
       child: TextField(
         controller: _searchController,
         style: AppTextStyles.body1.copyWith(
-          color: Colors.white,
+          color: textColor,
           fontWeight: FontWeight.w500,
         ),
         decoration: InputDecoration(
           hintText: 'Search actions, features...',
           hintStyle: AppTextStyles.body2.copyWith(
-            color: Colors.white.withOpacity(0.38),
+            color: textColor.withOpacity(0.42),
           ),
           prefixIcon: Icon(
             Icons.search_rounded,
-            color: Colors.white.withOpacity(0.40),
+            color: textColor.withOpacity(0.48),
             size: 24,
           ),
           suffixIcon: Container(
@@ -1703,6 +1855,8 @@ class _HomeTabState extends State<_HomeTab> {
               onPressed: () {
                 if (_searchController.text.isNotEmpty) {
                   _searchController.clear();
+                } else {
+                  _showActionFilterSheet();
                 }
               },
               icon: Icon(
@@ -1725,6 +1879,7 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildBusinessCard(BusinessModel business, bool isDark) {
+    final colorScheme = Theme.of(context).colorScheme;
     final businessProvider = context.watch<BusinessProvider>();
     final isSyncingThisBusiness = businessProvider.isSwitchingBusiness &&
         businessProvider.pendingBusinessId == business.id;
@@ -1736,6 +1891,26 @@ class _HomeTabState extends State<_HomeTab> {
     final businessInitial = business.name.isNotEmpty
         ? business.name.trim()[0].toUpperCase()
         : '?';
+    final cardGradient = isDark
+        ? const LinearGradient(
+            colors: [Color(0xFF24366E), Color(0xFF182A59), Color(0xFF222D65)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          )
+        : LinearGradient(
+            colors: [
+              colorScheme.primaryContainer.withOpacity(0.92),
+              colorScheme.surface,
+              colorScheme.secondaryContainer.withOpacity(0.72),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          );
+    final cardText = isDark ? Colors.white : colorScheme.onSurface;
+    final mutedCardText =
+        isDark ? Colors.white.withOpacity(0.78) : colorScheme.onSurfaceVariant;
+    final softOverlay =
+        isDark ? Colors.white.withOpacity(0.10) : colorScheme.surface;
 
     return GestureDetector(
       onTap: () => widget.onOpenWorkTab?.call(),
@@ -1743,16 +1918,18 @@ class _HomeTabState extends State<_HomeTab> {
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFF24366E), Color(0xFF182A59), Color(0xFF222D65)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+          gradient: cardGradient,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: const Color(0xFF5F6EFF).withOpacity(0.34)),
+          border: Border.all(
+            color: isDark
+                ? const Color(0xFF5F6EFF).withOpacity(0.34)
+                : colorScheme.outlineVariant,
+          ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFF1C2D73).withOpacity(0.40),
+              color: isDark
+                  ? const Color(0xFF1C2D73).withOpacity(0.40)
+                  : Colors.black.withOpacity(0.07),
               blurRadius: 24,
               offset: const Offset(0, 14),
             ),
@@ -1771,9 +1948,13 @@ class _HomeTabState extends State<_HomeTab> {
                       width: 78,
                       height: 78,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.07),
+                        color: softOverlay,
                         borderRadius: BorderRadius.circular(19),
-                        border: Border.all(color: Colors.white.withOpacity(0.10)),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.white.withOpacity(0.10)
+                              : colorScheme.outlineVariant,
+                        ),
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(18),
@@ -1784,8 +1965,8 @@ class _HomeTabState extends State<_HomeTab> {
                                 errorWidget: (context, url, error) => Center(
                                   child: Text(
                                     businessInitial,
-                                    style: const TextStyle(
-                                      color: Colors.white,
+                                    style: TextStyle(
+                                      color: cardText,
                                       fontSize: 34,
                                       fontWeight: FontWeight.w800,
                                     ),
@@ -1795,8 +1976,8 @@ class _HomeTabState extends State<_HomeTab> {
                             : Center(
                                 child: Text(
                                   businessInitial,
-                                  style: const TextStyle(
-                                    color: Colors.white,
+                                  style: TextStyle(
+                                    color: cardText,
                                     fontSize: 34,
                                     fontWeight: FontWeight.w800,
                                   ),
@@ -1813,7 +1994,12 @@ class _HomeTabState extends State<_HomeTab> {
                         decoration: BoxDecoration(
                           color: const Color(0xFF27D35F),
                           shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFF24366E), width: 2),
+                          border: Border.all(
+                            color: isDark
+                                ? const Color(0xFF24366E)
+                                : colorScheme.surface,
+                            width: 2,
+                          ),
                         ),
                       ),
                     ),
@@ -1827,7 +2013,9 @@ class _HomeTabState extends State<_HomeTab> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.10),
+                          color: isDark
+                              ? Colors.white.withOpacity(0.10)
+                              : colorScheme.surface.withOpacity(0.82),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Row(
@@ -1845,7 +2033,7 @@ class _HomeTabState extends State<_HomeTab> {
                             Text(
                               isSyncingThisBusiness ? 'Syncing business' : 'Active business',
                               style: AppTextStyles.caption.copyWith(
-                                color: Colors.white,
+                                color: cardText,
                                 fontWeight: FontWeight.w800,
                                 fontSize: 11,
                               ),
@@ -1859,7 +2047,7 @@ class _HomeTabState extends State<_HomeTab> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTextStyles.heading4.copyWith(
-                          color: Colors.white,
+                          color: cardText,
                           fontSize: 23,
                           fontWeight: FontWeight.w900,
                         ),
@@ -1870,7 +2058,7 @@ class _HomeTabState extends State<_HomeTab> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTextStyles.body2.copyWith(
-                          color: Colors.white.withOpacity(0.78),
+                          color: mutedCardText,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -1878,13 +2066,15 @@ class _HomeTabState extends State<_HomeTab> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0B1428).withOpacity(0.48),
+                          color: isDark
+                              ? const Color(0xFF0B1428).withOpacity(0.48)
+                              : colorScheme.primary.withOpacity(0.10),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           business.subscriptionTier.toUpperCase(),
                           style: AppTextStyles.caption.copyWith(
-                            color: Colors.white,
+                            color: isDark ? Colors.white : colorScheme.primary,
                             fontSize: 10,
                             fontWeight: FontWeight.w900,
                           ),
@@ -1945,8 +2135,11 @@ class _HomeTabState extends State<_HomeTab> {
                       icon: const Icon(Icons.business_center_outlined, size: 19),
                       label: const Text('Open Workspace'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.08),
-                        foregroundColor: Colors.white,
+                        backgroundColor: isDark
+                            ? Colors.white.withOpacity(0.08)
+                            : colorScheme.primary,
+                        foregroundColor:
+                            isDark ? Colors.white : colorScheme.onPrimary,
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(15),
@@ -2015,12 +2208,12 @@ class _HomeTabState extends State<_HomeTab> {
       decoration: BoxDecoration(
         color: isDark
             ? colorScheme.surfaceContainerHighest.withOpacity(0.92)
-            : Colors.white.withOpacity(0.10),
+            : colorScheme.surface.withOpacity(0.82),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isDark
               ? colorScheme.outlineVariant.withOpacity(0.82)
-              : Colors.white.withOpacity(0.10),
+              : colorScheme.outlineVariant,
         ),
       ),
       child: Row(
@@ -2029,7 +2222,7 @@ class _HomeTabState extends State<_HomeTab> {
           Icon(
             icon,
             size: 14,
-            color: isDark ? colorScheme.onSurfaceVariant : Colors.white.withOpacity(0.92),
+            color: isDark ? colorScheme.onSurfaceVariant : colorScheme.primary,
           ),
           const SizedBox(width: 8),
           ConstrainedBox(
@@ -2039,7 +2232,7 @@ class _HomeTabState extends State<_HomeTab> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTextStyles.caption.copyWith(
-                color: isDark ? colorScheme.onSurface : Colors.white,
+                color: colorScheme.onSurface,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -2062,11 +2255,11 @@ class _HomeTabState extends State<_HomeTab> {
       child: IconButton(
         onPressed: onPressed,
         tooltip: tooltip,
-        icon: Icon(icon, color: isDark ? colorScheme.onSurface : Colors.white),
+        icon: Icon(icon, color: colorScheme.onSurface),
         style: IconButton.styleFrom(
           backgroundColor: isDark
               ? colorScheme.surfaceContainerHighest.withOpacity(0.9)
-              : Colors.white.withOpacity(0.14),
+              : colorScheme.surface.withOpacity(0.82),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
@@ -2134,12 +2327,18 @@ class _HomeTabState extends State<_HomeTab> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF101A2F).withOpacity(0.96),
+        color: isDark
+            ? const Color(0xFF101A2F).withOpacity(0.96)
+            : Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withOpacity(0.08)
+              : Theme.of(context).colorScheme.outlineVariant,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.24),
+            color: Colors.black.withOpacity(isDark ? 0.24 : 0.07),
             blurRadius: 22,
             offset: const Offset(0, 12),
           ),
@@ -2171,6 +2370,8 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildMetricTile(_MetricView metric) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = colorScheme.brightness == Brightness.dark;
     return InkWell(
       onTap: metric.route != null ? () => Navigator.pushNamed(context, metric.route!) : null,
       borderRadius: BorderRadius.circular(12),
@@ -2198,7 +2399,7 @@ class _HomeTabState extends State<_HomeTab> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.subtitle2.copyWith(
-                      color: Colors.white,
+                      color: isDark ? Colors.white : colorScheme.onSurface,
                       fontWeight: FontWeight.w900,
                       fontSize: 15,
                     ),
@@ -2209,7 +2410,9 @@ class _HomeTabState extends State<_HomeTab> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyles.caption.copyWith(
-                      color: Colors.white.withOpacity(0.56),
+                      color: isDark
+                          ? Colors.white.withOpacity(0.56)
+                          : colorScheme.onSurfaceVariant,
                       fontSize: 11,
                     ),
                   ),
@@ -2223,40 +2426,52 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildMiniChartTile() {
-    return Padding(
-      padding: const EdgeInsets.only(left: 6, right: 2, top: 6, bottom: 2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: CustomPaint(
-              painter: _MiniChartPainter(),
-              child: const SizedBox.expand(),
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = colorScheme.brightness == Brightness.dark;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: _selectMetricRange,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 6, right: 2, top: 6, bottom: 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: CustomPaint(
+                painter: _MiniChartPainter(),
+                child: const SizedBox.expand(),
+              ),
             ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-            decoration: BoxDecoration(
-              color: const Color(0xFF0B1428).withOpacity(0.72),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'This Week',
-                  style: AppTextStyles.caption.copyWith(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF0B1428).withOpacity(0.72)
+                    : colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _selectedMetricRangeLabel,
+                    style: AppTextStyles.caption.copyWith(
+                      color: isDark ? Colors.white : colorScheme.onSurface,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 3),
-                const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 13),
-              ],
+                  const SizedBox(width: 3),
+                  Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: isDark ? Colors.white : colorScheme.onSurface,
+                    size: 13,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2319,7 +2534,7 @@ class _HomeTabState extends State<_HomeTab> {
         itemBuilder: (context, index) {
           return SizedBox(
             width: 84,
-            child: _buildActionCard(list[index], index, true),
+            child: _buildActionCard(list[index], index, isDark),
           );
         },
       ),
@@ -2327,6 +2542,10 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Widget _buildActionCard(_QuickActionItem item, int index, bool isDark) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final cardColor =
+        isDark ? const Color(0xFF111A30) : colorScheme.surface;
+    final textColor = isDark ? Colors.white : colorScheme.onSurface;
     final handleTap = () {
       if (item.opensSupportWhatsapp) {
         _openSupportWhatsApp();
@@ -2342,12 +2561,16 @@ class _HomeTabState extends State<_HomeTab> {
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: const Color(0xFF111A30),
+          color: cardColor,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Colors.white.withOpacity(0.07)),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withOpacity(0.07)
+                : colorScheme.outlineVariant,
+          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.20),
+              color: Colors.black.withOpacity(isDark ? 0.20 : 0.06),
               blurRadius: 16,
               offset: const Offset(0, 8),
             ),
@@ -2371,7 +2594,7 @@ class _HomeTabState extends State<_HomeTab> {
               textAlign: TextAlign.center,
               overflow: TextOverflow.ellipsis,
               style: AppTextStyles.caption.copyWith(
-                color: Colors.white,
+                color: textColor,
                 fontWeight: FontWeight.w800,
                 fontSize: 11,
                 height: 1.12,
@@ -2384,7 +2607,9 @@ class _HomeTabState extends State<_HomeTab> {
               textAlign: TextAlign.center,
               overflow: TextOverflow.ellipsis,
               style: AppTextStyles.caption.copyWith(
-                color: Colors.white.withOpacity(0.52),
+                color: isDark
+                    ? Colors.white.withOpacity(0.52)
+                    : colorScheme.onSurfaceVariant,
                 fontSize: 9,
                 height: 1.05,
               ),

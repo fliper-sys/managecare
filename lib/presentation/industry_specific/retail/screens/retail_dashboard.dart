@@ -9,7 +9,6 @@ import '../../../../core/constants/routes.dart' show Routes;
 import '../../../../core/theme/colors.dart';
 import '../../../../core/utils/whatsapp_utils.dart';
 
-
 class RetailDashboard extends StatefulWidget {
   final bool isBakery;
 
@@ -45,12 +44,17 @@ class _RetailDashboardState extends State<RetailDashboard> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
     final user = auth.currentUser;
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final accentColor =
         widget.isBakery ? const Color(0xFFFF8A18) : AppColors.primary;
 
     return Scaffold(
-      backgroundColor:
-          widget.isBakery ? const Color(0xFFF8F6F1) : const Color(0xFFF5F8FF),
+      backgroundColor: isDark
+          ? colorScheme.surface
+          : (widget.isBakery
+              ? const Color(0xFFF8F6F1)
+              : const Color(0xFFF5F8FF)),
       body: SafeArea(
         child: Consumer<RetailProvider>(
           builder: (context, retailProvider, _) {
@@ -81,7 +85,9 @@ class _RetailDashboardState extends State<RetailDashboard> {
                         child: _RetailStatCard(
                           label: widget.isBakery ? 'Outlets' : 'Stores',
                           value: '${retailProvider.stores.length}',
-                          caption: widget.isBakery ? 'Active outlets' : 'Active stores',
+                          caption: widget.isBakery
+                              ? 'Active outlets'
+                              : 'Active stores',
                           icon: Icons.storefront_rounded,
                           color: accentColor,
                         ),
@@ -105,11 +111,11 @@ class _RetailDashboardState extends State<RetailDashboard> {
                   Container(
                     padding: const EdgeInsets.all(5),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(18),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
+                          color: Colors.black.withOpacity(isDark ? 0.20 : 0.05),
                           blurRadius: 18,
                           offset: const Offset(0, 8),
                         ),
@@ -142,22 +148,11 @@ class _RetailDashboardState extends State<RetailDashboard> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: quickActions.length,
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 1.95,
-                    ),
-                    itemBuilder: (context, index) => quickActions[index],
-                  ),
+                  _buildSelectedContent(context, retailProvider, quickActions),
                   const SizedBox(height: 24),
                   _RetailCtaCard(
-                    title: widget.isBakery ? 'New Bakery Sale' : 'New Retail Sale',
+                    title:
+                        widget.isBakery ? 'New Bakery Sale' : 'New Retail Sale',
                     subtitle: 'Create a new sale transaction',
                     color: accentColor,
                     onTap: () => Navigator.pushNamed(context, Routes.retailPos),
@@ -177,14 +172,38 @@ class _RetailDashboardState extends State<RetailDashboard> {
     required double totalRevenue,
     required String userName,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final heroText = isDark ? colorScheme.onSurface : const Color(0xFF06111F);
+    final mutedHeroText =
+        isDark ? colorScheme.onSurfaceVariant : Colors.black.withOpacity(0.76);
+    final bubbleColor =
+        isDark ? colorScheme.surfaceContainerHighest : Colors.white;
+    final heroGradient = widget.isBakery
+        ? (isDark
+            ? [
+                const Color(0xFF4A2B08),
+                const Color(0xFF6F3B05),
+                const Color(0xFFD97706),
+              ]
+            : const [
+                Color(0xFFFFF2D8),
+                Color(0xFFFFC56F),
+                Color(0xFFD97706),
+              ])
+        : (isDark
+            ? [
+                colorScheme.primary.withOpacity(0.24),
+                colorScheme.surfaceContainerHighest,
+              ]
+            : [AppColors.primary.withOpacity(0.18), Colors.white]);
+
     return Container(
       margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.fromLTRB(22, 20, 22, 22),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: widget.isBakery
-              ? const [Color(0xFFFFF2D8), Color(0xFFFFC56F), Color(0xFFD97706)]
-              : [AppColors.primary.withOpacity(0.18), Colors.white],
+          colors: heroGradient,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -198,8 +217,8 @@ class _RetailDashboardState extends State<RetailDashboard> {
               Container(
                 width: 58,
                 height: 58,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
+                decoration: BoxDecoration(
+                  color: bubbleColor,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
@@ -218,14 +237,14 @@ class _RetailDashboardState extends State<RetailDashboard> {
                     Text(
                       'Good evening',
                       style: TextStyle(
-                        color: Colors.black.withOpacity(0.76),
+                        color: mutedHeroText,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     Text(
                       widget.isBakery ? 'Bakery' : 'Retail Store',
-                      style: const TextStyle(
-                        color: Color(0xFF06111F),
+                      style: TextStyle(
+                        color: heroText,
                         fontSize: 24,
                         fontWeight: FontWeight.w900,
                       ),
@@ -234,8 +253,8 @@ class _RetailDashboardState extends State<RetailDashboard> {
                       userName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF06111F),
+                      style: TextStyle(
+                        color: heroText,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -271,8 +290,13 @@ class _RetailDashboardState extends State<RetailDashboard> {
             width: 300,
             padding: const EdgeInsets.all(22),
             decoration: BoxDecoration(
-              color: const Color(0xFF071225),
+              color: isDark
+                  ? colorScheme.surface
+                  : const Color(0xFF071225),
               borderRadius: BorderRadius.circular(16),
+              border: isDark
+                  ? Border.all(color: colorScheme.outlineVariant)
+                  : null,
             ),
             child: Row(
               children: [
@@ -315,11 +339,68 @@ class _RetailDashboardState extends State<RetailDashboard> {
     );
   }
 
-  // Helper to switch content based on tabs using Slivers
+  Widget _buildSelectedContent(
+    BuildContext context,
+    RetailProvider retailProvider,
+    List<Widget> quickActions,
+  ) {
+    if (_selectedTabIndex == 0) {
+      final topProducts = retailProvider.products
+          .where((p) => p.stock > 0)
+          .toList()
+        ..sort((a, b) => b.price.compareTo(a.price));
+      final displayed = topProducts.take(10).toList();
+
+      if (displayed.isEmpty) {
+        return _buildEmptyState(
+          widget.isBakery ? 'No bakery items found' : 'No products found',
+        );
+      }
+
+      return Column(
+        children: [
+          for (var index = 0; index < displayed.length; index++)
+            _ProductListTile(product: displayed[index], index: index),
+        ],
+      );
+    } else if (_selectedTabIndex == 1) {
+      final stores = retailProvider.stores;
+      if (stores.isEmpty) {
+        return _buildEmptyState(
+          widget.isBakery
+              ? 'No bakery outlets configured'
+              : 'No stores configured',
+        );
+      }
+
+      return Column(
+        children: [
+          for (var index = 0; index < stores.length; index++)
+            _StoreListTile(store: stores[index], index: index),
+        ],
+      );
+    }
+
+    if (quickActions.isEmpty) return _buildEmptyState('No actions available');
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: quickActions.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 1.95,
+      ),
+      itemBuilder: (context, index) => quickActions[index],
+    );
+  }
+
+  // Kept for older sliver callers if this dashboard is embedded elsewhere.
   Widget _buildSliverContent(
       BuildContext context, RetailProvider retailProvider) {
     if (_selectedTabIndex == 0) {
-      // --- Top Products List ---
       final topProducts = retailProvider.products
           .where((p) => p.stock > 0)
           .toList()
@@ -386,6 +467,24 @@ class _RetailDashboardState extends State<RetailDashboard> {
         ),
       );
     }
+  }
+
+  Widget _buildEmptyState(String message) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.all(40),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(Icons.inbox_outlined,
+                size: 48, color: colorScheme.onSurfaceVariant),
+            const SizedBox(height: 10),
+            Text(message,
+                style: TextStyle(color: colorScheme.onSurfaceVariant)),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildEmptySliver(String message) {
@@ -519,17 +618,22 @@ class _RetailCircleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(24),
       child: Container(
         width: 48,
         height: 48,
-        decoration: const BoxDecoration(
-          color: Colors.white,
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest,
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: const Color(0xFF06111F)),
+        child: Icon(
+          icon,
+          color: isDark ? colorScheme.onSurface : const Color(0xFF06111F),
+        ),
       ),
     );
   }
@@ -554,14 +658,17 @@ class _RetailStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colorScheme.surface,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colorScheme.outlineVariant),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withOpacity(isDark ? 0.18 : 0.06),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -583,30 +690,30 @@ class _RetailStatCard extends StatelessWidget {
               ),
               const Spacer(),
               if (showChevron)
-                const Icon(Icons.chevron_right_rounded,
-                    color: Color(0xFF687082)),
+                Icon(Icons.chevron_right_rounded,
+                    color: colorScheme.onSurfaceVariant),
             ],
           ),
           const SizedBox(height: 12),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w900,
-              color: Color(0xFF06111F),
+              color: colorScheme.onSurface,
             ),
           ),
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontWeight: FontWeight.w700,
-              color: Color(0xFF06111F),
+              color: colorScheme.onSurface,
             ),
           ),
           const Divider(height: 24),
           Text(
             caption,
-            style: TextStyle(color: Colors.black.withOpacity(0.48)),
+            style: TextStyle(color: colorScheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -631,6 +738,8 @@ class _RetailSegment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final unselectedColor = colorScheme.onSurface;
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
@@ -646,7 +755,7 @@ class _RetailSegment extends StatelessWidget {
             children: [
               Icon(icon,
                   size: 18,
-                  color: isSelected ? Colors.white : const Color(0xFF06111F)),
+                  color: isSelected ? Colors.white : unselectedColor),
               const SizedBox(width: 7),
               Flexible(
                 child: Text(
@@ -654,8 +763,7 @@ class _RetailSegment extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color:
-                        isSelected ? Colors.white : const Color(0xFF06111F),
+                    color: isSelected ? Colors.white : unselectedColor,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
