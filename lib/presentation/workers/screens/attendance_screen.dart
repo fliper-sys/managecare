@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -23,11 +24,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   static const String _admsFirebasePath = 'iclock';
   static const int _admsFirebasePort = 443;
   static const String _zkStoredServerName = 'www.fkweb.com';
-  static const String _zkDefaultRelayIp = '';
-  static const int _zkDefaultRelayPort = 7005;
+  static const String _zkDefaultRelayIp = '187.124.118.194';
+  static const int _zkDefaultRelayPort = 3000;
   static const int _zkEthernetPort = 5005;
 
   final _timeFormat = DateFormat('h:mm a');
+  IO.Socket? _socket;
 
   String? _selectedWorkerId;
   DateTime _selectedDate = DateTime.now();
@@ -136,6 +138,57 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       default:
         return Colors.blueGrey;
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _initSocket();
+  }
+
+  void _initSocket() {
+    _socket = IO.io(
+      'http://187.124.118.194:3000',
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+          .disableAutoConnect()
+          .build(),
+    );
+
+    _socket!.connect();
+
+    _socket!.onConnect((_) {
+      debugPrint('Attendance socket connected');
+    });
+
+    _socket!.on('new_attendance', (data) {
+      debugPrint('new_attendance: $data');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('New attendance event received')),
+        );
+      }
+    });
+
+    _socket!.on('attendance:new', (data) {
+      debugPrint('attendance:new: $data');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Attendance update received')),
+        );
+      }
+    });
+
+    _socket!.onDisconnect((_) {
+      debugPrint('Attendance socket disconnected');
+    });
+  }
+
+  @override
+  void dispose() {
+    _socket?.disconnect();
+    _socket?.dispose();
+    super.dispose();
   }
 
   Future<void> _recordManualAttendance({
@@ -253,7 +306,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
                       labelText: 'SerPortNo',
-                      helperText: 'The screen photo shows 7005.',
+                      helperText: 'Use 3000 for the current VPS backend.',
                     ),
                   ),
                   TextField(
@@ -1666,7 +1719,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                 '4. Ethernet: keep DHCP as needed for your LAN, set IP/subnet/gateway, and confirm Port No is 5005.',
                                 '5. Network: set Server Req to Yes, then open Server Set.',
                                 '6. The stored Server Name on this unit is www.fkweb.com. Leave it as-is if the terminal does not allow editing it.',
-                                '7. Enter the public Server IP of the ADMS relay/server and set SerPortNo to 7005. The relay should forward ADMS HTTP requests to the Firebase iclock function.',
+                                '7. Enter the public Server IP of the VPS backend and set SerPortNo to 3000. If you use a relay instead, point it at the same public IP/port and forward requests to the Firebase iclock function.',
                                 '8. Save, restart or reconnect the terminal, then register this device in the app with the exact serial number printed on the box/device.',
                               ],
                             ),
@@ -2183,7 +2236,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'This unit stores Server Name as $_zkStoredServerName, but testing should use the editable Server IP and SerPortNo fields. Point Server IP at an IP-based ADMS relay on port $_zkDefaultRelayPort. The relay should forward /iclock/cdata and /iclock/getrequest traffic to https://$_admsFirebaseHost/$_admsFirebasePath.',
+              'This unit stores Server Name as $_zkStoredServerName, but testing should use the editable Server IP and SerPortNo fields. For the current deployment, point Server IP at the public VPS IP and SerPortNo at $_zkDefaultRelayPort. If you use a relay instead, the relay should forward /iclock/cdata and /iclock/getrequest traffic to https://$_admsFirebaseHost/$_admsFirebasePath.',
               style: _setupBodyStyle(context),
             ),
           ],
@@ -2283,7 +2336,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             icon: Icons.router_rounded,
             title: 'Network',
             text:
-                'For TCP/IP, set Server Req to Yes, Port No to 5005, SerPortNo to 7005, and keep the device time zone correct.',
+                'For TCP/IP, set Server Req to Yes, Port No to 5005, SerPortNo to 3000, and keep the device time zone correct.',
           ),
           _manualInfoTile(
             icon: Icons.wifi_rounded,

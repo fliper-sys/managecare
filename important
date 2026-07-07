@@ -1,0 +1,5 @@
+/root/managecare-minio-credentials.txt
+IP: 187.124.118.194
+Port: 3000
+ensure that product price is confirmed with actual inventory products current price because some pump product pricee retirieve from cache andmay have been changed in inventory without it syncing to store as new product price in pump data
+add user stamps to procurement entiresand history display especially for fuel stock

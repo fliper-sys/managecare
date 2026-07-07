@@ -34,6 +34,7 @@ dependencies:
   http: ^1.6.0
   dio: ^5.9.0
   flutter_zkteco: ^1.2.0
+  socket_io_client: ^2.0.3+1
 
   # UI Components
   cupertino_icons: ^1.0.8

@@ -501,11 +501,31 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         double.tryParse(_shiftCloseCashController.text.trim()) ?? 0.0;
     final cash = double.tryParse(_cashController.text.trim()) ?? 0.0;
     final pos = double.tryParse(_posController.text.trim()) ?? 0.0;
+    final productId = pump['productId']?.toString() ?? '';
+
+    if (productId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pump product is not configured')),
+      );
+      return;
+    }
+
+    final retail = context.read<RetailProvider>();
+    await retail.loadProducts(forceRefresh: true);
+    final productInfo =
+        await _resolveCurrentProductInfo(businessId, productId, pump);
+    final price = productInfo['price'] ?? 0.0;
+    if (price <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to resolve current product price')),
+      );
+      return;
+    }
 
     if (opening <= closing) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('closing volume must exceed Opening volume'),
+          content: Text('Opening volume must exceed closing volume'),
         ),
       );
       return;
@@ -515,7 +535,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'closing volume must match previous Opening (${_previousClosingVolume!.toStringAsFixed(3)})',
+            'Opening volume must match previous Closing (${_previousClosingVolume!.toStringAsFixed(3)})',
           ),
         ),
       );
@@ -523,6 +543,61 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     }
 
     final soldVolume = opening - closing;
+    final shiftCashDifference = shiftCloseCash - shiftOpeningCash;
+    final hasShiftCashEntry =
+        _shiftOpeningCashController.text.trim().isNotEmpty ||
+        _shiftCloseCashController.text.trim().isNotEmpty;
+    if (hasShiftCashEntry) {
+      if (shiftOpeningCash <= 0 || shiftCloseCash <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Enter both opening and closing shift cash values',
+            ),
+          ),
+        );
+        return;
+      }
+      if (shiftCashDifference <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Shift closing cash must be greater than shift opening cash',
+            ),
+          ),
+        );
+        return;
+      }
+      final cashVolume = shiftCashDifference / price;
+      if ((cashVolume - soldVolume).abs() > 1.0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Cash-derived liters (${cashVolume.toStringAsFixed(3)}) must match pump volume (${soldVolume.toStringAsFixed(3)}) within 1 liter',
+            ),
+          ),
+        );
+        return;
+      }
+      final hasAnalogEntry =
+          _analogClosingController.text.trim().isNotEmpty &&
+          _previousAnalogClosingVolume != null;
+      if (hasAnalogEntry) {
+        final analogVolume = analogClosing - _previousAnalogClosingVolume!;
+        if ((analogVolume - soldVolume).abs() > 1.0 ||
+            (analogVolume - cashVolume).abs() > 1.0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Analog liters (${analogVolume.toStringAsFixed(3)}) must agree with pump volume (${soldVolume.toStringAsFixed(3)}) and cash-derived liters (${cashVolume.toStringAsFixed(3)}) within 1 liter',
+              ),
+            ),
+          );
+          return;
+        }
+      }
+    }
+
     final shiftOpeningCashPhotoUrl = await _ensurePhotoUrl(
       label: 'shift opening cash',
       url: _shiftOpeningCashPhotoUrl,
@@ -563,26 +638,6 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     setState(() => _isSaving = true);
     try {
       final auth = context.read<AuthProvider>().currentUser;
-      final retail = context.read<RetailProvider>();
-      await retail.loadProducts(forceRefresh: true);
-      final productId = pump['productId']?.toString() ?? '';
-      if (productId.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pump product is not configured')), 
-        );
-        return;
-      }
-
-      final productInfo =
-          await _resolveCurrentProductInfo(businessId, productId, pump);
-      final price = productInfo['price'] ?? 0.0;
-      if (price <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to resolve current product price')),
-        );
-        return;
-      }
-
       final expectedAmount = soldVolume * price;
       final totalPaid = cash + pos;
       if (expectedAmount > 0 && totalPaid <= 0) {
@@ -908,12 +963,12 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                         decimal: true,
                       ),
                       decoration: InputDecoration(
-                        labelText: 'Closing volume',
+                        labelText: 'Opening volume',
                         helperText: _isLoadingPreviousClosing
-                            ? 'Loading previous Opening...'
+                            ? 'Loading previous Closing...'
                             : _previousClosingVolume == null
-                                ? 'No previous Opening recorded for this pump'
-                                : 'Must match previous Opening: ${_previousClosingVolume!.toStringAsFixed(3)}',
+                                ? 'No previous Closing recorded for this pump'
+                                : 'Must match previous Closing: ${_previousClosingVolume!.toStringAsFixed(3)}',
                         border: const OutlineInputBorder(),
                       ),
                       onChanged: (_) {
@@ -928,7 +983,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                         decimal: true,
                       ),
                       decoration: const InputDecoration(
-                        labelText: 'Opening volume',
+                        labelText: 'Closing volume',
                         border: OutlineInputBorder(),
                       ),
                       onChanged: (_) {

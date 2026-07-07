@@ -1036,6 +1036,14 @@ exports.verifyKoraSubscriptionPayment = functions.https.onCall(async (data, cont
   };
 });
 
+exports.health = functions.https.onRequest((req, res) => {
+  const path = (req.path || req.url || '').split('?')[0].toLowerCase();
+  if (req.method === 'GET' && (path === '/' || path === '/health' || path === '/healthz')) {
+    return textResponse(res, 200, 'ok');
+  }
+  return textResponse(res, 404, 'Not Found');
+});
+
 exports.iclock = functions.https.onRequest(async (req, res) => {
   const serial = (req.query.SN || req.query.sn || '').toString().trim();
   const table = (req.query.table || '').toString().trim().toUpperCase();

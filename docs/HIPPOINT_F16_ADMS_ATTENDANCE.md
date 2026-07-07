@@ -12,6 +12,33 @@ Firebase function:
 https://us-central1-manage-care-1e96b.cloudfunctions.net/iclock
 ```
 
+## VPS / PM2 quick start for the attendance device
+
+If the device should send punches directly to your VPS backend instead of the Firebase function, use the server public IP and port that your Node service is listening on.
+
+For the last VPS setup, use:
+
+```text
+Server IP: 187.124.118.194
+SerPortNo: 3000
+```
+
+Validate the service is reachable before testing the device:
+
+```bash
+curl http://187.124.118.194:3000/health
+```
+
+If you are running the backend under PM2, keep it supervised with:
+
+```bash
+pm2 start /opt/managecare-backend/server.js --name managecare-backend
+pm2 save
+pm2 logs managecare-backend --lines 50
+```
+
+On the terminal itself, keep the LAN values for local comms and use the public server IP/port only for the ADMS upload path.
+
 ADMS paths handled by the function:
 
 ```text
