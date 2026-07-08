@@ -190,12 +190,8 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     final isMiniMartSeller = isPetroleumStation &&
         (stationRole == 'sales_rep' || stationRole == 'cashier');
     final isStationStaff = isPetroleumStation && stationRole == 'staff';
-    final showAllOperations =
-        !isPetroleumStation ||
-            stationRole == 'owner' ||
-            stationRole == 'admin' ||
-            stationRole == 'sub_admin' ||
-            (!isPumpOperator && !isMiniMartSeller && !isStationStaff);
+    final hasFullStationAccess = ['owner', 'admin', 'sub_admin', 'manager'].contains(stationRole);
+    final showAllOperations = !isPetroleumStation || hasFullStationAccess;
     final canAccessFuelStock = WorkerPermissions.canAccessFuelStockForUser(
       role,
       permissions,
@@ -208,6 +204,10 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
       role,
       permissions,
     );
+    final canAccessExpenses = WorkerPermissions.canAccessExpensesForUser(
+      role,
+      permissions,
+    );
     final operationCards = <Widget>[
       if (showAllOperations || isPumpOperator || isStationStaff)
         _OperationCard(
@@ -216,7 +216,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
             color: Colors.purple,
             onTap: () => Navigator.pushNamed(context, pumpRoute)
                 .then((_) => _loadMetrics())),
-      if (showAllOperations && canAccessFuelStock)
+      if (canAccessFuelStock)
         _OperationCard(
             title: 'Fuel Stock',
             icon: Icons.inventory_2,
@@ -236,7 +236,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
             icon: Icons.fact_check_outlined,
             color: Colors.blueGrey,
             onTap: () => Navigator.pushNamed(context, pumpUploadHistoryRoute)),
-      if (showAllOperations && canAccessPumpConfig)
+      if (canAccessPumpConfig)
         _OperationCard(
             title: 'Pump Config',
             icon: Icons.tune_outlined,
@@ -249,14 +249,14 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
             color: Colors.indigo,
             onTap: () => Navigator.pushNamed(context, Routes.retailPos)
                 .then((_) => _loadMetrics())),
-      if (showAllOperations && canAccessProcurement)
+      if (canAccessProcurement)
         _OperationCard(
             title: 'Procurement',
             icon: Icons.shopping_bag_outlined,
             color: Colors.orange,
             onTap: () => Navigator.pushNamed(context, Routes.procurement)
                 .then((_) => _loadMetrics())),
-      if (showAllOperations)
+      if (canAccessExpenses)
         _OperationCard(
             title: 'Expenses',
             icon: Icons.receipt_long_outlined,

@@ -5,8 +5,8 @@ import '../../domain/repositories/worker_repository.dart';
 class WorkerRepositoryImpl implements WorkerRepository {
   final FirebaseFirestore _firestore;
 
-  WorkerRepositoryImpl({required FirebaseFirestore firestore})
-      : _firestore = firestore;
+  WorkerRepositoryImpl({FirebaseFirestore? firestore})
+      : _firestore = firestore ?? FirebaseFirestore.instance;
 
   @override
   Future<dynamic> addWorker(Map<String, dynamic> workerData) async {

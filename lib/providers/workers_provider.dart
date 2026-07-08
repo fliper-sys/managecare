@@ -1,20 +1,26 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../data/repositories/worker_repository_impl.dart';
+import '../firebase_options.dart';
 
 class WorkersProvider with ChangeNotifier {
   final WorkerRepositoryImpl _repository;
+  final FirebaseFirestore? _firestore;
   List<Map<String, dynamic>> _workers = [];
   bool _isLoading = false;
   String? _error;
   String? _businessId;
 
-  WorkersProvider(
-      {required String businessId, WorkerRepositoryImpl? repository})
-      : _repository = repository ??
-            WorkerRepositoryImpl(firestore: FirebaseFirestore.instance) {
+  WorkersProvider({
+    required String businessId,
+    WorkerRepositoryImpl? repository,
+    FirebaseFirestore? firestore,
+  })  : _repository = repository ??
+            WorkerRepositoryImpl(firestore: firestore),
+        _firestore = firestore {
     // initial load
     if (businessId.isNotEmpty) {
       loadWorkers(businessId);
@@ -24,6 +30,24 @@ class WorkersProvider with ChangeNotifier {
   List<Map<String, dynamic>> get workers => _workers;
   bool get isLoading => _isLoading;
   String? get error => _error;
+
+  Future<FirebaseFirestore> _resolveFirestore() async {
+    if (_firestore != null) return _firestore!;
+
+    if (Firebase.apps.isEmpty) {
+      try {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+      } on FirebaseException catch (e) {
+        if (e.code != 'duplicate-app') {
+          rethrow;
+        }
+      }
+    }
+
+    return FirebaseFirestore.instance;
+  }
 
   Future<void> _ensureAuthenticatedSession() async {
     final firebaseAuth = FirebaseAuth.instance;
@@ -85,8 +109,9 @@ class WorkersProvider with ChangeNotifier {
 
   Future<void> _syncBusinessWorkerCount(String businessId) async {
     try {
+      final firestore = await _resolveFirestore();
       final activeWorkers = await _repository.getWorkers(businessId);
-      await FirebaseFirestore.instance
+      await firestore
           .collection('businesses')
           .doc(businessId)
           .set(
@@ -111,7 +136,7 @@ class WorkersProvider with ChangeNotifier {
   }
 
   Future<String?> _resolveWorkerEmail(String workerId) async {
-    final firestore = FirebaseFirestore.instance;
+    final firestore = await _resolveFirestore();
 
     String? readEmail(Map<String, dynamic>? data) {
       if (data == null) return null;
@@ -141,7 +166,7 @@ class WorkersProvider with ChangeNotifier {
     String email,
     String? businessId,
   ) async {
-    final firestore = FirebaseFirestore.instance;
+    final firestore = await _resolveFirestore();
     final trimmedBusinessId = businessId?.trim() ?? '';
     final normalizedEmail = email.trim().toLowerCase();
     if (normalizedEmail.isEmpty) return;
@@ -207,13 +232,24 @@ class WorkersProvider with ChangeNotifier {
   /// Update worker document and related business-scoped copies (barbers/stylists)
   Future<void> updateWorker(String workerId, Map<String, dynamic> data, {String? businessId, List<String>? roles}) async {
     try {
-      await _repository.updateWorker(workerId, data);
+      final firestore = await _resolveFirestore();
+      try {
+        await _repository.updateWorker(workerId, data);
+      } catch (e) {
+        await firestore.collection('workers').doc(workerId).set(
+          {
+            ...data,
+            'updatedAt': DateTime.now(),
+          },
+          SetOptions(merge: true),
+        );
+      }
 
       // Update business-specific collections where appropriate
       if (businessId != null && businessId.isNotEmpty) {
         final rolesSet = (roles ?? []).map((r) => r.toLowerCase()).toSet();
-        final docRefBarber = FirebaseFirestore.instance.collection('businesses').doc(businessId).collection('barbers').doc(workerId);
-        final docRefStylist = FirebaseFirestore.instance.collection('businesses').doc(businessId).collection('stylists').doc(workerId);
+        final docRefBarber = firestore.collection('businesses').doc(businessId).collection('barbers').doc(workerId);
+        final docRefStylist = firestore.collection('businesses').doc(businessId).collection('stylists').doc(workerId);
 
         // Ensure merged updates where role present
         if (rolesSet.contains('barber')) {
@@ -231,6 +267,11 @@ class WorkersProvider with ChangeNotifier {
 
       // If a PIN was included in the update, also sync it to the users collection
       final Map<String, dynamic> usersMerge = {};
+      final normalizedRoles = (data['roles'] as List<dynamic>? ?? [])
+          .map((role) => role.toString().trim())
+          .where((role) => role.isNotEmpty)
+          .toList();
+
       if (data.containsKey('pin')) usersMerge['pin'] = data['pin'];
       if (data.containsKey('permissions')) {
         usersMerge['permissions'] = data['permissions'];
@@ -243,12 +284,24 @@ class WorkersProvider with ChangeNotifier {
       if (data.containsKey('email')) usersMerge['email'] = data['email'];
       if (data.containsKey('phoneNumber')) usersMerge['phoneNumber'] = data['phoneNumber'];
       if (data.containsKey('isActive')) usersMerge['isActive'] = data['isActive'];
-      if (data.containsKey('roles')) usersMerge['roles'] = data['roles'];
+      if (data.containsKey('role')) {
+        final providedRole = data['role'].toString().trim();
+        if (providedRole.isNotEmpty) {
+          usersMerge['role'] = providedRole;
+        }
+      } else if (normalizedRoles.isNotEmpty) {
+        usersMerge['role'] = normalizedRoles.first;
+      }
+      if (data.containsKey('roles')) {
+        usersMerge['roles'] = normalizedRoles.isNotEmpty
+            ? normalizedRoles
+            : data['roles'];
+      }
 
       if (usersMerge.isNotEmpty) {
         try {
           usersMerge['updatedAt'] = DateTime.now();
-          await FirebaseFirestore.instance.collection('users').doc(workerId).set(usersMerge, SetOptions(merge: true));
+          await firestore.collection('users').doc(workerId).set(usersMerge, SetOptions(merge: true));
         } catch (e) {
           print('[WorkersProvider] Failed to sync profile to users collection: $e');
         }
@@ -340,7 +393,7 @@ class WorkersProvider with ChangeNotifier {
       await _ensureAuthenticatedSession();
 
       final workerEmail = await _resolveWorkerEmail(workerId);
-      final firestore = FirebaseFirestore.instance;
+      final firestore = await _resolveFirestore();
       final functions = FirebaseFunctions.instance;
 
       final callable = functions.httpsCallable('deleteWorkerCompletely');

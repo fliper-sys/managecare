@@ -9,6 +9,7 @@ import '../../../../core/utils/currency.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
+import '../../../../core/utils/worker_permissions.dart';
 
 class GasStockScreen extends StatefulWidget {
   const GasStockScreen({super.key});
@@ -288,7 +289,7 @@ class _GasStockScreenState extends State<GasStockScreen> {
   }
 
   Future<void> _showAdjustStockDialog(Product product) async {
-    final quantityController = TextEditingController();
+    final quantityController = TextEditingController(text: '0');
     final priceController =
         TextEditingController(text: product.price.toStringAsFixed(2));
     final costController =
@@ -429,6 +430,35 @@ class _GasStockScreenState extends State<GasStockScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final role = auth.currentUser?.role ?? '';
+    final permissions = auth.currentUser?.permissions ?? [];
+    final canAccessFuelStock = WorkerPermissions.canAccessFuelStockForUser(role, permissions);
+
+    if (!canAccessFuelStock) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Fuel Stock'),
+          backgroundColor: AppColors.primary,
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(Icons.lock_outline, size: 64, color: Colors.grey),
+                SizedBox(height: 12),
+                Text('Access denied', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                SizedBox(height: 8),
+                Text('You do not have permission to view Fuel Stock.'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Consumer<RetailProvider>(
       builder: (context, retail, _) {
         final fuelProducts = retail.products

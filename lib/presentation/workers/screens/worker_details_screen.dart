@@ -425,6 +425,12 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                   final roles = (updateMap['roles'] as List<dynamic>?)?.cast<String>();
                   await context.read<WorkersProvider>().updateWorker(widget.workerId, updateMap, businessId: businessId, roles: roles);
 
+                  // If we're editing the current signed-in user, refresh AuthProvider
+                  final auth = context.read<AuthProvider>();
+                  if (auth.currentUser?.id == widget.workerId) {
+                    await auth.refresh();
+                  }
+
                   await _loadWorker();
                   if (mounted) ScaffoldMessenger.of(this.context).showSnackBar(const SnackBar(content: Text('Worker updated')));
                 } catch (e) {
@@ -821,6 +827,13 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
               try {
                 final workersProvider = context.read<WorkersProvider>();
                 await workersProvider.updateWorker(widget.workerId, updateMap, businessId: widget.businessId, roles: [selectedRole]);
+
+                // If the edited worker is the current signed-in user, refresh auth so navs update
+                final auth = context.read<AuthProvider>();
+                if (auth.currentUser?.id == widget.workerId) {
+                  await auth.refresh();
+                }
+
                 await _loadWorker();
                 if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Worker permissions updated')));
               } catch (e) {

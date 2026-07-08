@@ -1136,17 +1136,21 @@ class _QuickActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.6)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withOpacity(isDark ? 0.22 : 0.06),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -1158,7 +1162,7 @@ class _QuickActionCard extends StatelessWidget {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.16),
+                color: color.withOpacity(isDark ? 0.22 : 0.16),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Icon(icon, color: color, size: 24),
@@ -1173,9 +1177,9 @@ class _QuickActionCard extends StatelessWidget {
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w900,
-                      color: Color(0xFF06111F),
+                      color: colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -1183,12 +1187,12 @@ class _QuickActionCard extends StatelessWidget {
                     'Quick access',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Colors.black.withOpacity(0.48)),
+                    style: TextStyle(color: colorScheme.onSurfaceVariant),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: Color(0xFF687082)),
+            Icon(Icons.chevron_right_rounded, color: colorScheme.onSurfaceVariant),
           ],
         ),
       ),

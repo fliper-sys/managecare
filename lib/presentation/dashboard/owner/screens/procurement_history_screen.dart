@@ -32,6 +32,31 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
     super.dispose();
   }
 
+  Map<String, dynamic> _safeData(DocumentSnapshot<Object?> doc) {
+    final data = doc.data();
+    if (data is Map) {
+      return Map<String, dynamic>.from(data);
+    }
+    return <String, dynamic>{};
+  }
+
+  String _readString(DocumentSnapshot<Object?> doc, String key) {
+    final value = _safeData(doc)[key];
+    return value?.toString() ?? '';
+  }
+
+  num _readNum(DocumentSnapshot<Object?> doc, String key, {num fallback = 0}) {
+    final value = _safeData(doc)[key];
+    if (value is num) return value;
+    if (value is String) return num.tryParse(value) ?? fallback;
+    return fallback;
+  }
+
+  List<dynamic> _readList(DocumentSnapshot<Object?> doc, String key) {
+    final value = _safeData(doc)[key];
+    return value is List ? value : const [];
+  }
+
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
     final r = await showDateRangePicker(
@@ -46,10 +71,11 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
     if (businessId == null) return;
     final snap = await FirebaseFirestore.instance.collection('businesses').doc(businessId).collection('procurements').orderBy('createdAt', descending: true).get();
     final docs = snap.docs.where((d) {
+      final data = _safeData(d);
       final searchText = _searchController.text.toLowerCase();
-      final createdAt = parseTimestamp(d['createdAt'] ?? DateTime.now());
+      final createdAt = parseTimestamp(data['createdAt'] ?? DateTime.now());
       final dateOk = _range == null || (createdAt == null || (!createdAt.isBefore(_range!.start) && !createdAt.isAfter(_range!.end)));
-      final items = (d['items'] as List?)?.cast<dynamic>() ?? [];
+      final items = (data['items'] as List?)?.cast<dynamic>() ?? [];
       final itemsMatch = items.any((it) => (it['name'] ?? '').toString().toLowerCase().contains(searchText));
       final idMatch = d.id.toLowerCase().contains(searchText);
       return dateOk && (searchText.isEmpty || itemsMatch || idMatch);
@@ -84,14 +110,17 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
     final docs = snap.docs.toList();
 
     // Convert docs to simpler maps for PDF export
-    final data = docs.map((d) => {
-    'id': d.id,
-    'createdAt': parseTimestamp(d['createdAt'] ?? DateTime.now()),
-      'supplierName': (d['supplierName'] ?? '') as String,
-      'invoiceRef': (d['invoiceRef'] ?? '') as String,
-      'totalCost': (d['totalCost'] as num?)?.toDouble() ?? 0.0,
-      'totalQuantity': (d['totalQuantity'] as num?) ?? 0,
-      'items': (d['items'] as List?) ?? [],
+    final data = docs.map((d) {
+      final data = _safeData(d);
+      return {
+        'id': d.id,
+        'createdAt': parseTimestamp(data['createdAt'] ?? DateTime.now()),
+        'supplierName': data['supplierName']?.toString() ?? '',
+        'invoiceRef': data['invoiceRef']?.toString() ?? '',
+        'totalCost': (data['totalCost'] as num?)?.toDouble() ?? 0.0,
+        'totalQuantity': (data['totalQuantity'] as num?) ?? 0,
+        'items': (data['items'] as List?) ?? [],
+      };
     }).toList();
 
     final dir = await getTemporaryDirectory();
@@ -110,24 +139,28 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
     if (businessId == null) return;
     final snap = await FirebaseFirestore.instance.collection('businesses').doc(businessId).collection('procurements').orderBy('createdAt', descending: true).get();
     final docs = snap.docs.where((d) {
+      final data = _safeData(d);
       final searchText = _searchController.text.toLowerCase();
-      final createdAt = parseTimestamp(d['createdAt'] ?? DateTime.now());
+      final createdAt = parseTimestamp(data['createdAt'] ?? DateTime.now());
       final dateOk = _range == null || (!createdAt.isBefore(_range!.start) && !createdAt.isAfter(_range!.end));
-      final items = (d['items'] as List?)?.cast<dynamic>() ?? [];
+      final items = (data['items'] as List?)?.cast<dynamic>() ?? [];
       final itemsMatch = items.any((it) => (it['name'] ?? '').toString().toLowerCase().contains(searchText));
       final idMatch = d.id.toLowerCase().contains(searchText);
       return dateOk && (searchText.isEmpty || itemsMatch || idMatch);
     }).toList();
 
     // Convert docs to simpler maps for PDF export
-    final data = docs.map((d) => {
-      'id': d.id,
-      'createdAt': parseTimestamp(d['createdAt'] ?? DateTime.now()),
-      'supplierName': (d['supplierName'] ?? '') as String,
-      'invoiceRef': (d['invoiceRef'] ?? '') as String,
-      'totalCost': (d['totalCost'] as num?)?.toDouble() ?? 0.0,
-      'totalQuantity': (d['totalQuantity'] as num?) ?? 0,
-      'items': (d['items'] as List?) ?? [],
+    final data = docs.map((d) {
+      final data = _safeData(d);
+      return {
+        'id': d.id,
+        'createdAt': parseTimestamp(data['createdAt'] ?? DateTime.now()),
+        'supplierName': data['supplierName']?.toString() ?? '',
+        'invoiceRef': data['invoiceRef']?.toString() ?? '',
+        'totalCost': (data['totalCost'] as num?)?.toDouble() ?? 0.0,
+        'totalQuantity': (data['totalQuantity'] as num?) ?? 0,
+        'items': (data['items'] as List?) ?? [],
+      };
     }).toList();
 
     final dir = await getTemporaryDirectory();
@@ -202,11 +235,12 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
 
                       // Apply search and date filters locally for simplicity
                       final filtered = docs.where((d) {
+                        final data = _safeData(d);
                         final id = d.id.toLowerCase();
-                        final items = (d['items'] as List?)?.cast<dynamic>() ?? [];
+                        final items = (data['items'] as List?)?.cast<dynamic>() ?? [];
                         final itemsMatch = items.any((it) => (it['name'] ?? '').toString().toLowerCase().contains(_searchController.text.toLowerCase()));
                         final searchText = _searchController.text.toLowerCase();
-                        final createdAt = parseTimestamp(d['createdAt'] ?? DateTime.now());
+                        final createdAt = parseTimestamp(data['createdAt'] ?? DateTime.now());
 
                         final dateOk = _range == null || (!createdAt.isBefore(_range!.start) && !createdAt.isAfter(_range!.end));
                         final searchOk = searchText.isEmpty || id.contains(searchText) || itemsMatch;
@@ -216,7 +250,8 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
                       // Group by day
                       final grouped = <String, List<QueryDocumentSnapshot>>{};
                       for (final d in filtered) {
-                        final createdAt = parseTimestamp(d['createdAt'] ?? DateTime.now());
+                        final data = _safeData(d);
+                        final createdAt = parseTimestamp(data['createdAt'] ?? DateTime.now());
                         final day = DateFormat.yMMMd().format(createdAt);
                         grouped.putIfAbsent(day, () => []).add(d);
                       }
@@ -238,8 +273,9 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
                           double dayTotal = 0.0;
                           num dayQty = 0;
                           for (final d in list) {
-                            dayTotal += (d['totalCost'] as num?)?.toDouble() ?? 0.0;
-                            dayQty += (d['totalQuantity'] as num?) ?? 0;
+                            final data = _safeData(d);
+                            dayTotal += (data['totalCost'] as num?)?.toDouble() ?? 0.0;
+                            dayQty += (data['totalQuantity'] as num?) ?? 0;
                           }
 
                           return Column(
@@ -250,11 +286,12 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
                               Text('Total: ₦${dayTotal.toStringAsFixed(2)} • Units: ${formatInventoryQuantity(dayQty)}', style: AppTextStyles.caption),
                               const SizedBox(height: 8),
                               ...list.map((d) {
-                                final createdAt = parseTimestamp(d['createdAt'] ?? DateTime.now());
-                                final supplierName = (d['supplierName'] ?? '').toString();
-                                final invoiceRef = (d['invoiceRef'] ?? '').toString();
-                                final createdByName = (d['createdByName'] ?? '').toString();
-                                final createdByEmail = (d['createdByEmail'] ?? '').toString();
+                                final data = _safeData(d);
+                                final createdAt = parseTimestamp(data['createdAt'] ?? DateTime.now());
+                                final supplierName = data['supplierName']?.toString() ?? '';
+                                final invoiceRef = data['invoiceRef']?.toString() ?? '';
+                                final createdByName = data['createdByName']?.toString() ?? '';
+                                final createdByEmail = data['createdByEmail']?.toString() ?? '';
                                 final createdByLabel = createdByName.isNotEmpty
                                     ? createdByName
                                     : createdByEmail;
@@ -262,7 +299,7 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
                                   child: ExpansionTile(
                                     title: Text('Procurement ${d.id}'),
                                     subtitle: Text(
-                                      '${DateFormat.yMMMd().add_jm().format(createdAt)} • ₦${((d['totalCost'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}'
+                                      '${DateFormat.yMMMd().add_jm().format(createdAt)} • ₦${((data['totalCost'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}'
                                       '${createdByLabel.isNotEmpty ? '\nCreated by: $createdByLabel' : ''}',
                                     ),
                                     children: [
@@ -293,12 +330,13 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
                                                     ],
                                                     Text('Items', style: AppTextStyles.caption),
                                                     const SizedBox(height: 8),
-                                                    ...(d['items'] as List? ?? []).map((it) {
+                                                    ...((data['items'] as List?) ?? []).map((it) {
+                                                      final itemData = it is Map ? Map<String, dynamic>.from(it as Map) : <String, dynamic>{};
                                                       return ListTile(
                                                         dense: true,
-                                                        title: Text(it['name'] ?? 'Unnamed'),
-                                                        subtitle: Text('Qty: ${it['quantity']} • Cost: ₦${(it['cost'] ?? 0).toStringAsFixed(2)}'),
-                                                        trailing: Text('₦${(it['total'] ?? 0).toStringAsFixed(2)}'),
+                                                        title: Text(itemData['name']?.toString() ?? 'Unnamed'),
+                                                        subtitle: Text('Qty: ${itemData['quantity'] ?? 0} • Cost: ₦${(itemData['cost'] ?? 0).toStringAsFixed(2)}'),
+                                                        trailing: Text('₦${(itemData['total'] ?? 0).toStringAsFixed(2)}'),
                                                       );
                                                     }).toList(),
                                                   ],
