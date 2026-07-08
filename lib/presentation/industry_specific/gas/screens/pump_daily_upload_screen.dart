@@ -522,10 +522,10 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       return;
     }
 
-    if (opening <= closing) {
+    if (closing <= opening) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Opening volume must exceed closing volume'),
+          content: Text('Closing volume must exceed opening volume'),
         ),
       );
       return;
@@ -542,7 +542,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       return;
     }
 
-    final soldVolume = opening - closing;
+    final soldVolume = closing  - opening;
     final shiftCashDifference = shiftCloseCash - shiftOpeningCash;
     final hasShiftCashEntry =
         _shiftOpeningCashController.text.trim().isNotEmpty ||
@@ -728,8 +728,8 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   Widget build(BuildContext context) {
     final pumps = _collection('pump_configurations');
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-    final soldVolume = (double.tryParse(_openingController.text.trim()) ?? 0) -
-        (double.tryParse(_closingController.text.trim()) ?? 0);
+    final soldVolume = (double.tryParse(_closingController.text.trim()) ?? 0) -
+        (double.tryParse(_openingController.text.trim()) ?? 0);
     return Scaffold(
       appBar: AppBar(title: const Text('Pump Volume Upload')),
       body: pumps == null
