@@ -251,10 +251,20 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
                               const SizedBox(height: 8),
                               ...list.map((d) {
                                 final createdAt = parseTimestamp(d['createdAt'] ?? DateTime.now());
+                                final supplierName = (d['supplierName'] ?? '').toString();
+                                final invoiceRef = (d['invoiceRef'] ?? '').toString();
+                                final createdByName = (d['createdByName'] ?? '').toString();
+                                final createdByEmail = (d['createdByEmail'] ?? '').toString();
+                                final createdByLabel = createdByName.isNotEmpty
+                                    ? createdByName
+                                    : createdByEmail;
                                 return Card(
                                   child: ExpansionTile(
                                     title: Text('Procurement ${d.id}'),
-                                    subtitle: Text('${DateFormat.yMMMd().add_jm().format(createdAt)} • ₦${(d['totalCost'] as num?)?.toDouble().toStringAsFixed(2) ?? '0.00'}'),
+                                    subtitle: Text(
+                                      '${DateFormat.yMMMd().add_jm().format(createdAt)} • ₦${((d['totalCost'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}'
+                                      '${createdByLabel.isNotEmpty ? '\nCreated by: $createdByLabel' : ''}',
+                                    ),
                                     children: [
                                       Padding(
                                         padding: const EdgeInsets.all(12.0),
@@ -263,19 +273,22 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
                                           children: [
                                             Builder(
                                               builder: (_) {
-                                                final _supplierName = ( '') ;
-                                                final _invoiceRef = ( '') ;                                              
                                                 return Column(
                                                   crossAxisAlignment: CrossAxisAlignment.start,
                                                   children: [
-                                                    if (_supplierName.toString().isNotEmpty) ...[
+                                                    if (supplierName.isNotEmpty) ...[
                                                       Text('Supplier', style: AppTextStyles.caption),
-                                                      Text(_supplierName.toString(), style: AppTextStyles.body1),
+                                                      Text(supplierName, style: AppTextStyles.body1),
                                                       const SizedBox(height: 8),
                                                     ],
-                                                    if (_invoiceRef.toString().isNotEmpty) ...[
+                                                    if (invoiceRef.isNotEmpty) ...[
                                                       Text('Invoice / Reference', style: AppTextStyles.caption),
-                                                      Text(_invoiceRef.toString(), style: AppTextStyles.body1),
+                                                      Text(invoiceRef, style: AppTextStyles.body1),
+                                                      const SizedBox(height: 8),
+                                                    ],
+                                                    if (createdByLabel.isNotEmpty) ...[
+                                                      Text('Created by', style: AppTextStyles.caption),
+                                                      Text(createdByLabel, style: AppTextStyles.body1),
                                                       const SizedBox(height: 8),
                                                     ],
                                                     Text('Items', style: AppTextStyles.caption),

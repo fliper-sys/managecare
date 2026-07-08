@@ -79,7 +79,9 @@ class _GasStockScreenState extends State<GasStockScreen> {
       'priceChanged': (previousPrice - nextPrice).abs() > 0.0001,
       'stockChanged': (previousStock - nextStock).abs() > 0.0001,
       'createdBy': user?.id,
+      'createdById': user?.id,
       'createdByName': user?.fullName ?? user?.email,
+      'createdByEmail': user?.email,
       'createdAt': FieldValue.serverTimestamp(),
     });
   }
@@ -938,6 +940,7 @@ class _FuelStockProcurementHistoryScreen extends StatelessWidget {
               final previousPrice = _readDouble(data, 'previousPrice');
               final nextPrice = _readDouble(data, 'nextPrice');
               final unit = data['unit']?.toString() ?? '';
+              final recordedBy = (data['createdByName'] ?? data['createdBy'] ?? data['createdByEmail'])?.toString() ?? '';
 
               return Card(
                 child: ListTile(
@@ -948,8 +951,9 @@ class _FuelStockProcurementHistoryScreen extends StatelessWidget {
                   title: Text(data['productName']?.toString() ?? 'Fuel'),
                   subtitle: Text(
                     '${data['action'] ?? 'stock_change'}'
-                    '${createdAt == null ? '' : ' • ${createdAt.toLocal()}'}\n'
-                    'Stock: ${previousStock.toStringAsFixed(2)} → ${nextStock.toStringAsFixed(2)} $unit\n'
+                    '${createdAt == null ? '' : ' • ${createdAt.toLocal()}'}'
+                    '${recordedBy.isNotEmpty ? '\nBy: $recordedBy' : ''}'
+                    '\nStock: ${previousStock.toStringAsFixed(2)} → ${nextStock.toStringAsFixed(2)} $unit\n'
                     'Price: ${formatCurrency(previousPrice)} → ${formatCurrency(nextPrice)}',
                   ),
                   isThreeLine: true,

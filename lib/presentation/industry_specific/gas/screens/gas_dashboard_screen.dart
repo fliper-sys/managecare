@@ -181,9 +181,10 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     final pumpConfigurationRoute = isPetroleumStation
         ? Routes.petroleumPumpConfiguration
         : Routes.gasPumpConfiguration;
-    final stationRole = WorkerPermissions.normalizeRole(
-      context.watch<AuthProvider>().currentUser?.role ?? '',
-    );
+    final auth = context.watch<AuthProvider>();
+    final role = auth.currentUser?.role ?? '';
+    final permissions = auth.currentUser?.permissions ?? [];
+    final stationRole = WorkerPermissions.normalizeRole(role);
     final isPumpOperator =
         isPetroleumStation && stationRole == 'pump_operator';
     final isMiniMartSeller = isPetroleumStation &&
@@ -191,21 +192,31 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     final isStationStaff = isPetroleumStation && stationRole == 'staff';
     final showAllOperations =
         !isPetroleumStation ||
-            stationRole == 'manager' ||
             stationRole == 'owner' ||
             stationRole == 'admin' ||
             stationRole == 'sub_admin' ||
             (!isPumpOperator && !isMiniMartSeller && !isStationStaff);
+    final canAccessFuelStock = WorkerPermissions.canAccessFuelStockForUser(
+      role,
+      permissions,
+    );
+    final canAccessPumpConfig = WorkerPermissions.canAccessPumpConfigurationForUser(
+      role,
+      permissions,
+    );
+    final canAccessProcurement = WorkerPermissions.canAccessProcurementForUser(
+      role,
+      permissions,
+    );
     final operationCards = <Widget>[
       if (showAllOperations || isPumpOperator || isStationStaff)
         _OperationCard(
             title: 'Pump Sale',
             icon: Icons.local_gas_station,
             color: Colors.purple,
-            onTap: () =>
-                Navigator.pushNamed(context, pumpRoute)
-                    .then((_) => _loadMetrics())),
-      if (showAllOperations)
+            onTap: () => Navigator.pushNamed(context, pumpRoute)
+                .then((_) => _loadMetrics())),
+      if (showAllOperations && canAccessFuelStock)
         _OperationCard(
             title: 'Fuel Stock',
             icon: Icons.inventory_2,
@@ -224,9 +235,8 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
             title: 'Upload History',
             icon: Icons.fact_check_outlined,
             color: Colors.blueGrey,
-            onTap: () =>
-                Navigator.pushNamed(context, pumpUploadHistoryRoute)),
-      if (showAllOperations)
+            onTap: () => Navigator.pushNamed(context, pumpUploadHistoryRoute)),
+      if (showAllOperations && canAccessPumpConfig)
         _OperationCard(
             title: 'Pump Config',
             icon: Icons.tune_outlined,
@@ -239,7 +249,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
             color: Colors.indigo,
             onTap: () => Navigator.pushNamed(context, Routes.retailPos)
                 .then((_) => _loadMetrics())),
-      if (showAllOperations)
+      if (showAllOperations && canAccessProcurement)
         _OperationCard(
             title: 'Procurement',
             icon: Icons.shopping_bag_outlined,

@@ -89,7 +89,6 @@ class _SalesScreenState extends State<SalesScreen>
 
   // History tab variables
   List<Map<String, dynamic>> _salesHistory = [];
-  List<Map<String, dynamic>> _todaySalesMetrics = [];
   bool _loadingHistory = false;
   bool _hasMoreHistory = true;
   // Pagination: current fetch limit
@@ -102,7 +101,6 @@ class _SalesScreenState extends State<SalesScreen>
   String _productSort = 'none'; // 'none' | 'priceAsc' | 'priceDesc' | 'name'
   bool _isGridView = true; // Toggle between grid and list view
   String _globalPricingMode = 'retail'; // 'retail' | 'wholesale' - global mode for all items
-  bool _salesHeaderCollapsed = false;
   // Save reference to RetailProvider for safe cleanup in dispose()
   late RetailProvider _retailProvider;
 
@@ -110,9 +108,6 @@ class _SalesScreenState extends State<SalesScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _tabController.addListener(() {
-      if (mounted) setState(() {});
-    });
 
     // Save reference to RetailProvider for safe cleanup later
     _retailProvider = context.read<RetailProvider>();
@@ -134,15 +129,10 @@ class _SalesScreenState extends State<SalesScreen>
           if (!mounted) return;
           setState(() {
             _salesHistory = sales;
-            _todaySalesMetrics = _mergeSalesForMetrics(
-              _todaySalesMetrics,
-              _filterSalesForToday(sales),
-            );
             _hasMoreHistory = sales.length >= _historyLimit;
           });
           print('[SalesScreen] Realtime sales update: ${sales.length}');
         }, limit: _historyLimit);
-        _loadTodaySalesMetrics();
       }
     });
   }
@@ -514,10 +504,6 @@ class _SalesScreenState extends State<SalesScreen>
             } catch (e) {
               debugPrint('[SalesScreen] Receipt handling error: $e');
             }
-
-            if (mounted) {
-              await _loadTodaySalesMetrics();
-            }
           },
         ),
       ),
@@ -774,129 +760,6 @@ class _SalesScreenState extends State<SalesScreen>
     }
   }
 
-  DateTime? _saleDate(Map<String, dynamic> sale) {
-    final raw = sale['createdAt'] ??
-        sale['saleDate'] ??
-        sale['timestamp'] ??
-        sale['updatedAt'];
-    if (raw == null) return null;
-    if (raw is Timestamp) return raw.toDate();
-    if (raw is DateTime) return raw;
-    if (raw is num) {
-      final value = raw.toInt();
-      return DateTime.fromMillisecondsSinceEpoch(
-        value < 10000000000 ? value * 1000 : value,
-      );
-    }
-    if (raw is String) {
-      final millis = int.tryParse(raw);
-      if (millis != null) {
-        return DateTime.fromMillisecondsSinceEpoch(
-          millis < 10000000000 ? millis * 1000 : millis,
-        );
-      }
-      return DateTime.tryParse(raw);
-    }
-    return null;
-  }
-
-  bool _isTodaySale(Map<String, dynamic> sale) {
-    final date = _saleDate(sale);
-    if (date == null) return false;
-    final now = DateTime.now();
-    return date.year == now.year &&
-        date.month == now.month &&
-        date.day == now.day;
-  }
-
-  List<Map<String, dynamic>> _filterSalesForToday(
-    List<Map<String, dynamic>> sales,
-  ) {
-    return sales.where(_isTodaySale).toList();
-  }
-
-  List<Map<String, dynamic>> _mergeSalesForMetrics(
-    List<Map<String, dynamic>> current,
-    List<Map<String, dynamic>> incoming,
-  ) {
-    final merged = <String, Map<String, dynamic>>{};
-    var fallbackIndex = 0;
-
-    void addSale(Map<String, dynamic> sale) {
-      final id = (sale['id'] ??
-              sale['referenceId'] ??
-              sale['receiptNumber'] ??
-              sale['orderId'])
-          ?.toString();
-      final key = id != null && id.isNotEmpty
-          ? id
-          : 'sale_${_saleDate(sale)?.millisecondsSinceEpoch ?? 0}_${fallbackIndex++}';
-      merged[key] = sale;
-    }
-
-    for (final sale in current) {
-      if (_isTodaySale(sale)) addSale(sale);
-    }
-    for (final sale in incoming) {
-      if (_isTodaySale(sale)) addSale(sale);
-    }
-
-    return merged.values.toList();
-  }
-
-  double _saleAmount(Map<String, dynamic> sale) {
-    for (final key in ['totalAmount', 'finalAmount', 'total', 'amount']) {
-      final value = sale[key];
-      if (value is num) return value.toDouble();
-      if (value is String) {
-        final parsed = double.tryParse(value.replaceAll(',', '').trim());
-        if (parsed != null) return parsed;
-      }
-    }
-    return 0;
-  }
-
-  int _saleItemQuantity(Map<String, dynamic> sale) {
-    final items = sale['items'];
-    if (items is List) {
-      return items.fold<int>(0, (sum, item) {
-        if (item is! Map) return sum;
-        final value = item['quantity'] ?? item['qty'] ?? item['count'];
-        if (value is num) return sum + value.round();
-        if (value is String) return sum + (num.tryParse(value)?.round() ?? 0);
-        return sum;
-      });
-    }
-
-    final quantity = sale['quantity'] ?? sale['itemCount'] ?? sale['itemsCount'];
-    if (quantity is num) return quantity.round();
-    if (quantity is String) return num.tryParse(quantity)?.round() ?? 0;
-    return 0;
-  }
-
-  Future<void> _loadTodaySalesMetrics() async {
-    try {
-      final now = DateTime.now();
-      final start = DateTime(now.year, now.month, now.day);
-      final end = start.add(const Duration(days: 1));
-      final sales = await context.read<RetailProvider>().getSalesHistory(
-            limit: 1000,
-            start: start,
-            end: end,
-            storeId:
-                widget.enableStoreSwitcher && _selectedStoreFilterId != _allStoresValue
-                    ? _selectedStoreFilterId
-                    : null,
-          );
-      if (!mounted) return;
-      setState(() {
-        _todaySalesMetrics = _filterSalesForToday(sales);
-      });
-    } catch (e) {
-      debugPrint('[SalesScreen] Failed to load today metrics: $e');
-    }
-  }
-
   Future<void> _promptNewCart(
       BuildContext context, RetailProvider retail) async {
     final controller = TextEditingController(
@@ -967,105 +830,9 @@ class _SalesScreenState extends State<SalesScreen>
     retail.renameCart(session.id, controller.text);
   }
 
-  Future<void> _showCartSwitcherSheet(
-    BuildContext context,
-    RetailProvider retail,
-  ) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Text('Open Carts', style: AppTextStyles.heading5),
-                    const Spacer(),
-                    TextButton.icon(
-                      onPressed: () async {
-                        Navigator.pop(sheetContext);
-                        await _promptNewCart(context, retail);
-                      },
-                      icon: const Icon(Icons.add_circle_outline),
-                      label: const Text('New Cart'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 420),
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: retail.cartSessions.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final session = retail.cartSessions[index];
-                      return ListTile(
-                        leading: Icon(
-                          session.isActive
-                              ? Icons.shopping_bag
-                              : Icons.shopping_bag_outlined,
-                          color: session.isActive ? AppColors.primary : null,
-                        ),
-                        title: Text(session.label),
-                        subtitle: Text(
-                          '${session.itemCount} item${session.itemCount == 1 ? '' : 's'}',
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              tooltip: 'Rename',
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: () {
-                                Navigator.pop(sheetContext);
-                                _promptRenameCart(context, retail, session);
-                              },
-                            ),
-                            if (retail.cartSessions.length > 1)
-                              IconButton(
-                                tooltip: 'Close cart',
-                                icon: const Icon(Icons.close),
-                                onPressed: () {
-                                  retail.closeCart(session.id);
-                                  if (!mounted) return;
-                                  setState(() {
-                                    _globalPricingMode =
-                                        retail.activeCartPricingMode;
-                                  });
-                                  Navigator.pop(sheetContext);
-                                },
-                              ),
-                          ],
-                        ),
-                        selected: session.isActive,
-                        onTap: () {
-                          retail.switchCart(session.id);
-                          if (!mounted) return;
-                          setState(() {
-                            _globalPricingMode = retail.activeCartPricingMode;
-                          });
-                          Navigator.pop(sheetContext);
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   void _toggleGlobalPricingMode(RetailProvider retail) {
-    final newMode = _globalPricingMode == 'retail' ? 'wholesale' : 'retail';
+    final newMode =
+        _globalPricingMode == 'retail' ? 'wholesale' : 'retail';
     setState(() {
       _globalPricingMode = newMode;
     });
@@ -1083,15 +850,6 @@ class _SalesScreenState extends State<SalesScreen>
         duration: const Duration(seconds: 1),
       ),
     );
-  }
-
-  bool _handleProductScroll(ScrollNotification notification) {
-    if (notification.metrics.axis != Axis.vertical) return false;
-    final shouldCollapse = notification.metrics.pixels > 24;
-    if (shouldCollapse != _salesHeaderCollapsed) {
-      setState(() => _salesHeaderCollapsed = shouldCollapse);
-    }
-    return false;
   }
 
   Widget _buildCartSessionStrip(BuildContext context, RetailProvider retail) {
@@ -1424,21 +1182,9 @@ class _SalesScreenState extends State<SalesScreen>
       // Procurement FAB moved to Inventory screen per UX change.
       body: Column(
         children: [
-          AnimatedSize(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: _salesHeaderCollapsed
-                ? const SizedBox(width: double.infinity)
-                : _buildSalesHero(context, retail),
-          ),
-          if (widget.enableStoreSwitcher && !_salesHeaderCollapsed)
-            AnimatedSize(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOutCubic,
-              child: _buildStoreSwitcher(retail),
-            ),
-          if (!_salesHeaderCollapsed) _buildCartSessionStrip(context, retail),
+          _buildSalesHero(context, retail),
+          if (widget.enableStoreSwitcher)
+            _buildStoreSwitcher(retail),
           // Handheld scanner input (keyboard wedge)
           if (_handheldMode)
             Container(
@@ -1631,30 +1377,27 @@ class _SalesScreenState extends State<SalesScreen>
 
           // Main Content Area
           Expanded(
-            child: NotificationListener<ScrollNotification>(
-              onNotification: _handleProductScroll,
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  // Products Tab
-                  _ProductsGrid(
-                      searchQuery: _mainSearchController.text,
-                      inStockOnly: _filterInStockOnly,
-                      sortBy: _productSort,
-                      isGridView: _isGridView,
-                      onAddToCart: (product) => retail.addToCart(
-                            product.id,
-                            pricingMode: _globalPricingMode,
-                          ),
-                      globalPricingMode: _globalPricingMode),
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                // Products Tab
+                _ProductsGrid(
+                    searchQuery: _mainSearchController.text,
+                    inStockOnly: _filterInStockOnly,
+                    sortBy: _productSort,
+                    isGridView: _isGridView,
+                    onAddToCart: (product) => retail.addToCart(
+                          product.id,
+                          pricingMode: _globalPricingMode,
+                        ),
+                    globalPricingMode: _globalPricingMode),
 
-                  // Cart Tab
-                  _buildCartTab(retail),
+                // Cart Tab
+                _buildCartTab(retail),
 
-                  // History Tab
-                  _buildHistoryTab(),
-                ],
-              ),
+                // History Tab
+                _buildHistoryTab(),
+              ],
             ),
           ),
 
@@ -1686,7 +1429,7 @@ class _SalesScreenState extends State<SalesScreen>
                         color: AppColors.primary,
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(Icons.shopping_cart_outlined,
+                      child:  Icon(Icons.shopping_cart_outlined,
                           color: isDark ? Colors.white : scheme.onPrimary),
                     ),
                     const SizedBox(width: 14),
@@ -1783,12 +1526,15 @@ class _SalesScreenState extends State<SalesScreen>
     final onBg = isDark ? Colors.white : scheme.onSurface;
     final auth = context.watch<AuthProvider>();
     final user = auth.currentUser;
-    final todaySales = _todaySalesMetrics;
-    final totalSales =
-        todaySales.fold<double>(0, (sum, sale) => sum + _saleAmount(sale));
-    final itemsSold =
-        todaySales.fold<int>(0, (sum, sale) => sum + _saleItemQuantity(sale));
-    final avgSale = todaySales.isEmpty ? 0.0 : totalSales / todaySales.length;
+    final totalSales = _salesHistory.fold<double>(
+      0,
+      (sum, sale) => sum + ((sale['total'] ?? sale['amount'] ?? 0) as num).toDouble(),
+    );
+    final itemsSold = retail.products.fold<int>(
+      0,
+      (sum, product) => sum + (product.stock < 100 ? (100 - product.stock).round() : 0),
+    );
+    final avgSale = _salesHistory.isEmpty ? 0.0 : totalSales / _salesHistory.length;
 
     return Container(
       color: bg,
@@ -1832,15 +1578,13 @@ class _SalesScreenState extends State<SalesScreen>
                   _salesTopButton(
                     icon: Icons.notifications_none_rounded,
                     tooltip: 'Notifications',
-                    onPressed: () =>
-                        Navigator.pushNamed(context, Routes.notifications),
+                    onPressed: () => Navigator.pushNamed(context, Routes.notifications),
                   ),
                   Positioned(
                     top: 6,
                     right: 4,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 5, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                       decoration: BoxDecoration(
                         color: Colors.redAccent,
                         borderRadius: BorderRadius.circular(999),
@@ -1879,15 +1623,14 @@ class _SalesScreenState extends State<SalesScreen>
                 ),
               ),
               ElevatedButton.icon(
-                onPressed: () => _promptNewCart(context, retail),
+                onPressed: () {},
                 icon: const Icon(Icons.add_circle_outline_rounded, size: 17),
                 label: const Text('New Sale'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   elevation: 0,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(13),
                   ),
@@ -1900,17 +1643,13 @@ class _SalesScreenState extends State<SalesScreen>
             children: [
               Expanded(
                 flex: 3,
-                child: InkWell(
-                  onTap: () => _showCartSwitcherSheet(context, retail),
-                  borderRadius: BorderRadius.circular(13),
-                  child: _salesSummaryCard(
-                    title: 'Open Carts',
-                    value: retail.activeCartLabel,
-                    subtitle: 'View all carts',
-                    icon: Icons.shopping_cart_outlined,
-                    color: AppColors.primary,
-                    badge: retail.cartCount.toString(),
-                  ),
+                child: _salesSummaryCard(
+                  title: 'Open Carts',
+                  value: retail.activeCartLabel,
+                  subtitle: 'View all carts',
+                  icon: Icons.shopping_cart_outlined,
+                  color: AppColors.primary,
+                  badge: retail.cartCount.toString(),
                 ),
               ),
               const SizedBox(width: 10),
@@ -2101,7 +1840,6 @@ class _SalesScreenState extends State<SalesScreen>
                 await retail.loadProducts(
                   storeId: value == _allStoresValue ? null : value,
                 );
-                await _loadTodaySalesMetrics();
               },
             ),
           ),

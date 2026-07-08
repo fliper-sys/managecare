@@ -542,6 +542,24 @@ class _GrantedAdminQuickNav extends StatelessWidget {
         ),
       );
     }
+    if (can('access_fuel_stock_screen')) {
+      shortcuts.add(
+        const _GrantedAdminShortcut(
+          label: 'Fuel Stock',
+          route: Routes.gasStock,
+          icon: Icons.inventory_2_rounded,
+        ),
+      );
+    }
+    if (can('access_pump_configuration_screen')) {
+      shortcuts.add(
+        const _GrantedAdminShortcut(
+          label: 'Pump Config',
+          route: Routes.gasPumpConfiguration,
+          icon: Icons.tune_outlined,
+        ),
+      );
+    }
     if (can('access_procurement_screen') || can('procurement_management')) {
       shortcuts.add(
         const _GrantedAdminShortcut(

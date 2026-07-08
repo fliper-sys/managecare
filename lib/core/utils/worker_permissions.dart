@@ -266,6 +266,8 @@ class WorkerPermissions {
       'access_workers_screen',
       'access_settings_screen',
       'access_owner_dashboard',
+      'access_fuel_stock_screen',
+      'access_pump_configuration_screen',
       'manage_inventory',
       'procurement_management',
       'view_reports',
@@ -289,6 +291,8 @@ class WorkerPermissions {
       'access_workers_screen': 'Workers Screen',
       'access_settings_screen': 'Settings Screen',
       'access_owner_dashboard': 'Owner Dashboard',
+      'access_fuel_stock_screen': 'Fuel Stock Screen',
+      'access_pump_configuration_screen': 'Pump Configuration Screen',
       'attendance': 'Attendance',
       'payroll_view': 'Payroll View',
       'apply_discount': 'Apply Discount',
@@ -396,6 +400,18 @@ class WorkerPermissions {
   ) =>
       hasEffectivePermission(role, permissions, 'procurement_management') ||
       hasEffectivePermission(role, permissions, 'access_procurement_screen');
+
+  static bool canAccessFuelStockForUser(
+    String role,
+    List<String> permissions,
+  ) =>
+      hasEffectivePermission(role, permissions, 'access_fuel_stock_screen');
+
+  static bool canAccessPumpConfigurationForUser(
+    String role,
+    List<String> permissions,
+  ) =>
+      hasEffectivePermission(role, permissions, 'access_pump_configuration_screen');
 
   static bool canAccessExpensesForUser(String role, List<String> permissions) =>
       hasEffectivePermission(role, permissions, 'access_expenses_screen');
