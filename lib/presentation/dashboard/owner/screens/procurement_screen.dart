@@ -716,6 +716,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           'unit': defaultUnit,
           'batchLabel': '',
           'expiryDate': null,
+          'bagWeightKg': (product['bagWeightKg'] as num?)?.toDouble() ?? 0.0,
           'product': product,
         };
       });
@@ -748,6 +749,11 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         TextEditingController(text: (entry['cost'] as double).toString());
     final batchLabelController = TextEditingController(
       text: (entry['batchLabel'] ?? '').toString(),
+    );
+    final bagWeightController = TextEditingController(
+      text: (entry['bagWeightKg'] != null && (entry['bagWeightKg'] as num) > 0)
+          ? (entry['bagWeightKg'].toString())
+          : '50',
     );
     String selectedUnit = canonicalizeInventoryUnit(
       (entry['unit'] as String?) ?? (baseUnit.isNotEmpty ? baseUnit : 'pc'),
@@ -838,6 +844,16 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
+                    if (selectedUnit == 'bag')
+                      TextField(
+                        controller: bagWeightController,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: InputDecoration(
+                          labelText: 'Bag weight (kg) - e.g., 50',
+                          helperText: 'Used to convert bags to ${inventoryUnitLabel(baseUnit)}',
+                        ),
+                      ),
+                    const SizedBox(height: 8),
                     TextField(
                       controller: batchLabelController,
                       decoration: const InputDecoration(
@@ -891,10 +907,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           double.tryParse(qtyController.text) ?? (entry['quantity'] as num);
       final newCost =
           double.tryParse(costController.text) ?? (entry['cost'] as double);
+      final newBagWeight = double.tryParse(bagWeightController.text) ?? (entry['bagWeightKg'] as num? ?? 0);
       setState(() {
         _selectedItems[id]!['quantity'] = newQty;
         _selectedItems[id]!['cost'] = newCost;
         _selectedItems[id]!['unit'] = canonicalizeInventoryUnit(selectedUnit);
+        _selectedItems[id]!['bagWeightKg'] = newBagWeight;
         _selectedItems[id]!['batchLabel'] = batchLabelController.text.trim();
         _selectedItems[id]!['expiryDate'] = selectedExpiryDate;
       });
@@ -914,6 +932,43 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     ));
   }
 
+  bool _isBakeryBusiness() {
+    final businessType = context.read<BusinessProvider>().currentBusiness?.businessType ?? '';
+    final normalized = businessType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return normalized == 'bakery' || normalized == 'bakeryshop' || normalized == 'bakeshop';
+  }
+
+  Future<List<Map<String, dynamic>>> _loadBakeryWorkers() async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id ?? '';
+    if (businessId.isEmpty) return [];
+
+    final snapshot = await FirebaseFirestore.instance
+        .collection('workers')
+        .where('businessId', isEqualTo: businessId)
+        .get();
+
+    return snapshot.docs
+        .map((doc) => {'id': doc.id, ...doc.data()})
+        .cast<Map<String, dynamic>>()
+        .toList();
+  }
+
+  bool _isBakeryRole(Map<String, dynamic> worker) {
+    final roles = (worker['roles'] as List<dynamic>?)?.cast<String>() ?? <String>[];
+    final role = (worker['role'] ?? worker['position'] ?? '').toString().toLowerCase();
+    return roles.any((r) => r.toString().toLowerCase().contains('baker')) ||
+        role.contains('baker') ||
+        role.contains('pastry');
+  }
+
+  bool _isSalesRepRole(Map<String, dynamic> worker) {
+    final roles = (worker['roles'] as List<dynamic>?)?.cast<String>() ?? <String>[];
+    final role = (worker['role'] ?? worker['position'] ?? '').toString().toLowerCase();
+    return roles.any((r) => r.toString().toLowerCase().contains('sales')) ||
+        role.contains('sales') ||
+        role.contains('rep');
+  }
+
   Future<void> _submitSelectedProcurement() async {
     if (_selectedItems.isEmpty) return;
     if (_isSubmitting) return;
@@ -927,6 +982,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         String? selectedSupplierName =
             suppliers.isNotEmpty ? suppliers.first.name : null;
         final invoiceController = TextEditingController();
+        final bakerController = TextEditingController();
+        final salesRepController = TextEditingController();
+        String? selectedBakerId;
+        String? selectedBakerName;
+        String? selectedSalesRepId;
+        String? selectedSalesRepName;
 
         // Reference image upload state
         String? uploadedReferenceImageUrl;
@@ -1147,6 +1208,62 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                       decoration: const InputDecoration(
                           labelText: 'Invoice / Reference (optional)'),
                     ),
+                    const SizedBox(height: 12),
+                    if (_isBakeryBusiness()) ...[
+                      FutureBuilder<List<Map<String, dynamic>>>(
+                        future: _loadBakeryWorkers(),
+                        builder: (context, snapshot) {
+                          final workers = snapshot.data ?? [];
+                          final bakerOptions = workers.where((w) => _isBakeryRole(w)).toList();
+                          return Column(
+                            children: [
+                              DropdownButtonFormField<String>(
+                                value: selectedBakerId,
+                                items: bakerOptions
+                                    .map((w) => DropdownMenuItem(
+                                          value: (w['id'] ?? '').toString(),
+                                          child: Text((w['name'] ?? w['fullName'] ?? 'Unknown').toString()),
+                                        ))
+                                    .toList(),
+                                onChanged: (v) {
+                                  final worker = bakerOptions.firstWhere(
+                                    (w) => (w['id'] ?? '').toString() == v,
+                                    orElse: () => <String, dynamic>{},
+                                  );
+                                  setState(() {
+                                    selectedBakerId = v;
+                                    selectedBakerName = (worker['name'] ?? worker['fullName'] ?? '').toString();
+                                  });
+                                },
+                                decoration: const InputDecoration(labelText: 'Baker (optional)'),
+                              ),
+                              const SizedBox(height: 12),
+                              DropdownButtonFormField<String>(
+                                value: selectedSalesRepId,
+                                items: workers
+                                    .where((w) => _isSalesRepRole(w))
+                                    .map((w) => DropdownMenuItem(
+                                          value: (w['id'] ?? '').toString(),
+                                          child: Text((w['name'] ?? w['fullName'] ?? 'Unknown').toString()),
+                                        ))
+                                    .toList(),
+                                onChanged: (v) {
+                                  final worker = workers.firstWhere(
+                                    (w) => (w['id'] ?? '').toString() == v,
+                                    orElse: () => <String, dynamic>{},
+                                  );
+                                  setState(() {
+                                    selectedSalesRepId = v;
+                                    selectedSalesRepName = (worker['name'] ?? worker['fullName'] ?? '').toString();
+                                  });
+                                },
+                                decoration: const InputDecoration(labelText: 'Sales Rep (optional)'),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1165,6 +1282,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                 ? invoiceController.text
                                 : null,
                             'referenceImageUrl': uploadedReferenceImageUrl,
+                            'bakerId': selectedBakerId,
+                            'bakerName': selectedBakerName,
+                            'salesRepId': selectedSalesRepId,
+                            'salesRepName': selectedSalesRepName,
                           }),
                   child: const Text('Confirm')),
             ],
@@ -1212,10 +1333,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
             canonicalizeInventoryUnit((prod['unit'] ?? '').toString());
         final qty = (e.value['quantity'] as num?) ?? 0;
         final rawUnitCost = (e.value['cost'] as num?)?.toDouble() ?? 0.0;
+        final bagWeightKg = (e.value['bagWeightKg'] as num?)?.toDouble() ?? 0.0;
         final normalizedQty = normalizeProcurementQuantity(
           qty,
           selectedUnit,
           baseUnit.isNotEmpty ? baseUnit : selectedUnit,
+          bagWeightKg: bagWeightKg,
         );
         final lineTotal = qty.toDouble() * rawUnitCost;
         final normalizedUnitCost = normalizedQty == 0
@@ -1249,6 +1372,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         createdByEmail: currentUser?.email,
         storeId: currentUser?.storeId,
         storeName: storeName,
+        bakerId: dialogResult['bakerId']?.toString(),
+        bakerName: dialogResult['bakerName']?.toString(),
+        salesRepId: dialogResult['salesRepId']?.toString(),
+        salesRepName: dialogResult['salesRepName']?.toString(),
       );
 
       final totalCost = items.fold<double>(0.0, (sum, item) {

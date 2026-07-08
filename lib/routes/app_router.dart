@@ -30,6 +30,7 @@ import '../presentation/sales/screens/sales_screen.dart';
 import '../presentation/sales/screens/sales_history_screen.dart';
 import '../presentation/inventory/screens/inventory_list_screen.dart';
 import '../presentation/inventory/screens/inventory_expiry_tracker_screen.dart';
+import '../presentation/inventory/screens/distributor_sales_report_screen.dart';
 import '../presentation/inventory/screens/low_stock_products_screen.dart';
 import '../presentation/inventory/screens/add_inventory_screen.dart';
 import '../presentation/inventory/screens/edit_inventory_screen.dart';
@@ -216,6 +217,7 @@ import '../presentation/batch_operations/screens/batch_operations_screen.dart';
 // Procurement screens
 import '../presentation/dashboard/owner/screens/procurement_screen.dart';
 import '../presentation/dashboard/owner/screens/procurement_history_screen.dart';
+import '../presentation/dashboard/owner/screens/bakery_procurement_history_screen.dart';
 
 class AppRouter {
   Route<dynamic>? onGenerateRoute(RouteSettings settings) {
@@ -315,6 +317,9 @@ class AppRouter {
       case Routes.lowStockProducts:
         return _buildRoute(const LowStockProductsScreen());
 
+      case Routes.distributorSalesReport:
+        return _buildRoute(const DistributorSalesReportScreen());
+
       case Routes.inventoryAdd:
         return _buildRoute(const AddInventoryScreen());
 
@@ -409,6 +414,8 @@ class AppRouter {
 
       case Routes.procurementHistory:
         return _buildRoute(const ProcurementHistoryScreen());
+      case Routes.bakeryProcurements:
+        return _buildRoute(const BakeryProcurementHistoryScreen());
 
       case Routes.adminDunning:
         return _buildRoute(const DunningStatusScreen());

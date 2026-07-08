@@ -33,6 +33,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
   final _quantityController = TextEditingController();
   final _minStockController = TextEditingController();
   final _emojiController = TextEditingController(text: '📦');
+  final _bagWeightController = TextEditingController(text: '50');
 
   String _selectedCategory = 'Electronics';
   String _selectedUnit = 'pcs';
@@ -214,6 +215,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     _quantityController.dispose();
     _minStockController.dispose();
     _emojiController.dispose();
+    _bagWeightController.dispose();
     super.dispose();
   }
 
@@ -313,6 +315,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
               '${_selectedCategory}_${DateTime.now().millisecondsSinceEpoch}',
         'emoji': _emojiController.text.isEmpty ? '📦' : _emojiController.text,
         'createdAt': DateTime.now().toIso8601String(),
+        if (_selectedUnit == 'bag') 'bagWeightKg': double.tryParse(_bagWeightController.text) ?? 0.0,
       };
 
       final result = await repository.addInventory(inventoryData);
@@ -522,6 +525,22 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                 ],
               ),
               const SizedBox(height: 16),
+              if (_selectedUnit == 'bag')
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Default bag weight (kg)', style: AppTextStyles.body2),
+                    const SizedBox(height: 8),
+                    CustomTextField(
+                      controller: _bagWeightController,
+                      label: 'Bag weight (kg)',
+                      hint: 'e.g., 50',
+                      keyboardType: TextInputType.numberWithOptions(decimal: true),
+                      prefixIcon: Icons.scale,
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
 
               Row(
                 children: [

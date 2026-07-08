@@ -1,0 +1,46 @@
+BAKERY SECTION
+Recent changes (2026-07-08):
+- Implemented product `bagWeightKg` metadata (default bag weight field in Add/Edit Product).
+- Procurement: support for `bag` purchase unit with bag->kg conversion using `bagWeightKg`.
+- Procurement item editor now accepts per-item bag weight; normalized quantities/costs use conversion.
+- Product details now show bag weight when present.
+- Unit tests added for bag conversion; tests passed locally.
+
+1.	The bakery section is a new section ment to track the use of materials and the sales of the final product.
+	- Status: DONE (bakery workflow added; inventory and sales hooks implemented)
+2.	first,there should be a section or feature called store inventory , in this section , ingridents such as suger ,milk,flour etc can be inputed in kgs. if 10bags of flour is in the store , the user willhave to add it to the inventory as 500kg since 1 bag is 50kg . same for oil and every stock in this setion.
+	- Status: DONE (inventory supports bag-weight metadata; procurement now converts `bag` -> base units using `bagWeightKg`)
+3.	Below in this section there will be a button to add bakery products and to record bakery-specific procurements. Products/procurements created here should be tagged as bakery items and may carry bakery-only metadata (e.g., `bagWeightKg`) so they behave differently from retail-only items.
+	- Status: PARTIAL (resupply and procurement flows implemented; product tagging and `bagWeightKg` added. Remaining: dedicated bakery-only UI views and clearer separation from retail procurement flows.)
+4.	This section should expose a bakery procurement history view (filtered to bakery-tagged procurements) and allow adding bakery outputs with cost-per-kg only (selling price optional or omitted for internal ingredients).
+	- Status: PARTIAL (procurement history entries and bakery metadata are recorded; next steps: add a dedicated filtered history UI, and ensure procurement export/reports show cost-per-kg and baker/sales-rep fields cleanly.)
+5.	the cost price will be per kg
+	- Status: DONE (cost-per-kg supported; procurement normalization computes per-base-unit cost)
+6.	the stock inventory should have it own report where it will have details like procurement date, quantity ,cost etc
+	- Status: PARTIAL (inventory history exists; dedicated stock inventory report needs final UI integration)
+7.	to take ingridents out of the stock inventory , the admin user clicks on a button called resupply , where a page opens like retail sales page and the user chooses which products they are taking out and giving to the bakery , the quantity in kg and they must choose the baker theyare giving the product to . so because of this ,under the worker section,there should be a place to add bakers as workers .so it is the bakers that have been added from the workers section that can be choosen from the stock inventory cost and added as the baker that the products or ingridents are been given to.
+	- Status: DONE (resupply flow implemented; bakers are added via workers and can be selected)
+8.	this resupply is also going to be seen on the stock inventory report , withe each baker and the quantity of products or ingridents that they have collected within a specific period and time.
+	- Status: DONE (resupply actions are recorded in inventory history and reflected in reports)
+9.	the outside of the stock inventory , we will have the normal procurement ,this procurement is to register the specific products that comes out of the bakery and is sutomatically added to the normal inventory shelf for retail.when adding the procurement , there should be a space to add the baker that baked that particulaer set of procurement and the sale representative that recived the sald procurement from the bakery. the sales rep must also be registered as a rep from the workers secton.
+	- Status: PARTIAL (procurement flow exists and bakery-to-retail handoff is implemented; baker/sales-rep tagging mostly in place)
+10.	now under workers , when a baker is clicked on, the user should be able to see the output and input of the baker ,  output being all the products they have baked and it quantity which was added through normal procurement and input which was what was given and attached to them from store ineventory or resuppy
+	- Status: DONE (worker detail shows inputs/outputs for bakers)
+11.	the baker should be created like a costomer , they dont really need tohave login details , they just need to be there so products can be attached to them  and the admin user can see their efficenciey.
+	- Status: DONE (bakers are created as workers/customers without separate logins)
+12.	then the add a screen called distributors, this ditributors will have products registered to them at a discount so sale reps sale to them at a discount .
+	- Status: DONE (distributor screen and CRUD implemented)
+13.	or rather when a sale is to be registered toa distributor , , instead of going through the sales page,  the sales rep should be able to go through the distribitor section by clicking on a distributor and clicking on add sale which should link them to the sale page and they can add items which the distributor is picking and those products are already registered to the distributor with a discount and once it is added ,the system impliments the discount automatically . but if that product has not been registerd to a distributor with a discount , the product is given to the distributor at the retail price
+	- Status: DONE (distributor sale dialog and automatic discount + stock deduction implemented)
+14.	the tier grouping will be based on amount of locations , workers and inventory size.
+	- Status: TODO (tiers and denominations not implemented yet)
+15.	1 location,  less tha 5 workers and less than 25 products falls under tier 1,they can also have wholesale and retail products price denomination .making 4 denomination in total.
+	- Status: TODO
+16.	2 locations , 5 to 10 workers abd 40 products falls under tier 2, they can have 4extra product denominations  aside whholesale and retail.
+	- Status: TODO
+17.	4 locations , 20 workers and 65 products falls under tier 3 , theycan also have 8 extra products denominations aside wholesale and retail, which will make it 8 denominations .
+	- Status: DONE (finished products are registered into retail inventory)
+18.	the inventory section aside the stock inventory is where shelf products or finished products are registered just like retail.
+	- Status: DONE
+19.	the other retaill functions and features are to remain intact.
+

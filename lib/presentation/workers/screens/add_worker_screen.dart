@@ -117,6 +117,14 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
     super.dispose();
   }
 
+  bool _isBakeryBakerRole() {
+    final businessType = context.read<BusinessProvider>().currentBusiness?.businessType ?? '';
+    final normalized = businessType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final isBakeryBusiness = normalized == 'bakery' || normalized == 'bakeryshop' || normalized == 'bakeshop';
+    if (!isBakeryBusiness) return false;
+    return _selectedRoles.any((role) => role.toLowerCase().contains('baker') || role.toLowerCase().contains('pastry'));
+  }
+
   List<String> _getRolesForBusiness(String businessType) {
     final normalized =
         businessType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
@@ -313,22 +321,25 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
     try {
       final normalizedEmail = _emailController.text.trim().toLowerCase();
-      final duplicateWorkerExists = workersProvider.workers.any((worker) {
-        final existingEmail =
-            (worker['email'] ?? '').toString().trim().toLowerCase();
-        return existingEmail == normalizedEmail;
-      });
-      if (duplicateWorkerExists) {
-        throw Exception('A worker with this email already exists.');
-      }
-      final duplicateWorkerInStore = await _workerEmailExists(
-        normalizedEmail,
-        businessId: businessId,
-      );
-      if (duplicateWorkerInStore) {
-        throw Exception(
-          'A worker login with this email already exists for this business.',
+      final isBakeryBaker = _isBakeryBakerRole();
+      if (!isBakeryBaker || normalizedEmail.isNotEmpty) {
+        final duplicateWorkerExists = workersProvider.workers.any((worker) {
+          final existingEmail =
+              (worker['email'] ?? '').toString().trim().toLowerCase();
+          return existingEmail == normalizedEmail;
+        });
+        if (duplicateWorkerExists) {
+          throw Exception('A worker with this email already exists.');
+        }
+        final duplicateWorkerInStore = await _workerEmailExists(
+          normalizedEmail,
+          businessId: businessId,
         );
+        if (duplicateWorkerInStore) {
+          throw Exception(
+            'A worker login with this email already exists for this business.',
+          );
+        }
       }
 
       // Prepare password (owner may supply it) or generate a temporary one
@@ -355,6 +366,62 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
       fb_core.FirebaseApp? tempApp;
       fb_auth.FirebaseAuth? tempAuth;
       var authAccountCreated = false;
+      if (isBakeryBaker && normalizedEmail.isEmpty) {
+        try {
+          final workerRepo = WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
+          final createdWorker = await workerRepo.addWorker({
+            'name': _fullNameController.text.trim(),
+            'fullName': _fullNameController.text.trim(),
+            'email': '',
+            'emailLowercase': '',
+            'phoneNumber': _phoneController.text.trim(),
+            'role': primaryRole,
+            'roles': _selectedRoles.toList(),
+            'permissions': effectivePermissions,
+            'customPermissions': effectivePermissions,
+            'businessId': authProvider.currentUser!.businessId,
+            'businessType': businessType,
+            'storeId': _selectedStoreId,
+            'pin': _pinController.text.trim(),
+            'isActive': true,
+            'hireDate': DateTime.now().toString().split(' ')[0],
+            'createdAt': DateTime.now(),
+            'updatedAt': DateTime.now(),
+            'isLoginEnabled': false,
+            'notes': 'Bakery worker created without login credentials',
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Bakery worker saved without login credentials'),
+                backgroundColor: AppColors.success,
+              ),
+            );
+            try {
+              final businessProvider = context.read<BusinessProvider>();
+              final bid = businessProvider.currentBusiness?.id ?? '';
+              if (bid.isNotEmpty) {
+                await context.read<WorkersProvider>().refreshForBusiness(bid);
+                await businessProvider.refreshBusinessStats(bid);
+              }
+            } catch (_) {}
+            if (authProvider.isOwnerUser) {
+              Navigator.pushReplacementNamed(context, Routes.workers);
+            } else {
+              Navigator.pop(context);
+            }
+          }
+          return;
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to add bakery worker: $e'), backgroundColor: AppColors.error),
+            );
+          }
+          setState(() => _isLoading = false);
+          return;
+        }
+      }
       try {
         final defaultApp = fb_core.Firebase.app();
         final tempAppName =
@@ -864,13 +931,20 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
               TextFormField(
                 controller: _emailController,
                 decoration: InputDecoration(
-                  labelText: 'Email',
+                  labelText: _isBakeryBakerRole() ? 'Email (optional for bakers)' : 'Email',
                   prefixIcon: const Icon(Icons.email),
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8)),
                 ),
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) {
+                  if (_isBakeryBakerRole()) {
+                    if (value == null || value.trim().isEmpty) return null;
+                    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
+                      return 'Please enter a valid email';
+                    }
+                    return null;
+                  }
                   if (value?.isEmpty ?? true) return 'Please enter email';
                   if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value!)) {
                     return 'Please enter a valid email';

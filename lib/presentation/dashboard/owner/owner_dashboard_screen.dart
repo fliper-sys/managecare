@@ -2107,6 +2107,12 @@ class _HomeTabState extends State<_HomeTab> {
                       tooltip: 'Open Industry Dashboard',
                       onPressed: () => _navigateToIndustryDashboard(business),
                     ),
+                    const SizedBox(width: 10),
+                    _buildBusinessActionButton(
+                      icon: Icons.storefront_rounded,
+                      tooltip: 'Distributor Sales',
+                      onPressed: () => Navigator.pushNamed(context, Routes.distributorSalesReport),
+                    ),
                     if (business.website != null &&
                         business.website!.isNotEmpty) ...[
                       const SizedBox(width: 10),
@@ -3564,6 +3570,20 @@ class _HomeTabState extends State<_HomeTab> {
             icon: Icons.history_rounded,
             color: Colors.green,
             route: Routes.salesHistory,
+          ),
+          _QuickActionItem(
+            title: 'Distributor Sales',
+            subtitle: 'Distributor sale records',
+            icon: Icons.local_shipping_rounded,
+            color: Colors.deepOrange,
+            route: Routes.distributorSalesReport,
+          ),
+          _QuickActionItem(
+            title: 'Bakery Procurements',
+            subtitle: 'View bakery procurements',
+            icon: Icons.history_rounded,
+            color: Colors.brown,
+            route: Routes.bakeryProcurements,
           ),
           _QuickActionItem(
             title: 'Reports',

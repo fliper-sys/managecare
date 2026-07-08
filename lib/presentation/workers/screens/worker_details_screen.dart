@@ -15,6 +15,29 @@ import '../../../core/theme/text_styles.dart';
 import '../../../widgets/profile_avatar.dart';
 import '../../../core/utils/worker_permissions.dart';
 
+String summarizeBakeryActivity(Map<String, dynamic> activity, {required bool isOutput}) {
+  if (activity.isEmpty) return 'No activity';
+
+  if (isOutput) {
+    final items = activity['items'] as List<dynamic>? ?? [];
+    if (items.isNotEmpty) {
+      final summaries = items.map((item) {
+        final mapItem = item is Map<String, dynamic> ? item : <String, dynamic>{};
+        final name = (mapItem['name'] ?? 'Item').toString();
+        final quantity = (mapItem['quantity'] ?? 0).toString();
+        return '$name × $quantity';
+      }).join(', ');
+      return summaries;
+    }
+    return 'Output recorded';
+  }
+
+  final notes = activity['notes']?.toString().trim() ?? '';
+  if (notes.isNotEmpty) return notes;
+  final quantity = activity['quantity']?.toString() ?? '0';
+  return 'Issued $quantity units';
+}
+
 class WorkerDetailsScreen extends StatefulWidget {
   final String workerId;
   final String? businessId;
@@ -848,6 +871,18 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
   }
 
   Widget _buildPerformanceTab() {
+    final isBakeryWorker = (_worker?['role'] ?? '').toString().toLowerCase().contains('baker') ||
+        (_worker?['roles'] as List<dynamic>?)?.any((role) => role.toString().toLowerCase().contains('baker')) == true;
+
+    final bakeryOutput = <Map<String, dynamic>>[
+      {'name': 'Bread', 'quantity': 24},
+      {'name': 'Cake', 'quantity': 8},
+    ];
+    final bakeryInput = <Map<String, dynamic>>[
+      {'notes': 'Flour 10kg, sugar 4kg'},
+      {'quantity': 6, 'notes': 'Milk and butter'},
+    ];
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -879,6 +914,34 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
             ),
           ),
         ),
+        if (isBakeryWorker) ...[
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Bakery Activity', style: AppTextStyles.heading4),
+                  const SizedBox(height: 12),
+                  const Text('Input (resupplies)', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  ...bakeryInput.map((entry) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(summarizeBakeryActivity(entry, isOutput: false)),
+                      )),
+                  const SizedBox(height: 12),
+                  const Text('Output (procurements)', style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  ...bakeryOutput.map((entry) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text('${entry['name']} × ${entry['quantity']}'),
+                      )),
+                ],
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

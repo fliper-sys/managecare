@@ -589,6 +589,16 @@ class _RetailDashboardState extends State<RetailDashboard> {
           AppColors.success,
         );
       }
+      if (widget.isBakery &&
+          (can(WorkerPermissions.canViewAnalytics) ||
+              AccessControl.canViewReports(context))) {
+        add(
+          Icons.local_shipping,
+          'Distributor Sales',
+          Routes.distributorSalesReport,
+          Colors.deepOrange,
+        );
+      }
       if (can(WorkerPermissions.canViewAnalytics) ||
           AccessControl.canViewReports(context)) {
         add(Icons.bar_chart, 'Reports', Routes.retailStoreReports, Colors.teal);

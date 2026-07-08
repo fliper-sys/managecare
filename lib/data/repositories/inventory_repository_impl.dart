@@ -99,6 +99,75 @@ class InventoryRepositoryImpl implements InventoryRepository {
     return ref.snapshots().map((snap) => snap.docs.map((d) => {'id': d.id, ...d.data()}).toList());
   }
 
+  @override
+  Future<void> recordBakeryResupply({
+    required String businessId,
+    required String inventoryId,
+    required num quantity,
+    String? bakerId,
+    String? bakerName,
+    String? notes,
+    String? performedById,
+    String? performedByName,
+  }) async {
+    if (businessId.isEmpty || inventoryId.isEmpty) {
+      throw Exception('businessId and inventoryId are required');
+    }
+    if (quantity <= 0) {
+      throw Exception('quantity must be greater than zero');
+    }
+
+    final inventoryRef = _firestore.collection(_getInventoryPath(businessId)).doc(inventoryId);
+    final resupplyRef = _firestore.collection('businesses').doc(businessId).collection('bakery_resupplies').doc();
+
+    await _firestore.runTransaction((tx) async {
+      final invSnap = await tx.get(inventoryRef);
+      final invData = invSnap.data() as Map<String, dynamic>? ?? {};
+      final currentQuantity = ((invData['quantity'] as num?) ?? (invData['stock'] as num?) ?? 0).toDouble();
+      final updatedQuantity = currentQuantity - quantity.toDouble();
+
+      tx.set(
+        inventoryRef,
+        {
+          'quantity': updatedQuantity,
+          'stock': updatedQuantity,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      final resupplyData = <String, dynamic>{
+        'id': resupplyRef.id,
+        'businessId': businessId,
+        'inventoryId': inventoryId,
+        'inventoryName': invData['name'] ?? '',
+        'quantity': quantity,
+        'unit': invData['unit'] ?? '',
+        'bakerId': bakerId ?? '',
+        'bakerName': bakerName ?? '',
+        'notes': notes ?? '',
+        'performedById': performedById ?? '',
+        'performedByName': performedByName ?? '',
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+      tx.set(resupplyRef, resupplyData);
+
+      final historyRef = inventoryRef.collection('history').doc();
+      tx.set(historyRef, {
+        'action': 'bakery_resupply',
+        'performedBy': performedById ?? '',
+        'performedByName': performedByName ?? '',
+        'createdAt': FieldValue.serverTimestamp(),
+        'details': {
+          'quantity': quantity,
+          'bakerId': bakerId ?? '',
+          'bakerName': bakerName ?? '',
+          'notes': notes ?? '',
+        },
+      });
+    });
+  }
+
   /// Delete inventory item for a specific business
   Future<void> deleteInventoryForBusiness(
       String businessId, String inventoryId) async {

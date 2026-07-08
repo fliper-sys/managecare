@@ -131,6 +131,24 @@ class SalesRepositoryImpl implements SalesRepository {
           final bSnap = await tx.get(businessSaleRef);
           if (bSnap.exists) tx.delete(businessSaleRef);
 
+          final saleType = (data['saleType'] ?? '').toString().trim().toLowerCase();
+          final distributorId = (data['distributorId'] ?? '').toString().trim();
+          if (saleType == 'distributor' && distributorId.isNotEmpty) {
+            final distributorSaleRef = _firestore.collection('businesses').doc(bid).collection('distributor_sales').doc(saleId);
+            final distributorSaleSnap = await tx.get(distributorSaleRef);
+            if (distributorSaleSnap.exists) tx.delete(distributorSaleRef);
+
+            final distributorDocSaleRef = _firestore
+                .collection('businesses')
+                .doc(bid)
+                .collection('distributors')
+                .doc(distributorId)
+                .collection('sales')
+                .doc(saleId);
+            final distributorDocSaleSnap = await tx.get(distributorDocSaleRef);
+            if (distributorDocSaleSnap.exists) tx.delete(distributorDocSaleRef);
+          }
+
           // log audit
           final auditRef = _firestore.collection('businesses').doc(bid).collection('sale_deletions').doc();
           tx.set(auditRef, {

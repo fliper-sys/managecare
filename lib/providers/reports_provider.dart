@@ -1087,6 +1087,24 @@ class ReportsProvider extends ChangeNotifier {
           // delete the sale doc from the business collection if it existed
           if (saleSnap.exists) tx.delete(saleRef);
 
+          final saleType = (data['saleType'] ?? '').toString().trim().toLowerCase();
+          final distributorId = (data['distributorId'] ?? '').toString().trim();
+          if (saleType == 'distributor' && distributorId.isNotEmpty) {
+            final distributorSaleRef = _firestore.collection('businesses').doc(actualBid).collection('distributor_sales').doc(saleId);
+            final distributorSaleSnap = await tx.get(distributorSaleRef);
+            if (distributorSaleSnap.exists) tx.delete(distributorSaleRef);
+
+            final distributorDocSaleRef = _firestore
+                .collection('businesses')
+                .doc(actualBid)
+                .collection('distributors')
+                .doc(distributorId)
+                .collection('sales')
+                .doc(saleId);
+            final distributorDocSaleSnap = await tx.get(distributorDocSaleRef);
+            if (distributorDocSaleSnap.exists) tx.delete(distributorDocSaleRef);
+          }
+
           // delete mirror in root 'sales' collection if it exists
           final rootRef = _firestore.collection('sales').doc(saleId);
           final rootSnap = await tx.get(rootRef);

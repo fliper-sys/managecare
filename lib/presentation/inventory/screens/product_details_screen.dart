@@ -377,6 +377,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   
                   _buildDetailRow('Barcode', product.barcode ?? 'N/A'),
                   _buildDetailRow('Unit', product.unit),
+                  if ((productData['bagWeightKg'] ?? 0) != null && (productData['bagWeightKg'] as num) > 0)
+                    _buildDetailRow('Bag weight', '${(productData['bagWeightKg'] as num).toString()} kg'),
                   _buildDetailRow('Emoji', product.emoji),
                   _buildDetailRow('Profit Margin', '${(((product.price - product.cost) / product.price) * 100).toStringAsFixed(1)}%'),
                   

@@ -1,11 +1,38 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import '../../core/utils/datetime_utils.dart';
 import '../../core/utils/inventory_utils.dart';
 
 class ProcurementRepository {
-  final FirebaseFirestore _firestore;
+  Map<String, dynamic> buildBakeryProcurementMetadata({
+    String? bakerId,
+    String? bakerName,
+    String? salesRepId,
+    String? salesRepName,
+  }) {
+    final metadata = <String, dynamic>{};
+    if ((bakerId ?? '').trim().isNotEmpty) {
+      metadata['bakerId'] = bakerId!.trim();
+      metadata['sourceType'] = 'bakery';
+    }
+    if ((bakerName ?? '').trim().isNotEmpty) {
+      metadata['bakerName'] = bakerName!.trim();
+    }
+    if ((salesRepId ?? '').trim().isNotEmpty) {
+      metadata['salesRepId'] = salesRepId!.trim();
+    }
+    if ((salesRepName ?? '').trim().isNotEmpty) {
+      metadata['salesRepName'] = salesRepName!.trim();
+    }
+    return metadata;
+  }
+  final FirebaseFirestore? _firestore;
 
-  ProcurementRepository({FirebaseFirestore? firestore}) : _firestore = firestore ?? FirebaseFirestore.instance;
+  ProcurementRepository({FirebaseFirestore? firestore}) : _firestore = firestore;
+
+  FirebaseFirestore get _effectiveFirestore {
+    return _firestore ?? FirebaseFirestore.instance;
+  }
 
   /// Creates a procurement plus batch-aware inventory/procurement records in a single transaction.
   /// Returns the created procurement doc id.
@@ -21,15 +48,37 @@ class ProcurementRepository {
     String? createdByEmail,
     String? storeId,
     String? storeName,
+    String? bakerId,
+    String? bakerName,
+    String? salesRepId,
+    String? salesRepName,
   }) async {
-    final procurementRef = _firestore.collection('businesses').doc(businessId).collection('procurements').doc();
+    final procurementRef = _effectiveFirestore.collection('businesses').doc(businessId).collection('procurements').doc();
     final createdAt = FieldValue.serverTimestamp();
 
     double totalCost = 0.0;
     num totalQuantity = 0;
     final itemsSnapshot = <Map<String, dynamic>>[];
 
-    await _firestore.runTransaction((tx) async {
+    await _effectiveFirestore.runTransaction((tx) async {
+      final inventoryRefsByProductId = <String, DocumentReference>{};
+      final inventoryDataByProductId = <String, Map<String, dynamic>>{};
+
+      for (final it in items) {
+        final productId = it['productId'] as String? ?? '';
+        if (productId.isEmpty) continue;
+        if (!inventoryRefsByProductId.containsKey(productId)) {
+          final invRef = _effectiveFirestore
+              .collection('businesses')
+              .doc(businessId)
+              .collection('inventory')
+              .doc(productId);
+          inventoryRefsByProductId[productId] = invRef;
+          final invSnap = await tx.get(invRef);
+          inventoryDataByProductId[productId] = invSnap.data() as Map<String, dynamic>? ?? {};
+        }
+      }
+
       for (final it in items) {
         final productId = it['productId'] as String? ?? '';
         final name = it['name'] ?? '';
@@ -69,13 +118,8 @@ class ProcurementRepository {
           continue;
         }
 
-        final invRef = _firestore
-            .collection('businesses')
-            .doc(businessId)
-            .collection('inventory')
-            .doc(productId);
-        final invSnap = await tx.get(invRef);
-        final invData = invSnap.data() as Map<String, dynamic>? ?? {};
+        final invRef = inventoryRefsByProductId[productId]!;
+        final invData = inventoryDataByProductId[productId] ?? {};
         final existingQuantity =
             (invData['quantity'] as num?)?.toDouble() ??
                 (invData['stock'] as num?)?.toDouble() ??
@@ -194,6 +238,15 @@ class ProcurementRepository {
       if (createdByEmail != null) masterData['createdByEmail'] = createdByEmail;
       if (storeId != null) masterData['storeId'] = storeId;
       if (storeName != null) masterData['storeName'] = storeName;
+      final bakeryMetadata = buildBakeryProcurementMetadata(
+        bakerId: bakerId,
+        bakerName: bakerName,
+        salesRepId: salesRepId,
+        salesRepName: salesRepName,
+      );
+      if (bakeryMetadata.isNotEmpty) {
+        masterData.addAll(bakeryMetadata);
+      }
       tx.set(procurementRef, masterData);
     });
 
@@ -202,34 +255,50 @@ class ProcurementRepository {
 
   /// Stream procurements for business ordered by createdAt descending
   Stream<QuerySnapshot> procurementsStream({required String businessId}) {
-    return _firestore.collection('businesses').doc(businessId).collection('procurements').orderBy('createdAt', descending: true).snapshots();
+    return _effectiveFirestore.collection('businesses').doc(businessId).collection('procurements').orderBy('createdAt', descending: true).snapshots();
   }
 
   /// Export procurements as CSV string using provided docs. This is lightweight and pure string building.
   String procurementsToCsv(List<QueryDocumentSnapshot> docs) {
     final rows = <List<String>>[];
-    rows.add(['Procurement ID', 'Date', 'Supplier', 'Invoice', 'Total Quantity', 'Total Cost', 'Item Count']);
+    rows.add(['Procurement ID', 'Date', 'Supplier', 'Invoice', 'Baker', 'Sales Rep', 'Total Quantity', 'Total Cost', 'Item Count']);
     for (final d in docs) {
       final createdAt = parseTimestamp(d.get('createdAt'));
       final data = d.data() as Map<String, dynamic>? ?? {};
       final supplierName = data.containsKey('supplierName') ? (data['supplierName'] ?? '') : '';
       final invoiceRef = data.containsKey('invoiceRef') ? (data['invoiceRef'] ?? '') : '';
+      final bakerName = data.containsKey('bakerName') ? (data['bakerName'] ?? '') : '';
+      final salesRepName = data.containsKey('salesRepName') ? (data['salesRepName'] ?? '') : '';
       rows.add([
         d.id,
         createdAt.toIso8601String(),
         supplierName,
         invoiceRef,
+        bakerName,
+        salesRepName,
         formatInventoryQuantity((d.get('totalQuantity') as num?) ?? 0),
         '${((d.get('totalCost') as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
         '${(d.get('itemsCount') as num?)?.toInt() ?? (d.get('items') as List?)?.length ?? 0}'
       ]);
       final items = (d.get('items') as List?)?.cast<dynamic>() ?? [];
       if (items.isNotEmpty) {
-        rows.add(['-- Item Name', 'Qty', 'Unit Cost', 'Total']);
+        rows.add(['-- Item Name', 'Qty', 'Purchase Unit', 'Purchase Unit Cost', 'Per Kg Cost', 'Unit Cost', 'Total']);
         for (final it in items) {
+          final purchaseUnit = (it['purchaseUnit'] ?? '').toString();
+          final purchaseUnitCost = (it['purchaseUnitCost'] as num?)?.toDouble() ?? 0.0;
+          final bagWeightKg = (it['bagWeightKg'] as num?)?.toDouble() ?? 0.0;
+          String perKg = '';
+          if (purchaseUnit.toLowerCase() == 'bag' && bagWeightKg > 0) {
+            perKg = (purchaseUnitCost / bagWeightKg).toStringAsFixed(2);
+          } else if (purchaseUnit.toLowerCase() == 'kg' || purchaseUnit.toLowerCase() == 'kilogram' || purchaseUnit.toLowerCase() == 'kgs') {
+            perKg = purchaseUnitCost.toStringAsFixed(2);
+          }
           rows.add([
             '    ${it['name'] ?? ''}',
             formatInventoryQuantity((it['quantity'] as num?) ?? 0),
+            purchaseUnit,
+            '${purchaseUnitCost.toStringAsFixed(2)}',
+            perKg,
             '${(it['cost'] ?? 0).toStringAsFixed(2)}',
             '${(it['total'] ?? 0).toStringAsFixed(2)}'
           ]);
@@ -244,12 +313,12 @@ class ProcurementRepository {
 
   /// Stream procurements for a product by reading inventory/{productId}/procurements ordered by createdAt desc
   Stream<QuerySnapshot> productProcurementsStream({required String businessId, required String productId}) {
-    return _firestore.collection('businesses').doc(businessId).collection('inventory').doc(productId).collection('procurements').orderBy('createdAt', descending: true).snapshots();
+    return _effectiveFirestore.collection('businesses').doc(businessId).collection('inventory').doc(productId).collection('procurements').orderBy('createdAt', descending: true).snapshots();
   }
 
   /// Get procurement master document by id
   Future<DocumentSnapshot> getProcurementById({required String businessId, required String procurementId}) {
-    return _firestore.collection('businesses').doc(businessId).collection('procurements').doc(procurementId).get();
+    return _effectiveFirestore.collection('businesses').doc(businessId).collection('procurements').doc(procurementId).get();
   }
 
   dynamic _normalizeStoredQuantity(num quantity) {

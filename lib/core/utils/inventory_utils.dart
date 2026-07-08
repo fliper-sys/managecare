@@ -165,7 +165,7 @@ List<String> getCompatibleProcurementUnits(String? baseUnit) {
     case 'kg':
     case 'g':
     case 'ton':
-      units.addAll(['kg', 'g', 'ton']);
+      units.addAll(['kg', 'g', 'ton', 'bag']);
       break;
     case 'L':
     case 'mL':
@@ -199,8 +199,9 @@ String formatInventoryQuantity(num? value) {
 num normalizeProcurementQuantity(
   num quantity,
   String selectedUnit,
-  String baseUnit,
-) {
+  String baseUnit, {
+  num bagWeightKg = 0,
+}) {
   final selected = canonicalizeInventoryUnit(selectedUnit);
   final base = canonicalizeInventoryUnit(baseUnit);
   final qty = quantity.toDouble();
@@ -212,6 +213,19 @@ num normalizeProcurementQuantity(
   const weightFactors = {'g': 1.0, 'kg': 1000.0, 'ton': 1000000.0};
   const liquidFactors = {'mL': 1.0, 'L': 1000.0};
   const countFactors = {'pc': 1.0, 'dozen': 12.0};
+
+  // Support 'bag' as a purchasable unit (e.g., 1 bag = 50 kg). bagWeightKg is expected in kilograms.
+  if (selected == 'bag' && (weightFactors.containsKey(base) || base == 'kg' || base == 'g' || base == 'ton')) {
+    final bw = bagWeightKg > 0 ? bagWeightKg.toDouble() : 0.0;
+    if (bw <= 0) {
+      // fallback: treat bag as 1 unit (no conversion)
+      return _cleanQuantity(qty);
+    }
+    // Convert bags -> kg, then kg -> base
+    final kgAmount = qty * bw; // in kg
+    final normalized = kgAmount * weightFactors['kg']! / weightFactors[base]!;
+    return _cleanQuantity(normalized);
+  }
 
   if (weightFactors.containsKey(selected) && weightFactors.containsKey(base)) {
     final normalized = qty * weightFactors[selected]! / weightFactors[base]!;

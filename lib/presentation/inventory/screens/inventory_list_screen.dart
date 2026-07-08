@@ -11,11 +11,14 @@ import '../../../widgets/animated_lottie.dart';
 import '../../../services/barcode_service.dart';
 import '../../../services/inventory_export_service.dart';
 import '../../../data/repositories/inventory_repository_impl.dart';
+import '../../../data/repositories/distributor_repository.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/retail_provider.dart';
+import '../../../providers/workers_provider.dart';
 import 'inventory_alerts_screen.dart';
 import 'low_stock_products_screen.dart';
+import 'distributor_sales_report_screen.dart';
 
 class InventoryListScreen extends StatefulWidget {
   const InventoryListScreen({super.key});
@@ -349,6 +352,255 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     );
   }
 
+  bool _isBakeryBusiness() {
+    final businessType = context.read<BusinessProvider>().currentBusiness?.businessType?.toString().toLowerCase() ?? '';
+    return businessType == 'bakery' || businessType == 'bakeryshop' || businessType == 'bakeshop';
+  }
+
+  Future<void> _showBakeryResupplyDialog(Map<String, dynamic> item) async {
+    if (!_isBakeryBusiness()) return;
+
+    final quantityController = TextEditingController(text: '1');
+    final notesController = TextEditingController();
+    String? selectedBakerId;
+    String? selectedBakerName;
+
+    final workersProvider = context.read<WorkersProvider>();
+    final bakeryWorkers = workersProvider.workers.where((worker) {
+      final role = (worker['role'] ?? worker['roles'] ?? '').toString().toLowerCase();
+      return role.contains('baker') || role.contains('pastry');
+    }).toList();
+
+    final selected = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Issue to Baker'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Send stock from ${item['name'] ?? 'this item'} to production.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: quantityController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Quantity'),
+              ),
+              const SizedBox(height: 12),
+              if (bakeryWorkers.isNotEmpty)
+                DropdownButtonFormField<String>(
+                  value: selectedBakerId,
+                  decoration: const InputDecoration(labelText: 'Baker'),
+                  items: bakeryWorkers.map((worker) {
+                    final name = (worker['name'] ?? worker['fullName'] ?? 'Unnamed').toString();
+                    return DropdownMenuItem<String>(
+                      value: (worker['id'] ?? '').toString(),
+                      child: Text(name),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    selectedBakerId = value;
+                    final worker = bakeryWorkers.firstWhere(
+                      (entry) => (entry['id'] ?? '').toString() == value,
+                      orElse: () => <String, dynamic>{},
+                    );
+                    selectedBakerName = (worker['name'] ?? worker['fullName'] ?? '').toString();
+                  },
+                )
+              else
+                const Text('Add bakery workers first to assign this resupply to a baker.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: notesController,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: 'Notes (optional)'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Record Resupply'),
+          ),
+        ],
+      ),
+    );
+
+    if (selected != true) return;
+
+    final quantity = int.tryParse(quantityController.text.trim()) ?? 0;
+    if (quantity <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Quantity must be greater than zero')));
+      return;
+    }
+
+    final businessProvider = context.read<BusinessProvider>();
+    final businessId = businessProvider.currentBusiness?.id ?? '';
+    if (businessId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No business selected')));
+      return;
+    }
+
+    try {
+      final repo = InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
+      await repo.recordBakeryResupply(
+        businessId: businessId,
+        inventoryId: (item['id'] ?? '').toString(),
+        quantity: quantity,
+        bakerId: selectedBakerId,
+        bakerName: selectedBakerName,
+        notes: notesController.text.trim(),
+        performedById: context.read<AuthProvider>().currentUser?.id,
+        performedByName: context.read<AuthProvider>().currentUser?.fullName ?? context.read<AuthProvider>().currentUser?.email,
+      );
+      await _loadInventory();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Resupply recorded')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to record resupply: $e'), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _showDistributorSaleDialog(Map<String, dynamic> item) async {
+    final quantityController = TextEditingController(text: '1');
+    final discountController = TextEditingController(text: '0');
+    final notesController = TextEditingController();
+    final newDistributorController = TextEditingController();
+
+    final businessProvider = context.read<BusinessProvider>();
+    final businessId = businessProvider.currentBusiness?.id ?? '';
+    if (businessId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No business selected')));
+      return;
+    }
+
+    final repository = DistributorRepository(firestore: FirebaseFirestore.instance);
+    final distributors = await repository.getDistributors(businessId);
+    String? selectedDistributorId;
+    String? selectedDistributorName;
+
+    final selected = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Record Distributor Sale'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Sell ${item['name'] ?? 'this item'} to a distributor at a discounted rate.'),
+              const SizedBox(height: 12),
+              if (distributors.isNotEmpty)
+                DropdownButtonFormField<String>(
+                  value: selectedDistributorId,
+                  decoration: const InputDecoration(labelText: 'Distributor'),
+                  items: distributors.map((distributor) {
+                    final name = (distributor['name'] ?? 'Unnamed').toString();
+                    return DropdownMenuItem<String>(
+                      value: (distributor['id'] ?? '').toString(),
+                      child: Text(name),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    selectedDistributorId = value;
+                    final distributor = distributors.firstWhere(
+                      (entry) => (entry['id'] ?? '').toString() == value,
+                      orElse: () => <String, dynamic>{},
+                    );
+                    selectedDistributorName = (distributor['name'] ?? '').toString();
+                  },
+                )
+              else
+                TextField(
+                  controller: newDistributorController,
+                  decoration: const InputDecoration(labelText: 'New distributor name'),
+                ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: quantityController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Quantity'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: discountController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Discount %'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: notesController,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: 'Notes (optional)'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Record Sale'),
+          ),
+        ],
+      ),
+    );
+
+    if (selected != true) return;
+
+    final quantity = int.tryParse(quantityController.text.trim()) ?? 0;
+    final discount = double.tryParse(discountController.text.trim()) ?? 0;
+    if (quantity <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Quantity must be greater than zero')));
+      return;
+    }
+    if (discount < 0 || discount > 100) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Discount must be between 0 and 100')));
+      return;
+    }
+
+    String distributorId = selectedDistributorId ?? '';
+    String distributorName = selectedDistributorName ?? '';
+    if (distributorId.isEmpty && distributors.isEmpty) {
+      distributorName = newDistributorController.text.trim();
+      if (distributorName.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Distributor name is required')));
+        return;
+      }
+      distributorId = await repository.addDistributor(businessId: businessId, name: distributorName);
+    } else if (distributorId.isEmpty) {
+      distributorName = selectedDistributorName ?? '';
+      if (distributorName.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a distributor')));
+        return;
+      }
+    }
+
+    try {
+      await repository.recordDistributorSale(
+        businessId: businessId,
+        distributorId: distributorId,
+        distributorName: distributorName,
+        productId: (item['id'] ?? '').toString(),
+        productName: (item['name'] ?? 'Unnamed').toString(),
+        quantity: quantity,
+        unitPrice: (item['price'] as num?)?.toDouble() ?? 0.0,
+        discountPercent: discount,
+        salesRepId: context.read<AuthProvider>().currentUser?.id,
+        salesRepName: context.read<AuthProvider>().currentUser?.fullName ?? context.read<AuthProvider>().currentUser?.email,
+        notes: notesController.text.trim(),
+      );
+      await _loadInventory();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Distributor sale recorded')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to record distributor sale: $e'), backgroundColor: Colors.red));
+    }
+  }
+
   Future<void> _confirmDelete(Map<String, dynamic> item) async {
     final id = (item['id'] ?? '') as String;
     final name = (item['name'] ?? 'Unnamed') as String;
@@ -607,6 +859,13 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
             icon: const Icon(Icons.file_download_outlined),
             tooltip: 'Export Inventory',
             onPressed: _showExportOptions,
+          ),
+          IconButton(
+            icon: const Icon(Icons.storefront_outlined),
+            tooltip: 'Distributor Sales',
+            onPressed: () {
+              Navigator.pushNamed(context, Routes.distributorSalesReport);
+            },
           ),
           IconButton(
             icon: const Icon(Icons.move_to_inbox_outlined),
@@ -882,6 +1141,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                         arguments: {'productId': item['id'] ?? ''},
                       );
                     },
+                    onBakeryResupply: _isBakeryBusiness() ? () => _showBakeryResupplyDialog(item) : null,
+                    onDistributorSale: () => _showDistributorSaleDialog(item),
                     onDelete: () => _confirmDelete(item),
                   );
                 },
@@ -995,6 +1256,8 @@ class _ProductCard extends StatelessWidget {
   final String category;
   final String emoji;
   final VoidCallback onTap;
+  final VoidCallback? onBakeryResupply;
+  final VoidCallback? onDistributorSale;
   final VoidCallback? onDelete;
 
   const _ProductCard({
@@ -1007,6 +1270,8 @@ class _ProductCard extends StatelessWidget {
     required this.category,
     this.emoji = '📦',
     required this.onTap,
+    this.onBakeryResupply,
+    this.onDistributorSale,
     this.onDelete,
   });
 
@@ -1152,6 +1417,32 @@ class _ProductCard extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      if (onBakeryResupply != null) ...[
+                        IconButton(
+                          icon: const Icon(Icons.bakery_dining_outlined, size: 20),
+                          tooltip: 'Issue to baker',
+                          onPressed: onBakeryResupply,
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.orange.withOpacity(0.12),
+                            foregroundColor: Colors.orange.shade800,
+                            padding: const EdgeInsets.all(8),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
+                      if (onDistributorSale != null) ...[
+                        IconButton(
+                          icon: const Icon(Icons.local_shipping_outlined, size: 20),
+                          tooltip: 'Record distributor sale',
+                          onPressed: onDistributorSale,
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.blue.withOpacity(0.12),
+                            foregroundColor: Colors.blue.shade800,
+                            padding: const EdgeInsets.all(8),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
                       IconButton(
                         icon: const Icon(Icons.edit_outlined, size: 20),
                         onPressed: () => Navigator.pushNamed(

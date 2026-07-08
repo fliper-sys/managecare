@@ -1,0 +1,18 @@
+[Unit]
+Description=ManageCare Functions (Node server)
+After=network.target
+
+[Service]
+WorkingDirectory=/home/ubuntu/managecare/functions
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=DB_HOST=127.0.0.1
+Environment=DB_USER=your_db_user
+Environment=DB_PASSWORD=your_db_password
+Environment=DB_NAME=your_db_name
+Environment=JWT_SECRET=change-me
+
+[Install]
+WantedBy=multi-user.target

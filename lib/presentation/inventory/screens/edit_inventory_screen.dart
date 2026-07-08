@@ -70,6 +70,7 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
   late TextEditingController _imageUrlController;
   late TextEditingController _emojiController;
   late TextEditingController _batchLabelController;
+  late TextEditingController _bagWeightController;
   bool _trackExpiry = false;
   String? _selectedSaleUnit;
 
@@ -104,6 +105,7 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
     _imageUrlController = TextEditingController();
     _emojiController = TextEditingController();
     _batchLabelController = TextEditingController();
+    _bagWeightController = TextEditingController();
     _selectedSaleUnit = null;
 
     _loadInventory();
@@ -180,6 +182,7 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
           _imageUrlController.text = (raw['imageUrl'] ?? '') as String;
           _emojiController.text = (raw['emoji'] ?? '') as String;
           _batchLabelController.text = (raw['batchLabel'] ?? '') as String;
+          _bagWeightController.text = ((raw['bagWeightKg'] ?? raw['bag_weight_kg'] ?? 0).toString());
           _trackExpiry = (raw['trackExpiry'] == true);
 
           _isLoading = false;
@@ -233,6 +236,7 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
         'cost': _parsePrice(_costController.text),
         'costPrice': _parsePrice(_costController.text), // Keep backward compatibility
         'unit': _unitController.text.trim(),
+        'bagWeightKg': double.tryParse(_bagWeightController.text.trim()) ?? 0.0,
         'barcode': _barcodeController.text.trim(),
         'imageUrl': _imageUrlController.text.trim(),
         'emoji': _emojiController.text.trim(),
@@ -389,6 +393,7 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
     _imageUrlController.dispose();
     _emojiController.dispose();
     _batchLabelController.dispose();
+    _bagWeightController.dispose();
 
     super.dispose();
   }
@@ -522,6 +527,25 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
                   }
                 },
               ),
+              const SizedBox(height: 12),
+              if (_unitController.text == 'bag')
+                TextFormField(
+                  controller: _bagWeightController,
+                  decoration: InputDecoration(
+                    labelText: 'Default bag weight (kg)',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    hintText: 'e.g., 50',
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  validator: (value) {
+                    if (value != null && value.isNotEmpty) {
+                      if (double.tryParse(value) == null) return 'Enter a valid number';
+                    }
+                    return null;
+                  },
+                ),
               const SizedBox(height: 24),
 
               // Inventory Details

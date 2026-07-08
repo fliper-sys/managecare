@@ -38,6 +38,7 @@ class Routes {
   static const String stockAlert = '/inventory/stock-alert';
   static const String inventoryAlerts = '/inventory/alerts';
   static const String lowStockProducts = '/inventory/low-stock';
+  static const String distributorSalesReport = '/inventory/distributor-sales-report';
 
   static const String customers = '/customers';
   static const String customersAdd = '/customers/add';
@@ -125,6 +126,7 @@ class Routes {
   // Industry-Specific Routes - Retail
   static const String retailDashboard = '/retail';
   static const String bakeryDashboard = '/bakery';
+  static const String bakeryProcurements = '/bakery/procurements';
   static const String wholesaleDashboard = '/wholesale';
   static const String wholesaleInventory = '/wholesale/inventory';
   static const String wholesalePos = '/wholesale/pos';
