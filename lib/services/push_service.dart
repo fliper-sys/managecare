@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -197,7 +196,7 @@ class PushService {
 
       await tokenDoc.set({
         'token': token,
-        'platform': kIsWeb ? 'web' : Platform.operatingSystem,
+        'platform': kIsWeb ? 'web' : defaultTargetPlatform.name,
         'createdAt': FieldValue.serverTimestamp(),
         'lastSeen': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));

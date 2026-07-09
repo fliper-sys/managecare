@@ -17,10 +17,10 @@ class DeviceLoggerService {
   static Future<Map<String, dynamic>> getSystemInfo() async {
     try {
       final info = <String, dynamic>{
-        'platform': Platform.operatingSystem,
-        'operatingSystemVersion': Platform.operatingSystemVersion,
-        'isAndroid': Platform.isAndroid,
-        'isIOS': Platform.isIOS,
+        'platform': kIsWeb ? 'web' : Platform.operatingSystem,
+        'operatingSystemVersion': kIsWeb ? 'web' : Platform.operatingSystemVersion,
+        'isAndroid': kIsWeb ? false : Platform.isAndroid,
+        'isIOS': kIsWeb ? false : Platform.isIOS,
         'isWeb': kIsWeb,
       };
       logDetailed('DeviceLogger', 'System Info: $info');

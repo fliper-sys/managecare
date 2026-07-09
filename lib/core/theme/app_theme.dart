@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'colors.dart';
 
@@ -278,7 +277,10 @@ class AppTheme {
   }
 
   static TextTheme _buildTextTheme(ColorScheme scheme) {
-    final base = GoogleFonts.manropeTextTheme();
+    final base = ThemeData(
+      brightness: scheme.brightness,
+      useMaterial3: true,
+    ).textTheme;
     final themed = base.apply(
       bodyColor: scheme.onSurface,
       displayColor: scheme.onSurface,

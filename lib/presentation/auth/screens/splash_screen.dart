@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:lottie/lottie.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../widgets/loading_indicator.dart';
 import '../../../core/constants/routes.dart';
@@ -440,13 +439,7 @@ class _SplashScreenState extends State<SplashScreen>
                                     color: Colors.white.withOpacity(0.06),
                                     borderRadius: BorderRadius.circular(24),
                                   ),
-                                  child: Lottie.asset(
-                                    'assets/lottie/loop.json',
-                                    repeat: true,
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (_, __, ___) =>
-                                        const CustomLoadingIndicator(),
-                                  ),
+                                  child: const CustomLoadingIndicator(),
                                 ),
                                 const SizedBox(height: 18),
                                 Text(

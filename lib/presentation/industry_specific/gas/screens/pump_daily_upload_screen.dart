@@ -12,6 +12,7 @@ import '../../../../providers/retail_provider.dart';
 import '../../../../core/extensions/list_extensions.dart';
 import '../../../../services/email_service.dart';
 import '../utils/pump_config_cache.dart';
+import '../utils/pump_daily_upload_validation.dart';
 
 class PumpDailyUploadScreen extends StatefulWidget {
   const PumpDailyUploadScreen({super.key});
@@ -21,36 +22,30 @@ class PumpDailyUploadScreen extends StatefulWidget {
 }
 
 class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
-  final _openingController = TextEditingController();
-  final _closingController = TextEditingController();
   final _analogClosingController = TextEditingController();
-  final _shiftOpeningCashController = TextEditingController();
-  final _shiftCloseCashController = TextEditingController();
+  bool _cacheLoaded = false;
+  List<Map<String, dynamic>> _cachedPumps = [];
   final _cashController = TextEditingController();
-  final _posController = TextEditingController();
-  String? _selectedPumpId;
-  String? _shiftOpeningCashPhotoUrl;
-  String? _shiftOpeningCashPhotoPath;
-  String? _shiftCloseCashPhotoUrl;
-  String? _shiftCloseCashPhotoPath;
-  String? _openingPhotoUrl;
-  String? _openingPhotoPath;
-  String? _closingPhotoUrl;
+  final _closingController = TextEditingController();
   String? _closingPhotoPath;
+  String? _closingPhotoUrl;
+  bool _isLoadingPreviousClosing = false;
   bool _isSaving = false;
-  double? _previousClosingVolume;
-  double? _previousAnalogClosingVolume;
   String? _lastLoadedPumpId;
   String? _loadingPumpId;
-  bool _isLoadingPreviousClosing = false;
-  List<Map<String, dynamic>> _cachedPumps = [];
-  bool _cacheLoaded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadCachedPumps());
-  }
+  final _openingController = TextEditingController();
+  String? _openingPhotoPath;
+  String? _openingPhotoUrl;
+  final _posController = TextEditingController();
+  double? _previousAnalogClosingVolume;
+  double? _previousClosingVolume;
+  String? _selectedPumpId;
+  final _shiftCloseCashController = TextEditingController();
+  String? _shiftCloseCashPhotoPath;
+  String? _shiftCloseCashPhotoUrl;
+  final _shiftOpeningCashController = TextEditingController();
+  String? _shiftOpeningCashPhotoPath;
+  String? _shiftOpeningCashPhotoUrl;
 
   @override
   void dispose() {
@@ -62,6 +57,12 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     _cashController.dispose();
     _posController.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadCachedPumps());
   }
 
   CollectionReference<Map<String, dynamic>>? _collection(String name) {
@@ -624,15 +625,19 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       }
     }
     
-    // Reconciliation 3: Cash vs POS (±50 naira tolerance)
-    const maxCashPosDifference = 50.0;
-    final cashPosDifference = (cash - pos).abs();
-    
-    if (cashPosDifference > maxCashPosDifference) {
+    // Reconciliation 3: Shift difference vs cash + POS (±0.25% tolerance)
+    const maxShiftDifferenceVsCashPosPercent = 0.25;
+
+    if (!validateShiftDifferenceAgainstCashAndPos(
+      shiftDifference: shiftCashDifference,
+      cash: cash,
+      pos: pos,
+      tolerancePercent: maxShiftDifferenceVsCashPosPercent,
+    )) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Difference between cash and POS cannot exceed 50 naira (Cash: ${cash.toStringAsFixed(2)}, POS: ${pos.toStringAsFixed(2)})',
+            'Difference between shift cash difference and cash+POS must be within 0.25% (Shift difference: ${shiftCashDifference.toStringAsFixed(2)}, Cash+POS: ${(cash + pos).toStringAsFixed(2)})',
           ),
         ),
       );
@@ -748,7 +753,6 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         'todayPumpCash': cash,
         'cashAmount': cash,
         'posAmount': pos,
-        'cashPosDifference': cashPosDifference,
         'saleId': saleData['id'] ?? saleData['orderId'],
         'shiftOpeningCashPhotoUrl': shiftOpeningCashPhotoUrl,
         'shiftCloseCashPhotoUrl': shiftCloseCashPhotoUrl,
