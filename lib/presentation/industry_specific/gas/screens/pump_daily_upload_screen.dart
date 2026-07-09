@@ -542,61 +542,106 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       return;
     }
 
-    final soldVolume = closing  - opening;
+    // Pump volume from digital meter
+    final digitalVolume = closing - opening;
+    
+    // Shift cash difference 
     final shiftCashDifference = shiftCloseCash - shiftOpeningCash;
+    
     final hasShiftCashEntry =
         _shiftOpeningCashController.text.trim().isNotEmpty ||
         _shiftCloseCashController.text.trim().isNotEmpty;
-    if (hasShiftCashEntry) {
-      if (shiftOpeningCash <= 0 || shiftCloseCash <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Enter both opening and closing shift cash values',
-            ),
+    
+    if (!hasShiftCashEntry) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Shift opening and closing cash values are required'),
+        ),
+      );
+      return;
+    }
+    
+    if (shiftOpeningCash <= 0 || shiftCloseCash <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Enter both opening and closing shift cash values',
           ),
-        );
-        return;
-      }
-      if (shiftCashDifference <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Shift closing cash must be greater than shift opening cash',
-            ),
+        ),
+      );
+      return;
+    }
+    
+    if (shiftCashDifference <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Shift closing cash must be greater than shift opening cash',
           ),
-        );
-        return;
-      }
-      final cashVolume = shiftCashDifference / price;
-      if ((cashVolume - soldVolume).abs() > 1.0) {
+        ),
+      );
+      return;
+    }
+    
+    // CRITICAL: Volume sold is calculated from cash, not from pump meter
+    final cashDerivedVolume = shiftCashDifference / price;
+    
+    // Reconciliation 1: Cash vs Volume (±0.50L tolerance)
+    final volumeFromPumpCash = digitalVolume * price;
+    final cashReconciliationDifference = (shiftCashDifference - volumeFromPumpCash).abs();
+    const maxCashReconciliationDifference = 500.0; // 0.50L at 1000/L
+    
+    if (cashReconciliationDifference > maxCashReconciliationDifference) {
+      final toleranceLiters = maxCashReconciliationDifference / price;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Cash difference (${shiftCashDifference.toStringAsFixed(2)}) and volume difference (${volumeFromPumpCash.toStringAsFixed(2)}) cannot differ by more than 500 naira (±${toleranceLiters.toStringAsFixed(3)}L)',
+          ),
+        ),
+      );
+      return;
+    }
+    
+    // Reconciliation 2: Analog vs Digital (±1L tolerance)
+    final hasAnalogEntry =
+        _analogClosingController.text.trim().isNotEmpty &&
+        _previousAnalogClosingVolume != null;
+    
+    if (hasAnalogEntry) {
+      final analogVolume = analogClosing - _previousAnalogClosingVolume!;
+      const maxAnalogDifference = 1.0;
+      
+      if ((analogVolume - digitalVolume).abs() > maxAnalogDifference) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Cash-derived liters (${cashVolume.toStringAsFixed(3)}) must match pump volume (${soldVolume.toStringAsFixed(3)}) within 1 liter',
+              'Analog volume (${analogVolume.toStringAsFixed(3)}L) must match pump volume (${digitalVolume.toStringAsFixed(3)}L) within ±1L',
             ),
           ),
         );
         return;
       }
-      final hasAnalogEntry =
-          _analogClosingController.text.trim().isNotEmpty &&
-          _previousAnalogClosingVolume != null;
-      if (hasAnalogEntry) {
-        final analogVolume = analogClosing - _previousAnalogClosingVolume!;
-        if ((analogVolume - soldVolume).abs() > 1.0 ||
-            (analogVolume - cashVolume).abs() > 1.0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Analog liters (${analogVolume.toStringAsFixed(3)}) must agree with pump volume (${soldVolume.toStringAsFixed(3)}) and cash-derived liters (${cashVolume.toStringAsFixed(3)}) within 1 liter',
-              ),
-            ),
-          );
-          return;
-        }
-      }
     }
+    
+    // Reconciliation 3: Cash vs POS (±50 naira tolerance)
+    const maxCashPosDifference = 50.0;
+    final cashPosDifference = (cash - pos).abs();
+    
+    if (cashPosDifference > maxCashPosDifference) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Difference between cash and POS cannot exceed 50 naira (Cash: ${cash.toStringAsFixed(2)}, POS: ${pos.toStringAsFixed(2)})',
+          ),
+        ),
+      );
+      return;
+    }
+    
+    // Total paid validation
+    final totalPaid = cash + pos;
+    const minTotalPaid = 0.01;
 
     final shiftOpeningCashPhotoUrl = await _ensurePhotoUrl(
       label: 'shift opening cash',
@@ -638,79 +683,84 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     setState(() => _isSaving = true);
     try {
       final auth = context.read<AuthProvider>().currentUser;
-      final expectedAmount = soldVolume * price;
       final totalPaid = cash + pos;
-      if (expectedAmount > 0 && totalPaid <= 0) {
+      
+      if (totalPaid <= 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'Enter cash or POS amount matching the sale amount',
-            ),
+            content: Text('Enter cash or POS amount'),
           ),
         );
         return;
       }
-      if ((totalPaid - expectedAmount).abs() > 0.01) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Cash + POS must equal expected amount: ${expectedAmount.toStringAsFixed(2)}',
-            ),
+      
+      // Validate that total paid is close to expected amount (calculated from cash)
+      final expectedAmount = cashDerivedVolume * price;
+    if ((totalPaid - expectedAmount).abs() > 0.01) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Total (Cash ${cash.toStringAsFixed(2)} + POS ${pos.toStringAsFixed(2)}) must match expected amount from shift cash: ${expectedAmount.toStringAsFixed(2)}',
           ),
-        );
-        return;
-      }
+        ),
+      );
+      return;
+    }
 
-      final paymentMethod = cash > 0 && pos > 0
+    final paymentMethod = cash > 0 && pos > 0
           ? 'mixed'
           : pos > 0
               ? 'pos'
               : 'cash';
 
-      final saleData = await retail.fuelSale(
-        productId: productId,
-        quantity: soldVolume,
-        amountPaid: totalPaid > 0 ? totalPaid : null,
-        paymentMethod: paymentMethod,
-        workerId: auth?.id,
-        workerName: auth?.fullName ?? auth?.email,
-        pumpId: _selectedPumpId,
-        pumpNumber: pump['pumpNumber']?.toString(),
-        pumpName: pump['productName']?.toString(),
-      );
+    // CRITICAL: Use cash-derived volume for the sale, not pump meter volume
+    final saleData = await retail.fuelSale(
+      productId: productId,
+      quantity: cashDerivedVolume,
+      amountPaid: totalPaid > 0 ? totalPaid : null,
+      paymentMethod: paymentMethod,
+      workerId: auth?.id,
+      workerName: auth?.fullName ?? auth?.email,
+      pumpId: _selectedPumpId,
+      pumpNumber: pump['pumpNumber']?.toString(),
+      pumpName: pump['productName']?.toString(),
+    );
 
-      final uploadRef = uploads.doc();
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        transaction.set(uploadRef, {
-          'pumpId': _selectedPumpId,
-          'pumpNumber': pump['pumpNumber'],
-          'productId': productId,
-          'productName': pump['productName'],
-          'productUnit': pump['productUnit'],
-          'productPrice': price,
-          'openingVolume': opening,
-          'closingVolume': closing,
-          'analogClosingVolume': analogClosing,
-          'previousAnalogClosingVolume': _previousAnalogClosingVolume,
-          'soldVolume': soldVolume,
-          'expectedAmount': expectedAmount,
-          'shiftOpeningCash': shiftOpeningCash,
-          'shiftCloseCash': shiftCloseCash,
-          'todayPumpCash': cash,
-          'cashAmount': cash,
-          'posAmount': pos,
-          'saleId': saleData['id'] ?? saleData['orderId'],
-          'shiftOpeningCashPhotoUrl': shiftOpeningCashPhotoUrl,
-          'shiftCloseCashPhotoUrl': shiftCloseCashPhotoUrl,
-          'openingPhotoUrl': openingPhotoUrl,
-          'closingPhotoUrl': closingPhotoUrl,
-          'workerId': auth?.id,
-          'workerName': auth?.fullName ?? auth?.email,
-          'uploadedAt': FieldValue.serverTimestamp(),
-          'createdAt': FieldValue.serverTimestamp(),
-          'category': 'pump_daily_upload',
-        });
+    final uploadRef = uploads.doc();
+    await FirebaseFirestore.instance.runTransaction((transaction) async {
+      transaction.set(uploadRef, {
+        'pumpId': _selectedPumpId,
+        'pumpNumber': pump['pumpNumber'],
+        'productId': productId,
+        'productName': pump['productName'],
+        'productUnit': pump['productUnit'],
+        'productPrice': price,
+        'openingVolume': opening,
+        'closingVolume': closing,
+        'digitalVolume': digitalVolume,
+        'analogClosingVolume': analogClosing,
+        'previousAnalogClosingVolume': _previousAnalogClosingVolume,
+        'cashDerivedVolume': cashDerivedVolume,
+        'expectedAmount': expectedAmount,
+        'shiftOpeningCash': shiftOpeningCash,
+        'shiftCloseCash': shiftCloseCash,
+        'shiftCashDifference': shiftCashDifference,
+        'todayPumpCash': cash,
+        'cashAmount': cash,
+        'posAmount': pos,
+        'cashPosDifference': cashPosDifference,
+        'saleId': saleData['id'] ?? saleData['orderId'],
+        'shiftOpeningCashPhotoUrl': shiftOpeningCashPhotoUrl,
+        'shiftCloseCashPhotoUrl': shiftCloseCashPhotoUrl,
+        'openingPhotoUrl': openingPhotoUrl,
+        'closingPhotoUrl': closingPhotoUrl,
+        'workerId': auth?.id,
+        'workerName': auth?.fullName ?? auth?.email,
+        'uploadedAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'category': 'pump_daily_upload',
       });
+    });
       await PumpAnalogClosingCache.save(businessId, _selectedPumpId!, analogClosing);
       await PumpUploadDraftCache.clear(businessId, _selectedPumpId!);
 
@@ -728,8 +778,9 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   Widget build(BuildContext context) {
     final pumps = _collection('pump_configurations');
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-    final soldVolume = (double.tryParse(_closingController.text.trim()) ?? 0) -
-        (double.tryParse(_openingController.text.trim()) ?? 0);
+    // Cash-derived volume is what's used for inventory and sales
+    final shiftCashDiff = (double.tryParse(_shiftCloseCashController.text.trim()) ?? 0) -
+        (double.tryParse(_shiftOpeningCashController.text.trim()) ?? 0);
     return Scaffold(
       appBar: AppBar(title: const Text('Pump Volume Upload')),
       body: pumps == null
@@ -762,7 +813,9 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                 final price = selectedPump == null
                     ? 0.0
                     : _currentProductPrice(retail, selectedPump);
-                final expectedAmount = soldVolume * price;
+                // Calculate cash-derived volume for display
+                final cashDerivedVolume = price > 0 ? shiftCashDiff / price : 0.0;
+                final expectedAmount = cashDerivedVolume * price;
                 return ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
@@ -1018,9 +1071,9 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                     const SizedBox(height: 16),
                     Card(
                       child: ListTile(
-                        title: const Text('Calculated sales'),
+                        title: const Text('Calculated sales (from cash)'),
                         subtitle: Text(
-                          '${soldVolume.clamp(0.0, 999999999.0).toStringAsFixed(3)} volume'
+                          '${cashDerivedVolume.clamp(0.0, 999999999.0).toStringAsFixed(3)} liters'
                           ' x ${price.toStringAsFixed(2)}',
                         ),
                         trailing: Text(expectedAmount.toStringAsFixed(2)),
