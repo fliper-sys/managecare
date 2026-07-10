@@ -10,12 +10,13 @@ class ProductCatalogScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<RetailProvider>(context);
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
           title: const Text('Product Catalog'),
           backgroundColor: Colors.transparent,
-          iconTheme: const IconThemeData(color: Colors.black)),
+          iconTheme: IconThemeData(color: colorScheme.onSurface)),
       body: Padding(
         padding: const EdgeInsets.all(12),
         child: LayoutBuilder(

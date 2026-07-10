@@ -29,20 +29,20 @@ class SupplierManagementScreen extends StatelessWidget {
                   Icon(
                     Icons.business_outlined,
                     size: 64,
-                    color: Colors.grey.shade300,
+                    color: Theme.of(context).colorScheme.outlineVariant,
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'No suppliers yet',
                     style: AppTextStyles.heading5.copyWith(
-                      color: Colors.grey.shade600,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Tap + to add your first supplier',
                     style: AppTextStyles.body2.copyWith(
-                      color: Colors.grey.shade500,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],

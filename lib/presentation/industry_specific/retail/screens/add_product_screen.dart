@@ -561,23 +561,26 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.orange[50],
-                        border: Border.all(color: Colors.orange),
+                        color: Theme.of(context).colorScheme.tertiaryContainer,
+                        border: Border.all(color: Theme.of(context).colorScheme.tertiary),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: const Text(
+                      child: Text(
                         'No stores available. Please create a store to add products.',
-                        style: TextStyle(color: Colors.orange, fontSize: 14),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onTertiaryContainer,
+                          fontSize: 14,
+                        ),
                       ),
                     )
                   else
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       decoration: BoxDecoration(
-                        color: Colors.grey[100],
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: _selectedStoreId == null ? Colors.red : Colors.transparent,
+                          color: _selectedStoreId == null ? Theme.of(context).colorScheme.error : Colors.transparent,
                         ),
                       ),
                       child: DropdownButtonHideUnderline(

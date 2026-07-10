@@ -86,10 +86,10 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                           selected: isSelected,
                           onSelected: (_) =>
                               setState(() => _selectedCategory = category),
-                          backgroundColor: Colors.grey.shade200,
+                          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                           selectedColor: AppColors.primary,
                           labelStyle: TextStyle(
-                            color: isSelected ? Colors.white : Colors.black,
+                            color: isSelected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                       );
