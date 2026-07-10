@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/utils/amount_formatter.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
@@ -461,6 +462,16 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                               final shiftCloseCashUrl = data['shiftCloseCashPhotoUrl'] as String?;
                               final shiftOpeningCash = data['shiftOpeningCash'];
                               final shiftCloseCash = data['shiftCloseCash'];
+                              final discrepancyNotes =
+                                  (data['discrepancyNotes'] as List?)
+                                      ?.whereType<String>()
+                                      .toList() ??
+                                  <String>[];
+                              final discrepancySummary =
+                                  (data['discrepancySummary'] as String?) ??
+                                  '';
+                              final theme = Theme.of(context);
+                              final colorScheme = theme.colorScheme;
                               return Card(
                                 child: ExpansionTile(
                                   leading: const CircleAvatar(
@@ -472,14 +483,17 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                   subtitle: Text(
                                     uploadedAt == null
                                         ? 'Operator: ${data['workerName'] ?? 'N/A'}'
-                                        : DateFormat.yMd().add_jm().format(uploadedAt) + '\nOperator: ${data['workerName'] ?? 'N/A'}',
+                                        : '${DateFormat.yMd().add_jm().format(uploadedAt)}\nOperator: ${data['workerName'] ?? 'N/A'}',
                                   ),
                                   trailing: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
                                       Text(
-                                        '${((data['soldVolume'] as num?)?.toDouble() ?? 0).toStringAsFixed(3)}',
+                                        formatAmount(
+                                          ((data['soldVolume'] as num?)?.toDouble() ?? 0),
+                                          decimalDigits: 3,
+                                        ),
                                         style: const TextStyle(
                                           fontWeight: FontWeight.bold,
                                         ),
@@ -490,7 +504,10 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        '${((data['expectedAmount'] as num?)?.toDouble() ?? 0).toStringAsFixed(2)}',
+                                        formatAmount(
+                                          ((data['expectedAmount'] as num?)?.toDouble() ?? 0),
+                                          decimalDigits: 2,
+                                        ),
                                       ),
                                       const Text(
                                         'Expected amount',
@@ -507,11 +524,11 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            'Opening Volume: ${((data['openingVolume'] as num?)?.toDouble() ?? 0).toStringAsFixed(3)}',
+                                            'Opening Volume: ${formatAmount(((data['openingVolume'] as num?)?.toDouble() ?? 0), decimalDigits: 3)}',
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
-                                            'Closing Volume: ${((data['closingVolume'] as num?)?.toDouble() ?? 0).toStringAsFixed(3)}',
+                                            'Closing Volume: ${formatAmount(((data['closingVolume'] as num?)?.toDouble() ?? 0), decimalDigits: 3)}',
                                           ),
                                           const SizedBox(height: 4),
                                           if (shiftOpeningCash != null)
@@ -525,9 +542,74 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                           const SizedBox(height: 4),
                                           if (data['analogClosingVolume'] != null)
                                             Text(
-                                              'Analog closing: ${((data['analogClosingVolume'] as num?)?.toDouble() ?? 0).toStringAsFixed(3)}',
+                                              'Analog closing: ${formatAmount(((data['analogClosingVolume'] as num?)?.toDouble() ?? 0), decimalDigits: 3)}',
                                             ),
                                           const SizedBox(height: 8),
+                                          if (discrepancySummary.isNotEmpty)
+                                            Container(
+                                              width: double.infinity,
+                                              padding: const EdgeInsets.all(10),
+                                              margin: const EdgeInsets.only(bottom: 8),
+                                              decoration: BoxDecoration(
+                                                color: colorScheme.secondaryContainer,
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: colorScheme.outlineVariant,
+                                                ),
+                                              ),
+                                              child: Row(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Icon(
+                                                    Icons.info_outline,
+                                                    size: 18,
+                                                    color: colorScheme.onSecondaryContainer,
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: Text(
+                                                      discrepancySummary,
+                                                      style: TextStyle(
+                                                        color: colorScheme.onSecondaryContainer,
+                                                        fontSize: 12,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          if (discrepancyNotes.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 8),
+                                              child: Wrap(
+                                                spacing: 6,
+                                                runSpacing: 6,
+                                                children: discrepancyNotes
+                                                    .map(
+                                                      (note) => Container(
+                                                        padding: const EdgeInsets.symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 4,
+                                                        ),
+                                                        decoration: BoxDecoration(
+                                                          color: colorScheme.surfaceContainerHighest,
+                                                          borderRadius: BorderRadius.circular(999),
+                                                          border: Border.all(
+                                                            color: colorScheme.outlineVariant,
+                                                          ),
+                                                        ),
+                                                        child: Text(
+                                                          note,
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            color: colorScheme.onSurfaceVariant,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    )
+                                                    .toList(),
+                                              ),
+                                            ),
                                           if (shiftOpeningCashUrl != null && shiftOpeningCashUrl.isNotEmpty)
                                             Column(
                                               crossAxisAlignment: CrossAxisAlignment.start,

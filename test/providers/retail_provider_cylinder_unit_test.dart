@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:business_manager/providers/retail_provider.dart';
 import 'package:business_manager/services/notification_and_email_service.dart';
 import 'package:business_manager/services/notification_interface.dart';
@@ -63,6 +64,9 @@ class FakeNotificationService implements INotificationService {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
+
   test('cylinder unit sales: amount-based rounding and insufficient amount', () async {
     final fs = FakeFirebaseFirestore();
 

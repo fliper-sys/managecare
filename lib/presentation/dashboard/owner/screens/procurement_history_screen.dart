@@ -119,6 +119,8 @@ class _ProcurementHistoryScreenState extends State<ProcurementHistoryScreen> {
         'invoiceRef': data['invoiceRef']?.toString() ?? '',
         'totalCost': (data['totalCost'] as num?)?.toDouble() ?? 0.0,
         'totalQuantity': (data['totalQuantity'] as num?) ?? 0,
+        'bakerName': data['bakerName']?.toString() ?? '',
+        'salesRepName': data['salesRepName']?.toString() ?? '',
         'items': (data['items'] as List?) ?? [],
       };
     }).toList();

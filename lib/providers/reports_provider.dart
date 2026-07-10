@@ -1539,6 +1539,9 @@ class ReportsProvider extends ChangeNotifier {
           unitPrice: (data['price'] as num?)?.toDouble() ?? 0.0,
           costPrice: cost,
           unit: (data['unit'] ?? 'pc').toString(),
+          businessSection: (data['businessSection'] ?? data['section'] ?? '').toString(),
+          category: (data['category'] ?? data['type'] ?? '').toString(),
+          lastProcurementAt: _parseDate(data['lastProcurementAt'] ?? data['lastProcuredAt'] ?? data['lastProcured']),
         );
       }).toList();
 
@@ -2623,6 +2626,9 @@ class ReportsProvider extends ChangeNotifier {
           unitPrice: (data['price'] as num?)?.toDouble() ?? 0.0,
           costPrice: cost,
           unit: (data['unit'] ?? 'pc').toString(),
+          businessSection: (data['businessSection'] ?? data['section'] ?? '').toString(),
+          category: (data['category'] ?? data['type'] ?? '').toString(),
+          lastProcurementAt: _parseDate(data['lastProcurementAt'] ?? data['lastProcuredAt'] ?? data['lastProcured']),
         );
       }).toList();
 
@@ -2666,6 +2672,9 @@ class ReportsProvider extends ChangeNotifier {
                     unitPrice: (raw['price'] as num?)?.toDouble() ?? 0.0,
                     costPrice: rawCost,
                     unit: (raw['unit'] ?? 'pc').toString(),
+                    businessSection: (raw['businessSection'] ?? raw['section'] ?? '').toString(),
+                    category: (raw['category'] ?? raw['type'] ?? '').toString(),
+                    lastProcurementAt: _parseDate(raw['lastProcurementAt'] ?? raw['lastProcuredAt'] ?? raw['lastProcured']),
                   ));
                 }
                 ii++;
@@ -4312,6 +4321,9 @@ class InventoryReport {
   final double unitPrice; // selling price per unit
   final double costPrice; // cost per unit (purchase/average cost)
   final String unit;
+  final String businessSection;
+  final String category;
+  final DateTime? lastProcurementAt;
 
   InventoryReport({
     required this.productId,
@@ -4321,6 +4333,9 @@ class InventoryReport {
     required this.unitPrice,
     this.costPrice = 0.0,
     this.unit = 'pc',
+    this.businessSection = '',
+    this.category = '',
+    this.lastProcurementAt,
   });
 
   double get totalValue => quantity * unitPrice;

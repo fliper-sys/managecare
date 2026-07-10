@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/constants/routes.dart';
 import '../../../../core/theme/text_styles.dart';
+import '../../../../core/utils/amount_formatter.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
 import '../../../../services/receipt_manager.dart';
@@ -483,11 +484,11 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    '${soldVolume.toStringAsFixed(3)} L',
+                    '${formatAmount(soldVolume, decimalDigits: 3)} L',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    'NGN ${expectedAmount.toStringAsFixed(2)}',
+                    'NGN ${formatAmount(expectedAmount, decimalDigits: 2)}',
                   ),
                 ],
               ),

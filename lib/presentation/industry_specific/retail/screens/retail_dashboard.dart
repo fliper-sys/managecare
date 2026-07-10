@@ -512,6 +512,15 @@ class _RetailDashboardState extends State<RetailDashboard> {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final role = auth.currentUser?.role ?? '';
     final currentPermissions = auth.currentUser?.permissions ?? const <String>[];
+    final businessType = Provider.of<BusinessProvider>(context, listen: false)
+        .currentBusiness
+        ?.businessType
+        .toLowerCase() ??
+      'retail';
+    final isBakeryBusiness = businessType.contains('bakery') || widget.isBakery;
+    final normalizedRole = WorkerPermissions.normalizeRole(role);
+    final hasFullAccess =
+      ['owner', 'admin', 'sub_admin', 'manager'].contains(normalizedRole);
     final items = <Widget>[];
     final bool isOwner = auth.isOwnerUser;
 
@@ -559,6 +568,39 @@ class _RetailDashboardState extends State<RetailDashboard> {
         Routes.retailSuppliers,
         Colors.orange,
       );
+      // Bakery-specific navs: inventory, procurements, reports
+      if (isBakeryBusiness) {
+        add(
+          Icons.inventory_2,
+          'Inventory',
+          Routes.inventory,
+          const Color(0xFFD97706),
+        );
+        add(
+          Icons.playlist_add_check,
+          'Record Resupply',
+          Routes.inventory,
+          Colors.brown,
+        );
+        add(
+          Icons.shopping_bag,
+          'Bakery Procurements',
+          Routes.bakeryProcurements,
+          Colors.deepOrange,
+        );
+        add(
+          Icons.history,
+          'Procurement History',
+          Routes.procurementHistory,
+          Colors.blueGrey,
+        );
+        add(
+          Icons.report,
+          'Inventory Report',
+          Routes.inventoryReport,
+          Colors.teal,
+        );
+      }
       add(Icons.bar_chart, 'Reports', Routes.retailStoreReports, Colors.teal);
       add(Icons.print, 'Printer Settings', Routes.printerSettings, Colors.teal);
     } else {
@@ -589,7 +631,31 @@ class _RetailDashboardState extends State<RetailDashboard> {
           AppColors.success,
         );
       }
-      if (widget.isBakery &&
+      // Worker-level inventory/report access for bakery
+      if (WorkerPermissions.canViewInventoryForUser(role, currentPermissions) ||
+          WorkerPermissions.canManageInventoryForUser(role, currentPermissions)) {
+        if (isBakeryBusiness) {
+          add(
+            Icons.inventory_2,
+            'Inventory',
+            Routes.inventory,
+            const Color(0xFFD97706),
+          );
+          add(
+            Icons.playlist_add_check,
+            'Record Resupply',
+            Routes.inventory,
+            Colors.brown,
+          );
+          add(
+            Icons.report,
+            'Inventory Report',
+            Routes.inventoryReport,
+            Colors.teal,
+          );
+        }
+      }
+        if (isBakeryBusiness &&
           (can(WorkerPermissions.canViewAnalytics) ||
               AccessControl.canViewReports(context))) {
         add(

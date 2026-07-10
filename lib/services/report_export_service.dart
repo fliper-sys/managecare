@@ -589,6 +589,8 @@ class ReportExportService {
                   _buildTableCell('Procurement ID', bold: true),
                   _buildTableCell('Supplier', bold: true),
                   _buildTableCell('Invoice', bold: true),
+                  _buildTableCell('Baker', bold: true),
+                  _buildTableCell('Sales Rep', bold: true),
                   _buildTableCell('Units', bold: true),
                   _buildTableCell('Total', bold: true, align: pw.TextAlign.right),
                 ],
@@ -601,6 +603,8 @@ class ReportExportService {
                   _buildTableCell(p['id'] ?? ''),
                   _buildTableCell(p['supplierName'] ?? ''),
                   _buildTableCell(p['invoiceRef'] ?? ''),
+                  _buildTableCell(p['bakerName'] ?? ''),
+                  _buildTableCell(p['salesRepName'] ?? ''),
                   _buildTableCell('${p['totalQuantity'] ?? 0}'),
                   _buildTableCell(_currencyFormat.format((p['totalCost'] ?? 0.0)), align: pw.TextAlign.right),
                 ]);

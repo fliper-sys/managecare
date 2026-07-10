@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/colors.dart';
@@ -384,12 +385,15 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                       AppColors.primary.withOpacity(0.1)),
                   columns: const [
                     DataColumn(label: Text('Product')),
+                    DataColumn(label: Text('Category')),
+                    DataColumn(label: Text('Section')),
                     DataColumn(label: Text('Quantity')),
-                    DataColumn(label: Text('Unit Price')),
+                    DataColumn(label: Text('Unit')),
                     DataColumn(label: Text('Cost')),
                     DataColumn(label: Text('Profit/Unit')),
                     DataColumn(label: Text('Profit Total')),
                     DataColumn(label: Text('Total Value')),
+                    DataColumn(label: Text('Last Procured')),
                     DataColumn(label: Text('Status')),
                   ],
                   rows: filteredInventory
@@ -397,17 +401,17 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                         (report) => DataRow(
                           cells: [
                             DataCell(Text(report.productName)),
+                            DataCell(Text(report.category.isNotEmpty ? report.category : 'N/A')),
+                            DataCell(Text(report.businessSection.isNotEmpty ? report.businessSection : 'General')),
                             DataCell(Text('${report.quantity} ${report.unit}')),
-                            DataCell(Text(
-                                '₦${report.unitPrice.toStringAsFixed(2)}')),
-                            DataCell(Text(
-                                '₦${report.costPrice.toStringAsFixed(2)}')),
-                            DataCell(Text(
-                                '₦${report.profitPerUnit.toStringAsFixed(2)}')),
-                            DataCell(Text(
-                                '₦${report.totalProfit.toStringAsFixed(2)}')),
-                            DataCell(Text(
-                                '₦${report.totalValue.toStringAsFixed(2)}')),
+                            DataCell(Text(report.unit)),
+                            DataCell(Text('₦${report.costPrice.toStringAsFixed(2)}')),
+                            DataCell(Text('₦${report.profitPerUnit.toStringAsFixed(2)}')),
+                            DataCell(Text('₦${report.totalProfit.toStringAsFixed(2)}')),
+                            DataCell(Text('₦${report.totalValue.toStringAsFixed(2)}')),
+                            DataCell(Text(report.lastProcurementAt != null
+                                ? DateFormat.yMMMd().format(report.lastProcurementAt!)
+                                : 'Unknown')),
                             DataCell(
                               Container(
                                 padding: const EdgeInsets.symmetric(
@@ -417,8 +421,7 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                                 decoration: BoxDecoration(
                                   color: report.isLowStock
                                       ? AppColors.warning.withOpacity(0.2)
-                                      : AppColors.success
-                                          .withOpacity(0.2),
+                                      : AppColors.success.withOpacity(0.2),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
@@ -449,11 +452,14 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
     ReportsProvider reportsProvider,
   ) {
     return reportsProvider.inventoryReports
-        .where(
-          (report) => report.productName
-              .toLowerCase()
-              .contains(_searchController.text.toLowerCase()),
-        )
+        .where((report) {
+          final searchText = _searchController.text.toLowerCase();
+          final matchesSearch = searchText.isEmpty ||
+              report.productName.toLowerCase().contains(searchText) ||
+              report.category.toLowerCase().contains(searchText) ||
+              report.businessSection.toLowerCase().contains(searchText);
+          return matchesSearch;
+        })
         .toList();
   }
 

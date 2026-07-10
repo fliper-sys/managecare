@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:business_manager/providers/retail_provider.dart';
 import 'package:business_manager/services/notification_and_email_service.dart';
 import 'package:business_manager/services/notification_interface.dart';
@@ -63,6 +64,9 @@ class FakeNotificationService implements INotificationService {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
+
   test('fuelSale sells by amount and updates inventory and creates sale', () async {
     final fs = FakeFirebaseFirestore();
 
@@ -113,5 +117,34 @@ void main() {
     // Check notification log
     final notifLogs = await fs.collection('businesses').doc('b1').collection('notificationLogs').get();
     expect(notifLogs.docs.isNotEmpty, true);
+  });
+
+  test('fuelSale uses a minimum quantity for tiny amount-based sales', () async {
+    final fs = FakeFirebaseFirestore();
+    await fs.collection('businesses').doc('b1').set({'name': 'Test Fuel', 'email': 'owner@test.com'});
+    await fs.collection('businesses').doc('b1').collection('inventory').doc('fuel1').set({
+      'name': 'Petrol',
+      'price': 1000.0,
+      'quantity': 1000,
+      'category': 'Fuel',
+    });
+
+    final notifService = NotificationAndEmailService(
+      firestore: fs,
+      emailService: FakeEmailService(),
+      notificationService: FakeNotificationService(),
+    );
+
+    final provider = RetailProvider(firestore: fs, notificationEmailService: notifService);
+    await provider.setBusinessId('b1');
+
+    final res = await provider.fuelSale(
+      productId: 'fuel1',
+      amountPaid: 1.0,
+      paymentMethod: 'Cash',
+    );
+
+    expect(res['quantity'], 0.001);
+    expect(res['total'], 1.0);
   });
 }

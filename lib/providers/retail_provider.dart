@@ -2335,16 +2335,23 @@ class RetailProvider extends ChangeNotifier {
     }
 
     // Round quantity and paid appropriately
+    final minimumQuantity = (unit == 'cyl' || unit == 'cylinder') ? 1.0 : 0.001;
     if (unit == 'cyl' || unit == 'cylinder') {
       qty = qty.toInt().toDouble();
     } else {
-      qty = double.parse(qty.toStringAsFixed(3));
+      qty = qty <= 0 ? 0.0 : double.parse(qty.toStringAsFixed(3));
     }
     paid = double.parse(paid.toStringAsFixed(2));
 
     // Prevent sales of zero units (e.g., insufficient amount for a cylinder)
     if (qty <= 0) {
-      throw Exception('Insufficient amount/quantity to process sale');
+      if (paid > 0) {
+        qty = minimumQuantity;
+      } else {
+        throw Exception('Insufficient amount/quantity to process sale');
+      }
+    } else if (qty < minimumQuantity) {
+      qty = minimumQuantity;
     }
 
     // Ensure we don't oversell stock
