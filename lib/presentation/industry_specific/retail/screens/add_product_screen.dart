@@ -200,23 +200,26 @@ class _AddProductScreenState extends State<AddProductScreen> {
           _pendingImageBytes = null;
           _pendingImageFilename = null;
         });
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context)
               .showSnackBar(const SnackBar(content: Text('Image uploaded')));
+        }
       } else {
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: const Text('Upload failed'),
               action: SnackBarAction(
                   label: 'Retry', onPressed: _retryUploadImage)));
+        }
       }
     } catch (e) {
       setState(() => _isLoading = false);
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text('Upload error: $e'),
             action:
                 SnackBarAction(label: 'Retry', onPressed: _retryUploadImage)));
+      }
     }
   }
 
@@ -411,8 +414,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
   Widget build(BuildContext context) {
     final isEditing = widget.product != null;
     final isBakery = _isBakeryBusiness(context);
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
+      backgroundColor: colorScheme.surfaceContainerLow,
       appBar: AppBar(
         title: Text(
           isBakery
@@ -487,9 +492,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFFBEB),
+                  color: Theme.of(context).colorScheme.secondaryContainer.withOpacity(0.35),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFF59E0B)),
+                  border: Border.all(color: Theme.of(context).colorScheme.secondary),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -676,9 +681,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
               child: Container(
                 height: 120,
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(color: colorScheme.outlineVariant),
                 ),
                 child: (_pendingImageBytes != null)
                     ? ClipRRect(

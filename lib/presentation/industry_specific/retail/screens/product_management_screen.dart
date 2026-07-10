@@ -19,7 +19,9 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
+      backgroundColor: colorScheme.surfaceContainerLow,
       appBar: AppBar(
         title: const Text('Manage Products'),
         backgroundColor: AppColors.primary,
@@ -56,6 +58,8 @@ class _ProductManagementScreenState extends State<ProductManagementScreen> {
                   onChanged: (value) => setState(() => _searchQuery = value),
                   decoration: InputDecoration(
                     hintText: 'Search products...',
+                    filled: true,
+                    fillColor: colorScheme.surfaceContainerHighest,
                     prefixIcon: const Icon(Icons.search),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),

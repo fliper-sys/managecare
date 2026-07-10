@@ -1,22 +1,17 @@
 class PumpDailyUploadValidation {
-  static bool matchesShiftDifferenceAndCashPos({
-    required double shiftDifference,
-    required double cash,
-    required double pos,
-    double tolerancePercent = 0.25,
+  static bool hasSameDigitCountForCalculatedCashAndCashPosEntry({
+    required double calculatedCash,
+    required double cashPosEntry,
   }) {
-    final totalPaid = cash + pos;
-    final difference = (shiftDifference - totalPaid).abs();
-    final maxReference = shiftDifference.abs().clamp(0.0, double.infinity).compareTo(totalPaid.abs()) >= 0
-        ? shiftDifference.abs()
-        : totalPaid.abs();
+    final calculatedCashDigits = _digitCount(calculatedCash);
+    final cashPosEntryDigits = _digitCount(cashPosEntry);
+    return calculatedCashDigits == cashPosEntryDigits;
+  }
 
-    if (maxReference == 0) {
-      return true;
-    }
-
-    final allowedDifference = maxReference * (tolerancePercent / 100.0);
-    return difference <= allowedDifference;
+  static int _digitCount(double value) {
+    final normalized = value.abs().round();
+    if (normalized == 0) return 1;
+    return normalized.toString().replaceAll('-', '').length;
   }
 
   static List<String> buildDiscrepancyNotes({
@@ -80,13 +75,12 @@ class PumpDailyUploadValidation {
       }
     }
 
-    if (!matchesShiftDifferenceAndCashPos(
-      shiftDifference: shiftCashDifference,
-      cash: cash,
-      pos: pos,
-      tolerancePercent: 0.25,
+    final calculatedCash = shiftCashDifference;
+    if (!hasSameDigitCountForCalculatedCashAndCashPosEntry(
+      calculatedCash: calculatedCash,
+      cashPosEntry: cash + pos,
     )) {
-      issues.add('Cash+POS mismatch');
+      issues.add('Cash+POS digits mismatch');
     }
 
     if (totalPaid > 0 && (totalPaid - expectedAmount).abs() > 0.01) {
@@ -126,13 +120,10 @@ bool validateShiftDifferenceAgainstCashAndPos({
   required double shiftDifference,
   required double cash,
   required double pos,
-  double tolerancePercent = 0.25,
 }) {
-  return PumpDailyUploadValidation.matchesShiftDifferenceAndCashPos(
-    shiftDifference: shiftDifference,
-    cash: cash,
-    pos: pos,
-    tolerancePercent: tolerancePercent,
+  return PumpDailyUploadValidation.hasSameDigitCountForCalculatedCashAndCashPosEntry(
+    calculatedCash: shiftDifference,
+    cashPosEntry: cash + pos,
   );
 }
 

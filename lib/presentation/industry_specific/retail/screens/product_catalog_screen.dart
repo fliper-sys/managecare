@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../../core/theme/colors.dart';
 import '../../../../providers/retail_provider.dart';
 import '../widgets/pos_product_card.dart';
 
@@ -12,10 +11,11 @@ class ProductCatalogScreen extends StatelessWidget {
     final provider = Provider.of<RetailProvider>(context);
     final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: colorScheme.surfaceContainerLow,
       appBar: AppBar(
           title: const Text('Product Catalog'),
-          backgroundColor: Colors.transparent,
+          backgroundColor: colorScheme.surfaceContainerHigh,
+          foregroundColor: colorScheme.onSurface,
           iconTheme: IconThemeData(color: colorScheme.onSurface)),
       body: Padding(
         padding: const EdgeInsets.all(12),

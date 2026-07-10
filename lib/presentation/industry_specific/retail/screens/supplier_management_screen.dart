@@ -11,8 +11,9 @@ class SupplierManagementScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: colorScheme.surfaceContainerLow,
       appBar: AppBar(
         title: const Text('Suppliers'),
         backgroundColor: AppColors.primary,

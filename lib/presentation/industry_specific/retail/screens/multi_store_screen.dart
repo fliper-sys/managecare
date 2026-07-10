@@ -86,7 +86,7 @@ class _MultiStoreScreenState extends State<MultiStoreScreen> {
               // Re-check subscription and store limits before saving
               final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
               final isTier1 = (business?.subscriptionTier ?? '').toString().toLowerCase() == 'tier1';
-              if (store == null && isTier1 && provider.stores.length >= 1) {
+              if (store == null && isTier1 && provider.stores.isNotEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your subscription allows only one store. Upgrade to add more stores.')));
                 return;
               }
@@ -119,22 +119,27 @@ class _MultiStoreScreenState extends State<MultiStoreScreen> {
     final provider = Provider.of<RetailProvider>(context);
     final colorScheme = Theme.of(context).colorScheme;
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: colorScheme.surfaceContainerLow,
       appBar: AppBar(
           title: const Text('Multi-Store'),
-          backgroundColor: Colors.transparent,
+          backgroundColor: colorScheme.surfaceContainerHigh,
+          foregroundColor: colorScheme.onSurface,
           iconTheme: IconThemeData(color: colorScheme.onSurface)),
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: provider.stores
             .map((s) => Card(
+                  color: colorScheme.surfaceContainerHighest,
                   child: ListTile(
                     title: Text(s.name,
-                        style: AppTextStyles.body2
-                            .copyWith(fontWeight: FontWeight.w600)),
+                        style: AppTextStyles.body2.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.onSurface,
+                        )),
                     subtitle: Text(s.location,
-                        style: AppTextStyles.caption
-                            .copyWith(color: AppColors.textSecondary)),
+                        style: AppTextStyles.caption.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        )),
                     trailing: PopupMenuButton<String>(
                       onSelected: (val) async {
                         if (val == 'edit') {
@@ -168,8 +173,9 @@ class _MultiStoreScreenState extends State<MultiStoreScreen> {
       floatingActionButton: Builder(builder: (ctx) {
         final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
         final isTier1 = (business?.subscriptionTier ?? '').toString().toLowerCase() == 'tier1';
-        final canAdd = !(isTier1 && provider.stores.length >= 1);
+        final canAdd = !(isTier1 && provider.stores.isNotEmpty);
         return FloatingActionButton(
+          backgroundColor: AppColors.primary,
           onPressed: canAdd
               ? () => _showAddEditStoreDialog(context, provider)
               : () {
