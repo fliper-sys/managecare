@@ -177,6 +177,113 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     );
   }
 
+  Future<void> _showDiscrepancyDetails(Map<String, dynamic> data) async {
+    if (!mounted) return;
+    final openingVolume = (data['openingVolume'] as num?)?.toDouble() ?? 0;
+    final closingVolume = (data['closingVolume'] as num?)?.toDouble() ?? 0;
+    final soldVolume = (data['soldVolume'] as num?)?.toDouble() ?? 0;
+    final shiftOpeningCash = data['shiftOpeningCash'];
+    final shiftCloseCash = data['shiftCloseCash'];
+    final analogClosingVolume = (data['analogClosingVolume'] as num?)?.toDouble() ?? 0;
+    final expectedAmount = (data['expectedAmount'] as num?)?.toDouble() ??
+        ((data['cashDerivedVolume'] as num?)?.toDouble() ?? 0);
+    final volumeDifference = closingVolume - openingVolume;
+    final discrepancySummary = (data['discrepancySummary'] as String?) ?? '';
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return Padding(
+          padding: MediaQuery.of(context).viewInsets,
+          child: DraggableScrollableSheet(
+            initialChildSize: 0.55,
+            minChildSize: 0.35,
+            maxChildSize: 0.9,
+            expand: false,
+            builder: (context, scrollController) => Container(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.onSurface.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'Discrepancy details',
+                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  if (discrepancySummary.isNotEmpty)
+                    Text(
+                      discrepancySummary,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  if (discrepancySummary.isNotEmpty) const SizedBox(height: 16),
+                  Text(
+                    'Validation values',
+                    style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildDetailRow('Opening volume', formatAmount(openingVolume, decimalDigits: 3)),
+                  _buildDetailRow('Closing volume', formatAmount(closingVolume, decimalDigits: 3)),
+                  _buildDetailRow('Volume difference', formatAmount(volumeDifference, decimalDigits: 3)),
+                  _buildDetailRow('Sold volume', formatAmount(soldVolume, decimalDigits: 3)),
+                  if (analogClosingVolume > 0)
+                    _buildDetailRow('Analog closing volume', formatAmount(analogClosingVolume, decimalDigits: 3)),
+                  if (shiftOpeningCash != null)
+                    _buildDetailRow('Shift opening cash', _readCurrencyValue(shiftOpeningCash)),
+                  if (shiftCloseCash != null)
+                    _buildDetailRow('Shift close cash', _readCurrencyValue(shiftCloseCash)),
+                  _buildDetailRow('Expected amount', formatAmount(expectedAmount, decimalDigits: 2)),
+                  const SizedBox(height: 16),
+                  if (shiftOpeningCash != null && shiftCloseCash != null)
+                    _buildDetailRow(
+                      'Cash difference',
+                      _readCurrencyValue((double.tryParse(shiftCloseCash.toString().replaceAll(',', '')) ?? 0) -
+                          (double.tryParse(shiftOpeningCash.toString().replaceAll(',', '')) ?? 0)),
+                    ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
+          const SizedBox(width: 12),
+          Text(value, textAlign: TextAlign.right),
+        ],
+      ),
+    );
+  }
+
   Future<void> _pickDate({required bool isStart}) async {
     final now = DateTime.now();
     final initialDate = isStart ? _startDate : _endDate;
@@ -462,6 +569,20 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                               final shiftCloseCashUrl = data['shiftCloseCashPhotoUrl'] as String?;
                               final shiftOpeningCash = data['shiftOpeningCash'];
                               final shiftCloseCash = data['shiftCloseCash'];
+                              final todayPumpCash = (data['todayPumpCash'] as num?)?.toDouble() ??
+                                  (data['cashAmount'] as num?)?.toDouble() ??
+                                  0.0;
+                              final posAmount = (data['posAmount'] as num?)?.toDouble() ?? 0.0;
+                              final totalPaid = (data['totalPaid'] as num?)?.toDouble() ??
+                                  (todayPumpCash + posAmount);
+                              final saleId = data['saleId']?.toString() ?? '';
+                              final soldVolume = (data['soldVolume'] as num?)?.toDouble() ??
+                                  (data['cashDerivedVolume'] as num?)?.toDouble() ??
+                                  (((data['closingVolume'] as num?)?.toDouble() ?? 0) -
+                                      ((data['openingVolume'] as num?)?.toDouble() ?? 0));
+                              final volumeDifference =
+                                  (((data['closingVolume'] as num?)?.toDouble() ?? 0) -
+                                      ((data['openingVolume'] as num?)?.toDouble() ?? 0));
                               final discrepancyNotes =
                                   (data['discrepancyNotes'] as List?)
                                       ?.whereType<String>()
@@ -491,7 +612,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                     children: [
                                       Text(
                                         formatAmount(
-                                          ((data['soldVolume'] as num?)?.toDouble() ?? 0),
+                                          soldVolume,
                                           decimalDigits: 3,
                                         ),
                                         style: const TextStyle(
@@ -531,6 +652,10 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                             'Closing Volume: ${formatAmount(((data['closingVolume'] as num?)?.toDouble() ?? 0), decimalDigits: 3)}',
                                           ),
                                           const SizedBox(height: 4),
+                                          Text(
+                                            'Volume difference: ${formatAmount(volumeDifference, decimalDigits: 3)}',
+                                          ),
+                                          const SizedBox(height: 4),
                                           if (shiftOpeningCash != null)
                                             Text(
                                               'Shift opening cash: ${_readCurrencyValue(shiftOpeningCash)}',
@@ -539,6 +664,22 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                             Text(
                                               'Shift close cash: ${_readCurrencyValue(shiftCloseCash)}',
                                             ),
+                                          if (todayPumpCash > 0)
+                                            Text(
+                                              'Pump cash: ${_readCurrencyValue(todayPumpCash)}',
+                                            ),
+                                          if (posAmount > 0)
+                                            Text(
+                                              'POS amount: ${_readCurrencyValue(posAmount)}',
+                                            ),
+                                          if (totalPaid > 0)
+                                            Text(
+                                              'Total paid: ${_readCurrencyValue(totalPaid)}',
+                                            ),
+                                          if (saleId.isNotEmpty)
+                                            Text(
+                                              'Sale ID: $saleId',
+                                            ),
                                           const SizedBox(height: 4),
                                           if (data['analogClosingVolume'] != null)
                                             Text(
@@ -546,36 +687,45 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                             ),
                                           const SizedBox(height: 8),
                                           if (discrepancySummary.isNotEmpty)
-                                            Container(
-                                              width: double.infinity,
-                                              padding: const EdgeInsets.all(10),
-                                              margin: const EdgeInsets.only(bottom: 8),
-                                              decoration: BoxDecoration(
-                                                color: colorScheme.secondaryContainer,
-                                                borderRadius: BorderRadius.circular(8),
-                                                border: Border.all(
-                                                  color: colorScheme.outlineVariant,
-                                                ),
-                                              ),
-                                              child: Row(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  Icon(
-                                                    Icons.info_outline,
-                                                    size: 18,
-                                                    color: colorScheme.onSecondaryContainer,
+                                            GestureDetector(
+                                              onTap: () => _showDiscrepancyDetails(data),
+                                              child: Container(
+                                                width: double.infinity,
+                                                padding: const EdgeInsets.all(10),
+                                                margin: const EdgeInsets.only(bottom: 8),
+                                                decoration: BoxDecoration(
+                                                  color: colorScheme.secondaryContainer,
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  border: Border.all(
+                                                    color: colorScheme.outlineVariant,
                                                   ),
-                                                  const SizedBox(width: 8),
-                                                  Expanded(
-                                                    child: Text(
-                                                      discrepancySummary,
-                                                      style: TextStyle(
-                                                        color: colorScheme.onSecondaryContainer,
-                                                        fontSize: 12,
+                                                ),
+                                                child: Row(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  children: [
+                                                    Icon(
+                                                      Icons.info_outline,
+                                                      size: 18,
+                                                      color: colorScheme.onSecondaryContainer,
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Expanded(
+                                                      child: Text(
+                                                        discrepancySummary,
+                                                        style: TextStyle(
+                                                          color: colorScheme.onSecondaryContainer,
+                                                          fontSize: 12,
+                                                        ),
                                                       ),
                                                     ),
-                                                  ),
-                                                ],
+                                                    const SizedBox(width: 8),
+                                                    Icon(
+                                                      Icons.chevron_right,
+                                                      size: 18,
+                                                      color: colorScheme.onSecondaryContainer,
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
                                             ),
                                           if (discrepancyNotes.isNotEmpty)
