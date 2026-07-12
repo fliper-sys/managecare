@@ -3537,6 +3537,13 @@ class _HomeTabState extends State<_HomeTab> {
             route: Routes.inventory,
           ),
           _QuickActionItem(
+            title: 'Ingredients',
+            subtitle: 'Manage bakery ingredients',
+            icon: Icons.kitchen_rounded,
+            color: Colors.amber,
+            route: Routes.inventory,
+          ),
+          _QuickActionItem(
             title: 'Freshness Tracker',
             subtitle: 'Monitor expiry and batches',
             icon: Icons.event_busy_rounded,

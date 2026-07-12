@@ -44,10 +44,9 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
         .doc(businessId)
         .collection('procurements')
         .where('sourceType', isEqualTo: 'bakery')
-        .orderBy('createdAt', descending: true)
         .get();
 
-    return snap.docs.where((d) {
+    final docs = snap.docs.where((d) {
       final data = _safeData(d);
       final searchText = _searchController.text.toLowerCase();
       final createdAt = parseTimestamp(data['createdAt'] ?? DateTime.now());
@@ -63,6 +62,14 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
       final searchOk = searchText.isEmpty || queryFields.any((value) => value.contains(searchText));
       return dateOk && searchOk;
     }).toList();
+
+    docs.sort((a, b) {
+      final aCreatedAt = parseTimestamp(_safeData(a)['createdAt'] ?? DateTime.now());
+      final bCreatedAt = parseTimestamp(_safeData(b)['createdAt'] ?? DateTime.now());
+      return bCreatedAt.compareTo(aCreatedAt);
+    });
+
+    return docs;
   }
 
   Future<void> _pickDateRange() async {
@@ -204,7 +211,6 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
                   .doc(businessId)
                   .collection('procurements')
                   .where('sourceType', isEqualTo: 'bakery')
-                  .orderBy('createdAt', descending: true)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
@@ -228,6 +234,12 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
                   final searchOk = searchText.isEmpty || queryFields.any((value) => value.contains(searchText));
                   return dateOk && searchOk;
                 }).toList();
+
+                docs.sort((a, b) {
+                  final aCreatedAt = parseTimestamp(_safeData(a)['createdAt'] ?? DateTime.now());
+                  final bCreatedAt = parseTimestamp(_safeData(b)['createdAt'] ?? DateTime.now());
+                  return bCreatedAt.compareTo(aCreatedAt);
+                });
 
                 if (docs.isEmpty) {
                   return Center(child: Text('No bakery procurements found', style: AppTextStyles.subtitle1));

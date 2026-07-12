@@ -422,7 +422,7 @@ class SettingsScreen extends StatelessWidget {
                       _SettingsItem(
                         icon: Icons.info_outline,
                         title: 'About',
-                        subtitle: 'Version 1.0.0',
+                        subtitle: 'Version 1.0.51',
                         onTap: () {
                           _showAboutDialog(context);
                         },

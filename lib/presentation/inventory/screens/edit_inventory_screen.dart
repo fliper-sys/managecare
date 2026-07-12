@@ -166,7 +166,7 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
           final priceValue = raw['price'] ?? raw['sellingPrice'] ?? model.unitPrice;
           _unitPriceController.text = (priceValue is num ? priceValue.toDouble() : double.tryParse(priceValue.toString()) ?? 0).toStringAsFixed(2);
 
-          _unitController.text = model.unit;
+          _unitController.text = canonicalizeInventoryUnit(model.unit);
           _selectedSaleUnit = (raw['saleUnit'] as String?)?.isNotEmpty == true
               ? canonicalizeInventoryUnit(raw['saleUnit'] as String)
               : null;
@@ -503,7 +503,9 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
 
               // Unit
               DropdownButtonFormField<String>(
-                value: _unitController.text.isEmpty ? null : _unitController.text,
+                value: _unitController.text.isEmpty
+                    ? null
+                    : canonicalizeInventoryUnit(_unitController.text),
                 decoration: InputDecoration(
                   labelText: 'Unit',
                   border: OutlineInputBorder(

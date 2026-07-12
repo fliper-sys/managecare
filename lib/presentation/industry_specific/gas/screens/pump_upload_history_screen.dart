@@ -22,6 +22,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
   String? _selectedPumpNumber;
   DateTime? _startDate;
   DateTime? _endDate;
+  bool _showMismatchBadge = true;
   List<Map<String, dynamic>> _cachedPumps = [];
 
   @override
@@ -181,14 +182,27 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     if (!mounted) return;
     final openingVolume = (data['openingVolume'] as num?)?.toDouble() ?? 0;
     final closingVolume = (data['closingVolume'] as num?)?.toDouble() ?? 0;
+    final previousClosingVolume = (data['previousClosingVolume'] as num?)?.toDouble();
+    final analogOpeningVolume = (data['analogOpeningVolume'] as num?)?.toDouble();
+    final analogClosingVolume = (data['analogClosingVolume'] as num?)?.toDouble() ?? 0;
+    final previousAnalogClosingVolume = (data['previousAnalogClosingVolume'] as num?)?.toDouble();
+    final previousShiftClosingCash = (data['previousShiftClosingCash'] as num?)?.toDouble();
     final soldVolume = (data['soldVolume'] as num?)?.toDouble() ?? 0;
     final shiftOpeningCash = data['shiftOpeningCash'];
     final shiftCloseCash = data['shiftCloseCash'];
-    final analogClosingVolume = (data['analogClosingVolume'] as num?)?.toDouble() ?? 0;
     final expectedAmount = (data['expectedAmount'] as num?)?.toDouble() ??
         ((data['cashDerivedVolume'] as num?)?.toDouble() ?? 0);
     final volumeDifference = closingVolume - openingVolume;
     final discrepancySummary = (data['discrepancySummary'] as String?) ?? '';
+    final openingCashDiff = previousShiftClosingCash != null && shiftOpeningCash != null
+        ? (double.tryParse(shiftOpeningCash.toString().replaceAll(',', '')) ?? 0.0) - previousShiftClosingCash
+        : null;
+    final analogOpenDiff = analogOpeningVolume != null && previousAnalogClosingVolume != null
+        ? analogOpeningVolume - previousAnalogClosingVolume
+        : null;
+    final openingVolumeDiff = previousClosingVolume != null
+        ? openingVolume - previousClosingVolume
+        : null;
 
     await showModalBottomSheet<void>(
       context: context,
@@ -249,12 +263,41 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                   if (shiftCloseCash != null)
                     _buildDetailRow('Shift close cash', _readCurrencyValue(shiftCloseCash)),
                   _buildDetailRow('Expected amount', formatAmount(expectedAmount, decimalDigits: 2)),
-                  const SizedBox(height: 16),
+                  if (previousClosingVolume != null)
+                    _buildDetailRow(
+                      'Previous closing volume',
+                      formatAmount(previousClosingVolume, decimalDigits: 3),
+                    ),
+                  if (openingVolumeDiff != null)
+                    _buildDetailRow(
+                      'Opening vs previous close',
+                      '${openingVolumeDiff >= 0 ? '+' : ''}${formatAmount(openingVolumeDiff, decimalDigits: 3)} L',
+                    ),
+                  if (analogOpeningVolume != null)
+                    _buildDetailRow(
+                      'Analog opening volume',
+                      formatAmount(analogOpeningVolume, decimalDigits: 3),
+                    ),
+                  if (previousAnalogClosingVolume != null)
+                    _buildDetailRow(
+                      'Previous analog close',
+                      formatAmount(previousAnalogClosingVolume, decimalDigits: 3),
+                    ),
+                  if (analogOpenDiff != null)
+                    _buildDetailRow(
+                      'Analog opening diff',
+                      '${analogOpenDiff >= 0 ? '+' : ''}${formatAmount(analogOpenDiff, decimalDigits: 3)} L',
+                    ),
                   if (shiftOpeningCash != null && shiftCloseCash != null)
                     _buildDetailRow(
                       'Cash difference',
                       _readCurrencyValue((double.tryParse(shiftCloseCash.toString().replaceAll(',', '')) ?? 0) -
                           (double.tryParse(shiftOpeningCash.toString().replaceAll(',', '')) ?? 0)),
+                    ),
+                  if (previousShiftClosingCash != null && shiftOpeningCash != null)
+                    _buildDetailRow(
+                      'Opening cash diff',
+                      '${openingCashDiff != null && openingCashDiff >= 0 ? '+' : ''}${formatAmount(openingCashDiff ?? 0.0, decimalDigits: 2)}',
                     ),
                   const SizedBox(height: 24),
                   ElevatedButton(
@@ -499,7 +542,26 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text('Show mismatch badges'),
+                          Switch(
+                            value: _showMismatchBadge,
+                            onChanged: (value) {
+                              setState(() {
+                                _showMismatchBadge = value;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
                           Expanded(
                             child: OutlinedButton.icon(
                               onPressed: () => _pickDate(isStart: false),
@@ -593,13 +655,42 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                   '';
                               final theme = Theme.of(context);
                               final colorScheme = theme.colorScheme;
+                              final hasMismatch = _showMismatchBadge &&
+                                  (discrepancySummary.isNotEmpty || discrepancyNotes.isNotEmpty);
                               return Card(
                                 child: ExpansionTile(
                                   leading: const CircleAvatar(
                                     child: Icon(Icons.upload_file_rounded),
                                   ),
-                                  title: Text(
-                                    'Pump ${data['pumpNumber'] ?? ''} - ${data['productName'] ?? ''}',
+                                  title: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          'Pump ${data['pumpNumber'] ?? ''} - ${data['productName'] ?? ''}',
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (hasMismatch)
+                                        Container(
+                                          margin: const EdgeInsets.only(left: 8),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 2,
+                                            horizontal: 8,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.amber.shade100,
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Text(
+                                            'Mismatch',
+                                            style: TextStyle(
+                                              color: Colors.amber.shade900,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                   subtitle: Text(
                                     uploadedAt == null
@@ -681,9 +772,17 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                               'Sale ID: $saleId',
                                             ),
                                           const SizedBox(height: 4),
-                                          if (data['analogClosingVolume'] != null)
+                                          if (data.containsKey('analogOpeningVolume') &&
+                                              data['analogOpeningVolume'] != null &&
+                                              data['analogOpeningVolume'].toString().trim().isNotEmpty)
                                             Text(
-                                              'Analog closing: ${formatAmount(((data['analogClosingVolume'] as num?)?.toDouble() ?? 0), decimalDigits: 3)}',
+                                              'Analog opening: ${formatAmount(double.tryParse(data['analogOpeningVolume'].toString().replaceAll(',', '').trim()) ?? 0, decimalDigits: 3)}',
+                                            ),
+                                          if (data.containsKey('analogClosingVolume') &&
+                                              data['analogClosingVolume'] != null &&
+                                              data['analogClosingVolume'].toString().trim().isNotEmpty)
+                                            Text(
+                                              'Analog closing: ${formatAmount(double.tryParse(data['analogClosingVolume'].toString().replaceAll(',', '').trim()) ?? 0, decimalDigits: 3)}',
                                             ),
                                           const SizedBox(height: 8),
                                           if (discrepancySummary.isNotEmpty)
