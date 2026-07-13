@@ -16,6 +16,7 @@ class Routes {
 
   // Common Routes
   static const String sales = '/sales';
+  static const String bakerySales = '/bakery/sales';
   static const String salesHistory = '/sales/history';
   static const String salesReceipt = '/sales/receipt';
   static const String cart = '/sales/cart';

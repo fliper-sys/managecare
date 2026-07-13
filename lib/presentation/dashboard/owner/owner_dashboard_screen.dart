@@ -2585,7 +2585,11 @@ class _HomeTabState extends State<_HomeTab> {
         return;
       }
       if (item.route != null) {
-        Navigator.pushNamed(context, item.route!);
+        Navigator.pushNamed(
+          context,
+          item.route!,
+          arguments: item.arguments,
+        );
       }
     };
 
@@ -3527,7 +3531,7 @@ class _HomeTabState extends State<_HomeTab> {
             subtitle: 'Sell bread and pastries',
             icon: Icons.bakery_dining_rounded,
             color: const Color(0xFFD97706),
-            route: Routes.retailPos,
+            route: Routes.bakerySales,
           ),
           _QuickActionItem(
             title: 'Bakery Items',
@@ -3542,6 +3546,7 @@ class _HomeTabState extends State<_HomeTab> {
             icon: Icons.kitchen_rounded,
             color: Colors.amber,
             route: Routes.inventory,
+            arguments: const {'showIngredientsOnly': true},
           ),
           _QuickActionItem(
             title: 'Freshness Tracker',
@@ -3933,6 +3938,7 @@ class _QuickActionItem {
   final IconData icon;
   final Color color;
   final String? route;
+  final Map<String, dynamic>? arguments;
   final bool opensSupportWhatsapp;
 
   _QuickActionItem({
@@ -3941,6 +3947,7 @@ class _QuickActionItem {
     required this.icon,
     required this.color,
     this.route,
+    this.arguments,
     this.opensSupportWhatsapp = false,
   });
 }

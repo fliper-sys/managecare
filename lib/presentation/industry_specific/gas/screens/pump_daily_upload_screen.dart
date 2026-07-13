@@ -533,10 +533,27 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     return roundedVolume < 0.001 ? 0.001 : roundedVolume;
   }
 
+  bool _allImagesSelected() {
+    return _openingPhotoPath != null &&
+        _closingPhotoPath != null &&
+        _shiftOpeningCashPhotoPath != null &&
+        _shiftCloseCashPhotoPath != null;
+  }
+
   Future<void> _saveUpload(Map<String, dynamic> pump) async {
     final uploads = _collection('pump_daily_uploads');
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     if (uploads == null || businessId == null || _selectedPumpId == null) return;
+
+    if (!_allImagesSelected()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('All images (opening, closing, opening cash, closing cash) are required'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
 
     final opening = double.tryParse(_openingController.text.trim()) ?? 0.0;
     final closing = double.tryParse(_closingController.text.trim()) ?? 0.0;
@@ -609,6 +626,23 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       url: _closingPhotoUrl,
       path: _closingPhotoPath,
     );
+
+    // Verify all images were successfully uploaded
+    if (shiftOpeningCashPhotoUrl == null ||
+        shiftCloseCashPhotoUrl == null ||
+        openingPhotoUrl == null ||
+        closingPhotoUrl == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to upload one or more images. Please try again.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      if (mounted) setState(() => _isSaving = false);
+      return;
+    }
+
     _shiftOpeningCashPhotoUrl = shiftOpeningCashPhotoUrl;
     _shiftCloseCashPhotoUrl = shiftCloseCashPhotoUrl;
     _openingPhotoUrl = openingPhotoUrl;
@@ -723,6 +757,10 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   Widget build(BuildContext context) {
     final pumps = _collection('pump_configurations');
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    final currentOpeningCash = parseAmountInput(_shiftOpeningCashController.text) ?? 0.0;
+    final openingCashDiff = _previousShiftClosingCash != null
+        ? currentOpeningCash - _previousShiftClosingCash!
+        : null;
     return Scaffold(
       appBar: AppBar(title: const Text('Pump Volume Upload')),
       body: pumps == null
@@ -859,7 +897,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                               Padding(
                                 padding: const EdgeInsets.only(top: 8),
                                 child: Text(
-                                  'Opening cash diff: ${(double.tryParse(_shiftOpeningCashController.text.trim()) ?? 0.0) - _previousShiftClosingCash! >= 0 ? '+' : ''}${(double.tryParse(_shiftOpeningCashController.text.trim()) ?? 0.0) - _previousShiftClosingCash!.toDouble()} from previous shift close',
+                                  'Opening cash diff: ${openingCashDiff != null && openingCashDiff >= 0 ? '+' : ''}${openingCashDiff?.toStringAsFixed(2) ?? '0.00'} from previous shift close',
                                   style: const TextStyle(color: Colors.black54),
                                 ),
                               ),
@@ -1109,7 +1147,9 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                     ),
                     const SizedBox(height: 20),
                     ElevatedButton.icon(
-                      onPressed: _isSaving || selectedPump == null
+                      onPressed: _isSaving ||
+                              selectedPump == null ||
+                              !_allImagesSelected()
                           ? null
                           : () => _saveUpload(selectedPump),
                       icon: _isSaving

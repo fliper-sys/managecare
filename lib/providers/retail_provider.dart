@@ -21,6 +21,7 @@ class Product {
   final String? barcode;
   final String emoji;
   final String unit; // e.g., L, cyl
+  final double distributorDiscountPercent;
   final String saleUnit;
   final double saleUnitMultiplier;
   final bool trackExpiry;
@@ -40,6 +41,7 @@ class Product {
     this.barcode,
     this.emoji = '📦',
     this.unit = 'pc',
+    this.distributorDiscountPercent = 0.0,
     this.saleUnit = '',
     this.saleUnitMultiplier = 1.0,
     this.trackExpiry = false,
@@ -65,6 +67,7 @@ class Product {
       id: doc.id,
       name: data['name'] ?? '',
       price: (data['price'] ?? 0.0).toDouble(),
+      distributorDiscountPercent: (data['distributorDiscountPercent'] as num?)?.toDouble() ?? 0.0,
       cost: (data['cost'] ?? 0.0).toDouble(),
       wholesalePrice: (data['wholesalePrice'] as num?)?.toDouble(),
       stock: (data['quantity'] as num?)?.toDouble() ??
@@ -98,6 +101,7 @@ class Product {
       'barcode': barcode,
       'emoji': emoji,
       'unit': unit,
+      'distributorDiscountPercent': distributorDiscountPercent,
       'wholesalePrice': wholesalePrice,
       'saleUnit': resolvedSaleUnit,
       'saleUnitMultiplier': resolvedSaleUnitMultiplier,

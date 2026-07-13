@@ -27,6 +27,7 @@ import '../presentation/inventory/screens/product_details_screen.dart';
 import '../presentation/reports/screens/aggregated_reports_screen.dart';
 import '../presentation/business/screens/business_switcher_screen.dart';
 import '../presentation/sales/screens/sales_screen.dart';
+import '../presentation/sales/screens/bakery_sales_screen.dart';
 import '../presentation/sales/screens/sales_history_screen.dart';
 import '../presentation/inventory/screens/inventory_list_screen.dart';
 import '../presentation/inventory/screens/inventory_expiry_tracker_screen.dart';
@@ -293,6 +294,9 @@ class AppRouter {
       case Routes.sales:
         return _buildRoute(const SalesScreen());
 
+      case Routes.bakerySales:
+        return _buildRoute(const BakerySalesScreen());
+
       case Routes.salesHistory:
         return _buildRoute(const SalesHistoryScreen());
 
@@ -303,7 +307,13 @@ class AppRouter {
         return _buildRoute(const InstallationReceiptUploadScreen());
 
       case Routes.inventory:
-        return _buildRoute(const InventoryListScreen());
+        final args = settings.arguments is Map
+            ? Map<String, dynamic>.from(settings.arguments as Map)
+            : null;
+        return _buildRoute(InventoryListScreen(
+          showIngredientsOnly: args?['showIngredientsOnly'] == true,
+          initialCategory: args?['initialCategory']?.toString(),
+        ));
 
       case Routes.expiryTracker:
         return _buildRoute(const InventoryExpiryTrackerScreen());

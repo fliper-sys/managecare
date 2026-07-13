@@ -1,3 +1,4 @@
+import 'package:business_manager/core/utils/amount_formatter.dart';
 import 'package:business_manager/presentation/industry_specific/gas/utils/pump_daily_upload_validation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -23,6 +24,11 @@ void main() {
         ),
         isFalse,
       );
+    });
+
+    test('parses formatted opening cash values with commas', () {
+      expect(parseAmountInput('1,200.50'), 1200.50);
+      expect(parseAmountInput('0'), 0.0);
     });
   });
 }

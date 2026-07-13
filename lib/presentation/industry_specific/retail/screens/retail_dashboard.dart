@@ -608,7 +608,7 @@ class _RetailDashboardState extends State<RetailDashboard> {
         add(
           Icons.point_of_sale,
           widget.isBakery ? 'Bakery POS' : 'Open POS',
-          Routes.retailPos,
+          Routes.bakerySales,
           widget.isBakery ? const Color(0xFFD97706) : AppColors.primary,
         );
       }

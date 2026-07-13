@@ -21,7 +21,14 @@ import 'low_stock_products_screen.dart';
 import 'distributor_sales_report_screen.dart';
 
 class InventoryListScreen extends StatefulWidget {
-  const InventoryListScreen({super.key});
+  const InventoryListScreen({
+    super.key,
+    this.showIngredientsOnly = false,
+    this.initialCategory,
+  });
+
+  final bool showIngredientsOnly;
+  final String? initialCategory;
 
   @override
   State<InventoryListScreen> createState() => _InventoryListScreenState();
@@ -47,7 +54,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     'Clothing',
     'Food',
     'Beverages',
-    'Accessories'
+    'Accessories',
+    'Ingredient',
   ];
 
   @override
@@ -55,6 +63,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     super.initState();
     _repository =
         InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
+    _selectedCategory = widget.initialCategory ??
+        (widget.showIngredientsOnly ? 'Ingredient' : 'All');
     _loadInventory();
     _searchController.addListener(_filterInventory);
   }
@@ -201,14 +211,22 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     }
   }
 
+  bool _isIngredientItem(Map<String, dynamic> item) {
+    final category = (item['category'] ?? '').toString();
+    final normalizedCategory = category.toLowerCase();
+    final explicitFlag = item['isIngredient'] == true || item['isIngredient'] == 'true';
+    return explicitFlag || normalizedCategory.contains('ingredient');
+  }
+
   void _filterInventory() {
     List<Map<String, dynamic>> filtered = _inventory.where((item) {
       final name = (item['name'] ?? '').toString();
       final barcode = (item['barcode'] ?? '').toString();
       final sku = (item['sku'] ?? '').toString();
-      final category = item['category'] ?? 'All';
+      final category = (item['category'] ?? 'All').toString();
       final quantity = item['quantity'] ?? 0;
       final minStock = item['minStock'] ?? 10;
+      final isIngredient = _isIngredientItem(item);
 
       final searchQuery = _searchController.text;
 
@@ -218,12 +236,19 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               name, barcode.isNotEmpty ? barcode : null, searchQuery) ||
           SearchUtils.matchesSearchQuery(sku, null, searchQuery);
 
-      final matchesCategory =
-          _selectedCategory == 'All' || category == _selectedCategory;
+      final matchesCategory = _selectedCategory == 'All'
+          ? true
+          : _selectedCategory == 'Ingredient'
+              ? isIngredient
+              : category == _selectedCategory;
 
+      final matchesIngredientFilter = !widget.showIngredientsOnly || isIngredient;
       final matchesStockFilter = !_showLowStock || quantity <= minStock;
 
-      return matchesSearch && matchesCategory && matchesStockFilter;
+      return matchesSearch &&
+          matchesCategory &&
+          matchesIngredientFilter &&
+          matchesStockFilter;
     }).toList();
 
     setState(() => _filteredInventory = filtered);
@@ -465,11 +490,16 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   }
 
   Future<void> _showDistributorSaleDialog(Map<String, dynamic> item) async {
-    final quantityController = TextEditingController(text: '1');
-    final discountController = TextEditingController(text: '0');
-    final notesController = TextEditingController();
-    final newDistributorController = TextEditingController();
+    final authProvider = context.read<AuthProvider>();
+    final isOwner = authProvider.currentUser?.isOwner == true;
+    if (!isOwner) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Only owners can save distributor discounts')));
+      return;
+    }
 
+    final discountController = TextEditingController(
+      text: ((item['distributorDiscountPercent'] as num?)?.toString() ?? '0'),
+    );
     final businessProvider = context.read<BusinessProvider>();
     final businessId = businessProvider.currentBusiness?.id ?? '';
     if (businessId.isEmpty) {
@@ -477,127 +507,59 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       return;
     }
 
-    final repository = DistributorRepository(firestore: FirebaseFirestore.instance);
-    final distributors = await repository.getDistributors(businessId);
-    String? selectedDistributorId;
-    String? selectedDistributorName;
+    final productId = (item['id'] ?? '').toString();
+    if (productId.startsWith('pharmacy_')) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preset discounts are only available for inventory products')));
+      return;
+    }
 
-    final selected = await showDialog<bool>(
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Record Distributor Sale'),
+        title: const Text('Save Distributor Discount'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Sell ${item['name'] ?? 'this item'} to a distributor at a discounted rate.'),
-              const SizedBox(height: 12),
-              if (distributors.isNotEmpty)
-                DropdownButtonFormField<String>(
-                  value: selectedDistributorId,
-                  decoration: const InputDecoration(labelText: 'Distributor'),
-                  items: distributors.map((distributor) {
-                    final name = (distributor['name'] ?? 'Unnamed').toString();
-                    return DropdownMenuItem<String>(
-                      value: (distributor['id'] ?? '').toString(),
-                      child: Text(name),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    selectedDistributorId = value;
-                    final distributor = distributors.firstWhere(
-                      (entry) => (entry['id'] ?? '').toString() == value,
-                      orElse: () => <String, dynamic>{},
-                    );
-                    selectedDistributorName = (distributor['name'] ?? '').toString();
-                  },
-                )
-              else
-                TextField(
-                  controller: newDistributorController,
-                  decoration: const InputDecoration(labelText: 'New distributor name'),
-                ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: quantityController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Quantity'),
-              ),
+              Text('Set the default distributor discount for ${item['name'] ?? 'this item'}.'),
               const SizedBox(height: 12),
               TextField(
                 controller: discountController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: const InputDecoration(labelText: 'Discount %'),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: notesController,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Notes (optional)'),
-              ),
             ],
           ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Record Sale'),
-          ),
+          ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save')), 
         ],
       ),
     );
 
-    if (selected != true) return;
+    if (confirmed != true) return;
 
-    final quantity = int.tryParse(quantityController.text.trim()) ?? 0;
     final discount = double.tryParse(discountController.text.trim()) ?? 0;
-    if (quantity <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Quantity must be greater than zero')));
-      return;
-    }
     if (discount < 0 || discount > 100) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Discount must be between 0 and 100')));
       return;
     }
 
-    String distributorId = selectedDistributorId ?? '';
-    String distributorName = selectedDistributorName ?? '';
-    if (distributorId.isEmpty && distributors.isEmpty) {
-      distributorName = newDistributorController.text.trim();
-      if (distributorName.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Distributor name is required')));
-        return;
-      }
-      distributorId = await repository.addDistributor(businessId: businessId, name: distributorName);
-    } else if (distributorId.isEmpty) {
-      distributorName = selectedDistributorName ?? '';
-      if (distributorName.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a distributor')));
-        return;
-      }
-    }
-
     try {
-      await repository.recordDistributorSale(
-        businessId: businessId,
-        distributorId: distributorId,
-        distributorName: distributorName,
-        productId: (item['id'] ?? '').toString(),
-        productName: (item['name'] ?? 'Unnamed').toString(),
-        quantity: quantity,
-        unitPrice: (item['price'] as num?)?.toDouble() ?? 0.0,
-        discountPercent: discount,
-        salesRepId: context.read<AuthProvider>().currentUser?.id,
-        salesRepName: context.read<AuthProvider>().currentUser?.fullName ?? context.read<AuthProvider>().currentUser?.email,
-        notes: notesController.text.trim(),
-      );
+      final repository = InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
+      await repository.updateInventory(productId, {
+        'businessId': businessId,
+        'distributorDiscountPercent': discount,
+        'discountPercent': discount,
+      });
       await _loadInventory();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Distributor sale recorded')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved ${discount.toStringAsFixed(0)}% distributor discount')));
+      context.read<RetailProvider>().loadProducts(forceRefresh: true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to record distributor sale: $e'), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save distributor discount: $e'), backgroundColor: Colors.red));
     }
   }
 
@@ -800,7 +762,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Inventory'),
+        title: Text(widget.showIngredientsOnly ? 'Ingredients' : 'Inventory'),
         elevation: 0,
         actions: [
           IconButton(
@@ -1171,7 +1133,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   Navigator.pushNamed(context, Routes.inventoryAdd);
                 },
                 icon: const Icon(Icons.add),
-                label: const Text('Add Product'),
+                label: Text(widget.showIngredientsOnly ? 'Add Ingredient' : 'Add Product'),
                 backgroundColor: AppColors.primary,
               ),
             ],
@@ -1183,7 +1145,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
             Navigator.pushNamed(context, Routes.inventoryAdd);
           },
           icon: const Icon(Icons.add),
-          label: const Text('Add Product'),
+          label: Text(widget.showIngredientsOnly ? 'Add Ingredient' : 'Add Product'),
           backgroundColor: AppColors.primary,
         );
       }),

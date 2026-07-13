@@ -190,6 +190,11 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     final soldVolume = (data['soldVolume'] as num?)?.toDouble() ?? 0;
     final shiftOpeningCash = data['shiftOpeningCash'];
     final shiftCloseCash = data['shiftCloseCash'];
+    final todayPumpCash = (data['todayPumpCash'] as num?)?.toDouble() ??
+        (data['cashAmount'] as num?)?.toDouble() ??
+        0.0;
+    final posAmount = (data['posAmount'] as num?)?.toDouble() ?? 0.0;
+    final totalPaid = todayPumpCash + posAmount;
     final expectedAmount = (data['expectedAmount'] as num?)?.toDouble() ??
         ((data['cashDerivedVolume'] as num?)?.toDouble() ?? 0);
     final volumeDifference = closingVolume - openingVolume;
@@ -203,6 +208,10 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     final openingVolumeDiff = previousClosingVolume != null
         ? openingVolume - previousClosingVolume
         : null;
+    final shiftDifference = (double.tryParse(shiftCloseCash?.toString().replaceAll(',', '') ?? '') ?? 0.0) -
+        (double.tryParse(shiftOpeningCash?.toString().replaceAll(',', '') ?? '') ?? 0.0);
+    final shiftVolVsDigitalDiff = soldVolume - volumeDifference;
+    final digitalVsAnalogDiff = volumeDifference - (analogClosingVolume - (analogOpeningVolume ?? 0));
 
     await showModalBottomSheet<void>(
       context: context,
@@ -252,53 +261,37 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                     style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 8),
-                  _buildDetailRow('Opening volume', formatAmount(openingVolume, decimalDigits: 3)),
-                  _buildDetailRow('Closing volume', formatAmount(closingVolume, decimalDigits: 3)),
-                  _buildDetailRow('Volume difference', formatAmount(volumeDifference, decimalDigits: 3)),
-                  _buildDetailRow('Sold volume', formatAmount(soldVolume, decimalDigits: 3)),
-                  if (analogClosingVolume > 0)
-                    _buildDetailRow('Analog closing volume', formatAmount(analogClosingVolume, decimalDigits: 3)),
-                  if (shiftOpeningCash != null)
-                    _buildDetailRow('Shift opening cash', _readCurrencyValue(shiftOpeningCash)),
-                  if (shiftCloseCash != null)
-                    _buildDetailRow('Shift close cash', _readCurrencyValue(shiftCloseCash)),
-                  _buildDetailRow('Expected amount', formatAmount(expectedAmount, decimalDigits: 2)),
                   if (previousClosingVolume != null)
                     _buildDetailRow(
-                      'Previous closing volume',
-                      formatAmount(previousClosingVolume, decimalDigits: 3),
-                    ),
-                  if (openingVolumeDiff != null)
-                    _buildDetailRow(
-                      'Opening vs previous close',
-                      '${openingVolumeDiff >= 0 ? '+' : ''}${formatAmount(openingVolumeDiff, decimalDigits: 3)} L',
-                    ),
-                  if (analogOpeningVolume != null)
-                    _buildDetailRow(
-                      'Analog opening volume',
-                      formatAmount(analogOpeningVolume, decimalDigits: 3),
-                    ),
-                  if (previousAnalogClosingVolume != null)
-                    _buildDetailRow(
-                      'Previous analog close',
-                      formatAmount(previousAnalogClosingVolume, decimalDigits: 3),
-                    ),
-                  if (analogOpenDiff != null)
-                    _buildDetailRow(
-                      'Analog opening diff',
-                      '${analogOpenDiff >= 0 ? '+' : ''}${formatAmount(analogOpenDiff, decimalDigits: 3)} L',
+                      'Volume difference (previous closing vs new opening)',
+                      '${openingVolumeDiff != null && openingVolumeDiff >= 0 ? '+' : ''}${formatAmount(openingVolumeDiff ?? 0.0, decimalDigits: 3)} L',
                     ),
                   if (shiftOpeningCash != null && shiftCloseCash != null)
                     _buildDetailRow(
-                      'Cash difference',
-                      _readCurrencyValue((double.tryParse(shiftCloseCash.toString().replaceAll(',', '')) ?? 0) -
-                          (double.tryParse(shiftOpeningCash.toString().replaceAll(',', '')) ?? 0)),
+                      'Shift difference (previous closing vs new opening)',
+                      '${shiftDifference >= 0 ? '+' : ''}${formatAmount(shiftDifference, decimalDigits: 2)}',
                     ),
-                  if (previousShiftClosingCash != null && shiftOpeningCash != null)
+                  if (analogOpenDiff != null)
                     _buildDetailRow(
-                      'Opening cash diff',
-                      '${openingCashDiff != null && openingCashDiff >= 0 ? '+' : ''}${formatAmount(openingCashDiff ?? 0.0, decimalDigits: 2)}',
+                      'Analog difference (previous closing vs new opening)',
+                      '${analogOpenDiff >= 0 ? '+' : ''}${formatAmount(analogOpenDiff, decimalDigits: 3)} L',
                     ),
+                  _buildDetailRow(
+                    'Cash difference (expected amount vs total paid)',
+                    '${(expectedAmount - totalPaid) >= 0 ? '+' : ''}${formatAmount(expectedAmount - totalPaid, decimalDigits: 2)}',
+                  ),
+                  _buildDetailRow(
+                    'Shift vol vs digital volume difference',
+                    '${shiftVolVsDigitalDiff >= 0 ? '+' : ''}${formatAmount(shiftVolVsDigitalDiff, decimalDigits: 3)} L',
+                  ),
+                  _buildDetailRow(
+                    'Digital volume vs analog volume difference',
+                    '${digitalVsAnalogDiff >= 0 ? '+' : ''}${formatAmount(digitalVsAnalogDiff, decimalDigits: 3)} L',
+                  ),
+                  _buildDetailRow(
+                    'Shift cash vs total paid',
+                    '${(shiftDifference - totalPaid) >= 0 ? '+' : ''}${formatAmount(shiftDifference - totalPaid, decimalDigits: 2)}',
+                  ),
                   const SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: () => Navigator.of(context).pop(),
@@ -736,15 +729,11 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            'Opening Volume: ${formatAmount(((data['openingVolume'] as num?)?.toDouble() ?? 0), decimalDigits: 3)}',
+                                            'Opening volume: ${formatAmount(((data['openingVolume'] as num?)?.toDouble() ?? 0), decimalDigits: 3)}',
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
-                                            'Closing Volume: ${formatAmount(((data['closingVolume'] as num?)?.toDouble() ?? 0), decimalDigits: 3)}',
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            'Volume difference: ${formatAmount(volumeDifference, decimalDigits: 3)}',
+                                            'Closing volume: ${formatAmount(((data['closingVolume'] as num?)?.toDouble() ?? 0), decimalDigits: 3)}',
                                           ),
                                           const SizedBox(height: 4),
                                           if (shiftOpeningCash != null)
@@ -753,23 +742,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                             ),
                                           if (shiftCloseCash != null)
                                             Text(
-                                              'Shift close cash: ${_readCurrencyValue(shiftCloseCash)}',
-                                            ),
-                                          if (todayPumpCash > 0)
-                                            Text(
-                                              'Pump cash: ${_readCurrencyValue(todayPumpCash)}',
-                                            ),
-                                          if (posAmount > 0)
-                                            Text(
-                                              'POS amount: ${_readCurrencyValue(posAmount)}',
-                                            ),
-                                          if (totalPaid > 0)
-                                            Text(
-                                              'Total paid: ${_readCurrencyValue(totalPaid)}',
-                                            ),
-                                          if (saleId.isNotEmpty)
-                                            Text(
-                                              'Sale ID: $saleId',
+                                              'Shift closing cash: ${_readCurrencyValue(shiftCloseCash)}',
                                             ),
                                           const SizedBox(height: 4),
                                           if (data.containsKey('analogOpeningVolume') &&
@@ -783,6 +756,30 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                               data['analogClosingVolume'].toString().trim().isNotEmpty)
                                             Text(
                                               'Analog closing: ${formatAmount(double.tryParse(data['analogClosingVolume'].toString().replaceAll(',', '').trim()) ?? 0, decimalDigits: 3)}',
+                                            ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Sold volume: ${formatAmount(soldVolume, decimalDigits: 3)}',
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Expected cash: ${formatAmount(((data['expectedAmount'] as num?)?.toDouble() ?? 0), decimalDigits: 2)}',
+                                          ),
+                                          if (todayPumpCash > 0)
+                                            Text(
+                                              'Pump cash: ${_readCurrencyValue(todayPumpCash)}',
+                                            ),
+                                          if (posAmount > 0)
+                                            Text(
+                                              'Pos amount: ${_readCurrencyValue(posAmount)}',
+                                            ),
+                                          if (totalPaid > 0)
+                                            Text(
+                                              'Total paid: ${_readCurrencyValue(totalPaid)}',
+                                            ),
+                                          if (saleId.isNotEmpty)
+                                            Text(
+                                              'Sales Id: $saleId',
                                             ),
                                           const SizedBox(height: 8),
                                           if (discrepancySummary.isNotEmpty)
