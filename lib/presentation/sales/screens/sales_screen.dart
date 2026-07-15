@@ -38,6 +38,7 @@ import '../../../data/models/customer_model.dart';
 import '../../widgets/product_view_switcher.dart';
 import 'customer_tracking_screen.dart';
 import 'receipt_detail_screen.dart';
+import 'return_refund_screen.dart';
 import 'sales_history_screen.dart';
 
 bool _isFuelProduct(Product product) {
@@ -1778,13 +1779,26 @@ class _SalesScreenState extends State<SalesScreen>
                           ? DateFormat('dd/MM/yyyy HH:mm')
                               .format(createdAt.toDate())
                           : 'Unknown time';
-                      final amount = sale['totalAmount'] as num? ?? 0;
-                      final worker = sale['workerName'] ?? 'Unknown';
+                        final amount = sale['totalAmount'] as num? ?? 0;
+                        final worker = sale['workerName'] ?? 'Unknown';
+                        final isRefunded = (sale['hasReturn'] == true) ||
+                          (sale['saleStatus']?.toString().toLowerCase() ==
+                            'refunded') ||
+                          ((sale['status'] ?? '').toString().toLowerCase() ==
+                            'refunded');
+                        final refundedAtTs = sale['returnedAt'] as Timestamp?;
+                        final refundedAtText = refundedAtTs != null
+                            ? DateFormat('dd/MM/yyyy HH:mm')
+                                .format(refundedAtTs.toDate())
+                            : null;
                       final itemCount = (sale['items'] as List?)?.length ?? 0;
 
                       return InkWell(
                         onTap: () => _showSaleDetails(context, sale),
                         child: Card(
+                          color: isRefunded
+                              ? AppColors.warning.withOpacity(0.06)
+                              : null,
                           margin: const EdgeInsets.symmetric(
                               horizontal: 16, vertical: 8),
                           child: Padding(
@@ -1796,10 +1810,39 @@ class _SalesScreenState extends State<SalesScreen>
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text(
-                                        'Sale #${sale['referenceId'] ?? sale['id']}',
-                                        style: AppTextStyles.body1.copyWith(
-                                            fontWeight: FontWeight.w600)),
+                                    Row(
+                                      children: [
+                                        Text(
+                                            'Sale #${sale['referenceId'] ?? sale['id']}',
+                                            style: AppTextStyles.body1.copyWith(
+                                                fontWeight:
+                                                    FontWeight.w600)),
+                                        if (isRefunded) ...[
+                                          const SizedBox(width: 8),
+                                          Tooltip(
+                                            message: refundedAtText != null
+                                                ? 'Refunded on $refundedAtText'
+                                                : 'Refunded',
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: 8, vertical: 4),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.warning.withOpacity(0.12),
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                border: Border.all(
+                                                    color: AppColors.warning.withOpacity(0.3)),
+                                              ),
+                                              child: Text('Refunded',
+                                                  style: AppTextStyles.body2.copyWith(
+                                                      color: AppColors.warning,
+                                                      fontWeight:
+                                                          FontWeight.w600)),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
                                     Text('\u20a6${amount.toStringAsFixed(2)}',
                                         style: AppTextStyles.heading4.copyWith(
                                             color: AppColors.primary)),
@@ -1830,14 +1873,72 @@ class _SalesScreenState extends State<SalesScreen>
                                       OutlinedButton.icon(
                                         onPressed: () {
                                           Navigator.of(context).push(
-                                              MaterialPageRoute(
-                                                  builder: (context) =>
-                                                      ReceiptDetailScreen(
-                                                          saleData: sale)));
+                                            MaterialPageRoute(
+                                              builder: (context) =>
+                                                  ReceiptDetailScreen(
+                                                      saleData: sale),
+                                            ),
+                                          );
                                         },
                                         icon: const Icon(Icons.receipt_long),
                                         label: const Text('View Receipt'),
                                       ),
+                                      const SizedBox(width: 8),
+                                      if (!((sale['hasReturn'] == true) ||
+                                          (sale['saleStatus']
+                                                  ?.toString()
+                                                  .toLowerCase() ==
+                                              'refunded') ||
+                                          ((sale['status'] ?? '')
+                                                  .toString()
+                                                  .toLowerCase() ==
+                                              'refunded')))
+                                        OutlinedButton.icon(
+                                          onPressed: () async {
+                                            final confirmed = await showDialog<bool>(
+                                              context: context,
+                                              builder: (dCtx) => AlertDialog(
+                                                title: const Text('Confirm refund'),
+                                                content: Text(
+                                                    'Process refund for sale ${sale['referenceId'] ?? sale['id']}?'),
+                                                actions: [
+                                                  TextButton(
+                                                      onPressed: () =>
+                                                          Navigator.of(dCtx)
+                                                              .pop(false),
+                                                      child: const Text('Cancel')),
+                                                  ElevatedButton(
+                                                      onPressed: () =>
+                                                          Navigator.of(dCtx)
+                                                              .pop(true),
+                                                      style: ElevatedButton.styleFrom(
+                                                          backgroundColor:
+                                                              AppColors.error),
+                                                      child: const Text('Continue')),
+                                                ],
+                                              ),
+                                            );
+                                            if (confirmed == true) {
+                                              Navigator.of(context)
+                                                  .push(
+                                                    MaterialPageRoute(
+                                                      builder: (context) =>
+                                                          ReturnRefundScreen(
+                                                              sale: sale),
+                                                    ),
+                                                  )
+                                                  .then((result) {
+                                                if (result != null && mounted) {
+                                                  _loadSalesHistory();
+                                                }
+                                              });
+                                            }
+                                          },
+                                          icon: const Icon(Icons.undo),
+                                          label: const Text('Refund'),
+                                        )
+                                      else
+                                        const SizedBox(width: 8),
                                       const SizedBox(width: 8),
                                       TextButton(
                                         onPressed: () =>
@@ -1936,6 +2037,59 @@ class _SalesScreenState extends State<SalesScreen>
                       icon: const Icon(Icons.receipt_long),
                       label: const Text('View Receipt'),
                     ),
+                    const SizedBox(width: 8),
+                    if (!((sale['hasReturn'] == true) ||
+                        (sale['saleStatus']?.toString().toLowerCase() ==
+                            'refunded') ||
+                        ((sale['status'] ?? '').toString().toLowerCase() ==
+                            'refunded')))
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final confirmed = await showDialog<bool>(
+                            context: context,
+                            builder: (dCtx) => AlertDialog(
+                              title: const Text('Confirm refund'),
+                              content: Text(
+                                  'Process refund for sale ${sale['referenceId'] ?? sale['id']}?'),
+                              actions: [
+                                TextButton(
+                                    onPressed: () =>
+                                        Navigator.of(dCtx).pop(false),
+                                    child: const Text('Cancel')),
+                                ElevatedButton(
+                                    onPressed: () =>
+                                        Navigator.of(dCtx).pop(true),
+                                    style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.error),
+                                    child: const Text('Continue')),
+                              ],
+                            ),
+                          );
+                          if (confirmed == true) {
+                            Navigator.pop(c);
+                            Navigator.of(context)
+                                .push(
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        ReturnRefundScreen(sale: sale),
+                                  ),
+                                )
+                                .then((result) {
+                              if (result != null && mounted) {
+                                _loadSalesHistory();
+                              }
+                            });
+                          }
+                        },
+                        icon: const Icon(Icons.undo),
+                        label: const Text('Refund'),
+                      )
+                    else ...[
+                      const SizedBox(width: 8),
+                      Text('Already refunded',
+                          style: AppTextStyles.body2
+                              .copyWith(color: AppColors.error)),
+                    ],
                     const SizedBox(width: 8),
                     TextButton(
                       onPressed: () => Navigator.pop(c),

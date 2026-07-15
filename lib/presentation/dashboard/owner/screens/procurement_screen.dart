@@ -21,9 +21,12 @@ import 'procurement_history_screen.dart';
 import 'product_procurements_screen.dart';
 import '../../../../data/repositories/procurement_repository.dart';
 import '../../../../data/local/shared_prefs_helper.dart';
+import '../utils/procurement_filter_utils.dart';
 
 class ProcurementScreen extends StatefulWidget {
-  const ProcurementScreen({super.key});
+  const ProcurementScreen({super.key, this.showIngredientsOnly = false});
+
+  final bool showIngredientsOnly;
 
   @override
   State<ProcurementScreen> createState() => _ProcurementScreenState();
@@ -48,6 +51,9 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   void initState() {
     super.initState();
     _searchController = TextEditingController();
+    if (widget.showIngredientsOnly) {
+      _selectedCategory = 'Ingredient';
+    }
     _barcodeController = TextEditingController();
     _searchController.addListener(_filterProducts);
     _barcodeController.addListener(_filterByBarcode);
@@ -159,6 +165,9 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
 
       // Merge and deduplicate using helper: prefer explicit inventory collection items over document-sourced ones
       var allProducts = mergeInventoryMaps(products, documentItems);
+      if (widget.showIngredientsOnly) {
+        allProducts = allProducts.where(isIngredientInventoryItem).toList();
+      }
 
       // Include pharmacy drugs as inventory-like products (if any)
       try {
@@ -204,7 +213,11 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
             if (c.isNotEmpty) cats.add(c);
           }
           _categories = ['All', ...cats.toList()..sort()];
-          _selectedCategory = (savedCat != null && savedCat.isNotEmpty && _categories.contains(savedCat)) ? savedCat : null;
+          _selectedCategory = widget.showIngredientsOnly
+              ? 'Ingredient'
+              : (savedCat != null && savedCat.isNotEmpty && _categories.contains(savedCat))
+                  ? savedCat
+                  : null;
           _isLoading = false;
         });
       }

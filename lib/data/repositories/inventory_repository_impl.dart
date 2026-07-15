@@ -109,6 +109,10 @@ class InventoryRepositoryImpl implements InventoryRepository {
     String? notes,
     String? performedById,
     String? performedByName,
+    num? expectedProductionAmount,
+    num? actualProductionAmount,
+    String? productionUnit,
+    String? productionItemName,
   }) async {
     if (businessId.isEmpty || inventoryId.isEmpty) {
       throw Exception('businessId and inventoryId are required');
@@ -148,6 +152,10 @@ class InventoryRepositoryImpl implements InventoryRepository {
         'notes': notes ?? '',
         'performedById': performedById ?? '',
         'performedByName': performedByName ?? '',
+        'expectedProductionAmount': expectedProductionAmount?.toDouble() ?? 0.0,
+        'actualProductionAmount': actualProductionAmount?.toDouble() ?? 0.0,
+        'productionUnit': productionUnit ?? invData['unit'] ?? '',
+        'productionItemName': productionItemName ?? invData['name'] ?? '',
         'createdAt': FieldValue.serverTimestamp(),
       };
       tx.set(resupplyRef, resupplyData);

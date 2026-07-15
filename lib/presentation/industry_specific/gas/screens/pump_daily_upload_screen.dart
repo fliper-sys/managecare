@@ -1043,7 +1043,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
-                          'Opening diff: ${(double.tryParse(_openingController.text.trim()) ?? 0.0) - _previousClosingVolume! >= 0 ? '+' : ''}${(double.tryParse(_openingController.text.trim()) ?? 0.0) - _previousClosingVolume!.toDouble()} liters from previous close',
+                          'Opening diff: ${((double.tryParse(_openingController.text.trim()) ?? 0.0) - _previousClosingVolume!) >= 0 ? '+' : ''}${((double.tryParse(_openingController.text.trim()) ?? 0.0) - _previousClosingVolume!).toStringAsFixed(3)} liters from previous close',
                           style: const TextStyle(color: Colors.black54),
                         ),
                       ),

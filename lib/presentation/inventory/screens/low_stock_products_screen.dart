@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../core/constants/routes.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../presentation/inventory/widgets/expiry_badge.dart';
@@ -133,6 +134,7 @@ class _LowStockProductsScreenState extends State<LowStockProductsScreen> {
           ),
         ],
       ),
+      floatingActionButton: _buildExpiryTrackerFab(context),
       body: SafeArea(
         child: SingleChildScrollView(
           child: Column(
@@ -801,6 +803,23 @@ class _LowStockProductsScreenState extends State<LowStockProductsScreen> {
       case StockStatus.overstock:
         return '🔵 Overstock';
     }
+  }
+
+  /// Build bakery-only expiry tracker FAB
+  Widget? _buildExpiryTrackerFab(BuildContext context) {
+    final businessType = context.read<BusinessProvider>().currentBusiness?.businessType?.toString().toLowerCase() ?? '';
+    final isBakeryBusiness = businessType == 'bakery' || businessType == 'bakeryshop' || businessType == 'bakeshop';
+
+    if (!isBakeryBusiness) return null;
+
+    return FloatingActionButton.extended(
+      backgroundColor: Colors.red,
+      icon: const Icon(Icons.event_busy_rounded),
+      label: const Text('Freshness Tracker'),
+      onPressed: () {
+        Navigator.pushNamed(context, Routes.expiryTracker);
+      },
+    );
   }
 
   /// Get health color based on percentage

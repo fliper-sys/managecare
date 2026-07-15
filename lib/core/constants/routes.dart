@@ -31,6 +31,7 @@ class Routes {
   static const String workerInventory = '/worker/inventory';
 
   static const String inventory = '/inventory';
+  static const String bakeryResupply = '/bakery/resupply';
   static const String expiryTracker = '/inventory/expiry-tracker';
   static const String inventoryAdd = '/inventory/add';
   static const String inventoryEdit = '/inventory/edit';
@@ -128,6 +129,7 @@ class Routes {
   static const String retailDashboard = '/retail';
   static const String bakeryDashboard = '/bakery';
   static const String bakeryProcurements = '/bakery/procurements';
+  static const String bakeryBakerPerformanceReport = '/bakery/baker-performance-report';
   static const String wholesaleDashboard = '/wholesale';
   static const String wholesaleInventory = '/wholesale/inventory';
   static const String wholesalePos = '/wholesale/pos';

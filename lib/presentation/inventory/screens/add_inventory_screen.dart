@@ -16,7 +16,12 @@ import '../../../providers/retail_provider.dart';
 import '../../../providers/auth_provider.dart';
 
 class AddInventoryScreen extends StatefulWidget {
-  const AddInventoryScreen({super.key});
+  const AddInventoryScreen({
+    super.key,
+    this.ingredientOnlyMode = false,
+  });
+
+  final bool ingredientOnlyMode;
 
   @override
   State<AddInventoryScreen> createState() => _AddInventoryScreenState();
@@ -87,14 +92,24 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     _loadProductNameSuggestions();
     _nameController.addListener(_onNameChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_isBakeryBusiness()) return;
-      setState(() {
-        _selectedCategory = 'Bread';
-        _selectedUnit = 'pcs';
-        _trackExpiry = true;
-        _expiryDate = DateTime.now().add(const Duration(days: 2));
-        _minStockController.text = '10';
-      });
+      if (!mounted) return;
+      if (widget.ingredientOnlyMode) {
+        setState(() {
+          _selectedCategory = 'Ingredient';
+          _selectedUnit = 'kg';
+          _trackExpiry = false;
+          _expiryDate = null;
+          _minStockController.text = '10';
+        });
+      } else if (_isBakeryBusiness()) {
+        setState(() {
+          _selectedCategory = 'Bread';
+          _selectedUnit = 'pcs';
+          _trackExpiry = true;
+          _expiryDate = DateTime.now().add(const Duration(days: 2));
+          _minStockController.text = '10';
+        });
+      }
     });
   }
 
@@ -301,7 +316,10 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
         'barcode': _barcodeController.text.trim(),
         'description': _descriptionController.text.trim(),
         'category': _selectedCategory,
-        'price': double.tryParse(_unitPriceController.text) ?? 0.0,
+        if (_selectedCategory == 'Ingredient') 'isIngredient': true,
+        'price': _selectedCategory == 'Ingredient'
+            ? 0.0
+            : double.tryParse(_unitPriceController.text) ?? 0.0,
         'cost': double.tryParse(_costPriceController.text) ?? 0.0,
         'quantity': int.tryParse(_quantityController.text) ?? 0,
         'unit': _selectedUnit,
@@ -418,7 +436,9 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Add Product'),
+        title: Text(widget.ingredientOnlyMode || _selectedCategory == 'Ingredient'
+            ? 'Add Ingredient'
+            : 'Add Product'),
         elevation: 0,
       ),
       body: SingleChildScrollView(
@@ -476,13 +496,19 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                 children: [
                   CustomTextField(
                     controller: _nameController,
-                    label: 'Product Name *',
-                    hint: 'Enter product name',
+                    label: widget.ingredientOnlyMode || _selectedCategory == 'Ingredient'
+                        ? 'Ingredient Name *'
+                        : 'Product Name *',
+                    hint: widget.ingredientOnlyMode || _selectedCategory == 'Ingredient'
+                        ? 'Enter ingredient name'
+                        : 'Enter product name',
                     prefixIcon: Icons.inventory_2_outlined,
                     textCapitalization: TextCapitalization.words,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Please enter product name';
+                        return widget.ingredientOnlyMode || _selectedCategory == 'Ingredient'
+                            ? 'Please enter ingredient name'
+                            : 'Please enter product name';
                       }
                       return null;
                     },
@@ -576,36 +602,52 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
                 children: [
                   const Text('Category *', style: AppTextStyles.label),
                   const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[100],
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _selectedCategory,
-                        isExpanded: true,
-                        icon: const Icon(Icons.arrow_drop_down),
-                        items: _categories.map((category) {
-                          return DropdownMenuItem(
-                            value: category,
-                            child: Text(category),
-                          );
-                        }).toList(),
-                        onChanged: (value) {
-                          if (value != null) {
-                            if (_isBakeryBusiness() &&
-                                _bakeryShelfLifeDays(value) != null) {
-                              _applyBakeryCategoryDefaults(value);
-                            } else {
-                              setState(() => _selectedCategory = value);
+                  if (!widget.ingredientOnlyMode)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedCategory,
+                          isExpanded: true,
+                          icon: const Icon(Icons.arrow_drop_down),
+                          items: _categories.map((category) {
+                            return DropdownMenuItem(
+                              value: category,
+                              child: Text(category),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              if (_isBakeryBusiness() &&
+                                  _bakeryShelfLifeDays(value) != null) {
+                                _applyBakeryCategoryDefaults(value);
+                              } else {
+                                setState(() => _selectedCategory = value);
+                              }
                             }
-                          }
-                        },
+                          },
+                        ),
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.grain_outlined, color: Colors.black54),
+                          const SizedBox(width: 12),
+                          Text('Ingredient', style: AppTextStyles.body1),
+                        ],
                       ),
                     ),
-                  ),
 
                   if (_isBakeryBusiness()) ...[
                     const SizedBox(height: 12),
@@ -690,35 +732,45 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
               const Text('Pricing', style: AppTextStyles.heading5),
               const SizedBox(height: 16),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: CustomTextField(
-                      controller: _unitPriceController,
-                      label: 'Selling Price (₦) *',
-                      hint: '0.00',
-                      keyboardType: TextInputType.number,
-                      prefixIcon: Icons.attach_money,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Required';
-                        }
-                        return null;
-                      },
+              if (_selectedCategory != 'Ingredient') ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: CustomTextField(
+                        controller: _unitPriceController,
+                        label: 'Selling Price (₦) *',
+                        hint: '0.00',
+                        keyboardType: TextInputType.number,
+                        prefixIcon: Icons.attach_money,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Required';
+                          }
+                          return null;
+                        },
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: CustomTextField(
-                      controller: _costPriceController,
-                      label: 'Cost Price (₦)',
-                      hint: '0.00',
-                      keyboardType: TextInputType.number,
-                      prefixIcon: Icons.money_off,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: CustomTextField(
+                        controller: _costPriceController,
+                        label: 'Cost Price (₦)',
+                        hint: '0.00',
+                        keyboardType: TextInputType.number,
+                        prefixIcon: Icons.money_off,
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ] else ...[
+                CustomTextField(
+                  controller: _costPriceController,
+                  label: 'Cost Price (₦)',
+                  hint: '0.00',
+                  keyboardType: TextInputType.number,
+                  prefixIcon: Icons.money_off,
+                ),
+              ],
 
               const SizedBox(height: 24),
 
@@ -850,7 +902,9 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
               _isLoading
                   ? const Center(child: CustomLoadingIndicator())
                   : CustomButton(
-                      text: 'Add Product',
+                      text: widget.ingredientOnlyMode || _selectedCategory == 'Ingredient'
+                          ? 'Add Ingredient'
+                          : 'Add Product',
                       onPressed: _handleSave,
                       icon: Icons.check,
                     ),
