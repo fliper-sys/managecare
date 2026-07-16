@@ -1,0 +1,17 @@
+{
+  "name": "managecare-postgres-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node migration/firestore_to_postgres.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.1",
+    "express": "^4.19.0",
+    "firebase-admin": "^11.11.0",
+    "pg": "^8.6.1"
+  }
+}
