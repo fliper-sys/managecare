@@ -14,6 +14,7 @@ import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../widgets/profile_avatar.dart';
 import '../../../core/utils/worker_permissions.dart';
+import '../../inventory/utils/bakery_assignment_analytics.dart';
 
 String summarizeBakeryActivity(Map<String, dynamic> activity, {required bool isOutput}) {
   if (activity.isEmpty) return 'No activity';
@@ -65,6 +66,11 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
   double _workerTotalSales = 0.0;
   int _workerSalesCount = 0;
   bool _loadingSalesMetrics = true;
+  bool _loadingBakeryHistory = true;
+  List<Map<String, dynamic>> _bakeryResupplyHistory = [];
+  String _bakeryAssignmentSearch = '';
+  DateTime? _bakeryAssignmentStartDate;
+  DateTime? _bakeryAssignmentEndDate;
 
   @override
   void initState() {
@@ -109,8 +115,9 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
         _isLoading = false;
       });
       print('[WorkerDetails] Worker loaded successfully: ${_worker?['name']}');
-      // Load worker sales metrics
+      // Load worker sales metrics and bakery resupply history
       _loadWorkerSalesMetrics();
+      _loadWorkerBakeryHistory();
     } catch (e) {
       setState(() {
         _error = 'Error loading worker: $e';
@@ -148,6 +155,117 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
         });
       }
     }
+  }
+
+  Future<void> _loadWorkerBakeryHistory() async {
+    setState(() {
+      _loadingBakeryHistory = true;
+      _bakeryResupplyHistory = [];
+    });
+
+    try {
+      final businessProvider = context.read<BusinessProvider>();
+      final businessId = widget.businessId ??
+          _worker?['businessId']?.toString() ??
+          businessProvider.currentBusiness?.id ??
+          '';
+      if (businessId.isEmpty) {
+        setState(() {
+          _loadingBakeryHistory = false;
+        });
+        return;
+      }
+
+      final query = FirebaseFirestore.instance
+          .collection('businesses')
+          .doc(businessId)
+          .collection('bakery_resupplies')
+          .where('bakerId', isEqualTo: widget.workerId)
+          .orderBy('createdAt', descending: true);
+
+      final snapshot = await query.get();
+      final history = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'id': doc.id,
+          ...data,
+        };
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _bakeryResupplyHistory = history.cast<Map<String, dynamic>>();
+          _loadingBakeryHistory = false;
+        });
+      }
+    } catch (e) {
+      print('[WorkerDetails] Error loading bakery history: $e');
+      if (mounted) {
+        setState(() {
+          _loadingBakeryHistory = false;
+        });
+      }
+    }
+  }
+
+  DateTime? _readAssignmentDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
+  }
+
+  List<Map<String, dynamic>> _filterBakeryAssignments() {
+    final query = _bakeryAssignmentSearch.trim().toLowerCase();
+    return _bakeryResupplyHistory.where((entry) {
+      final ingredientName = (entry['inventoryName'] ?? entry['productionItemName'] ?? entry['ingredientName'] ?? '')
+          .toString()
+          .toLowerCase();
+      final notes = (entry['notes'] ?? '').toString().toLowerCase();
+      final matchesSearch = query.isEmpty || ingredientName.contains(query) || notes.contains(query);
+
+      final createdAt = _readAssignmentDate(entry['createdAt']);
+      var matchesDate = true;
+      if (createdAt != null && _bakeryAssignmentStartDate != null) {
+        final startDay = DateTime(_bakeryAssignmentStartDate!.year, _bakeryAssignmentStartDate!.month, _bakeryAssignmentStartDate!.day);
+        if (createdAt.isBefore(startDay)) {
+          matchesDate = false;
+        }
+      }
+      if (matchesDate && createdAt != null && _bakeryAssignmentEndDate != null) {
+        final endDay = DateTime(_bakeryAssignmentEndDate!.year, _bakeryAssignmentEndDate!.month, _bakeryAssignmentEndDate!.day, 23, 59, 59);
+        if (createdAt.isAfter(endDay)) {
+          matchesDate = false;
+        }
+      }
+
+      return matchesSearch && matchesDate;
+    }).toList();
+  }
+
+  Future<void> _pickBakeryAssignmentDate({required bool isStart}) async {
+    final initialDate = isStart ? _bakeryAssignmentStartDate : _bakeryAssignmentEndDate;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate ?? DateTime.now(),
+      firstDate: DateTime(DateTime.now().year - 5),
+      lastDate: DateTime(DateTime.now().year + 1),
+    );
+    if (picked == null) return;
+
+    setState(() {
+      if (isStart) {
+        _bakeryAssignmentStartDate = DateTime(picked.year, picked.month, picked.day);
+      } else {
+        _bakeryAssignmentEndDate = DateTime(picked.year, picked.month, picked.day);
+      }
+    });
+  }
+
+  void _clearBakeryAssignmentDates() {
+    setState(() {
+      _bakeryAssignmentStartDate = null;
+      _bakeryAssignmentEndDate = null;
+    });
   }
 
   Future<void> _showEditCommissionDialog() async {
@@ -874,14 +992,9 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
     final isBakeryWorker = (_worker?['role'] ?? '').toString().toLowerCase().contains('baker') ||
         (_worker?['roles'] as List<dynamic>?)?.any((role) => role.toString().toLowerCase().contains('baker')) == true;
 
-    final bakeryOutput = <Map<String, dynamic>>[
-      {'name': 'Bread', 'quantity': 24},
-      {'name': 'Cake', 'quantity': 8},
-    ];
-    final bakeryInput = <Map<String, dynamic>>[
-      {'notes': 'Flour 10kg, sugar 4kg'},
-      {'quantity': 6, 'notes': 'Milk and butter'},
-    ];
+    final isLoadingBakery = _loadingBakeryHistory;
+    final bakeryInput = _filterBakeryAssignments();
+    final analytics = BakeryAssignmentAnalytics.summarize(bakeryInput);
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -924,19 +1037,123 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                 children: [
                   const Text('Bakery Activity', style: AppTextStyles.heading4),
                   const SizedBox(height: 12),
-                  const Text('Input (resupplies)', style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  ...bakeryInput.map((entry) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text(summarizeBakeryActivity(entry, isOutput: false)),
-                      )),
+                  TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'Filter by ingredient or note',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                    onChanged: (value) => setState(() => _bakeryAssignmentSearch = value),
+                  ),
                   const SizedBox(height: 12),
-                  const Text('Output (procurements)', style: TextStyle(fontWeight: FontWeight.w600)),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _pickBakeryAssignmentDate(isStart: true),
+                          icon: const Icon(Icons.calendar_today_outlined),
+                          label: Text(_bakeryAssignmentStartDate == null ? 'From date' : '${_bakeryAssignmentStartDate!.day}/${_bakeryAssignmentStartDate!.month}/${_bakeryAssignmentStartDate!.year}'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _pickBakeryAssignmentDate(isStart: false),
+                          icon: const Icon(Icons.event_outlined),
+                          label: Text(_bakeryAssignmentEndDate == null ? 'To date' : '${_bakeryAssignmentEndDate!.day}/${_bakeryAssignmentEndDate!.month}/${_bakeryAssignmentEndDate!.year}'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_bakeryAssignmentStartDate != null || _bakeryAssignmentEndDate != null) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: _clearBakeryAssignmentDates,
+                        icon: const Icon(Icons.clear),
+                        label: const Text('Clear dates'),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Assignment analytics', style: TextStyle(fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 8),
+                        Text('Assignments: ${analytics.assignmentCount}'),
+                        Text('Expected total: ${analytics.expectedTotal.toStringAsFixed(0)}'),
+                        Text('Actual total: ${analytics.actualTotal.toStringAsFixed(0)}'),
+                        Text('Variance: ${analytics.variance >= 0 ? '+' : ''}${analytics.variance.toStringAsFixed(0)}'),
+                        Text('Completion rate: ${analytics.completionRate.toStringAsFixed(1)}%'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Previous assignments', style: TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 8),
-                  ...bakeryOutput.map((entry) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text('${entry['name']} × ${entry['quantity']}'),
-                      )),
+                  if (isLoadingBakery)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text('Loading bakery assignment history...'),
+                    )
+                  else if (bakeryInput.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text('No bakery assignments recorded for this baker yet.'),
+                    )
+                  else ...bakeryInput.map((entry) {
+                    final name = (entry['productionItemName'] ?? entry['inventoryName'] ?? 'Ingredient').toString();
+                    final expected = ((entry['expectedProductionAmount'] as num?) ?? 0).toDouble();
+                    final actual = ((entry['actualProductionAmount'] as num?) ?? 0).toDouble();
+                    final variance = actual - expected;
+                    final notes = (entry['notes'] ?? '').toString().trim();
+                    final createdAt = entry['createdAt'];
+                    String dateLabel;
+
+                    if (createdAt is Timestamp) {
+                      dateLabel = '${createdAt.toDate().day}/${createdAt.toDate().month}/${createdAt.toDate().year}';
+                    } else if (createdAt is DateTime) {
+                      dateLabel = '${createdAt.day}/${createdAt.month}/${createdAt.year}';
+                    } else {
+                      dateLabel = 'Unknown date';
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.primary.withOpacity(0.15)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(child: Text(name, style: AppTextStyles.body1)),
+                                Text(dateLabel, style: AppTextStyles.caption),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text('Expected: ${expected.toStringAsFixed(0)} • Actual: ${actual.toStringAsFixed(0)} • Variance: ${variance >= 0 ? '+' : ''}${variance.toStringAsFixed(0)}', style: AppTextStyles.caption),
+                            if (notes.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(notes, style: AppTextStyles.caption),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
                 ],
               ),
             ),

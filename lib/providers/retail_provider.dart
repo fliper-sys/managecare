@@ -2963,6 +2963,8 @@ class RetailProvider extends ChangeNotifier {
           'hasReturn': true,
           'returnAmount': returnData['refundAmount'],
           'returnedAt': FieldValue.serverTimestamp(),
+          // Mark this return so it may or may not subtract from sales totals
+          'excludeReturnFromTotals': returnData['excludeFromTotals'] == true,
         });
       }
 

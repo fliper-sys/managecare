@@ -1,3 +1,4 @@
+import 'package:business_manager/presentation/industry_specific/gas/utils/pump_opening_cash_utils.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -199,9 +200,10 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
         ((data['cashDerivedVolume'] as num?)?.toDouble() ?? 0);
     final volumeDifference = closingVolume - openingVolume;
     final discrepancySummary = (data['discrepancySummary'] as String?) ?? '';
-    final openingCashDiff = previousShiftClosingCash != null && shiftOpeningCash != null
-        ? (double.tryParse(shiftOpeningCash.toString().replaceAll(',', '')) ?? 0.0) - previousShiftClosingCash
-        : null;
+    final openingCashDiff = calculateOpeningCashDifference(
+      previousShiftClosingCash: previousShiftClosingCash,
+      shiftOpeningCash: shiftOpeningCash,
+    );
     final analogOpenDiff = analogOpeningVolume != null && previousAnalogClosingVolume != null
         ? analogOpeningVolume - previousAnalogClosingVolume
         : null;
@@ -266,9 +268,14 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                       'Volume difference (previous closing vs new opening)',
                       '${openingVolumeDiff != null && openingVolumeDiff >= 0 ? '+' : ''}${formatAmount(openingVolumeDiff ?? 0.0, decimalDigits: 3)} L',
                     ),
+                  if (openingCashDiff != null)
+                    _buildDetailRow(
+                      'Opening cash difference (previous shift close - new shift open)',
+                      '${openingCashDiff >= 0 ? '+' : ''}${formatAmount(openingCashDiff, decimalDigits: 2)}',
+                    ),
                   if (shiftOpeningCash != null && shiftCloseCash != null)
                     _buildDetailRow(
-                      'Shift difference (previous closing vs new opening)',
+                      'Shift cash difference (close cash - opening cash)',
                       '${shiftDifference >= 0 ? '+' : ''}${formatAmount(shiftDifference, decimalDigits: 2)}',
                     ),
                   if (analogOpenDiff != null)

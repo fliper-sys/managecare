@@ -600,6 +600,12 @@ class _RetailDashboardState extends State<RetailDashboard> {
           Routes.inventoryReport,
           Colors.teal,
         );
+        add(
+          Icons.trending_up,
+          'Baker Performance',
+          Routes.bakeryBakerPerformanceReport,
+          Colors.purple,
+        );
       }
       add(Icons.bar_chart, 'Reports', Routes.retailStoreReports, Colors.teal);
       add(Icons.print, 'Printer Settings', Routes.printerSettings, Colors.teal);

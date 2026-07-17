@@ -23,6 +23,7 @@ import '../presentation/industry_specific/gas/screens/pump_daily_upload_screen.d
 import '../presentation/industry_specific/gas/screens/pump_upload_history_screen.dart';
 import '../presentation/industry_specific/gas/utils/fuel_station_scope.dart';
 import '../presentation/industry_specific/wholesale/screens/warehouse_reports_screen.dart';
+import '../presentation/inventory/screens/bakery_resupply_screen.dart';
 import '../presentation/inventory/screens/product_details_screen.dart';
 import '../presentation/reports/screens/aggregated_reports_screen.dart';
 import '../presentation/business/screens/business_switcher_screen.dart';
@@ -219,6 +220,7 @@ import '../presentation/batch_operations/screens/batch_operations_screen.dart';
 import '../presentation/dashboard/owner/screens/procurement_screen.dart';
 import '../presentation/dashboard/owner/screens/procurement_history_screen.dart';
 import '../presentation/dashboard/owner/screens/bakery_procurement_history_screen.dart';
+import '../presentation/dashboard/owner/screens/bakery_baker_performance_report_screen.dart';
 
 class AppRouter {
   Route<dynamic>? onGenerateRoute(RouteSettings settings) {
@@ -331,12 +333,21 @@ class AppRouter {
         return _buildRoute(const DistributorSalesReportScreen());
 
       case Routes.inventoryAdd:
-        return _buildRoute(const AddInventoryScreen());
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(AddInventoryScreen(
+          ingredientOnlyMode: args?['ingredientOnlyMode'] == true,
+        ));
 
       case Routes.inventoryEdit:
         final args = settings.arguments as Map<String, dynamic>?;
         return _buildRoute(EditInventoryScreen(
           inventoryId: args?['productId'] ?? args?['inventoryId'] ?? '',
+        ));
+
+      case Routes.bakeryResupply:
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(BakeryResupplyScreen(
+          initialIngredientId: args?['ingredientId']?.toString(),
         ));
 
       case Routes.customers:
@@ -420,12 +431,20 @@ class AppRouter {
         return _buildRoute(const PrinterSettingsScreen());
 
       case Routes.procurement:
-        return _buildRoute(const ProcurementScreen());
+        final args = settings.arguments is Map
+            ? Map<String, dynamic>.from(settings.arguments as Map)
+            : null;
+        return _buildRoute(ProcurementScreen(
+          showIngredientsOnly: args?['showIngredientsOnly'] == true,
+        ));
 
       case Routes.procurementHistory:
         return _buildRoute(const ProcurementHistoryScreen());
       case Routes.bakeryProcurements:
         return _buildRoute(const BakeryProcurementHistoryScreen());
+
+      case Routes.bakeryBakerPerformanceReport:
+        return _buildRoute(const BakeryBakerPerformanceReportScreen());
 
       case Routes.adminDunning:
         return _buildRoute(const DunningStatusScreen());
@@ -786,6 +805,9 @@ class AppRouter {
 
       case Routes.hotelCreateRoom:
         return _buildRoute(const CreateRoomScreen());
+
+      case Routes.hotelCreateBooking:
+        return _buildRoute(const hotel_bookings.BookingsScreen());
 
       case Routes.hotelBookings:
         return _buildRoute(const hotel_bookings.BookingsScreen());

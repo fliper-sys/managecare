@@ -26,6 +26,7 @@ class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
   String _refundMethod = 'original'; // 'original', 'credit', 'cash'
   bool _isProcessing = false;
   double _totalRefundAmount = 0;
+  bool _excludeFromTotals = true;
 
   final List<String> _returnReasons = [
     'Defective',
@@ -79,6 +80,39 @@ class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
       return;
     }
 
+    // Confirm with user before processing return
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Confirm return'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('You are about to refund: ${_formatCurrency(_totalRefundAmount)}'),
+              const SizedBox(height: 8),
+              const Text('Items:'),
+              const SizedBox(height: 8),
+              ..._returnItems.where((i) => i.selectedQuantity > 0).map((i) =>
+                  Text('- ${i.productName} x${i.selectedQuantity}')),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel')),
+            ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Confirm')),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
     setState(() => _isProcessing = true);
 
     try {
@@ -98,6 +132,7 @@ class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
         'reason': _reasonController.text,
         'refundMethod': _refundMethod,
         'refundAmount': _totalRefundAmount,
+        'excludeFromTotals': _excludeFromTotals,
         'itemsReturned': _returnItems
             .where((item) => item.selectedQuantity > 0)
             .map((item) => {
@@ -322,6 +357,19 @@ class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
                 ),
               ),
               const SizedBox(height: 24),
+
+              // Exclude from totals option
+              SwitchListTile(
+                value: _excludeFromTotals,
+                onChanged: (v) => setState(() => _excludeFromTotals = v),
+                title: Text('Exclude from daily sales totals',
+                    style: AppTextStyles.body1),
+                subtitle: Text(
+                    'Do not subtract this refund from daily revenue calculations',
+                    style: AppTextStyles.body2),
+                activeColor: AppColors.warning,
+              ),
+              const SizedBox(height: 12),
 
               // Action Buttons
               SizedBox(
