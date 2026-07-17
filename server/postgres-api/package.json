@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "migrate": "node migration/firestore_to_postgres.js"
+    "migrate": "node migration/firestore_to_postgres.js",
+    "test": "node --test"
   },
   "dependencies": {
     "dotenv": "^16.4.1",

@@ -260,6 +260,98 @@ app.post('/sales', async (req, res) => {
   }
 });
 
+app.patch('/sale-items/:id', async (req, res) => {
+  const { id } = req.params;
+  const { product_id, quantity, unit_price, total_amount } = req.body;
+  const errors = [];
+  const fields = {};
+
+  if (product_id !== undefined) {
+    if (!product_id || typeof product_id !== 'string') errors.push('product_id must be a non-empty string');
+    else fields.product_id = product_id;
+  }
+  if (quantity !== undefined) {
+    if (Number.isNaN(parseNumber(quantity))) errors.push('quantity must be a number');
+    else fields.quantity = parseNumber(quantity);
+  }
+  if (unit_price !== undefined) {
+    if (Number.isNaN(parseNumber(unit_price))) errors.push('unit_price must be a number');
+    else fields.unit_price = parseNumber(unit_price);
+  }
+  if (total_amount !== undefined) {
+    if (Number.isNaN(parseNumber(total_amount))) errors.push('total_amount must be a number');
+    else fields.total_amount = parseNumber(total_amount);
+  }
+
+  if (errors.length) return respondBadRequest(res, errors);
+  if (!Object.keys(fields).length) return respondBadRequest(res, ['No fields provided to update']);
+
+  try {
+    const update = buildUpdateQuery('sale_items', id, fields, { updatedAt: false });
+    const result = await pool.query(update.query, update.values);
+    if (!result.rowCount) return res.status(404).json({ error: 'sale item not found' });
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/sale-items/:id', async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM sale_items WHERE id = $1 RETURNING *', [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'sale item not found' });
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/procurement-items/:id', async (req, res) => {
+  const { id } = req.params;
+  const { product_id, quantity, unit_price, total_amount } = req.body;
+  const errors = [];
+  const fields = {};
+
+  if (product_id !== undefined) {
+    if (!product_id || typeof product_id !== 'string') errors.push('product_id must be a non-empty string');
+    else fields.product_id = product_id;
+  }
+  if (quantity !== undefined) {
+    if (Number.isNaN(parseNumber(quantity))) errors.push('quantity must be a number');
+    else fields.quantity = parseNumber(quantity);
+  }
+  if (unit_price !== undefined) {
+    if (Number.isNaN(parseNumber(unit_price))) errors.push('unit_price must be a number');
+    else fields.unit_price = parseNumber(unit_price);
+  }
+  if (total_amount !== undefined) {
+    if (Number.isNaN(parseNumber(total_amount))) errors.push('total_amount must be a number');
+    else fields.total_amount = parseNumber(total_amount);
+  }
+
+  if (errors.length) return respondBadRequest(res, errors);
+  if (!Object.keys(fields).length) return respondBadRequest(res, ['No fields provided to update']);
+
+  try {
+    const update = buildUpdateQuery('procurement_items', id, fields, { updatedAt: false });
+    const result = await pool.query(update.query, update.values);
+    if (!result.rowCount) return res.status(404).json({ error: 'procurement item not found' });
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/procurement-items/:id', async (req, res) => {
+  try {
+    const result = await pool.query('DELETE FROM procurement_items WHERE id = $1 RETURNING *', [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'procurement item not found' });
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/procurements', async (req, res) => {
   try {
     const { business_id } = req.query;

@@ -190,6 +190,8 @@ async function run() {
     await migrateSales();
     console.log('Migrating procurements...');
     await migrateProcurements();
+    console.log('Verifying item deletion support...');
+    await verifyItemDeletionSupport();
     console.log('Migration complete');
   } catch (error) {
     console.error('Migration failed:', error);
@@ -200,3 +202,69 @@ async function run() {
 }
 
 run();
+
+async function verifyItemDeletionSupport() {
+  // Create a temporary business, sale, and sale_item, then delete the item to ensure deletes work
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const bRes = await client.query(
+      `INSERT INTO businesses (name) VALUES ($1) RETURNING *`,
+      ['migration_test_business'],
+    );
+    const businessId = bRes.rows[0].id;
+
+    const sRes = await client.query(
+      `INSERT INTO sales (business_id, total_amount) VALUES ($1, $2) RETURNING *`,
+      [businessId, 0],
+    );
+    const saleId = sRes.rows[0].id;
+
+    const siRes = await client.query(
+      `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_amount) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [saleId, null, 1, 0, 0],
+    );
+    const saleItemId = siRes.rows[0].id;
+
+    const delSi = await client.query('DELETE FROM sale_items WHERE id = $1 RETURNING *', [saleItemId]);
+    if (!delSi.rowCount) throw new Error('sale_items deletion check failed');
+
+    // cleanup sale and business
+    await client.query('DELETE FROM sales WHERE id = $1', [saleId]);
+    await client.query('DELETE FROM businesses WHERE id = $1', [businessId]);
+
+    // procurement path
+    const pbRes = await client.query(
+      `INSERT INTO businesses (name) VALUES ($1) RETURNING *`,
+      ['migration_test_business_proc'],
+    );
+    const pbId = pbRes.rows[0].id;
+
+    const pRes = await client.query(
+      `INSERT INTO procurements (business_id, supplier_name, total_amount) VALUES ($1, $2, $3) RETURNING *`,
+      [pbId, 'migration_supplier', 0],
+    );
+    const procId = pRes.rows[0].id;
+
+    const piRes = await client.query(
+      `INSERT INTO procurement_items (procurement_id, product_id, quantity, unit_price, total_amount) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [procId, null, 1, 0, 0],
+    );
+    const procItemId = piRes.rows[0].id;
+
+    const delPi = await client.query('DELETE FROM procurement_items WHERE id = $1 RETURNING *', [procItemId]);
+    if (!delPi.rowCount) throw new Error('procurement_items deletion check failed');
+
+    await client.query('DELETE FROM procurements WHERE id = $1', [procId]);
+    await client.query('DELETE FROM businesses WHERE id = $1', [pbId]);
+
+    await client.query('COMMIT');
+    console.log('Item deletion support verified');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Item deletion support check failed:', err.message || err);
+    throw err;
+  } finally {
+    client.release();
+  }
+}

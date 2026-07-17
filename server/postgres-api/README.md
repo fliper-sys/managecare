@@ -128,6 +128,8 @@ npm run migrate
 - PATCH /procurements/:id
 - DELETE /procurements/:id
 - PATCH /procurement-items/:id
+ - DELETE /sale-items/:id
+ - DELETE /procurement-items/:id
 
 ## Notes
 
