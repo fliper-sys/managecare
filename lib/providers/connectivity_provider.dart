@@ -22,7 +22,7 @@ class ConnectivityProvider with ChangeNotifier {
   Future<void> initialize() async {
     // Check initial connectivity
     final result = await _connectivity.checkConnectivity();
-    _isConnected = result != ConnectivityResult.none;
+    _isConnected = !result.contains(ConnectivityResult.none);
     notifyListeners();
 
     // Listen to connectivity changes
@@ -63,7 +63,7 @@ class ConnectivityProvider with ChangeNotifier {
 
   Future<bool> checkConnection() async {
     final result = await _connectivity.checkConnectivity();
-    _isConnected = result != ConnectivityResult.none;
+    _isConnected = !result.contains(ConnectivityResult.none);
     notifyListeners();
     return _isConnected;
   }

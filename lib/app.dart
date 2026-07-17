@@ -20,6 +20,7 @@ import 'providers/enhanced_subscription_provider.dart';
 import 'providers/pharmacy_provider.dart';
 import 'providers/receipt_settings_provider.dart';
 import 'providers/retail_provider.dart';
+import 'providers/sync_provider.dart';
 import 'providers/theme_provider.dart';
 import 'routes/app_router.dart';
 import 'services/dunning_service.dart';
@@ -70,7 +71,16 @@ class _AppState extends State<App> {
   }
 
   void _attachProviderListeners() {
-    context.read<ConnectivityProvider>().initialize();
+    final connectivityProvider = context.read<ConnectivityProvider>();
+    final syncProvider = context.read<SyncProvider>();
+    // So that when connectivity returns and ConnectivityProvider auto-syncs
+    // pending sales, the SyncProvider state (and anything showing it, like
+    // the offline banner) actually reflects the result.
+    connectivityProvider.setSyncProvider(syncProvider);
+    connectivityProvider.initialize();
+    // Pick up any sales queued offline in a previous session immediately,
+    // rather than waiting for the next connectivity change to reveal them.
+    unawaited(syncProvider.checkPendingItems());
 
     _authProvider = context.read<AuthProvider>();
     _businessProvider = context.read<BusinessProvider>();
@@ -527,12 +537,39 @@ class _ConnectivityBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    return Consumer<ConnectivityProvider>(
-      builder: (context, connectivity, _) {
+    return Consumer2<ConnectivityProvider, SyncProvider>(
+      builder: (context, connectivity, sync, _) {
+        // Priority: no connection > actively syncing pending sales > sales
+        // still waiting to sync (e.g. sync attempt failed) > nothing to show.
+        // This is the persistent, app-wide counterpart to the one-time
+        // "Sale recorded offline" snackbar shown right at checkout — it
+        // keeps reassuring the cashier that pending offline sales exist and
+        // haven't been lost, until they're confirmed synced.
+        String? message;
+        Color backgroundColor = scheme.errorContainer;
+        Color foregroundColor = scheme.onErrorContainer;
+        Color borderColor = scheme.error.withOpacity(0.18);
+
+        if (!connectivity.isConnected) {
+          message = 'No Internet Connection - Working Offline';
+        } else if (sync.isSyncing) {
+          message = 'Syncing ${sync.pendingItems} offline sale'
+              '${sync.pendingItems == 1 ? '' : 's'}...';
+          backgroundColor = scheme.tertiaryContainer;
+          foregroundColor = scheme.onTertiaryContainer;
+          borderColor = scheme.tertiary.withOpacity(0.18);
+        } else if (sync.hasPendingItems) {
+          message = '${sync.pendingItems} offline sale'
+              '${sync.pendingItems == 1 ? '' : 's'} waiting to sync';
+          backgroundColor = scheme.tertiaryContainer;
+          foregroundColor = scheme.onTertiaryContainer;
+          borderColor = scheme.tertiary.withOpacity(0.18);
+        }
+
         return Stack(
           children: [
             Positioned.fill(child: child),
-            if (!connectivity.isConnected)
+            if (message != null)
               Positioned(
                 top: 0,
                 left: 0,
@@ -541,18 +578,16 @@ class _ConnectivityBanner extends StatelessWidget {
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(
-                    color: scheme.errorContainer,
+                    color: backgroundColor,
                     border: Border(
-                      bottom: BorderSide(
-                        color: scheme.error.withOpacity(0.18),
-                      ),
+                      bottom: BorderSide(color: borderColor),
                     ),
                   ),
                   child: Text(
-                    'No Internet Connection - Working Offline',
+                    message,
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: scheme.onErrorContainer,
+                          color: foregroundColor,
                           fontWeight: FontWeight.w700,
                         ),
                   ),

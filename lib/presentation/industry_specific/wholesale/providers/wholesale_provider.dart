@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../../core/utils/connectivity_helper.dart';
+import '../../../../data/local/database_helper.dart';
 import '../../../../services/business_notification_manager.dart';
+import '../../../../services/sync_service.dart';
 // ============= MODELS =============
 
 class WholesaleProduct {
@@ -818,7 +821,10 @@ class WholesaleProvider with ChangeNotifier {
   }
 
   /// Create a sale record and update inventory similar to RetailProvider.checkout
-  Future<void> createSale({
+  ///
+  /// Returns true if the sale was stored offline (queued for sync), false
+  /// when it was successfully uploaded to Firestore immediately.
+  Future<bool> createSale({
     required List<OrderItem> items,
     required String paymentMethod,
     double discount = 0.0,
@@ -826,7 +832,7 @@ class WholesaleProvider with ChangeNotifier {
     String? workerName,
     String? warehouseId,
   }) async {
-    if (_businessId == null) return;
+    if (_businessId == null) return false;
     try {
       final subtotal = items.fold<double>(0, (s, it) => s + it.total);
       final totalAmount = subtotal - discount;
@@ -848,59 +854,171 @@ class WholesaleProvider with ChangeNotifier {
         saleData['workerName'] = workerName ?? 'Unknown';
       }
 
-      final saleRef = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .add(saleData);
-
-      await saleRef.update({'orderId': saleRef.id});
-
-      // Update inventory counts (deduct from warehouse allocation if warehouseId provided)
-      for (final it in items) {
-        final prodIdx = _products.indexWhere((p) => p.id == it.productId);
-        if (prodIdx == -1) continue;
-        final product = _products[prodIdx];
-
-        int newQty = (product.quantity - it.quantity).clamp(0, 999999);
-
-        final allocs = Map<String, int>.from(product.warehouseAllocations);
-        if (warehouseId != null && warehouseId.isNotEmpty) {
-          final currentAlloc = allocs[warehouseId] ?? 0;
-          final newAlloc = (currentAlloc - it.quantity).clamp(0, 999999);
-          allocs[warehouseId] = newAlloc;
-        }
-
-        // persist updated quantity and allocations
-        await _firestore.collection('businesses').doc(_businessId).collection('inventory').doc(product.id).update({
-          'quantity': newQty,
-          'warehouseAllocations': allocs,
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        // update local cache
-        _products[prodIdx] = product.copyWith(quantity: newQty, warehouseAllocations: allocs);
-
-        // send low stock notification if necessary
-        if (newQty <= product.reorderLevel) {
-          try {
-            await BusinessNotificationManager.instance.notifyLowStock(
-              businessId: _businessId!,
-              itemName: product.name,
-              currentStock: newQty,
-              reorderPoint: product.reorderLevel,
-            );
-          } catch (e) {
-            debugPrint('[WholesaleProvider] Failed to notify low stock: $e');
-          }
-        }
+      // Check connectivity up front rather than relying on the Firestore
+      // write to throw — with offline persistence enabled, writes resolve
+      // locally without an exception even with no network, which would
+      // otherwise make the offline fallback below almost never trigger for
+      // genuinely offline sales.
+      final hasNetwork = await ConnectivityHelper.hasInternetConnection();
+      if (!hasNetwork) {
+        debugPrint(
+            '[WholesaleProvider] No network detected, saving sale offline');
+        return await _saveSaleOffline(
+          items: items,
+          discount: discount,
+          totalAmount: totalAmount,
+          paymentMethod: paymentMethod,
+          workerId: workerId,
+          warehouseId: warehouseId,
+        );
       }
 
-      notifyListeners();
+      try {
+        final saleRef = await _firestore
+            .collection('businesses')
+            .doc(_businessId)
+            .collection('sales')
+            .add(saleData);
+
+        await saleRef.update({'orderId': saleRef.id});
+
+        // Update inventory counts (deduct from warehouse allocation if warehouseId provided)
+        for (final it in items) {
+          final prodIdx = _products.indexWhere((p) => p.id == it.productId);
+          if (prodIdx == -1) continue;
+          final product = _products[prodIdx];
+
+          int newQty = (product.quantity - it.quantity).clamp(0, 999999);
+
+          final allocs = Map<String, int>.from(product.warehouseAllocations);
+          if (warehouseId != null && warehouseId.isNotEmpty) {
+            final currentAlloc = allocs[warehouseId] ?? 0;
+            final newAlloc = (currentAlloc - it.quantity).clamp(0, 999999);
+            allocs[warehouseId] = newAlloc;
+          }
+
+          // persist updated quantity and allocations
+          await _firestore.collection('businesses').doc(_businessId).collection('inventory').doc(product.id).update({
+            'quantity': newQty,
+            'warehouseAllocations': allocs,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+
+          // update local cache
+          _products[prodIdx] = product.copyWith(quantity: newQty, warehouseAllocations: allocs);
+
+          // send low stock notification if necessary
+          if (newQty <= product.reorderLevel) {
+            try {
+              await BusinessNotificationManager.instance.notifyLowStock(
+                businessId: _businessId!,
+                itemName: product.name,
+                currentStock: newQty,
+                reorderPoint: product.reorderLevel,
+              );
+            } catch (e) {
+              debugPrint('[WholesaleProvider] Failed to notify low stock: $e');
+            }
+          }
+        }
+
+        notifyListeners();
+        return false; // uploaded successfully
+      } catch (e) {
+        debugPrint('[WholesaleProvider] Firestore write failed, saving locally: $e');
+        return await _saveSaleOffline(
+          items: items,
+          discount: discount,
+          totalAmount: totalAmount,
+          paymentMethod: paymentMethod,
+          workerId: workerId,
+          warehouseId: warehouseId,
+        );
+      }
     } catch (e) {
       _errorMessage = 'Error creating sale: $e';
       debugPrint('[WholesaleProvider] $e');
+      return false;
     }
+  }
+
+  /// Persists a wholesale sale to the local database and queues it for sync
+  /// when connectivity returns. The generic sync pipeline
+  /// (SyncService -> SalesRepositoryImpl.syncSaleToFirestore) resolves each
+  /// item's inventory doc and applies the matching deduction in Firestore
+  /// once the sale actually uploads, so we only update the in-memory product
+  /// list here for immediate UI feedback.
+  Future<bool> _saveSaleOffline({
+    required List<OrderItem> items,
+    required double discount,
+    required double totalAmount,
+    required String paymentMethod,
+    String? workerId,
+    String? warehouseId,
+  }) async {
+    final dbHelper = DatabaseHelper.instance;
+    final saleId = 'SALE-${DateTime.now().millisecondsSinceEpoch}';
+
+    final localSale = {
+      'id': saleId,
+      'businessId': _businessId!,
+      'totalAmount': totalAmount,
+      'discountAmount': discount,
+      'taxAmount': 0.0,
+      'finalAmount': totalAmount,
+      'paymentMethod': paymentMethod,
+      'category': 'Wholesale',
+      'status': 'completed',
+      'createdBy': workerId ?? '',
+      'createdAt': DateTime.now().toIso8601String(),
+      'syncStatus': 'pending',
+      if (warehouseId != null && warehouseId.isNotEmpty) 'warehouseId': warehouseId,
+    };
+
+    await dbHelper.insert('sales', localSale);
+
+    for (final it in items) {
+      final itemId =
+          DateTime.now().millisecondsSinceEpoch.toString() + it.productId;
+      await dbHelper.insert('sale_items', {
+        'id': itemId,
+        'saleId': saleId,
+        'productId': it.productId,
+        'productName': it.productName,
+        'quantity': it.quantity,
+        'unitPrice': it.unitPrice,
+        'discount': 0.0,
+        'total': it.total,
+      });
+
+      // Reflect the deduction in memory immediately so the POS grid stays
+      // accurate; the real Firestore inventory write happens once this
+      // sale syncs.
+      final prodIdx = _products.indexWhere((p) => p.id == it.productId);
+      if (prodIdx != -1) {
+        final product = _products[prodIdx];
+        final newQty = (product.quantity - it.quantity).clamp(0, 999999);
+        final allocs = Map<String, int>.from(product.warehouseAllocations);
+        if (warehouseId != null && warehouseId.isNotEmpty) {
+          final currentAlloc = allocs[warehouseId] ?? 0;
+          allocs[warehouseId] = (currentAlloc - it.quantity).clamp(0, 999999);
+        }
+        _products[prodIdx] =
+            product.copyWith(quantity: newQty, warehouseAllocations: allocs);
+      }
+    }
+
+    await dbHelper.addToSyncQueue(
+        entityType: 'sale', entityId: saleId, action: 'create', data: localSale);
+
+    // Try to trigger a background sync (no-op if still offline)
+    try {
+      final syncService = SyncService();
+      await syncService.syncSales();
+    } catch (_) {}
+
+    notifyListeners();
+    return true; // saved offline
   }
 }
 

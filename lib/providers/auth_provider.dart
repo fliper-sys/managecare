@@ -46,6 +46,12 @@ class AuthProvider with ChangeNotifier {
   String? _errorMessage;
   bool _subscriptionValidated = false;
   bool _isInitializingLocalStorage = true;
+  final Completer<void> _initializationCompleter = Completer<void>();
+
+  /// Resolves once the initial cached-user/auto-login check has finished,
+  /// so callers (e.g. the splash screen) can wait for the real signal
+  /// instead of polling on a timer.
+  Future<void> get initializationComplete => _initializationCompleter.future;
 
   AuthStatus get status => _status;
   UserModel? get currentUser => _currentUser;
@@ -163,168 +169,11 @@ class AuthProvider with ChangeNotifier {
         if (cachedUser != null) {
           final firebaseUser = FirebaseAuth.instance.currentUser;
           final hasNetwork = await _hasNetworkConnection();
-          final shouldUseCachedUser = shouldUseCachedUserDuringStartup(
-            autoLoginEnabled: true,
-            cachedUser: cachedUser,
-            firebaseUserId: firebaseUser?.uid,
-          );
 
-          if (!shouldUseCachedUser) {
-            if (firebaseUser == null) {
-              if (!hasNetwork) {
-                await _restoreCachedUserForOfflineStartup(cachedUser);
-              } else {
-                print(
-                  '[AuthProvider] No active Firebase session yet during startup; restoring cached user ${cachedUser.email} for immediate access.',
-                );
-                _currentUser = cachedUser;
-                _status = AuthStatus.authenticated;
-                _errorMessage = null;
-                _subscriptionValidated = true;
-                notifyListeners();
-                unawaited(_syncCachedUserWithFirebase(cachedUser.id));
-                try {
-                  await _cacheBusinessForUser(_resolveCurrentBusinessId(cachedUser));
-                } catch (e) {
-                  print(
-                      '[AuthProvider] Error caching business during startup restore: $e');
-                }
-              }
-              return;
-            }
-          } else if (firebaseUser != null) {
-            print(
-                '[AuthProvider] Auto-login: restoring cached user ${cachedUser.email}');
-            _currentUser = cachedUser;
-            _status = AuthStatus.authenticated;
-            _errorMessage = null;
-
-            if (!hasNetwork) {
-              _subscriptionValidated = true;
-              notifyListeners();
-              return;
-            }
-
-            // Validate subscription status
-            try {
-              // Skip subscription enforcement for all non-owner users during auto-login
-              if (!_currentUser!.isOwner) {
-                _subscriptionValidated = true;
-                if (kDebugMode) print('[AuthProvider] Skipping subscription validation for non-owner user during auto-login: ${_currentUser!.id}');
-              } else {
-                _subscriptionValidated =
-                    await _validateSubscriptionForUser(_currentUser!);
-              }
-            } catch (e) {
-              print('[AuthProvider] Error validating subscription during auto-login: $e');
-            }
-
-            // Sync cached user with Firebase to update profile info
-            _syncCachedUserWithFirebase(cachedUser.id);
-
-            // Try to fetch the latest user document synchronously to ensure we have businessId
-            try {
-              final access = await _authenticationService.resolveUserAccess(
-                cachedUser.id,
-                allowSelfRecovery: false,
-              );
-              if (!access.isAllowed || access.user == null) {
-                await _forceLogoutBecauseAccessChanged(
-                  access.message ?? 'This account is no longer available.',
-                );
-                return;
-              }
-
-              final refreshedUser = access.user;
-              if (refreshedUser != null) {
-                _currentUser = refreshedUser;
-                await _localStorage!.saveUser(refreshedUser);
-              }
-
-              // Ensure a primary business exists for worker users
-              String? primaryBiz = _currentUser?.primaryBusinessId;
-              if ((primaryBiz == null || primaryBiz.isEmpty) &&
-                  _currentUser != null) {
-                // Attempt to find business id from workers collection (worker's email may be used)
-                try {
-                  final workerRepo =
-                      WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
-                  var workerDoc =
-                      await workerRepo.getWorkerById(_currentUser!.id);
-                  if (workerDoc == null &&
-                      _currentUser!.email.isNotEmpty &&
-                      _currentUser!.email.contains('@')) {
-                    final query = await FirebaseFirestore.instance
-                        .collection('workers')
-                        .where('email', isEqualTo: _currentUser!.email)
-                        .limit(1)
-                        .get();
-                    if (query.docs.isNotEmpty) {
-                      workerDoc = {
-                        'id': query.docs.first.id,
-                        ...query.docs.first.data()
-                      };
-                    }
-                  }
-
-                  if (workerDoc != null && workerDoc is Map<String, dynamic>) {
-                    final found = (workerDoc['businessId'] as String?) ?? '';
-                    if (found.isNotEmpty) {
-                      primaryBiz = found;
-                      final updatedUser = _currentUser!.copyWith(
-                          businessIds: [found], currentBusinessId: found);
-                      _currentUser = updatedUser;
-                      await _authRepository.updateUser(updatedUser);
-                      if (_localStorage != null)
-                        await _localStorage!.saveUser(updatedUser);
-                    }
-                  }
-                } catch (e) {
-                  print(
-                      '[AuthProvider] Error fetching worker doc during auto-login: $e');
-                }
-              }
-
-              // If we now have a business id, set and cache the business details for faster startup
-              if (primaryBiz != null &&
-                  primaryBiz.isNotEmpty &&
-                  _localBusinessStorage != null) {
-                await _cacheBusinessForUser(primaryBiz);
-              }
-
-              if (_currentUser != null) {
-                try {
-                  if (!_currentUser!.isOwner) {
-                    _subscriptionValidated = true;
-                  } else {
-                    _subscriptionValidated =
-                        await _validateSubscriptionForUser(_currentUser!);
-                  }
-                } catch (e) {
-                  print(
-                      '[AuthProvider] Error revalidating subscription after auto-login refresh: $e');
-                }
-              }
-            } catch (e) {
-              print(
-                  '[AuthProvider] Error refreshing cached user during auto-login: $e');
-            }
-
-            // Also restore cached business if available for this user
-            try {
-              final businessId = _localBusinessStorage?.getCurrentBusinessId();
-              if (businessId != null && businessId.isNotEmpty) {
-                print('[AuthProvider] Restoring cached businessId: $businessId');
-                // BusinessProvider will pick this up on initialization
-              }
-            } catch (e) {
-              print('[AuthProvider] Error restoring cached business: $e');
-            }
-
-            notifyListeners();
-            return;
-          }
-
+          // Note: `shouldUseCachedUserDuringStartup` is true iff there is no active Firebase
+          // session (see shouldUseCachedUserDuringStartup), so the two cases
+          // below fully cover both outcomes without needing a separate branch
+          // keyed on `shouldUseCachedUser` itself.
           if (firebaseUser == null) {
             if (!hasNetwork) {
               await _restoreCachedUserForOfflineStartup(cachedUser);
@@ -481,6 +330,9 @@ class AuthProvider with ChangeNotifier {
           _status == AuthStatus.initial) {
         _status = AuthStatus.unauthenticated;
         notifyListeners();
+      }
+      if (!_initializationCompleter.isCompleted) {
+        _initializationCompleter.complete();
       }
     }
   }

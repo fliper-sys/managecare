@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/colors.dart';
+import '../../../core/utils/connectivity_helper.dart';
 import '../../../core/utils/worker_permissions.dart';
 import '../../../core/extensions/list_extensions.dart';
 import '../../../providers/auth_provider.dart';
@@ -356,24 +357,34 @@ class _WorkerSalesScreenState extends State<WorkerSalesScreen> {
       'createdAt': DateTime.now().toIso8601String(),
     };
 
-    // Try to use domain use-case (CreateSale) first; fallback to local DB + queue on failure
-    try {
-      final repo = SalesRepositoryImpl(firestore: FirebaseFirestore.instance);
-      final createSale = CreateSale(repository: repo);
-      await createSale.call(saleForServer);
+    // Check connectivity up front rather than relying on the online write to
+    // throw — with Firestore offline persistence enabled, writes resolve
+    // locally without an exception even with no network, so that would
+    // almost never trigger the offline fallback for genuinely offline sales.
+    final hasNetwork = await ConnectivityHelper.hasInternetConnection();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'Sale completed and saved to server. Total: ₦${total.toStringAsFixed(2)}'),
-          backgroundColor: Colors.green,
-        ),
-      );
+    // Try to use domain use-case (CreateSale) first when online; fallback to
+    // local DB + queue otherwise (or if the online attempt fails).
+    if (hasNetwork) {
+      try {
+        final repo =
+            SalesRepositoryImpl(firestore: FirebaseFirestore.instance);
+        final createSale = CreateSale(repository: repo);
+        await createSale.call(saleForServer);
 
-      setState(() => _cartItems.clear());
-      return;
-    } catch (e) {
-      // Fallback: persist locally and queue for sync
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Sale completed and saved to server. Total: ₦${total.toStringAsFixed(2)}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        setState(() => _cartItems.clear());
+        return;
+      } catch (e) {
+        // Fallback: persist locally and queue for sync
+      }
     }
 
     // Fallback path (offline or server error): persist locally and enqueue for sync
@@ -428,8 +439,8 @@ class _WorkerSalesScreenState extends State<WorkerSalesScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-              'Sale recorded and queued for sync. Total: ₦${total.toStringAsFixed(2)}'),
-          backgroundColor: Colors.green,
+              'Sale recorded offline and will sync when online. Total: ₦${total.toStringAsFixed(2)}'),
+          backgroundColor: AppColors.warning,
         ),
       );
 

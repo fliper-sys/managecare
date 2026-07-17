@@ -10,6 +10,7 @@ import '../../../widgets/animated_lottie.dart';
 import '../../../providers/retail_provider.dart';
 import '../../../providers/business_provider.dart';
 import 'receipt_detail_screen.dart';
+import 'return_refund_screen.dart';
 
 class SalesHistoryScreen extends StatefulWidget {
   const SalesHistoryScreen({super.key});
@@ -459,6 +460,22 @@ class _SalesListState extends State<_SalesList> {
     await _loadSales(reset: false);
   }
 
+  Future<void> _openRefund(Map<String, dynamic> sale) async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ReturnRefundScreen(sale: sale),
+      ),
+    );
+
+    if (result != null && mounted) {
+      _loadSales(reset: true);
+      try {
+        final parentState = context.findAncestorStateOfType<_SalesHistoryScreenState>();
+        parentState?._loadQuickStats();
+      } catch (_) {}
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -540,6 +557,13 @@ class _SalesListState extends State<_SalesList> {
           status: sale['status'] ?? 'completed',
           time: _formatTime(sale['createdAt']),
           saleData: sale,
+          // Sales can be refunded incrementally (multiple partial refunds),
+          // so only hide the action once the sale is fully refunded —
+          // ReturnRefundScreen itself fetches accurate remaining
+          // quantities per item, rather than this list's possibly-stale copy.
+          onRefund: sale['status'] == 'refunded'
+              ? null
+              : () => _openRefund(sale),
         );
       },
     );
@@ -570,6 +594,7 @@ class _SaleCard extends StatelessWidget {
   final String status;
   final String time;
   final Map<String, dynamic> saleData;
+  final VoidCallback? onRefund;
 
   const _SaleCard({
     required this.orderId,
@@ -580,6 +605,7 @@ class _SaleCard extends StatelessWidget {
     required this.status,
     required this.time,
     required this.saleData,
+    this.onRefund,
   });
 
   Color get _statusColor {
@@ -588,10 +614,21 @@ class _SaleCard extends StatelessWidget {
         return AppColors.success;
       case 'pending':
         return AppColors.warning;
+      case 'partially_refunded':
+        return AppColors.warning;
       case 'refunded':
         return AppColors.error;
       default:
         return AppColors.textSecondary;
+    }
+  }
+
+  String get _statusLabel {
+    switch (status.toLowerCase()) {
+      case 'partially_refunded':
+        return 'Partially Refunded';
+      default:
+        return status;
     }
   }
 
@@ -780,7 +817,7 @@ class _SaleCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        status,
+                        _statusLabel,
                         style: AppTextStyles.caption.copyWith(
                           color: _statusColor,
                           fontWeight: FontWeight.w600,
@@ -809,6 +846,22 @@ class _SaleCard extends StatelessWidget {
                 Text(time, style: AppTextStyles.caption),
               ],
             ),
+            if (onRefund != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: onRefund,
+                  icon: const Icon(Icons.assignment_return_outlined, size: 16),
+                  label: const Text('Refund'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.error,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),

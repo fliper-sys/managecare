@@ -1884,8 +1884,9 @@ class _SalesScreenState extends State<SalesScreen>
                                         label: const Text('View Receipt'),
                                       ),
                                       const SizedBox(width: 8),
-                                      if (!((sale['hasReturn'] == true) ||
-                                          (sale['saleStatus']
+                                      // Sales can be refunded incrementally, so only hide the
+                                      // action once the sale is fully refunded.
+                                      if (!((sale['saleStatus']
                                                   ?.toString()
                                                   .toLowerCase() ==
                                               'refunded') ||
@@ -2038,8 +2039,9 @@ class _SalesScreenState extends State<SalesScreen>
                       label: const Text('View Receipt'),
                     ),
                     const SizedBox(width: 8),
-                    if (!((sale['hasReturn'] == true) ||
-                        (sale['saleStatus']?.toString().toLowerCase() ==
+                    // Sales can be refunded incrementally, so only hide the
+                    // action once the sale is fully refunded.
+                    if (!((sale['saleStatus']?.toString().toLowerCase() ==
                             'refunded') ||
                         ((sale['status'] ?? '').toString().toLowerCase() ==
                             'refunded')))

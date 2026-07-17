@@ -73,15 +73,51 @@ void main() async {
     sqfliteFfiInit();
   }
 
-  // Set preferred orientations
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
+  // Run the independent startup steps concurrently — none of these depend
+  // on each other's results, so doing them one-by-one only adds latency
+  // before the first frame (and, for a cached user, before auto-login can
+  // even begin).
+  await Future.wait([
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]),
+    _initializeFirebase(),
+    Hive.initFlutter(),
+    if (!kIsWeb) _initializeLocalDatabase(),
   ]);
 
-  // Initialize Firebase (with duplicate check)
+  // Initialize app services (analytics, barcode, cloud storage, push/local
+  // notifications, etc.) in the background so startup isn't blocked. None
+  // of these are required to render the first screen or to auto-login a
+  // cached user to their dashboard.
+  unawaited(ServicesInitializer().initializeAll());
+  if (!kIsWeb) {
+    unawaited(_initializeNotifications());
+  }
+
+  // Set system UI overlay style
+  final prefersDarkMode =
+      WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+          Brightness.dark;
+  SystemChrome.setSystemUIOverlayStyle(
+    SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness:
+          prefersDarkMode ? Brightness.light : Brightness.dark,
+      systemNavigationBarColor:
+          prefersDarkMode ? const Color(0xFF08101D) : Colors.white,
+      systemNavigationBarIconBrightness:
+          prefersDarkMode ? Brightness.light : Brightness.dark,
+    ),
+  );
+
+  runApp(const MyApp());
+}
+
+Future<void> _initializeFirebase() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -102,50 +138,23 @@ void main() async {
     }
     // App already initialized, continue
   }
+}
 
-  // Initialize Hive for local storage
-  await Hive.initFlutter();
-
-  // Initialize local database (skip on web)
-  if (!kIsWeb) {
-    try {
-      await DatabaseHelper.instance.database;
-    } catch (e) {
-      print('Database initialization warning: $e');
-    }
+Future<void> _initializeLocalDatabase() async {
+  try {
+    await DatabaseHelper.instance.database;
+  } catch (e) {
+    print('Database initialization warning: $e');
   }
+}
 
-  // Initialize app services (analytics, barcode, cloud storage, etc.)
-  // Initialize non-critical services in background so startup isn't blocked
-  unawaited(ServicesInitializer().initializeAll());
-
-  // Initialize notification service (only on mobile platforms)
-  if (!kIsWeb) {
-    try {
-      await NotificationService.instance.initialize();
-      await PushService.initialize();
-    } catch (e) {
-      // If notifications fail to initialize on the device, log and continue
-    }
+Future<void> _initializeNotifications() async {
+  try {
+    await NotificationService.instance.initialize();
+    await PushService.initialize();
+  } catch (e) {
+    // If notifications fail to initialize on the device, log and continue
   }
-
-  // Set system UI overlay style
-  final prefersDarkMode =
-      WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-          Brightness.dark;
-  SystemChrome.setSystemUIOverlayStyle(
-    SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness:
-          prefersDarkMode ? Brightness.light : Brightness.dark,
-      systemNavigationBarColor:
-          prefersDarkMode ? const Color(0xFF08101D) : Colors.white,
-      systemNavigationBarIconBrightness:
-          prefersDarkMode ? Brightness.light : Brightness.dark,
-    ),
-  );
-
-  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {

@@ -21,11 +21,13 @@ class ReturnRefundScreen extends StatefulWidget {
 
 class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
   late Map<String, dynamic> _sale;
-  late List<ReturnItem> _returnItems;
+  List<ReturnItem> _returnItems = [];
   late TextEditingController _reasonController;
   String _refundMethod = 'original'; // 'original', 'credit', 'cash'
   bool _isProcessing = false;
+  bool _isLoadingSale = true;
   double _totalRefundAmount = 0;
+  double _alreadyRefundedAmount = 0;
   bool _excludeFromTotals = true;
 
   final List<String> _returnReasons = [
@@ -42,19 +44,65 @@ class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
     super.initState();
     _sale = widget.sale ?? {};
     _reasonController = TextEditingController();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadLatestSaleAndInitializeReturnItems();
+    });
+  }
+
+  /// Refetches the sale before building the return list, since prior
+  /// partial refunds (from this device or another) may have happened since
+  /// the sale was last loaded into whatever list opened this screen. Without
+  /// this, remaining-quantity calculations below could be based on stale
+  /// data and let a cashier over-refund an item.
+  Future<void> _loadLatestSaleAndInitializeReturnItems() async {
+    if (mounted) setState(() => _isLoadingSale = true);
+
+    final saleId = (_sale['id'] ?? '').toString();
+    if (saleId.isNotEmpty) {
+      try {
+        final retailProvider = context.read<RetailProvider>();
+        final freshSale = await retailProvider.getSaleById(saleId);
+        if (freshSale != null) {
+          _sale = freshSale;
+        }
+      } catch (e) {
+        debugPrint('[ReturnRefund] Failed to refresh sale, using cached copy: $e');
+      }
+    }
+
+    _alreadyRefundedAmount = ((_sale['returnAmount'] ?? 0) as num).toDouble();
     _initializeReturnItems();
+
+    if (mounted) setState(() => _isLoadingSale = false);
   }
 
   void _initializeReturnItems() {
     final items = _sale['items'] as List? ?? [];
+    final returnedQuantitiesRaw = _sale['returnedQuantities'];
+    final alreadyReturned = returnedQuantitiesRaw is Map
+        ? returnedQuantitiesRaw.map(
+            (key, value) => MapEntry(key.toString(), ((value ?? 0) as num).toDouble()))
+        : <String, double>{};
+
     _returnItems = items
-        .map((item) => ReturnItem(
-              productId: item['productId'] ?? '',
-              productName: item['name'] ?? 'Unknown',
-              quantity: item['quantity'] ?? 0,
-              price: ((item['price'] ?? 0) as num).toDouble(),
-              selectedQuantity: 0,
-            ))
+        .map((item) {
+          final productId = (item['productId'] ?? '').toString();
+          final originalQuantity = ((item['quantity'] ?? 0) as num).toInt();
+          final returnedSoFar = (alreadyReturned[productId] ?? 0).toInt();
+          final remainingQuantity =
+              (originalQuantity - returnedSoFar).clamp(0, originalQuantity);
+
+          return ReturnItem(
+            productId: productId,
+            productName: (item['productName'] ?? item['name'] ?? 'Unknown').toString(),
+            quantity: remainingQuantity,
+            price: ((item['price'] ?? item['unitPrice'] ?? 0) as num).toDouble(),
+            selectedQuantity: 0,
+          );
+        })
+        // Items that have already been fully returned have nothing left to
+        // offer here.
+        .where((item) => item.quantity > 0)
         .toList();
   }
 
@@ -196,6 +244,18 @@ class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (_isLoadingSale) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Process Return'),
+          elevation: 0,
+          backgroundColor: isDark ? Colors.grey[900] : AppColors.background,
+          foregroundColor: isDark ? Colors.white : Colors.black,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -377,7 +437,9 @@ class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
                 child: Column(
                   children: [
                     ElevatedButton.icon(
-                      onPressed: _isProcessing ? null : _processReturn,
+                      onPressed: _isProcessing || _returnItems.isEmpty
+                          ? null
+                          : _processReturn,
                       icon: _isProcessing
                           ? const SizedBox(
                               height: 20,
@@ -465,6 +527,23 @@ class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
                 ),
               ],
             ),
+            if (_alreadyRefundedAmount > 0) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'Already refunded: ${_formatCurrency(_alreadyRefundedAmount)}',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.warning,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -477,7 +556,9 @@ class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Text(
-            'No items in this sale',
+            _alreadyRefundedAmount > 0
+                ? 'All items on this sale have already been returned'
+                : 'No items in this sale',
             style: AppTextStyles.bodyMedium.copyWith(
               color: isDark ? Colors.grey[400] : Colors.grey[600],
             ),
