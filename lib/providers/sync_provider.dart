@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/firebase_service.dart';
+import '../services/sync_service.dart';
 import '../data/local/database_helper.dart';
 
 /// Sync provider for offline sync state and operations
@@ -16,6 +18,30 @@ class SyncProvider extends ChangeNotifier {
   DateTime? get lastSyncTime => _lastSyncTime;
   String? get syncError => _syncError;
   int get syncedCount => _syncedCount;
+
+  /// Sync all pending offline sales to Firestore.
+  /// Called automatically by [ConnectivityProvider] when connectivity returns,
+  /// and can be called manually from the UI (e.g. a "Sync now" button).
+  Future<void> syncNow() async {
+    if (_isSyncing) return;
+    _isSyncing = true;
+    _syncError = null;
+    _syncedCount = 0;
+    notifyListeners();
+
+    try {
+      final syncService = SyncService(firestore: FirebaseFirestore.instance);
+      await syncService.syncSales();
+      await checkPendingItems();
+      _lastSyncTime = DateTime.now();
+    } catch (e) {
+      _syncError = e.toString();
+      debugPrint('[SyncProvider] syncNow failed: $e');
+    } finally {
+      _isSyncing = false;
+      notifyListeners();
+    }
+  }
 
   /// Start synchronizing offline data with Firebase
   Future<void> startSync() async {

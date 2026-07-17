@@ -21,7 +21,6 @@ class Product {
   final String? barcode;
   final String emoji;
   final String unit; // e.g., L, cyl
-  final double distributorDiscountPercent;
   final String saleUnit;
   final double saleUnitMultiplier;
   final bool trackExpiry;
@@ -41,7 +40,6 @@ class Product {
     this.barcode,
     this.emoji = '📦',
     this.unit = 'pc',
-    this.distributorDiscountPercent = 0.0,
     this.saleUnit = '',
     this.saleUnitMultiplier = 1.0,
     this.trackExpiry = false,
@@ -67,7 +65,6 @@ class Product {
       id: doc.id,
       name: data['name'] ?? '',
       price: (data['price'] ?? 0.0).toDouble(),
-      distributorDiscountPercent: (data['distributorDiscountPercent'] as num?)?.toDouble() ?? 0.0,
       cost: (data['cost'] ?? 0.0).toDouble(),
       wholesalePrice: (data['wholesalePrice'] as num?)?.toDouble(),
       stock: (data['quantity'] as num?)?.toDouble() ??
@@ -101,7 +98,6 @@ class Product {
       'barcode': barcode,
       'emoji': emoji,
       'unit': unit,
-      'distributorDiscountPercent': distributorDiscountPercent,
       'wholesalePrice': wholesalePrice,
       'saleUnit': resolvedSaleUnit,
       'saleUnitMultiplier': resolvedSaleUnitMultiplier,
@@ -2135,11 +2131,16 @@ class RetailProvider extends ChangeNotifier {
         // Add to sync queue
         await dbHelper.addToSyncQueue(entityType: 'sale', entityId: saleId, action: 'create', data: localSale);
 
-        // Try to trigger a background sync (no-op if still offline)
+        // Try a background sync immediately in case connectivity returns
+        // between when the Firestore write failed and now. Passes firestore
+        // so SalesRepositoryImpl can reach the server if available.
         try {
-          final syncService = SyncService();
+          final syncService = SyncService(firestore: _firestore);
           await syncService.syncSales();
-        } catch (_) {}
+        } catch (_) {
+          // Still offline — sale stays queued, sync runs automatically
+          // when ConnectivityProvider detects connectivity is restored.
+        }
 
         // Clear cart and refresh
         _resetActiveCartState();
@@ -2339,23 +2340,16 @@ class RetailProvider extends ChangeNotifier {
     }
 
     // Round quantity and paid appropriately
-    final minimumQuantity = (unit == 'cyl' || unit == 'cylinder') ? 1.0 : 0.001;
     if (unit == 'cyl' || unit == 'cylinder') {
       qty = qty.toInt().toDouble();
     } else {
-      qty = qty <= 0 ? 0.0 : double.parse(qty.toStringAsFixed(3));
+      qty = double.parse(qty.toStringAsFixed(3));
     }
     paid = double.parse(paid.toStringAsFixed(2));
 
     // Prevent sales of zero units (e.g., insufficient amount for a cylinder)
     if (qty <= 0) {
-      if (paid > 0) {
-        qty = minimumQuantity;
-      } else {
-        throw Exception('Insufficient amount/quantity to process sale');
-      }
-    } else if (qty < minimumQuantity) {
-      qty = minimumQuantity;
+      throw Exception('Insufficient amount/quantity to process sale');
     }
 
     // Ensure we don't oversell stock
