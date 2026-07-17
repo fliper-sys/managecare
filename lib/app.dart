@@ -15,6 +15,7 @@ import 'providers/auth_provider.dart';
 import 'providers/auto_provider.dart';
 import 'providers/business_provider.dart';
 import 'providers/connectivity_provider.dart';
+import 'providers/sync_provider.dart';
 import 'providers/drink_provider.dart';
 import 'providers/enhanced_subscription_provider.dart';
 import 'providers/pharmacy_provider.dart';
@@ -28,6 +29,7 @@ import 'services/business_reminder_service.dart';
 import 'services/snackbar_service.dart';
 import 'services/startup_notifications.dart';
 import 'services/subscription_service.dart';
+import 'widgets/offline_indicator.dart';
 
 class App extends StatefulWidget {
   const App({super.key});
@@ -71,6 +73,18 @@ class _AppState extends State<App> {
 
   void _attachProviderListeners() {
     context.read<ConnectivityProvider>().initialize();
+
+    // ── Offline sync: check pending items on startup ────────────
+    // SyncProvider.pendingItems starts at 0; without this call the
+    // OfflineIndicator would show 0 pending even if the app was closed
+    // mid-sync and sales are still queued in the local SQLite DB.
+    unawaited(context.read<SyncProvider>().checkPendingItems());
+    // Wire SyncProvider into ConnectivityProvider so it gets notified
+    // when connectivity changes and can update the pending count.
+    context.read<ConnectivityProvider>().setSyncProvider(
+      context.read<SyncProvider>(),
+    );
+    // ────────────────────────────────────────────────────────────
 
     _authProvider = context.read<AuthProvider>();
     _businessProvider = context.read<BusinessProvider>();
@@ -525,39 +539,24 @@ class _ConnectivityBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
 
     return Consumer<ConnectivityProvider>(
       builder: (context, connectivity, _) {
         return Stack(
           children: [
             Positioned.fill(child: child),
-            if (!connectivity.isConnected)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    color: scheme.errorContainer,
-                    border: Border(
-                      bottom: BorderSide(
-                        color: scheme.error.withOpacity(0.18),
-                      ),
-                    ),
-                  ),
-                  child: Text(
-                    'No Internet Connection - Working Offline',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: scheme.onErrorContainer,
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                ),
+            // OfflineIndicator handles all states:
+            // - Offline → red bar "You're Offline"
+            // - Online + pending sync → amber bar with count + sync button
+            // - Online + syncing → progress bar
+            // - Online + all synced → hidden (SizedBox.shrink)
+            Positioned(
+              top: 0, left: 0, right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: const OfflineIndicator(),
               ),
+            ),
           ],
         );
       },

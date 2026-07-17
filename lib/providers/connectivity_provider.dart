@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import '../services/sync_service.dart';
 import 'sync_provider.dart';
 
 class ConnectivityProvider with ChangeNotifier {
@@ -44,11 +43,9 @@ class ConnectivityProvider with ChangeNotifier {
     // If we just came back online after being offline, attempt to sync sales
     if (!previousState && _isConnected && _wasOffline) {
       try {
-        final syncService = SyncService();
-        await syncService.syncSales();
-        // Update sync provider state
-        await _syncProvider?.checkPendingItems();
-        // reset offline flag after attempting sync
+        // Delegate to SyncProvider which uses the correct SyncService setup
+        await _syncProvider?.syncNow();
+        // reset offline flag after successful sync
         _wasOffline = false;
       } catch (e) {
         debugPrint('[ConnectivityProvider] Error syncing sales: $e');

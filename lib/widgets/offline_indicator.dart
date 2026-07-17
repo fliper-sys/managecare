@@ -23,8 +23,14 @@ class OfflineIndicator extends StatelessWidget {
 
         final hasPendingItems = sync.pendingItems > 0;
         final isSyncing = sync.isSyncing;
+        final isOnline = connectivity.isConnected;
 
-        return Container(
+        return GestureDetector(
+          // Tapping "Sync Now" when online with pending items triggers sync
+          onTap: (isOnline && hasPendingItems && !isSyncing)
+              ? () => context.read<SyncProvider>().syncNow()
+              : null,
+          child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
@@ -73,13 +79,13 @@ class OfflineIndicator extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      connectivity.isConnected
+                      isOnline
                           ? (isSyncing
-                              ? 'Uploading ${sync.pendingItems} items...'
+                              ? 'Uploading ${sync.pendingItems} pending sale${sync.pendingItems == 1 ? '' : 's'}...'
                               : hasPendingItems
-                                  ? '${sync.pendingItems} items waiting to sync'
+                                  ? '${sync.pendingItems} sale${sync.pendingItems == 1 ? '' : 's'} waiting to upload — tap to sync now'
                                   : 'All changes synced')
-                          : 'Working in offline mode • Changes will sync when online',
+                          : 'Sales saved locally • Will upload automatically when back online',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: Theme.of(context)
                                 .colorScheme
@@ -99,20 +105,30 @@ class OfflineIndicator extends StatelessWidget {
                       Theme.of(context).colorScheme.onPrimary.withAlpha(0x40),
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: Text(
-                  connectivity.isConnected
-                      ? (isSyncing ? 'SYNCING' : hasPendingItems ? 'PENDING' : 'ONLINE')
-                      : 'OFFLINE',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onPrimary,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 1,
+                child: isSyncing
+                    ? SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Theme.of(context).colorScheme.onPrimary,
+                        ),
+                      )
+                    : Text(
+                        isOnline
+                            ? (hasPendingItems ? 'SYNC NOW' : 'ONLINE')
+                            : 'OFFLINE',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onPrimary,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1,
+                            ),
                       ),
-                ),
               ),
             ],
           ),
-        );
+        ),
+      );
       },
     );
   }
