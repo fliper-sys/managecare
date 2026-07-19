@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com" "\0"
-            VALUE "FileDescription", "business_manager" "\0"
+            VALUE "CompanyName", "Manage Care" "\0"
+            VALUE "FileDescription", "Manage Care" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "business_manager" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Manage Care. All rights reserved." "\0"
             VALUE "OriginalFilename", "business_manager.exe" "\0"
-            VALUE "ProductName", "business_manager" "\0"
+            VALUE "ProductName", "Manage Care" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
