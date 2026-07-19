@@ -164,11 +164,18 @@ class AuthProvider with ChangeNotifier {
       }
 
       // Attempt auto-login if cached user exists and auto-login is enabled
-      if (_localStorage!.isAutoLoginEnabled()) {
-        final cachedUser = _localStorage!.getCachedUser();
+      final autoLoginEnabled = _localStorage!.isAutoLoginEnabled();
+      final cachedUser = _localStorage!.getCachedUser();
+
+      print('[AuthProvider] Local storage initialized. autoLoginEnabled=$autoLoginEnabled cachedUserExists=${cachedUser != null}');
+
+      if (autoLoginEnabled) {
+        if (cachedUser != null) print('[AuthProvider] Cached user email=${cachedUser.email} id=${cachedUser.id}');
+        else print('[AuthProvider] No cached user found despite autoLoginEnabled=true');
         if (cachedUser != null) {
           final firebaseUser = FirebaseAuth.instance.currentUser;
           final hasNetwork = await _hasNetworkConnection();
+          print('[AuthProvider] Startup state: firebaseUser=${firebaseUser?.uid}, hasNetwork=$hasNetwork');
 
           // Note: `shouldUseCachedUserDuringStartup` is true iff there is no active Firebase
           // session (see shouldUseCachedUserDuringStartup), so the two cases
@@ -201,24 +208,15 @@ class AuthProvider with ChangeNotifier {
             return;
           }
 
-          // Validate subscription status
-          try {
-            // Skip subscription enforcement for all non-owner users during auto-login
-            if (!_currentUser!.isOwner) {
-              _subscriptionValidated = true;
-              if (kDebugMode) print('[AuthProvider] Skipping subscription validation for non-owner user during auto-login: ${_currentUser!.id}');
-            } else {
-              _subscriptionValidated =
-                  await _validateSubscriptionForUser(_currentUser!);
-            }
-          } catch (e) {
-            print('[AuthProvider] Error validating subscription during auto-login: $e');
-          }
-
           // Sync cached user with Firebase to update profile info
           _syncCachedUserWithFirebase(cachedUser.id);
 
           // Try to fetch the latest user document synchronously to ensure we have businessId
+          // and validate subscription status against the freshly-resolved
+          // user below (a separate up-front validation against the possibly
+          // stale cached user was removed — its result would only have been
+          // immediately overwritten by the one after this refresh, doubling
+          // the Firestore reads/writes on every auto-login for no benefit).
           try {
             final access = await _authenticationService.resolveUserAccess(
               cachedUser.id,
@@ -441,20 +439,18 @@ class AuthProvider with ChangeNotifier {
         ? businessId!.trim()
         : _resolveCurrentBusinessId(user);
 
-    if (resolvedBusinessId != null && resolvedBusinessId.isNotEmpty) {
-      try {
-        await _subscriptionService.syncUserSubscriptionSummaryFromBusiness(
-          userId: user.id,
-          businessId: resolvedBusinessId,
-        );
-      } catch (e) {
-        if (kDebugMode) {
-          print(
-              '[AuthProvider] Failed to sync subscription summary for $resolvedBusinessId: $e');
-        }
-      }
-    }
-
+    // Note: validateAndUpdateSubscriptionStatus (via
+    // validateAndUpdateBusinessSubscriptionStatus) already syncs the user's
+    // cached subscription summary from the business doc internally, using
+    // the grace-period-checked `isValid` result. An earlier version of this
+    // method also called syncUserSubscriptionSummaryFromBusiness directly
+    // beforehand — that wrote the business's *raw*, unvalidated
+    // isSubscriptionActive flag to the user doc first, then immediately
+    // overwrote it with the correct value below. Besides being a wasted
+    // Firestore round trip on every sign-in and auto-login, if the call
+    // below ever failed after that first write succeeded (e.g. dropped
+    // connection), the user doc would be left showing raw "active" even for
+    // an expired subscription. Removed — this call is sufficient on its own.
     final isValid = await _subscriptionService.validateAndUpdateSubscriptionStatus(
       user.id,
       businessId: resolvedBusinessId,
@@ -514,6 +510,25 @@ class AuthProvider with ChangeNotifier {
           await _cacheBusinessForUser(_resolveCurrentBusinessId(_currentUser));
         } catch (e) {
           print('[AuthProvider] Error persisting business from user: $e');
+        }
+      }
+
+      // Validate subscription status. This method is driven by Firebase's
+      // authStateChanges stream and can fire independently of login()/the
+      // cached-user auto-login path — e.g. on a cold start where a Firebase
+      // session is already persisted — so without this, `_subscriptionValidated`
+      // could be left stale/unset relative to whichever user data ends up
+      // current here.
+      if (_currentUser != null) {
+        try {
+          if (!_currentUser!.isOwner) {
+            _subscriptionValidated = true;
+          } else {
+            _subscriptionValidated =
+                await _validateSubscriptionForUser(_currentUser!);
+          }
+        } catch (e) {
+          print('[AuthProvider] Error validating subscription in _loadCurrentUser: $e');
         }
       }
 
