@@ -31,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -39,6 +39,10 @@ class DatabaseHelper {
 
   Future<void> _onCreate(Database db, int version) async {
     // Sales table
+    // storeId/updatedAt/category/warehouseId are written by the various
+    // offline-checkout call sites (retail, restaurant, wholesale, worker
+    // sales) but weren't part of the original schema, causing "no such
+    // column" failures the first time a sale was recorded offline.
     await db.execute('''
       CREATE TABLE sales (
         id TEXT PRIMARY KEY,
@@ -53,11 +57,17 @@ class DatabaseHelper {
         notes TEXT,
         createdBy TEXT NOT NULL,
         createdAt TEXT NOT NULL,
-        syncStatus TEXT DEFAULT 'pending'
+        updatedAt TEXT,
+        syncStatus TEXT DEFAULT 'pending',
+        storeId TEXT,
+        category TEXT,
+        warehouseId TEXT
       )
     ''');
 
     // Sale items table
+    // pricingMode/inventoryUnit/saleUnit/saleUnitMultiplier/inventoryQuantity
+    // are written by RetailProvider's offline checkout for the same reason.
     await db.execute('''
       CREATE TABLE sale_items (
         id TEXT PRIMARY KEY,
@@ -68,11 +78,20 @@ class DatabaseHelper {
         unitPrice REAL NOT NULL,
         discount REAL DEFAULT 0,
         total REAL NOT NULL,
+        pricingMode TEXT,
+        inventoryUnit TEXT,
+        saleUnit TEXT,
+        saleUnitMultiplier REAL,
+        inventoryQuantity REAL,
         FOREIGN KEY (saleId) REFERENCES sales (id) ON DELETE CASCADE
       )
     ''');
 
     // Inventory table
+    // stock mirrors quantity (some call sites read/write 'stock' instead of
+    // 'quantity' to match the Firestore-side field naming) and storeId is
+    // written by worker inventory screens — both caused "no such column"
+    // failures when missing.
     await db.execute('''
       CREATE TABLE inventory (
         id TEXT PRIMARY KEY,
@@ -85,13 +104,15 @@ class DatabaseHelper {
         unitPrice REAL NOT NULL,
         costPrice REAL,
         quantity REAL NOT NULL,
+        stock REAL,
         minStockLevel REAL DEFAULT 0,
         unit TEXT DEFAULT 'pcs',
         expiryDate TEXT,
         isActive INTEGER DEFAULT 1,
         createdAt TEXT NOT NULL,
         updatedAt TEXT,
-        syncStatus TEXT DEFAULT 'pending'
+        syncStatus TEXT DEFAULT 'pending',
+        storeId TEXT
       )
     ''');
 
@@ -138,10 +159,52 @@ class DatabaseHelper {
         'CREATE INDEX idx_customers_business ON customers(businessId)');
   }
 
+  Future<void> _addColumnsIfMissing(
+    Database db,
+    String table,
+    Map<String, String> columns,
+  ) async {
+    for (final entry in columns.entries) {
+      try {
+        await db.execute(
+            'ALTER TABLE $table ADD COLUMN ${entry.key} ${entry.value}');
+      } catch (e) {
+        // Already present (or some other non-fatal issue) — safe to skip,
+        // since these migrations may run more than once across versions.
+        debugPrint('[DatabaseHelper] Skipping $table.${entry.key} migration: $e');
+      }
+    }
+  }
+
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Handle database upgrades here
+    // Each block is independently gated on oldVersion so that a database
+    // that already ran an earlier migration (e.g. one that reached version 2
+    // during testing before the version-3 fix existed) still picks up later
+    // additions — onUpgrade only re-runs the blocks whose version threshold
+    // the stored oldVersion hasn't already cleared.
     if (oldVersion < 2) {
-      // Add migration logic for version 2
+      // Existing installs created the tables without these columns (see
+      // _onCreate); add them in place so already-installed apps don't hit
+      // "no such column" the next time an offline sale is recorded.
+      await _addColumnsIfMissing(db, 'sales', {
+        'updatedAt': 'TEXT',
+        'storeId': 'TEXT',
+        'category': 'TEXT',
+        'warehouseId': 'TEXT',
+      });
+      await _addColumnsIfMissing(db, 'sale_items', {
+        'pricingMode': 'TEXT',
+        'inventoryUnit': 'TEXT',
+        'saleUnit': 'TEXT',
+        'saleUnitMultiplier': 'REAL',
+        'inventoryQuantity': 'REAL',
+      });
+    }
+    if (oldVersion < 3) {
+      await _addColumnsIfMissing(db, 'inventory', {
+        'stock': 'REAL',
+        'storeId': 'TEXT',
+      });
     }
   }
 

@@ -30,10 +30,7 @@ class DefaultFirebaseOptions {
           'you can reconfigure this by running the FlutterFire CLI again.',
         );
       case TargetPlatform.windows:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for windows - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
@@ -47,18 +44,19 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-      apiKey: "AIzaSyBR-KdYr8jtTjatQgrdNNtGRcGIAQYgaXA",
-      authDomain: "manage-care-1e96b.firebaseapp.com",
-      databaseURL: "https://manage-care-1e96b-default-rtdb.firebaseio.com",
-      projectId: "manage-care-1e96b",
-      storageBucket: "manage-care-1e96b.firebasestorage.app",
-      messagingSenderId: "481744910720",
-      appId: "1:481744910720:web:8ee6d70263346747b92965",
-      measurementId: "G-DZ3CE9LWYT");
+    apiKey: 'AIzaSyBR-KdYr8jtTjatQgrdNNtGRcGIAQYgaXA',
+    appId: '1:481744910720:web:8ee6d70263346747b92965',
+    messagingSenderId: '481744910720',
+    projectId: 'manage-care-1e96b',
+    authDomain: 'manage-care-1e96b.firebaseapp.com',
+    databaseURL: 'https://manage-care-1e96b-default-rtdb.firebaseio.com',
+    storageBucket: 'manage-care-1e96b.firebasestorage.app',
+    measurementId: 'G-DZ3CE9LWYT',
+  );
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyBxaqlfcndDWnEXJuAWJ1Q41nS3-2-1vvU',
-    appId: '1:481744910720:android:4a5d7debd6070c03b92965',
+    appId: '1:481744910720:android:3378fe8c78553feab92965',
     messagingSenderId: '481744910720',
     projectId: 'manage-care-1e96b',
     databaseURL: 'https://manage-care-1e96b-default-rtdb.firebaseio.com',
@@ -67,12 +65,23 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyCOXPuCuqlOBB5TdNnRD6WX0nwBYK2e2aA',
-    appId: '1:481744910720:ios:c07e1173350499b8b92965',
+    appId: '1:481744910720:ios:8fbbeced71b4755ab92965',
     messagingSenderId: '481744910720',
     projectId: 'manage-care-1e96b',
     databaseURL: 'https://manage-care-1e96b-default-rtdb.firebaseio.com',
     storageBucket: 'manage-care-1e96b.firebasestorage.app',
-    iosBundleId: 'com.managecare',
+    iosBundleId: 'com.businessManager',
   );
-}
 
+  static const FirebaseOptions windows = FirebaseOptions(
+    apiKey: 'AIzaSyBm-lsc_1qVcEbdXVa8VCK4JBPINDq8-Zk',
+    appId: '1:481744910720:web:57204b24a9eb2a12b92965',
+    messagingSenderId: '481744910720',
+    projectId: 'manage-care-1e96b',
+    authDomain: 'manage-care-1e96b.firebaseapp.com',
+    databaseURL: 'https://manage-care-1e96b-default-rtdb.firebaseio.com',
+    storageBucket: 'manage-care-1e96b.firebasestorage.app',
+    measurementId: 'G-4KPJKWP7KM',
+  );
+
+}

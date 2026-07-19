@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'services/local_business_storage.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -68,9 +69,16 @@ void main() async {
     GoogleFonts.config.allowRuntimeFetching = false;
   }
 
-  // Initialize sqflite database factory for FFI support (for web and desktop)
-  if (!kIsWeb) {
+  // Initialize sqflite database factory for FFI support on desktop.
+  // Android/iOS keep the default channel-based factory, which already has a
+  // native implementation there; without this, getDatabasesPath/openDatabase
+  // silently fail on Windows/Linux/macOS (no platform channel implementation).
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.macOS)) {
     sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
   }
 
   // Run the independent startup steps concurrently — none of these depend
