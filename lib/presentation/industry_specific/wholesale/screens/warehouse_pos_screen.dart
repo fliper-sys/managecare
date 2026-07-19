@@ -571,13 +571,31 @@ class _WarehousePosScreenState extends State<WarehousePosScreen> {
             ))
         .toList();
 
-    final savedOffline = await provider.createSale(
-      items: items,
-      paymentMethod: paymentMethod,
-      workerId: auth.currentUser?.id,
-      workerName: auth.currentUser?.fullName,
-      warehouseId: warehouseId,
-    );
+    bool savedOffline;
+    try {
+      savedOffline = await provider.createSale(
+        items: items,
+        paymentMethod: paymentMethod,
+        workerId: auth.currentUser?.id,
+        workerName: auth.currentUser?.fullName,
+        warehouseId: warehouseId,
+      );
+    } catch (e) {
+      // Neither the online write nor the offline fallback succeeded — the
+      // sale was not recorded anywhere. Tell the cashier explicitly rather
+      // than letting this surface as an unhandled error with no guidance.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sale could not be saved: $e. Please try again.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      // Propagate so the caller's "success" flow (closing the dialog,
+      // clearing the cart) doesn't run — nothing was actually recorded.
+      rethrow;
+    }
 
     // Send push notification to business owners. Skipped when queued
     // offline — it will be meaningful once the sale actually syncs, and

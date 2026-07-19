@@ -9,6 +9,7 @@ import '../../../core/theme/text_styles.dart';
 import '../../../widgets/animated_lottie.dart';
 import '../../../providers/retail_provider.dart';
 import '../../../providers/business_provider.dart';
+import '../../../providers/sync_provider.dart';
 import 'receipt_detail_screen.dart';
 import 'return_refund_screen.dart';
 
@@ -33,11 +34,32 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
   bool _statsLoading = true;
 
   BusinessProvider? _bpListenerRef;
+  int _refreshTick = 0;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+  }
+
+  Future<void> _pushToFirebase() async {
+    final syncProvider = context.read<SyncProvider>();
+    final retailProvider = context.read<RetailProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final result = await syncProvider.syncNow();
+    // Fuel/gas pump sales are queued separately (not in the generic sales
+    // table SyncProvider watches) so they need an explicit push too.
+    int pumpSynced = 0;
+    try {
+      pumpSynced = await retailProvider.syncPendingPumpSales();
+    } catch (_) {}
+    if (!mounted) return;
+    final message = pumpSynced > 0
+        ? '$result; $pumpSynced pump sale${pumpSynced == 1 ? '' : 's'} synced'
+        : result;
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+    setState(() => _refreshTick++);
+    _loadQuickStats();
   }
 
   @override
@@ -162,6 +184,25 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
         title: const Text('Sales History'),
         elevation: 0,
         actions: [
+          Consumer<SyncProvider>(
+            builder: (context, sync, _) {
+              return IconButton(
+                icon: sync.isSyncing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Badge(
+                        isLabelVisible: sync.hasPendingItems,
+                        label: Text('${sync.pendingItems}'),
+                        child: const Icon(Icons.cloud_upload_outlined),
+                      ),
+                tooltip: 'Push offline sales to Firebase',
+                onPressed: sync.isSyncing ? null : _pushToFirebase,
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.file_download_outlined),
             onPressed: () {
@@ -289,10 +330,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
             child: TabBarView(
               controller: _tabController,
               children: [
-                _SalesList(filter: 'all', dateRange: _selectedDateRange),
-                _SalesList(filter: 'completed', dateRange: _selectedDateRange),
-                _SalesList(filter: 'pending', dateRange: _selectedDateRange),
-                _SalesList(filter: 'refunded', dateRange: _selectedDateRange),
+                _SalesList(filter: 'all', dateRange: _selectedDateRange, refreshTick: _refreshTick),
+                _SalesList(filter: 'completed', dateRange: _selectedDateRange, refreshTick: _refreshTick),
+                _SalesList(filter: 'pending', dateRange: _selectedDateRange, refreshTick: _refreshTick),
+                _SalesList(filter: 'refunded', dateRange: _selectedDateRange, refreshTick: _refreshTick),
               ],
             ),
           ),
@@ -335,8 +376,9 @@ class _QuickStat extends StatelessWidget {
 class _SalesList extends StatefulWidget {
   final String filter;
   final DateTimeRange? dateRange;
+  final int refreshTick;
 
-  const _SalesList({required this.filter, this.dateRange});
+  const _SalesList({required this.filter, this.dateRange, this.refreshTick = 0});
 
   @override
   State<_SalesList> createState() => _SalesListState();
@@ -365,8 +407,12 @@ class _SalesListState extends State<_SalesList> {
   @override
   void didUpdateWidget(covariant _SalesList oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // If date range or filter changed, reload from scratch
-    if (oldWidget.dateRange != widget.dateRange || oldWidget.filter != widget.filter) {
+    // If date range or filter changed, reload from scratch. refreshTick is
+    // bumped by the parent after a manual "Push to Firebase" sync so this
+    // picks up sales that just left the pending-sync state.
+    if (oldWidget.dateRange != widget.dateRange ||
+        oldWidget.filter != widget.filter ||
+        oldWidget.refreshTick != widget.refreshTick) {
       _loadSales(reset: true);
     }
   }
@@ -427,9 +473,40 @@ class _SalesListState extends State<_SalesList> {
       final newSales = (page['sales'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
       final lastDoc = page['lastDoc'] as DocumentSnapshot?;
 
+      // Offline sales live only in the local DB until they sync — without
+      // this merge they're invisible here even though the sale itself (and
+      // its stock deduction) was recorded. Only done on the first page of
+      // the "All" tab so pagination cursors stay simple.
+      List<Map<String, dynamic>> combinedSales = newSales;
+      if (reset && (widget.filter == 'all' || widget.filter == 'completed')) {
+        try {
+          final localPending = await retailProvider.getLocalPendingSales();
+          final existingIds = newSales.map((s) => s['id']).toSet();
+          final filteredLocal = localPending.where((s) {
+            if (existingIds.contains(s['id'])) return false;
+            final createdAtRaw = s['createdAt'];
+            final dt = createdAtRaw is String ? DateTime.tryParse(createdAtRaw) : null;
+            if (dt == null) return true;
+            if (start != null && dt.isBefore(start)) return false;
+            if (end != null && dt.isAfter(end)) return false;
+            return true;
+          }).toList();
+
+          if (filteredLocal.isNotEmpty) {
+            combinedSales = [...filteredLocal, ...newSales];
+            int millis(dynamic v) {
+              if (v is Timestamp) return v.toDate().millisecondsSinceEpoch;
+              if (v is String) return DateTime.tryParse(v)?.millisecondsSinceEpoch ?? 0;
+              return 0;
+            }
+            combinedSales.sort((a, b) => millis(b['createdAt']).compareTo(millis(a['createdAt'])));
+          }
+        } catch (_) {}
+      }
+
       setState(() {
         if (reset) {
-          _sales = newSales;
+          _sales = combinedSales;
         } else {
           _sales.addAll(newSales);
         }
@@ -561,7 +638,7 @@ class _SalesListState extends State<_SalesList> {
           // so only hide the action once the sale is fully refunded —
           // ReturnRefundScreen itself fetches accurate remaining
           // quantities per item, rather than this list's possibly-stale copy.
-          onRefund: sale['status'] == 'refunded'
+          onRefund: (sale['status'] == 'refunded' || sale['pendingSync'] == true)
               ? null
               : () => _openRefund(sale),
         );
@@ -846,6 +923,40 @@ class _SaleCard extends StatelessWidget {
                 Text(time, style: AppTextStyles.caption),
               ],
             ),
+            if (saleData['pendingSync'] == true) ...[
+              const SizedBox(height: 8),
+              Builder(builder: (context) {
+                final isError = saleData['syncError'] == true;
+                final color = isError ? AppColors.error : AppColors.warning;
+                final attempts = (saleData['syncAttempts'] as num?)?.toInt() ?? 0;
+                final label = isError
+                    ? 'Sync error${attempts > 0 ? ' (tried $attempts×)' : ''} — tap Push to Firebase to retry'
+                    : 'Pending sync';
+                return Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(isError ? Icons.error_outline : Icons.cloud_off, size: 14, color: color),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          label,
+                          style: AppTextStyles.caption.copyWith(
+                            color: color,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
             if (onRefund != null) ...[
               const SizedBox(height: 8),
               Align(

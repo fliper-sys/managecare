@@ -363,6 +363,22 @@ class SalesRepositoryImpl implements SalesRepository {
           saleWrite['id'] = saleId;
           saleWrite['updatedAt'] = FieldValue.serverTimestamp();
           saleWrite['inventorySyncApplied'] = inventoryAlreadyApplied || !shouldApplyInventory;
+          // The local sale row doesn't carry an `items` column — line items
+          // live in the separate `sale_items` table and were fetched above.
+          // Without this, a synced offline sale becomes an item-less,
+          // effectively blank record in Firestore.
+          if (items.isNotEmpty) {
+            saleWrite['items'] = items;
+          }
+          // Local rows store createdAt/updatedAt as ISO-8601 strings; write
+          // them back as real DateTimes so Firestore stores a Timestamp
+          // (not a String) — Sales History's createdAt range/orderBy
+          // queries silently exclude non-Timestamp values.
+          final localCreatedAt = saleData['createdAt'];
+          if (localCreatedAt is String) {
+            final parsed = DateTime.tryParse(localCreatedAt);
+            if (parsed != null) saleWrite['createdAt'] = parsed;
+          }
 
           tx.set(rootRef, saleWrite, SetOptions(merge: true));
           if (businessSaleRef != null) {
@@ -593,7 +609,21 @@ class SalesRepositoryImpl implements SalesRepository {
   Future<List<Map<String, dynamic>>> getPendingOfflineSales() async {
     try {
       final dbHelper = DatabaseHelper.instance;
-      return await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['pending']);
+      // Sales that failed a previous sync attempt (e.g. because the device
+      // was still offline when the immediate post-checkout sync fired) must
+      // be retried too, otherwise they're stuck forever — nothing else ever
+      // flips 'failed' back to 'pending'. 'error' sales (repeatedly failed
+      // past the retry-attempt cap — see SyncService) are included as well
+      // since retries here are infrequent (app start / reconnect / manual
+      // tap) rather than a tight poll, so there's no real storm risk, and a
+      // human may well have fixed the underlying data since the last try.
+      // Three separate equality queries (rather than one IN/OR query)
+      // because the web/Hive fallback in DatabaseHelper.query only
+      // understands a single `col = ?` clause.
+      final pending = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['pending']);
+      final failed = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['failed']);
+      final errored = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['error']);
+      return [...pending, ...failed, ...errored];
     } catch (e) {
       rethrow;
     }

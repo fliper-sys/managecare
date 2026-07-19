@@ -13,6 +13,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../providers/sync_provider.dart';
 import '../../../core/constants/routes.dart';
 import '../../../services/receipt_manager.dart';
 import '../../../services/email_service.dart';
@@ -264,18 +265,35 @@ class _SalesScreenState extends State<SalesScreen>
             final authProvider =
                 Provider.of<AuthProvider>(context, listen: false);
 
-            final savedOffline = await retail.checkout(
-              paymentMethod: pm,
-              customerId: customerId,
-              customerEmail: customerEmail,
-              customerName: customerName,
-              workerId: authProvider.currentUser?.id,
-              workerName: authProvider.currentUser?.fullName,
-              storeId: storeId,
-              tax: taxAmount,
-              discount: discountAmount,
-              priceOverrides: priceOverrides,
-            );
+            bool savedOffline;
+            try {
+              savedOffline = await retail.checkout(
+                paymentMethod: pm,
+                customerId: customerId,
+                customerEmail: customerEmail,
+                customerName: customerName,
+                workerId: authProvider.currentUser?.id,
+                workerName: authProvider.currentUser?.fullName,
+                storeId: storeId,
+                tax: taxAmount,
+                discount: discountAmount,
+                priceOverrides: priceOverrides,
+              );
+            } catch (e) {
+              // Neither the online write nor the offline fallback succeeded
+              // — nothing was recorded. Keep the checkout sheet open (don't
+              // clear the cart) and say so plainly instead of leaving the
+              // cashier unsure whether the sale went through.
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Sale could not be saved: $e. Please try again.'),
+                    backgroundColor: AppColors.error,
+                  ),
+                );
+              }
+              return;
+            }
 
             // Close sheet using sheet context
             if (sheetContext.mounted) Navigator.pop(sheetContext);
@@ -284,6 +302,9 @@ class _SalesScreenState extends State<SalesScreen>
             if (!context.mounted) return;
 
             if (savedOffline) {
+              // Update the pending-sync badge immediately rather than
+              // waiting for the next sync pass to discover it.
+              context.read<SyncProvider>().checkPendingItems();
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content:

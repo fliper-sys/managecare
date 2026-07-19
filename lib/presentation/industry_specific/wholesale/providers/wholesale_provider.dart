@@ -936,9 +936,14 @@ class WholesaleProvider with ChangeNotifier {
         );
       }
     } catch (e) {
+      // Must not swallow this and return false ("uploaded successfully") —
+      // reaching here means both the online write AND the offline fallback
+      // failed, i.e. the sale wasn't recorded anywhere. The caller needs to
+      // know that so it can tell the cashier to retry instead of moving on
+      // as if the sale went through.
       _errorMessage = 'Error creating sale: $e';
       debugPrint('[WholesaleProvider] $e');
-      return false;
+      rethrow;
     }
   }
 
@@ -977,35 +982,47 @@ class WholesaleProvider with ChangeNotifier {
 
     await dbHelper.insert('sales', localSale);
 
-    for (final it in items) {
-      final itemId =
-          DateTime.now().millisecondsSinceEpoch.toString() + it.productId;
-      await dbHelper.insert('sale_items', {
-        'id': itemId,
-        'saleId': saleId,
-        'productId': it.productId,
-        'productName': it.productName,
-        'quantity': it.quantity,
-        'unitPrice': it.unitPrice,
-        'discount': 0.0,
-        'total': it.total,
-      });
+    try {
+      for (final it in items) {
+        final itemId =
+            DateTime.now().millisecondsSinceEpoch.toString() + it.productId;
+        await dbHelper.insert('sale_items', {
+          'id': itemId,
+          'saleId': saleId,
+          'productId': it.productId,
+          'productName': it.productName,
+          'quantity': it.quantity,
+          'unitPrice': it.unitPrice,
+          'discount': 0.0,
+          'total': it.total,
+        });
 
-      // Reflect the deduction in memory immediately so the POS grid stays
-      // accurate; the real Firestore inventory write happens once this
-      // sale syncs.
-      final prodIdx = _products.indexWhere((p) => p.id == it.productId);
-      if (prodIdx != -1) {
-        final product = _products[prodIdx];
-        final newQty = (product.quantity - it.quantity).clamp(0, 999999);
-        final allocs = Map<String, int>.from(product.warehouseAllocations);
-        if (warehouseId != null && warehouseId.isNotEmpty) {
-          final currentAlloc = allocs[warehouseId] ?? 0;
-          allocs[warehouseId] = (currentAlloc - it.quantity).clamp(0, 999999);
+        // Reflect the deduction in memory immediately so the POS grid stays
+        // accurate; the real Firestore inventory write happens once this
+        // sale syncs.
+        final prodIdx = _products.indexWhere((p) => p.id == it.productId);
+        if (prodIdx != -1) {
+          final product = _products[prodIdx];
+          final newQty = (product.quantity - it.quantity).clamp(0, 999999);
+          final allocs = Map<String, int>.from(product.warehouseAllocations);
+          if (warehouseId != null && warehouseId.isNotEmpty) {
+            final currentAlloc = allocs[warehouseId] ?? 0;
+            allocs[warehouseId] = (currentAlloc - it.quantity).clamp(0, 999999);
+          }
+          _products[prodIdx] =
+              product.copyWith(quantity: newQty, warehouseAllocations: allocs);
         }
-        _products[prodIdx] =
-            product.copyWith(quantity: newQty, warehouseAllocations: allocs);
       }
+    } catch (e) {
+      // Sale row exists without (all of) its items — remove it rather than
+      // let a broken record sync later, and surface the failure so the
+      // cashier knows to retry instead of assuming it queued fine.
+      debugPrint('[WholesaleProvider] Offline item save failed, rolling back local sale $saleId: $e');
+      try {
+        await dbHelper.delete('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
+        await dbHelper.delete('sales', where: 'id = ?', whereArgs: [saleId]);
+      } catch (_) {}
+      rethrow;
     }
 
     await dbHelper.addToSyncQueue(

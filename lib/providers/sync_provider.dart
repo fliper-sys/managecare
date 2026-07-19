@@ -8,6 +8,7 @@ import '../data/local/database_helper.dart';
 class SyncProvider extends ChangeNotifier {
   bool _isSyncing = false;
   int _pendingItems = 0;
+  int _erroredItems = 0;
   DateTime? _lastSyncTime;
   String? _syncError;
   int _syncedCount = 0;
@@ -15,15 +16,26 @@ class SyncProvider extends ChangeNotifier {
   bool get isSyncing => _isSyncing;
   int get pendingItems => _pendingItems;
   bool get hasPendingItems => _pendingItems > 0;
+  /// Sales that have failed to sync repeatedly and need attention — a
+  /// subset of [pendingItems], not additional to it.
+  int get erroredItems => _erroredItems;
+  bool get hasErroredItems => _erroredItems > 0;
+  /// True once pending sales pile up enough to be a real data-loss risk if
+  /// this device were lost, reset, or uninstalled before they sync.
+  bool get hasHighRiskBacklog => _pendingItems >= dataLossRiskThreshold;
   DateTime? get lastSyncTime => _lastSyncTime;
   String? get syncError => _syncError;
   int get syncedCount => _syncedCount;
 
-  /// Sync all pending offline sales to Firestore.
+  static const int dataLossRiskThreshold = 10;
+
+  /// Sync all pending offline sales to Firestore — creates each queued
+  /// sale's transaction record and applies its stock deduction.
   /// Called automatically by [ConnectivityProvider] when connectivity returns,
-  /// and can be called manually from the UI (e.g. a "Sync now" button).
-  Future<void> syncNow() async {
-    if (_isSyncing) return;
+  /// and can be called manually from the UI (e.g. a "Push to Firebase" button).
+  /// Returns a short human-readable summary suitable for a snackbar.
+  Future<String> syncNow() async {
+    if (_isSyncing) return 'Sync already in progress';
     _isSyncing = true;
     _syncError = null;
     _syncedCount = 0;
@@ -31,12 +43,27 @@ class SyncProvider extends ChangeNotifier {
 
     try {
       final syncService = SyncService(firestore: FirebaseFirestore.instance);
+      final beforeCount = await syncService.getPendingSalesCount();
       await syncService.syncSales();
-      await checkPendingItems();
+      final afterCount = await syncService.getPendingSalesCount();
+      _syncedCount = (beforeCount - afterCount).clamp(0, beforeCount);
+      _pendingItems = afterCount;
+      _erroredItems = await syncService.getErroredSalesCount();
       _lastSyncTime = DateTime.now();
+
+      if (beforeCount == 0) return 'No offline sales to sync';
+      if (afterCount == 0) {
+        return '$_syncedCount sale${_syncedCount == 1 ? '' : 's'} pushed to Firebase';
+      }
+      final errorNote = _erroredItems > 0
+          ? ' ($_erroredItems repeatedly failing — check Sales History)'
+          : ' (no connection, or a sync error)';
+      return '$_syncedCount sale${_syncedCount == 1 ? '' : 's'} synced, '
+          '$afterCount still pending$errorNote';
     } catch (e) {
       _syncError = e.toString();
       debugPrint('[SyncProvider] syncNow failed: $e');
+      return 'Sync failed: $e';
     } finally {
       _isSyncing = false;
       notifyListeners();
@@ -110,13 +137,14 @@ class SyncProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Check and update pending items from database
+  /// Check and update the pending-sales count from the local database.
+  /// Call this right after an offline sale is queued (so the UI badge is
+  /// accurate immediately) and on app start.
   Future<void> checkPendingItems() async {
     try {
-      final dbHelper = DatabaseHelper.instance;
-      final pendingItems = await dbHelper.getPendingSyncItems();
-
-      _pendingItems = pendingItems.length;
+      final syncService = SyncService(firestore: FirebaseFirestore.instance);
+      _pendingItems = await syncService.getPendingSalesCount();
+      _erroredItems = await syncService.getErroredSalesCount();
       notifyListeners();
     } catch (e) {
       print('Error checking pending items: $e');

@@ -31,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -61,7 +61,10 @@ class DatabaseHelper {
         syncStatus TEXT DEFAULT 'pending',
         storeId TEXT,
         category TEXT,
-        warehouseId TEXT
+        warehouseId TEXT,
+        syncAttempts INTEGER DEFAULT 0,
+        lastSyncError TEXT,
+        lastSyncAttemptAt TEXT
       )
     ''');
 
@@ -204,6 +207,17 @@ class DatabaseHelper {
       await _addColumnsIfMissing(db, 'inventory', {
         'stock': 'REAL',
         'storeId': 'TEXT',
+      });
+    }
+    if (oldVersion < 4) {
+      // Retry-safety: track how many times a sale has failed to sync and
+      // why, so repeatedly-broken records can be told apart from ones that
+      // simply haven't had a chance to sync yet, instead of retrying (and
+      // failing) forever unnoticed.
+      await _addColumnsIfMissing(db, 'sales', {
+        'syncAttempts': 'INTEGER DEFAULT 0',
+        'lastSyncError': 'TEXT',
+        'lastSyncAttemptAt': 'TEXT',
       });
     }
   }

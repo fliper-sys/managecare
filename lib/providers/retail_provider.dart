@@ -2106,7 +2106,51 @@ class RetailProvider extends ChangeNotifier {
     // Insert sale
     await dbHelper.insert('sales', localSale);
 
-    // Insert items
+    try {
+      await _saveSaleOfflineItems(
+        dbHelper: dbHelper,
+        saleId: saleId,
+        activeCartEntries: activeCartEntries,
+        priceOverrides: priceOverrides,
+      );
+    } catch (e) {
+      // The sale row exists but its items don't (or only partially do) —
+      // syncing it later would create an item-less transaction in
+      // Firestore, same as the bug this whole fix started from. Better to
+      // remove the half-written record and surface the failure clearly so
+      // the cashier knows to retry, rather than silently queue something
+      // broken.
+      debugPrint('[Checkout] Offline item save failed, rolling back local sale $saleId: $e');
+      try {
+        await dbHelper.delete('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
+        await dbHelper.delete('sales', where: 'id = ?', whereArgs: [saleId]);
+      } catch (_) {}
+      rethrow;
+    }
+
+    // Add to sync queue
+    await dbHelper.addToSyncQueue(entityType: 'sale', entityId: saleId, action: 'create', data: localSale);
+
+    // Try to trigger a background sync (no-op if still offline)
+    try {
+      final syncService = SyncService();
+      await syncService.syncSales();
+    } catch (_) {}
+
+    _resetActiveCartState();
+    _queueCartCacheSave();
+    await loadProducts();
+    notifyListeners();
+
+    return true; // saved offline
+  }
+
+  Future<void> _saveSaleOfflineItems({
+    required DatabaseHelper dbHelper,
+    required String saleId,
+    required Map<String, int> activeCartEntries,
+    Map<String, double>? priceOverrides,
+  }) async {
     for (final e in activeCartEntries.entries) {
       final itemId = DateTime.now().millisecondsSinceEpoch.toString() + e.key;
       final product = _findProductForCart(e.key);
@@ -2186,23 +2230,6 @@ class RetailProvider extends ChangeNotifier {
         });
       }
     }
-
-    // Add to sync queue
-    await dbHelper.addToSyncQueue(entityType: 'sale', entityId: saleId, action: 'create', data: localSale);
-
-    // Try to trigger a background sync (no-op if still offline)
-    try {
-      final syncService = SyncService();
-      await syncService.syncSales();
-    } catch (_) {}
-
-    // Clear cart and refresh
-    _resetActiveCartState();
-    _queueCartCacheSave();
-    await loadProducts();
-    notifyListeners();
-
-    return true; // saved offline
   }
 
   String _pendingPumpSalesKey(String businessId) =>
@@ -2854,6 +2881,40 @@ class RetailProvider extends ChangeNotifier {
     }
 
     return null;
+  }
+
+  /// Sales that only exist locally (queued while offline, or stuck after a
+  /// failed sync attempt) so Sales History can show them before they've
+  /// actually reached Firestore. Each entry is shaped like a Firestore sale
+  /// doc plus a `pendingSync: true` marker and its line items attached.
+  Future<List<Map<String, dynamic>>> getLocalPendingSales() async {
+    if (_businessId == null) return [];
+    try {
+      final dbHelper = DatabaseHelper.instance;
+      final pending = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['pending']);
+      final failed = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['failed']);
+      final errored = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['error']);
+      final rows = [...pending, ...failed, ...errored]
+          .where((r) => r['businessId']?.toString() == _businessId);
+
+      final result = <Map<String, dynamic>>[];
+      for (final row in rows) {
+        final saleId = row['id']?.toString() ?? '';
+        final itemRows = saleId.isEmpty
+            ? <Map<String, dynamic>>[]
+            : await dbHelper.query('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
+        result.add({
+          ...Map<String, dynamic>.from(row),
+          'items': itemRows.map((i) => Map<String, dynamic>.from(i)).toList(),
+          'pendingSync': true,
+          'syncError': row['syncStatus'] == 'error',
+        });
+      }
+      return result;
+    } catch (e) {
+      debugPrint('[RetailProvider] Error fetching local pending sales: $e');
+      return [];
+    }
   }
 
   // Paged sales fetch — returns sales plus the last document snapshot (for startAfter)

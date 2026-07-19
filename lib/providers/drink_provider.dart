@@ -3,6 +3,9 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/whatsapp_service.dart';
 import '../services/notification_and_email_service.dart';
+import '../services/sync_service.dart';
+import '../data/local/database_helper.dart';
+import '../core/utils/connectivity_helper.dart';
 
 DateTime? _parseDrinkNullableDate(dynamic value) {
   if (value == null) return null;
@@ -908,49 +911,72 @@ class DrinkProvider extends ChangeNotifier {
     };
 
     // Save sale to Firestore if we have business context
-    try {
-      if (_businessId != null && _businessId!.isNotEmpty) {
-        final saleRef = await _firestore.collection('businesses').doc(_businessId).collection('sales').add(saleData);
-        await saleRef.update({'orderId': saleRef.id});
-
-        // Optionally, send owner notification/email
+    if (_businessId != null && _businessId!.isNotEmpty) {
+      // Check connectivity up front — same reasoning as RetailProvider.checkout:
+      // Firestore's offline persistence can resolve a write locally without
+      // throwing even with no network, which would otherwise leave this sale
+      // with no local record, no sync queue entry, and no way to tell the
+      // cashier it's pending sync.
+      final hasNetwork = await ConnectivityHelper.hasInternetConnection();
+      if (!hasNetwork) {
+        debugPrint('[DrinkProvider] No network detected, saving sale offline');
+        await _saveSaleOffline(
+          items: items,
+          subtotal: subtotal,
+          paymentMethod: paymentMethod,
+          workerId: workerId,
+        );
+      } else {
         try {
-          final businessDoc = await _firestore.collection('businesses').doc(_businessId).get();
-          final businessData = businessDoc.data() ?? <String, dynamic>{};
-          final ownerEmail = (businessData['email'] as String?) ?? '';
-          final businessName = (businessData['name'] as String?) ?? '';
+          final saleRef = await _firestore.collection('businesses').doc(_businessId).collection('sales').add(saleData);
+          await saleRef.update({'orderId': saleRef.id});
 
-          if (ownerEmail.isNotEmpty) {
-            final notif = NotificationAndEmailService();
-            final ownerSuccess = await notif.sendSalesNotification(
-              ownerEmail: ownerEmail,
-              businessName: businessName,
-              customerName: 'Walk-in',
-              customerEmail: '',
-              totalAmount: subtotal,
-              items: items.cast<Map<String, dynamic>>(),
-              paymentMethod: paymentMethod,
-              receiptNumber: saleRef.id,
-              businessId: _businessId,
-            );
+          // Optionally, send owner notification/email
+          try {
+            final businessDoc = await _firestore.collection('businesses').doc(_businessId).get();
+            final businessData = businessDoc.data() ?? <String, dynamic>{};
+            final ownerEmail = (businessData['email'] as String?) ?? '';
+            final businessName = (businessData['name'] as String?) ?? '';
 
-            try {
-              await notif.logNotificationEvent(
-                businessId: _businessId!,
-                type: 'sale',
-                channel: 'email',
-                recipient: ownerEmail,
-                success: ownerSuccess,
-                orderId: saleRef.id,
+            if (ownerEmail.isNotEmpty) {
+              final notif = NotificationAndEmailService();
+              final ownerSuccess = await notif.sendSalesNotification(
+                ownerEmail: ownerEmail,
+                businessName: businessName,
+                customerName: 'Walk-in',
+                customerEmail: '',
+                totalAmount: subtotal,
+                items: items.cast<Map<String, dynamic>>(),
+                paymentMethod: paymentMethod,
+                receiptNumber: saleRef.id,
+                businessId: _businessId,
               );
-            } catch (_) {}
+
+              try {
+                await notif.logNotificationEvent(
+                  businessId: _businessId!,
+                  type: 'sale',
+                  channel: 'email',
+                  recipient: ownerEmail,
+                  success: ownerSuccess,
+                  orderId: saleRef.id,
+                );
+              } catch (_) {}
+            }
+          } catch (e) {
+            if (kDebugMode) print('Failed to notify owner: $e');
           }
         } catch (e) {
-          if (kDebugMode) print('Failed to notify owner: $e');
+          if (kDebugMode) print('Failed to create sale record for paid order: $e');
+          debugPrint('[DrinkProvider] Firestore write failed, saving locally: $e');
+          await _saveSaleOffline(
+            items: items,
+            subtotal: subtotal,
+            paymentMethod: paymentMethod,
+            workerId: workerId,
+          );
         }
       }
-    } catch (e) {
-      if (kDebugMode) print('Failed to create sale record for paid order: $e');
     }
 
     // Mark order as paid and persist via repository if available
@@ -969,6 +995,74 @@ class DrinkProvider extends ChangeNotifier {
     } catch (e) {
       if (kDebugMode) print('Failed to persist order status change: $e');
     }
+  }
+
+  /// Persists a drinks/bar sale to the local database and queues it for
+  /// sync when connectivity returns, mirroring RetailProvider._saveSaleOffline.
+  /// Bottle-level stock consumption already happened in-memory at
+  /// createOrder(); this ensures the sale itself isn't lost and that the
+  /// generic sync pipeline (SyncService -> SalesRepositoryImpl) can still
+  /// push a matching inventory deduction once the sale uploads.
+  Future<void> _saveSaleOffline({
+    required List<Map<String, dynamic>> items,
+    required double subtotal,
+    required String paymentMethod,
+    String? workerId,
+  }) async {
+    final dbHelper = DatabaseHelper.instance;
+    final saleId = 'SALE-${DateTime.now().millisecondsSinceEpoch}';
+
+    final localSale = {
+      'id': saleId,
+      'businessId': _businessId!,
+      'totalAmount': subtotal,
+      'discountAmount': 0.0,
+      'taxAmount': 0.0,
+      'finalAmount': subtotal,
+      'paymentMethod': paymentMethod,
+      'category': 'Drinks/Bar',
+      'status': 'completed',
+      'createdBy': workerId ?? '',
+      'createdAt': DateTime.now().toIso8601String(),
+      'syncStatus': 'pending',
+    };
+
+    await dbHelper.insert('sales', localSale);
+
+    try {
+      for (final item in items) {
+        final itemId = '${DateTime.now().millisecondsSinceEpoch}-${item['productId']}';
+        await dbHelper.insert('sale_items', {
+          'id': itemId,
+          'saleId': saleId,
+          'productId': item['productId'],
+          'productName': item['productName'],
+          'quantity': item['quantity'],
+          'unitPrice': item['unitPrice'],
+          'discount': 0.0,
+          'total': item['total'],
+        });
+      }
+    } catch (e) {
+      // Sale row exists without (all of) its items — remove it rather than
+      // let a broken record sync later, and surface the failure so it
+      // isn't silently mistaken for "queued fine".
+      debugPrint('[DrinkProvider] Offline item save failed, rolling back local sale $saleId: $e');
+      try {
+        await dbHelper.delete('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
+        await dbHelper.delete('sales', where: 'id = ?', whereArgs: [saleId]);
+      } catch (_) {}
+      rethrow;
+    }
+
+    await dbHelper.addToSyncQueue(
+        entityType: 'sale', entityId: saleId, action: 'create', data: localSale);
+
+    // Try to trigger a background sync (no-op if still offline)
+    try {
+      final syncService = SyncService();
+      await syncService.syncSales();
+    } catch (_) {}
   }
 
   Future<BarInvoice> createInvoice({
