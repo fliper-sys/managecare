@@ -4,11 +4,13 @@
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
-$iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-if (-not (Test-Path $iscc)) {
-    $iscc = "C:\Program Files\Inno Setup 6\ISCC.exe"
-}
-if (-not (Test-Path $iscc)) {
+$isccCandidates = @(
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+    "C:\Program Files\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+)
+$iscc = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $iscc) {
     Write-Error "Inno Setup compiler not found. Install it with: winget install JRSoftware.InnoSetup"
     exit 1
 }
