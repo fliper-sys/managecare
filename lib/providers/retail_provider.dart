@@ -22,13 +22,13 @@ class Product {
   final String? barcode;
   final String emoji;
   final String unit; // e.g., L, cyl
-  final double distributorDiscountPercent;
   final String saleUnit;
   final double saleUnitMultiplier;
   final bool trackExpiry;
   final DateTime? expiryDate;
   final String? batchLabel;
   final int? shelfLifeDays;
+  final double distributorDiscountPercent;
 
   Product({
     required this.id,
@@ -42,13 +42,13 @@ class Product {
     this.barcode,
     this.emoji = '📦',
     this.unit = 'pc',
-    this.distributorDiscountPercent = 0.0,
     this.saleUnit = '',
     this.saleUnitMultiplier = 1.0,
     this.trackExpiry = false,
     this.expiryDate,
     this.batchLabel,
     this.shelfLifeDays,
+    this.distributorDiscountPercent = 0.0,
   });
 
   String get resolvedSaleUnit => saleUnit.trim().isEmpty ? unit : saleUnit;
@@ -68,7 +68,6 @@ class Product {
       id: doc.id,
       name: data['name'] ?? '',
       price: (data['price'] ?? 0.0).toDouble(),
-      distributorDiscountPercent: (data['distributorDiscountPercent'] as num?)?.toDouble() ?? 0.0,
       cost: (data['cost'] ?? 0.0).toDouble(),
       wholesalePrice: (data['wholesalePrice'] as num?)?.toDouble(),
       stock: (data['quantity'] as num?)?.toDouble() ??
@@ -88,6 +87,9 @@ class Product {
       ),
       batchLabel: data['batchLabel']?.toString(),
       shelfLifeDays: (data['shelfLifeDays'] as num?)?.toInt(),
+      distributorDiscountPercent: (data['distributorDiscountPercent'] as num?)?.toDouble() ??
+          (data['discountPercent'] as num?)?.toDouble() ??
+          0.0,
     );
   }
 
@@ -102,7 +104,6 @@ class Product {
       'barcode': barcode,
       'emoji': emoji,
       'unit': unit,
-      'distributorDiscountPercent': distributorDiscountPercent,
       'wholesalePrice': wholesalePrice,
       'saleUnit': resolvedSaleUnit,
       'saleUnitMultiplier': resolvedSaleUnitMultiplier,
@@ -111,6 +112,7 @@ class Product {
       if (batchLabel != null && batchLabel!.trim().isNotEmpty)
         'batchLabel': batchLabel!.trim(),
       if (shelfLifeDays != null) 'shelfLifeDays': shelfLifeDays,
+      'distributorDiscountPercent': distributorDiscountPercent,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
@@ -2387,23 +2389,16 @@ class RetailProvider extends ChangeNotifier {
     }
 
     // Round quantity and paid appropriately
-    final minimumQuantity = (unit == 'cyl' || unit == 'cylinder') ? 1.0 : 0.001;
     if (unit == 'cyl' || unit == 'cylinder') {
       qty = qty.toInt().toDouble();
     } else {
-      qty = qty <= 0 ? 0.0 : double.parse(qty.toStringAsFixed(3));
+      qty = double.parse(qty.toStringAsFixed(3));
     }
     paid = double.parse(paid.toStringAsFixed(2));
 
     // Prevent sales of zero units (e.g., insufficient amount for a cylinder)
     if (qty <= 0) {
-      if (paid > 0) {
-        qty = minimumQuantity;
-      } else {
-        throw Exception('Insufficient amount/quantity to process sale');
-      }
-    } else if (qty < minimumQuantity) {
-      qty = minimumQuantity;
+      throw Exception('Insufficient amount/quantity to process sale');
     }
 
     // Ensure we don't oversell stock

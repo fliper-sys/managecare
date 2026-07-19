@@ -15,6 +15,7 @@ import 'providers/auth_provider.dart';
 import 'providers/auto_provider.dart';
 import 'providers/business_provider.dart';
 import 'providers/connectivity_provider.dart';
+import 'providers/sync_provider.dart';
 import 'providers/drink_provider.dart';
 import 'providers/enhanced_subscription_provider.dart';
 import 'providers/pharmacy_provider.dart';
@@ -29,6 +30,7 @@ import 'services/business_reminder_service.dart';
 import 'services/snackbar_service.dart';
 import 'services/startup_notifications.dart';
 import 'services/subscription_service.dart';
+import 'widgets/offline_indicator.dart';
 
 class App extends StatefulWidget {
   const App({super.key});
@@ -71,16 +73,7 @@ class _AppState extends State<App> {
   }
 
   void _attachProviderListeners() {
-    final connectivityProvider = context.read<ConnectivityProvider>();
-    final syncProvider = context.read<SyncProvider>();
-    // So that when connectivity returns and ConnectivityProvider auto-syncs
-    // pending sales, the SyncProvider state (and anything showing it, like
-    // the offline banner) actually reflects the result.
-    connectivityProvider.setSyncProvider(syncProvider);
-    connectivityProvider.initialize();
-    // Pick up any sales queued offline in a previous session immediately,
-    // rather than waiting for the next connectivity change to reveal them.
-    unawaited(syncProvider.checkPendingItems());
+    context.read<ConnectivityProvider>().initialize();
 
     _authProvider = context.read<AuthProvider>();
     _businessProvider = context.read<BusinessProvider>();
@@ -535,7 +528,6 @@ class _ConnectivityBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
 
     return Consumer2<ConnectivityProvider, SyncProvider>(
       builder: (context, connectivity, sync, _) {
@@ -545,6 +537,7 @@ class _ConnectivityBanner extends StatelessWidget {
         // "Sale recorded offline" snackbar shown right at checkout — it
         // keeps reassuring the cashier that pending offline sales exist and
         // haven't been lost, until they're confirmed synced.
+        final scheme = Theme.of(context).colorScheme;
         String? message;
         Color backgroundColor = scheme.errorContainer;
         Color foregroundColor = scheme.onErrorContainer;
@@ -569,7 +562,7 @@ class _ConnectivityBanner extends StatelessWidget {
         return Stack(
           children: [
             Positioned.fill(child: child),
-            if (message != null)
+            if (!connectivity.isConnected)
               Positioned(
                 top: 0,
                 left: 0,
@@ -578,16 +571,18 @@ class _ConnectivityBanner extends StatelessWidget {
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(
-                    color: backgroundColor,
+                    color: scheme.errorContainer,
                     border: Border(
-                      bottom: BorderSide(color: borderColor),
+                      bottom: BorderSide(
+                        color: scheme.error.withOpacity(0.18),
+                      ),
                     ),
                   ),
                   child: Text(
-                    message,
+                    'No Internet Connection - Working Offline',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: foregroundColor,
+                          color: scheme.onErrorContainer,
                           fontWeight: FontWeight.w700,
                         ),
                   ),
