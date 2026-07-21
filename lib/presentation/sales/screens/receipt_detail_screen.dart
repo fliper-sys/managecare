@@ -563,7 +563,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error generating PDF: $e'),
-          backgroundColor: AppColors.error,
+          backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
     } finally {
@@ -616,7 +616,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error sharing image: $e'),
-          backgroundColor: AppColors.error,
+          backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
       debugPrint('Share image error: $e');
@@ -684,25 +684,25 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color.fromARGB(255, 14, 39, 95),
+                color: Theme.of(context).colorScheme.primary,
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Print Preview (58mm)',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: Theme.of(context).colorScheme.onPrimary,
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                   GestureDetector(
                     onTap: () => Navigator.pop(context),
-                    child: const Icon(
+                    child: Icon(
                       Icons.close,
-                      color: Colors.white,
+                      color: Theme.of(context).colorScheme.onPrimary,
                     ),
                   ),
                 ],
@@ -716,17 +716,17 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                   width: 200, // 58mm width approximation
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
+                    color: Theme.of(context).colorScheme.surfaceVariant,
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: Colors.grey[300]!),
+                    border: Border.all(color: Theme.of(context).colorScheme.outline),
                   ),
                   child: SelectableText(
                     receiptText,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Courier',
                       fontSize: 11,
                       height: 1.4,
-                      color: Colors.black87,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                 ),
@@ -737,7 +737,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 border: Border(
-                  top: BorderSide(color: Colors.grey[200]!),
+                  top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
                 ),
               ),
               child: Row(
@@ -748,8 +748,8 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                       icon: const Icon(Icons.close),
                       label: const Text('Cancel'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey[300],
-                        foregroundColor: Colors.black87,
+                        backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                        foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                       onPressed: () => Navigator.pop(context),
                     ),
@@ -760,7 +760,8 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                       icon: const Icon(Icons.print),
                       label: const Text('Send to Printer'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
+                        foregroundColor: Theme.of(context).colorScheme.onPrimary,
                       ),
                       onPressed: () async {
                         Navigator.pop(context);
@@ -816,7 +817,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                   ? 'Receipt printed successfully'
                   : 'Failed to print receipt',
             ),
-            backgroundColor: success ? Colors.green : Colors.red,
+            backgroundColor: success ? Theme.of(context).colorScheme.secondary : Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -826,7 +827,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error printing receipt: $e'),
-            backgroundColor: AppColors.error,
+            backgroundColor: Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 3),
           ),
         );
@@ -849,18 +850,18 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(success ? 'Print dialog opened' : 'Failed to open print dialog'),
-            backgroundColor: success ? Colors.green : Colors.red,
+            backgroundColor: success ? Theme.of(context).colorScheme.secondary : Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 3),
           ),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Print error: $e'), backgroundColor: Colors.red, duration: const Duration(seconds: 3)),
+          SnackBar(content: Text('Print error: $e'), backgroundColor: Theme.of(context).colorScheme.error, duration: const Duration(seconds: 3)),
         );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Print error: $e'), backgroundColor: Colors.red, duration: const Duration(seconds: 3)),
+        SnackBar(content: Text('Print error: $e'), backgroundColor: Theme.of(context).colorScheme.error, duration: const Duration(seconds: 3)),
       );
     }
   }
@@ -989,7 +990,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
     final business = Provider.of<BusinessProvider>(context).currentBusiness;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).colorScheme.background,
       appBar: AppBar(
         title: const Text('Receipt Details'),
         elevation: 0,
@@ -1003,11 +1004,13 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
               key: _receiptKey,
               child: Container(
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? Colors.white.withOpacity(0.05)
+                          : Colors.black.withOpacity(0.1),
                       blurRadius: 20,
                     ),
                   ],
@@ -1024,7 +1027,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [AppColors.primary.withOpacity(0.95), AppColors.primaryDark.withOpacity(0.95)],
+                        colors: [Theme.of(context).colorScheme.primary.withOpacity(0.95), Theme.of(context).colorScheme.primaryContainer.withOpacity(0.95)],
                       ),
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -1046,16 +1049,16 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                             width: 64,
                             height: 64,
                             decoration: BoxDecoration(
-                              color: Colors.white.withAlpha(30),
+                              color: Theme.of(context).colorScheme.onPrimary.withAlpha(30),
                               shape: BoxShape.circle,
                             ),
-                            child: Icon(Icons.store, color: Colors.white.withAlpha(200), size: 36),
+                            child: Icon(Icons.store, color: Theme.of(context).colorScheme.onPrimary.withAlpha(200), size: 36),
                           ),
                         const SizedBox(height: 12),
                         Text(
                           business?.name ?? 'My Business',
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onPrimary,
                             fontSize: 22,
                             fontWeight: FontWeight.w800,
                           ),
@@ -1064,7 +1067,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                         const SizedBox(height: 6),
                         Text(
                           'Receipt',
-                          style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 12),
+                          style: TextStyle(color: Theme.of(context).colorScheme.onPrimary.withOpacity(0.9), fontSize: 12),
                         ),
                       ],
                     ),
@@ -1079,7 +1082,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.grey.withAlpha(10),
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.05),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Column(
@@ -1097,7 +1100,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.grey.withAlpha(10),
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.05),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Column(
@@ -1121,7 +1124,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.grey.withAlpha(10),
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.05),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Column(
@@ -1139,7 +1142,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.grey.withAlpha(10),
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.05),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Column(
@@ -1235,7 +1238,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                   ),
 
                   const SizedBox(height: 12),
-                  const Divider(),
+                  Divider(color: Theme.of(context).colorScheme.outline),
                   const SizedBox(height: 12),
 
                   // Payment & Status Row
@@ -1253,10 +1256,10 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                          color: AppColors.success.withOpacity(0.12),
+                          color: Theme.of(context).colorScheme.secondary.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text('Completed', style: AppTextStyles.caption.copyWith(color: AppColors.success, fontWeight: FontWeight.w700)),
+                        child: Text('Completed', style: AppTextStyles.caption.copyWith(color: Theme.of(context).colorScheme.onSecondary, fontWeight: FontWeight.w700)),
                       ),
                     ],
                   ),
@@ -1288,8 +1291,8 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                         icon: const Icon(Icons.download),
                         label: Text(_isGeneratingPDF ? 'Generating PDF...' : 'Save / Share PDF'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
+                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          foregroundColor: Theme.of(context).colorScheme.onPrimary,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                       ),
@@ -1300,7 +1303,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                         onPressed: _isGeneratingPDF ? null : _sendReceiptEmail,
                         icon: const Icon(Icons.email),
                         label: Text(_isGeneratingPDF ? 'Sending...' : 'Send Email'),
-                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                        style: OutlinedButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1309,7 +1312,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                         onPressed: _isSharingImage ? null : _shareAsImage,
                         icon: const Icon(Icons.image),
                         label: Text(_isSharingImage ? 'Sharing...' : 'Share / Save Image'),
-                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                        style: OutlinedButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
                       ),
                     ),
                   ],
@@ -1325,7 +1328,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                         },
                         icon: const Icon(Icons.remove_red_eye),
                         label: const Text('Preview (58mm)'),
-                        style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                        style: OutlinedButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1337,7 +1340,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                         },
                         icon: const Icon(Icons.usb),
                         label: const Text('Print (USB)'),
-                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.success, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
+                        style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.secondary, foregroundColor: Theme.of(context).colorScheme.onSecondary, padding: const EdgeInsets.symmetric(vertical: 14)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1349,7 +1352,7 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
                         },
                         icon: const Icon(Icons.print),
                         label: const Text('Print (58mm)'),
-                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
+                        style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Theme.of(context).colorScheme.onPrimary, padding: const EdgeInsets.symmetric(vertical: 14)),
                       ),
                     ),
                   ],

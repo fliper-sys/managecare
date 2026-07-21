@@ -105,6 +105,15 @@ class AdminProvider extends ChangeNotifier {
   int get activeBusinessesCount =>
       _allBusinesses.where(_isBusinessAvailable).length;
 
+  /// Get user details from the cached list of all users.
+  Map<String, dynamic>? getUserById(String userId) {
+    try {
+      return _allUsers.firstWhere((user) => user['id'] == userId);
+    } catch (e) {
+      return null;
+    }
+  }
+
   bool _readBool(dynamic value) {
     if (value is bool) return value;
     if (value is num) return value != 0;

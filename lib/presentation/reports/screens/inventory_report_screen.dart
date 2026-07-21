@@ -21,6 +21,8 @@ class InventoryReportScreen extends StatefulWidget {
 
 class _InventoryReportScreenState extends State<InventoryReportScreen> {
   late TextEditingController _searchController;
+  final NumberFormat _currencyFormat =
+      NumberFormat.currency(locale: 'en_NG', symbol: '₦', decimalDigits: 2);
   String? _lastBusinessId;
 
   @override
@@ -174,8 +176,8 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                     Expanded(
                       child: ReportCard(
                         title: 'Total Value',
-                        value:
-                            '₦${(inventorySummary['inventoryValue'] as double).toStringAsFixed(2)}',
+                        value: _currencyFormat
+                            .format((inventorySummary['inventoryValue'] as double?) ?? 0.0),
                         icon: Icons.attach_money,
                         color: AppColors.success,
                       ),
@@ -183,10 +185,24 @@ class _InventoryReportScreenState extends State<InventoryReportScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: ReportCard(
+                        title: 'Cost Valuation',
+                        value: _currencyFormat
+                            .format((inventorySummary['inventoryCostValue'] as double?) ?? 0.0),
+                        icon: Icons.account_balance_wallet,
+                        color: AppColors.info,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ReportCard(
                         title: 'Products',
                         value: '${reportsProvider.inventoryReports.length}',
                         icon: Icons.category,
-                        color: AppColors.info,
+                        color: AppColors.primary,
                       ),
                     ),
                   ],

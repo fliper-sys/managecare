@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import '../../../core/utils/datetime_utils.dart';
+import '../../../core/constants/routes.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../widgets/animated_lottie.dart';
@@ -178,8 +179,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Sales History'),
         elevation: 0,
@@ -215,25 +218,23 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
         children: [
           // Search and Filter
           Container(
-            color: AppColors.primary,
+            color: theme.colorScheme.primary,
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: Column(
               children: [
                 TextField(
                   controller: _searchController,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: theme.colorScheme.onPrimary),
                   decoration: InputDecoration(
                     hintText: 'Search by order ID, customer...',
-                    hintStyle:
-                        TextStyle(color: Colors.white.withOpacity(0.7)),
-                    prefixIcon: const Icon(Icons.search, color: Colors.white),
+                    hintStyle: TextStyle(color: theme.colorScheme.onPrimary.withOpacity(0.72)),
+                    prefixIcon: Icon(Icons.search, color: theme.colorScheme.onPrimary),
                     suffixIcon: IconButton(
-                      icon:
-                          const Icon(Icons.calendar_today, color: Colors.white),
+                      icon: Icon(Icons.calendar_today, color: theme.colorScheme.onPrimary),
                       onPressed: _selectDateRange,
                     ),
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.2),
+                    fillColor: theme.colorScheme.onPrimary.withOpacity(0.18),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -248,19 +249,18 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
                       vertical: 8,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
+                      color: theme.colorScheme.onPrimary.withOpacity(0.18),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.date_range,
-                            color: Colors.white, size: 16),
+                        Icon(Icons.date_range, color: theme.colorScheme.onPrimary, size: 16),
                         const SizedBox(width: 8),
                         Text(
                           '${_selectedDateRange!.start.day}/${_selectedDateRange!.start.month} - ${_selectedDateRange!.end.day}/${_selectedDateRange!.end.month}',
                           style: AppTextStyles.body2.copyWith(
-                            color: Colors.white,
+                            color: theme.colorScheme.onPrimary,
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -268,9 +268,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
                           onTap: () {
                             setState(() => _selectedDateRange = null);
                           },
-                          child: const Icon(
+                          child: Icon(
                             Icons.close,
-                            color: Colors.white,
+                            color: theme.colorScheme.onPrimary,
                             size: 16,
                           ),
                         ),
@@ -309,12 +309,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
 
           // Tabs
           Container(
-            color: Colors.white,
+            color: theme.cardColor,
             child: TabBar(
               controller: _tabController,
-              labelColor: AppColors.primary,
-              unselectedLabelColor: AppColors.textSecondary,
-              indicatorColor: AppColors.primary,
+              labelColor: theme.colorScheme.primary,
+              unselectedLabelColor: theme.colorScheme.onSurface.withOpacity(0.7),
+              indicatorColor: theme.colorScheme.primary,
               isScrollable: true,
               tabs: const [
                 Tab(text: 'All'),
@@ -339,6 +339,14 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.of(context).pushNamed(Routes.refundHistory);
+        },
+        child: const Icon(Icons.assignment_return_rounded),
+        tooltip: 'Refund History',
+        backgroundColor: theme.colorScheme.error,
+      ),
     );
   }
 }
@@ -351,21 +359,28 @@ class _QuickStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
+        color: theme.colorScheme.primary.withOpacity(0.22),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         children: [
           Text(
             value,
-            style: AppTextStyles.heading5.copyWith(color: Colors.white),
+            style: AppTextStyles.heading5.copyWith(
+              color: theme.colorScheme.onPrimary,
+            ),
           ),
           Text(
             label,
-            style: AppTextStyles.caption.copyWith(color: Colors.white),
+            style: AppTextStyles.caption.copyWith(
+              color: theme.colorScheme.onPrimary.withOpacity(isDark ? 0.88 : 0.92),
+            ),
           ),
         ],
       ),
@@ -619,11 +634,7 @@ class _SalesListState extends State<_SalesList> {
             sale['customerName'] ??
             sale['buyerName'] ??
             'Walk-in Customer';
-        final amount = ((sale['total'] ??
-                sale['amount'] ??
-                sale['subtotal'] ??
-                0.0) as num)
-            .toDouble();
+        final amount = _calculateSaleAmount(sale);
 
         return _SaleCard(
           orderId: orderId,
@@ -659,6 +670,50 @@ class _SalesListState extends State<_SalesList> {
     if (difference.inDays < 7) return '${difference.inDays}d ago';
 
     return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
+  }
+
+  double _calculateSaleAmount(Map<String, dynamic> sale) {
+    double parseAmount(dynamic value) {
+      if (value is num) return value.toDouble();
+      if (value is String) return double.tryParse(value) ?? 0.0;
+      return 0.0;
+    }
+
+    final itemAmount = parseAmount(sale['totalAmount']) > 0
+        ? parseAmount(sale['totalAmount'])
+        : parseAmount(sale['finalAmount']);
+    if (itemAmount > 0) return itemAmount;
+
+    final fallbackAmount = parseAmount(sale['total']) > 0
+        ? parseAmount(sale['total'])
+        : parseAmount(sale['amount']);
+    if (fallbackAmount > 0) return fallbackAmount;
+
+    final computedSubtotal = parseAmount(sale['subtotal']);
+    if (computedSubtotal > 0) return computedSubtotal;
+
+    // If the line items exist, sum them as a last resort. This is useful for
+    // pending or offline sales where the sale object may omit a simple total
+    // field but still has valid item totals.
+    final items = sale['items'] as List?;
+    if (items != null && items.isNotEmpty) {
+      return items.fold<double>(0.0, (sum, rawItem) {
+        if (rawItem is Map<String, dynamic>) {
+          final total = parseAmount(rawItem['total']);
+          final quantity = parseAmount(rawItem['quantity']);
+          if (total > 0) return sum + total;
+          if (quantity > 0) {
+            final unitPrice = parseAmount(rawItem['unitPrice']) > 0
+                ? parseAmount(rawItem['unitPrice'])
+                : parseAmount(rawItem['price']);
+            return sum + (unitPrice * quantity);
+          }
+        }
+        return sum;
+      });
+    }
+
+    return 0.0;
   }
 }
 
@@ -818,6 +873,10 @@ class _SaleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cardColor = theme.cardColor;
+    final secondaryTextColor = theme.colorScheme.onSurface.withOpacity(0.72);
+
     return GestureDetector(
       onTap: () {
         // Navigate to receipt detail screen
@@ -830,7 +889,7 @@ class _SaleCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: cardColor,
           borderRadius: BorderRadius.circular(12),
           boxShadow: AppColors.cardShadow,
         ),
@@ -908,14 +967,14 @@ class _SaleCard extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
-                Icon(_paymentIcon, size: 16, color: AppColors.textSecondary),
+                Icon(_paymentIcon, size: 16, color: secondaryTextColor),
                 const SizedBox(width: 4),
-                Text(paymentMethod, style: AppTextStyles.body2),
+                Text(paymentMethod, style: AppTextStyles.body2.copyWith(color: secondaryTextColor)),
                 const SizedBox(width: 16),
-                const Icon(
+                Icon(
                   Icons.shopping_cart,
                   size: 16,
-                  color: AppColors.textSecondary,
+                  color: secondaryTextColor,
                 ),
                 const SizedBox(width: 4),
                 Text('$items items', style: AppTextStyles.body2),

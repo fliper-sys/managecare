@@ -15,6 +15,7 @@ import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/sync_provider.dart';
 import '../../../core/constants/routes.dart';
+import '../../../providers/admin_provider.dart';
 import '../../../services/receipt_manager.dart';
 import '../../../services/email_service.dart';
 import '../../../services/pdf_invoice_generator.dart';
@@ -312,6 +313,24 @@ class _SalesScreenState extends State<SalesScreen>
                   backgroundColor: AppColors.warning,
                 ),
               );
+
+              // Manually deduct stock from in-memory products for immediate UI update
+              // The sync service will handle the actual Firestore update later.
+              for (final item in items) {
+                final productId = item['productId'] as String?;
+                final quantitySold = (item['inventoryQuantity'] as num?)?.toDouble() ??
+                                     (item['quantity'] as num?)?.toDouble() ??
+                                     0.0;
+                if (productId != null && quantitySold > 0) { 
+                  try { 
+                    final product = retail.products.firstWhere((p) => p.id == productId); 
+                    final newStock = product.stock - quantitySold; 
+                    product.stock = newStock > 0 ? newStock : 0; 
+                  } catch (e) { 
+                    debugPrint('[SalesScreen] Could not find product $productId to update stock locally.'); 
+                  } 
+                }
+              }
             } else {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -1801,13 +1820,29 @@ class _SalesScreenState extends State<SalesScreen>
                               .format(createdAt.toDate())
                           : 'Unknown time';
                         final amount = sale['totalAmount'] as num? ?? 0;
-                        final worker = sale['workerName'] ?? 'Unknown';
+                        var worker = sale['workerName'] as String? ?? '';
+                        if (worker.isEmpty) {
+                          final workerId = sale['workerId'] as String?;
+                          if (workerId != null && workerId.isNotEmpty) {
+                            final adminProvider = context.read<AdminProvider>();
+                            final user = adminProvider.getUserById(workerId);
+                            final allUsers = context.read<AdminProvider>().allUsers;
+                            allUsers.firstWhere(
+                              (u) => (u['id'] as String?) == workerId,
+                              orElse: () => <String, dynamic>{},
+                            );
+                            worker = user?['name'] as String? ?? 'Unknown';
+                          }
+                        }
+                        if (worker.isEmpty) worker = 'Unknown';
                         final isRefunded = (sale['hasReturn'] == true) ||
                           (sale['saleStatus']?.toString().toLowerCase() ==
                             'refunded') ||
                           ((sale['status'] ?? '').toString().toLowerCase() ==
                             'refunded');
                         final refundedAtTs = sale['returnedAt'] as Timestamp?;
+                        final isPendingSync =
+                            sale['isPendingSync'] as bool? ?? false;
                         final refundedAtText = refundedAtTs != null
                             ? DateFormat('dd/MM/yyyy HH:mm')
                                 .format(refundedAtTs.toDate())
@@ -1815,7 +1850,9 @@ class _SalesScreenState extends State<SalesScreen>
                       final itemCount = (sale['items'] as List?)?.length ?? 0;
 
                       return InkWell(
-                        onTap: () => _showSaleDetails(context, sale),
+                        onTap: () {
+                          _showSaleDetails(context, sale);
+                        },
                         child: Card(
                           color: isRefunded
                               ? AppColors.warning.withOpacity(0.06)
@@ -1874,9 +1911,27 @@ class _SalesScreenState extends State<SalesScreen>
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text(worker,
-                                        style: AppTextStyles.body2.copyWith(
-                                            fontWeight: FontWeight.w500)),
+                                    Row(
+                                      children: [
+                                        if (isPendingSync) ...[
+                                          const Icon(
+                                            Icons.cloud_off_outlined,
+                                            size: 16,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text('Pending Sync • ',
+                                              style: AppTextStyles.body2
+                                                  .copyWith(
+                                                      color: AppColors
+                                                          .textSecondary)),
+                                        ],
+                                        Text(worker,
+                                            style: AppTextStyles.body2
+                                                .copyWith(
+                                                    fontWeight: FontWeight.w500)),
+                                      ],
+                                    ),
                                     Text(formattedTime,
                                         style: AppTextStyles.body2.copyWith(
                                             color: AppColors.textSecondary)),
@@ -1986,6 +2041,7 @@ class _SalesScreenState extends State<SalesScreen>
   void _showSaleDetails(BuildContext context, Map<String, dynamic> sale) {
     final items = (sale['items'] as List<dynamic>?) ?? [];
     final retail = context.read<RetailProvider>();
+    final isPendingSync = sale['isPendingSync'] as bool? ?? false;
 
     showModalBottomSheet(
       context: context,
@@ -2002,6 +2058,24 @@ class _SalesScreenState extends State<SalesScreen>
             children: [
               Text('Sale #${sale['referenceId'] ?? sale['id']}',
                   style: AppTextStyles.heading3),
+              if (isPendingSync) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.cloud_off_outlined,
+                      size: 18,
+                      color: AppColors.warning,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'This sale is pending synchronization.',
+                      style: AppTextStyles.body2
+                          .copyWith(color: AppColors.warning),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 12),
               ...items.map((i) {
                 final item = i as Map<String, dynamic>;
