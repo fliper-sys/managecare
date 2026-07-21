@@ -56,8 +56,6 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       sale['cashier_name'],
       sale['createdByName'],
       sale['created_by_name'],
-      sale['createdBy'],
-      sale['created_by'],
       sale['servedBy'],
       sale['served_by'],
       sale['attendant'],
@@ -68,6 +66,11 @@ class _ReceiptDetailScreenState extends State<ReceiptDetailScreen> {
       sale['workerName'],
       sale['soldBy'],
       sale['ownerName'],
+      // `createdBy`/`created_by` hold a raw user ID rather than a display
+      // name — only fall back to showing the ID if no real name field
+      // above was populated, so a resolvable name always wins.
+      sale['createdBy'],
+      sale['created_by'],
     ];
 
     String? extract(dynamic c) {

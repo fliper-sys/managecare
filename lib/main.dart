@@ -364,15 +364,22 @@ class MyApp extends StatelessWidget {
           create: (_) => RestaurantProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            // Only fetch menu/tables/orders for businesses that are actually
+            // restaurants — otherwise every login/business switch pays for
+            // a restaurant data load no screen will ever show.
+            final isRestaurantBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/restaurant';
             if (previous == null) {
               final p = RestaurantProvider();
-              if (bid.isNotEmpty) p.setBusinessId(bid);
+              if (bid.isNotEmpty && isRestaurantBusiness) p.setBusinessId(bid);
               return p;
             }
             // Reset provider state when business is cleared (logout)
             if (bid.isEmpty) {
               previous.reset();
-            } else {
+            } else if (isRestaurantBusiness) {
               previous.setBusinessId(bid);
             }
             return previous;
@@ -423,6 +430,14 @@ class MyApp extends StatelessWidget {
           create: (_) =>
               AgriProvider(notificationService: NotificationService.instance),
           update: (_, businessProvider, previous) {
+            final isAgriBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/agri';
+            // Skip rebuilding (and refetching) when the current business
+            // isn't agri — this provider previously recreated itself on
+            // every business switch regardless of industry.
+            if (!isAgriBusiness && previous != null) return previous;
             final bid = businessProvider.currentBusiness?.id ?? 'demo';
             return AgriProvider(
                 repository: AgriRepositoryImpl(businessId: bid),
@@ -449,12 +464,16 @@ class MyApp extends StatelessWidget {
           create: (_) => AutoProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isAutoBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/auto';
             if (previous == null) {
               final ap = AutoProvider();
-              if (bid.isNotEmpty) ap.setBusinessId(bid);
+              if (bid.isNotEmpty && isAutoBusiness) ap.setBusinessId(bid);
               return ap;
             }
-            if (bid.isNotEmpty) previous.setBusinessId(bid);
+            if (bid.isNotEmpty && isAutoBusiness) previous.setBusinessId(bid);
             return previous;
           },
         ),
@@ -462,12 +481,18 @@ class MyApp extends StatelessWidget {
           create: (_) => BarberShopProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isBarbershopBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/barbershop';
             if (previous == null) {
               final p = BarberShopProvider();
-              if (bid.isNotEmpty) p.setBusinessId(bid);
+              if (bid.isNotEmpty && isBarbershopBusiness) p.setBusinessId(bid);
               return p;
             }
-            if (bid.isNotEmpty) previous.setBusinessId(bid);
+            if (bid.isNotEmpty && isBarbershopBusiness) {
+              previous.setBusinessId(bid);
+            }
             return previous;
           },
         ),
@@ -475,15 +500,19 @@ class MyApp extends StatelessWidget {
           create: (_) => SalonProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isSalonBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/salon';
             if (previous == null) {
               final p = SalonProvider();
-              if (bid.isNotEmpty) p.setBusinessId(bid);
+              if (bid.isNotEmpty && isSalonBusiness) p.setBusinessId(bid);
               return p;
             }
             // Reset provider state when business is cleared (logout)
             if (bid.isEmpty) {
               previous.reset();
-            } else {
+            } else if (isSalonBusiness) {
               previous.setBusinessId(bid);
             }
             return previous;
@@ -493,12 +522,16 @@ class MyApp extends StatelessWidget {
           create: (_) => HotelProvider(repository: HotelRepositoryImpl()),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isHotelBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/hotel';
             if (previous == null) {
               final hp = HotelProvider(repository: HotelRepositoryImpl());
-              if (bid.isNotEmpty) hp.setBusinessId(bid);
+              if (bid.isNotEmpty && isHotelBusiness) hp.setBusinessId(bid);
               return hp;
             }
-            if (bid.isNotEmpty) previous.setBusinessId(bid);
+            if (bid.isNotEmpty && isHotelBusiness) previous.setBusinessId(bid);
             return previous;
           },
         ),
@@ -506,12 +539,20 @@ class MyApp extends StatelessWidget {
           create: (_) => WholesaleProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isWholesaleBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/wholesale';
             if (previous == null) {
               final wp = WholesaleProvider();
-              if (bid.isNotEmpty) wp.initializeWithBusinessId(bid);
+              if (bid.isNotEmpty && isWholesaleBusiness) {
+                wp.initializeWithBusinessId(bid);
+              }
               return wp;
             }
-            if (bid.isNotEmpty) previous.initializeWithBusinessId(bid);
+            if (bid.isNotEmpty && isWholesaleBusiness) {
+              previous.initializeWithBusinessId(bid);
+            }
             return previous;
           },
         ),
@@ -521,17 +562,26 @@ class MyApp extends StatelessWidget {
           ),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? 'demo';
-            final repo = DrinkRepositoryImpl(businessId: bid);
+            final isDrinkBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/drink';
             if (previous == null) {
+              final repo = DrinkRepositoryImpl(businessId: bid);
               final p = DrinkProvider(repository: repo);
-              p.setBusinessId(bid);
-              // initialize in background
-              p.initialize(repository: repo);
+              if (isDrinkBusiness) {
+                p.setBusinessId(bid);
+                // initialize in background
+                p.initialize(repository: repo);
+              }
               return p;
             }
             // trigger background re-initialization for existing provider
-            previous.setBusinessId(bid);
-            previous.initialize(repository: repo);
+            if (isDrinkBusiness) {
+              final repo = DrinkRepositoryImpl(businessId: bid);
+              previous.setBusinessId(bid);
+              previous.initialize(repository: repo);
+            }
             return previous;
           },
         ),
@@ -540,6 +590,14 @@ class MyApp extends StatelessWidget {
               repository: GymRepositoryImpl(businessId: 'demo'),
               businessId: 'demo'),
           update: (_, businessProvider, previous) {
+            final isGymBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/gym';
+            // Skip rebuilding (and refetching) when the current business
+            // isn't a gym — this provider previously recreated itself on
+            // every business switch regardless of industry.
+            if (!isGymBusiness && previous != null) return previous;
             final bid = businessProvider.currentBusiness?.id ?? 'demo';
             // Create a provider with repository and business id wired to current business
             return GymProvider(
@@ -552,15 +610,19 @@ class MyApp extends StatelessWidget {
           create: (_) => RealestateProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isRealEstateBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/realestate';
             if (previous == null) {
               final p = RealestateProvider();
-              if (bid.isNotEmpty) p.setBusinessId(bid);
+              if (bid.isNotEmpty && isRealEstateBusiness) p.setBusinessId(bid);
               return p;
             }
             // Reset provider state when business is cleared (logout)
             if (bid.isEmpty) {
               previous.reset();
-            } else {
+            } else if (isRealEstateBusiness) {
               previous.setBusinessId(bid);
             }
             return previous;
@@ -583,14 +645,18 @@ class MyApp extends StatelessWidget {
           create: (_) => ApartmentProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isApartmentBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/apartment';
             if (previous == null) {
               return ApartmentProvider();
             }
             // Load apartments for the current business, or reset if no business
-            if (bid.isNotEmpty) {
-              previous.loadApartments(bid);
-            } else {
+            if (bid.isEmpty) {
               previous.reset();
+            } else if (isApartmentBusiness) {
+              previous.loadApartments(bid);
             }
             return previous;
           },

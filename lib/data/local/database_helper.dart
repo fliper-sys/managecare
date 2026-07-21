@@ -31,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -64,7 +64,9 @@ class DatabaseHelper {
         warehouseId TEXT,
         syncAttempts INTEGER DEFAULT 0,
         lastSyncError TEXT,
-        lastSyncAttemptAt TEXT
+        lastSyncAttemptAt TEXT,
+        workerId TEXT,
+        workerName TEXT
       )
     ''');
 
@@ -218,6 +220,15 @@ class DatabaseHelper {
         'syncAttempts': 'INTEGER DEFAULT 0',
         'lastSyncError': 'TEXT',
         'lastSyncAttemptAt': 'TEXT',
+      });
+    }
+    if (oldVersion < 5) {
+      // Offline sales only stored the worker under `createdBy`, which never
+      // made it to Firestore's `workerId`/`workerName` fields on sync — the
+      // worker's name showed as "Unknown" once the sale came back online.
+      await _addColumnsIfMissing(db, 'sales', {
+        'workerId': 'TEXT',
+        'workerName': 'TEXT',
       });
     }
   }

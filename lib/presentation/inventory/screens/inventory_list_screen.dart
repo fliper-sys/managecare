@@ -850,18 +850,22 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                if (_isBakeryBusiness())
+                // Only the Ingredients-filtered view of this screen should
+                // offer resupply — the general Inventory view lists retail
+                // products, not supplies to reorder from a distributor.
+                if (_isBakeryBusiness() && widget.showIngredientsOnly)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16),
-                    child: SizedBox(
-                      width: double.infinity,
+                    child: Align(
+                      alignment: Alignment.centerRight,
                       child: ElevatedButton.icon(
                         onPressed: _navigateToBakeryResupplyScreen,
-                        icon: const Icon(Icons.shopping_cart_checkout),
+                        icon: const Icon(Icons.shopping_cart_checkout, size: 18),
                         label: const Text('Bakery Resupply'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orange,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
                         ),
                       ),
                     ),
@@ -957,23 +961,6 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               },
             ),
           ),
-          if (_isBakeryBusiness())
-            Container(
-              width: double.infinity,
-              color: theme.cardColor,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              child: OutlinedButton.icon(
-                onPressed: _navigateToBakeryResupplyScreen,
-                icon: const Icon(Icons.bakery_dining_outlined),
-                label: const Text('Open Bakery Resupply'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.orange.shade800,
-                  side: const BorderSide(color: Colors.orange),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-            ),
-
           // Product List
           Expanded(
             child: Builder(builder: (context) {

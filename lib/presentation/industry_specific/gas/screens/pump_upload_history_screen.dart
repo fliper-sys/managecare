@@ -9,6 +9,8 @@ import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../utils/pump_config_cache.dart';
+import '../utils/pump_upload_dispute_utils.dart';
+import 'disputed_pump_uploads_screen.dart';
 
 class PumpUploadHistoryScreen extends StatefulWidget {
   const PumpUploadHistoryScreen({super.key});
@@ -430,6 +432,88 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     }
   }
 
+  Future<void> _markAsDisputed(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final reasonController = TextEditingController();
+    bool confirmed;
+    try {
+      confirmed = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Mark as disputed'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'This upload will move to the Disputed Uploads page until resolved.',
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: reasonController,
+                    decoration: const InputDecoration(
+                      labelText: 'Reason (optional)',
+                    ),
+                    maxLines: 2,
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('Mark disputed'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+
+      if (!confirmed) return;
+
+      final auth = context.read<AuthProvider>().currentUser;
+      final reason = reasonController.text.trim();
+      try {
+        await doc.reference.update({
+          'isDisputed': true,
+          'disputedAt': FieldValue.serverTimestamp(),
+          'disputedBy': auth?.id,
+          'disputedByName': auth?.fullName ?? auth?.email,
+          if (reason.isNotEmpty) 'disputeReason': reason,
+        });
+
+        final adjustments = _collection('pump_upload_adjustments');
+        if (adjustments != null) {
+          await logPumpUploadDisputeEvent(
+            adjustments: adjustments,
+            uploadId: doc.id,
+            uploadData: doc.data(),
+            action: 'disputed',
+            note: reason,
+            adjustedBy: auth?.id,
+            adjustedByName: auth?.fullName ?? auth?.email,
+          );
+        }
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Upload marked as disputed')),
+        );
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to mark as disputed: $error')),
+        );
+      }
+    } finally {
+      reasonController.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final pumps = _collection('pump_configurations');
@@ -439,11 +523,27 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     );
     final isOwner =
         context.watch<AuthProvider>().currentUser?.isOwner == true;
+    final canManageDisputes =
+        isOwner || WorkerPermissions.canManagePumpDisputes(role);
     final mustFilterOnePump = role == 'pump_operator';
     final dateFormat = DateFormat.yMMMd();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Pump Upload History')),
+      appBar: AppBar(
+        title: const Text('Pump Upload History'),
+        actions: [
+          if (canManageDisputes)
+            IconButton(
+              tooltip: 'Disputed uploads',
+              icon: const Icon(Icons.flag_outlined),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const DisputedPumpUploadsScreen(),
+                ),
+              ),
+            ),
+        ],
+      ),
       body: pumps == null || uploads == null
           ? const Center(child: Text('No business selected'))
           : Column(
@@ -607,7 +707,9 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                             );
                           }
                           final docs = (snapshot.data?.docs ?? [])
-                              .where((doc) => _matchesSelectedPump(doc.data()))
+                              .where((doc) =>
+                                  _matchesSelectedPump(doc.data()) &&
+                                  doc.data()['isDisputed'] != true)
                               .toList();
                           if (snapshot.connectionState == ConnectionState.waiting &&
                               docs.isEmpty) {
@@ -991,20 +1093,33 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                               ],
                                             ),
                                           const SizedBox(height: 12),
-                                          if (isOwner)
+                                          if (canManageDisputes)
                                             Row(
                                               mainAxisAlignment:
                                                   MainAxisAlignment.end,
                                               children: [
                                                 TextButton.icon(
-                                                  style: TextButton.styleFrom(
-                                                    foregroundColor: Colors.red,
-                                                  ),
                                                   onPressed: () =>
-                                                      _deleteUpload(docs[index]),
-                                                  icon: const Icon(Icons.delete),
-                                                  label: const Text('Delete'),
+                                                      _markAsDisputed(
+                                                          docs[index]),
+                                                  icon: const Icon(
+                                                      Icons.flag_outlined),
+                                                  label: const Text(
+                                                      'Mark as Disputed'),
                                                 ),
+                                                if (isOwner)
+                                                  TextButton.icon(
+                                                    style: TextButton.styleFrom(
+                                                      foregroundColor:
+                                                          Colors.red,
+                                                    ),
+                                                    onPressed: () =>
+                                                        _deleteUpload(
+                                                            docs[index]),
+                                                    icon: const Icon(
+                                                        Icons.delete),
+                                                    label: const Text('Delete'),
+                                                  ),
                                               ],
                                             ),
                                         ],

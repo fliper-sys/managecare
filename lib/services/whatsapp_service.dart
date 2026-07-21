@@ -326,11 +326,11 @@ class WhatsAppService {
         }
 
         final totalAmount = sales.fold<double>(0.0, (sum, sale) {
-          return sum + _readDouble(sale['totalAmount']) > 0
+          return sum + (_readDouble(sale['totalAmount']) > 0
               ? _readDouble(sale['totalAmount'])
               : _readDouble(sale['finalAmount']) > 0
                   ? _readDouble(sale['finalAmount'])
-                  : _readDouble(sale['total']);
+                  : _readDouble(sale['total']));
         });
         buffer.writeln('- $pumpLabel: ${formatCurrency(totalAmount)}');
 

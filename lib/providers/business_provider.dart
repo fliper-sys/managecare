@@ -162,10 +162,17 @@ class BusinessProvider with ChangeNotifier {
 
       // If the user document explicitly lists business IDs, ensure we load those
       if (userBusinessIds != null && userBusinessIds.isNotEmpty) {
-        print('[BusinessProvider] Ensuring businesses listed on user doc are loaded: ${userBusinessIds.join(', ')}');
-        for (final bid in userBusinessIds) {
-          try {
-            if (!_userBusinesses.any((b) => b.id == bid)) {
+        final missingIds = userBusinessIds
+            .where((bid) => !_userBusinesses.any((b) => b.id == bid))
+            .toSet()
+            .toList();
+        if (missingIds.isNotEmpty) {
+          print('[BusinessProvider] Ensuring businesses listed on user doc are loaded: ${missingIds.join(', ')}');
+          // Fetched in parallel rather than one at a time — with dozens of
+          // businesses on a user doc, sequential awaits here added a full
+          // network round trip per missing business to every login.
+          await Future.wait(missingIds.map((bid) async {
+            try {
               final b = await _repository.getBusinessById(bid);
               if (b != null) {
                 _userBusinesses.add(b);
@@ -191,10 +198,10 @@ class BusinessProvider with ChangeNotifier {
                   print('[BusinessProvider] Failed to create placeholder for business id $bid: $e');
                 }
               }
+            } catch (e) {
+              print('[BusinessProvider] Error loading business by id ($bid): $e');
             }
-          } catch (e) {
-            print('[BusinessProvider] Error loading business by id ($bid): $e');
-          }
+          }));
         }
       }
 

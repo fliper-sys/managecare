@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
+import '../../../providers/retail_provider.dart';
+import 'receipt_detail_screen.dart';
 
 class RefundHistoryScreen extends StatefulWidget {
   const RefundHistoryScreen({super.key});
@@ -305,13 +307,41 @@ class _RefundCard extends StatelessWidget {
     );
   }
 
+  Future<void> _viewReceipt(BuildContext context) async {
+    final saleId = (refund['saleId'] ?? '').toString().trim();
+    if (saleId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No receipt is linked to this refund')),
+      );
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final sale = await context.read<RetailProvider>().getSaleById(saleId);
+    if (sale == null) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Original receipt could not be found'),
+        ),
+      );
+      return;
+    }
+
+    navigator.push(
+      MaterialPageRoute(
+        builder: (_) => ReceiptDetailScreen(saleData: sale),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final amount = ((refund['refundAmount'] ?? 0) as num).toDouble();
-    final items = (refund['itemsReturned'] as List? ?? const [])
+    final returnedItems = (refund['itemsReturned'] as List? ?? const [])
         .whereType<Map>()
-        .map((item) => '${text(item['productName'] ?? item['productId'])} x${item['quantity'] ?? 0}')
-        .join(', ');
+        .toList();
+    final hasSaleLink = (refund['saleId'] ?? '').toString().trim().isNotEmpty;
 
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -362,7 +392,34 @@ class _RefundCard extends StatelessWidget {
             _InfoLine(label: 'Sold by', value: _soldByLabel()),
             _InfoLine(label: 'Sale', value: text(refund['saleReference'] ?? refund['saleId'])),
             _InfoLine(label: 'Method', value: text(refund['refundMethod'])),
-            if (items.isNotEmpty) _InfoLine(label: 'Items', value: items),
+            if (returnedItems.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text('Products returned', style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              ...returnedItems.map((item) {
+                final name = text(item['productName'] ?? item['productId']);
+                final quantity = item['quantity'] ?? 0;
+                final itemAmount = item['amount'];
+                final amountLabel = itemAmount is num
+                    ? ' • ${currencyFormat.format(itemAmount.toDouble())}'
+                    : '';
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text('• $name x$quantity$amountLabel'),
+                );
+              }),
+            ],
+            if (hasSaleLink) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: OutlinedButton.icon(
+                  onPressed: () => _viewReceipt(context),
+                  icon: const Icon(Icons.receipt_long_rounded, size: 18),
+                  label: const Text('View Receipt'),
+                ),
+              ),
+            ],
           ],
         ),
       ),

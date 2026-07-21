@@ -1964,6 +1964,7 @@ class RetailProvider extends ChangeNotifier {
           paymentMethod: paymentMethod,
           customerId: customerId,
           workerId: workerId,
+          workerName: workerName,
           storeId: storeId,
           priceOverrides: priceOverrides,
         );
@@ -2096,6 +2097,7 @@ class RetailProvider extends ChangeNotifier {
           paymentMethod: paymentMethod,
           customerId: customerId,
           workerId: workerId,
+          workerName: workerName,
           storeId: storeId,
           priceOverrides: priceOverrides,
         );
@@ -2117,6 +2119,7 @@ class RetailProvider extends ChangeNotifier {
     required String paymentMethod,
     String? customerId,
     String? workerId,
+    String? workerName,
     String? storeId,
     Map<String, double>? priceOverrides,
   }) async {
@@ -2137,6 +2140,9 @@ class RetailProvider extends ChangeNotifier {
       'createdBy': workerId ?? '',
       'createdAt': DateTime.now().toIso8601String(),
       'syncStatus': 'pending',
+      if (workerId != null && workerId.isNotEmpty) 'workerId': workerId,
+      if (workerId != null && workerId.isNotEmpty)
+        'workerName': workerName ?? 'Unknown',
       if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
     };
 

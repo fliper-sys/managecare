@@ -15,7 +15,6 @@ import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/sync_provider.dart';
 import '../../../core/constants/routes.dart';
-import '../../../providers/admin_provider.dart';
 import '../../../services/receipt_manager.dart';
 import '../../../services/email_service.dart';
 import '../../../services/pdf_invoice_generator.dart';
@@ -29,6 +28,7 @@ import '../../../widgets/custom_button.dart';
 import '../../../widgets/async_button.dart';
 import '../../../widgets/app_header.dart';
 import '../../../providers/retail_provider.dart';
+import '../../../providers/workers_provider.dart';
 import '../../../providers/connectivity_provider.dart';
 import '../../../providers/pharmacy_provider.dart';
 import '../../../providers/customer_provider.dart';
@@ -130,10 +130,12 @@ class _SalesScreenState extends State<SalesScreen>
           });
         });
         // Subscribe to realtime sales history updates
-        _retailProvider.subscribeToSalesHistory((sales) {
+        _retailProvider.subscribeToSalesHistory((sales) async {
+          if (!mounted) return;
+          final merged = await _mergeWithLocalPendingSales(sales);
           if (!mounted) return;
           setState(() {
-            _salesHistory = sales;
+            _salesHistory = merged;
             _hasMoreHistory = sales.length >= _historyLimit;
           });
           print('[SalesScreen] Realtime sales update: ${sales.length}');
@@ -785,10 +787,11 @@ class _SalesScreenState extends State<SalesScreen>
       final history = await retail.getSalesHistory(
         limit: _historyLimit,
       );
+      final merged = await _mergeWithLocalPendingSales(history);
 
       if (mounted) {
         setState(() {
-          _salesHistory = history;
+          _salesHistory = merged;
           _hasMoreHistory = history.length >= _historyLimit;
           _loadingHistory = false;
           print(
@@ -800,6 +803,45 @@ class _SalesScreenState extends State<SalesScreen>
       if (mounted) {
         setState(() => _loadingHistory = false);
       }
+    }
+  }
+
+  // Sales that were made while offline live only in the local DB until they
+  // sync, so a Firestore-only query never shows them. Merge them in here,
+  // normalizing their string `createdAt` to a Timestamp so the rest of the
+  // history UI (which expects a Timestamp) doesn't need to special-case them.
+  Future<List<Map<String, dynamic>>> _mergeWithLocalPendingSales(
+    List<Map<String, dynamic>> serverSales,
+  ) async {
+    try {
+      final retail = context.read<RetailProvider>();
+      final localPending = await retail.getLocalPendingSales();
+      if (localPending.isEmpty) return serverSales;
+
+      final existingIds = serverSales.map((s) => s['id']).toSet();
+      final normalizedLocal = localPending
+          .where((s) => !existingIds.contains(s['id']))
+          .map((s) {
+        final merged = Map<String, dynamic>.from(s);
+        final createdAtRaw = merged['createdAt'];
+        if (createdAtRaw is String) {
+          final parsed = DateTime.tryParse(createdAtRaw);
+          if (parsed != null) merged['createdAt'] = Timestamp.fromDate(parsed);
+        }
+        return merged;
+      }).toList();
+
+      if (normalizedLocal.isEmpty) return serverSales;
+
+      final combined = [...normalizedLocal, ...serverSales];
+      int millis(dynamic v) =>
+          v is Timestamp ? v.toDate().millisecondsSinceEpoch : 0;
+      combined.sort(
+          (a, b) => millis(b['createdAt']).compareTo(millis(a['createdAt'])));
+      return combined;
+    } catch (e) {
+      print('[SalesScreen] Error merging local pending sales: $e');
+      return serverSales;
     }
   }
 
@@ -1798,10 +1840,15 @@ class _SalesScreenState extends State<SalesScreen>
                                           // refresh realtime subscription with new limit
                                           context
                                               .read<RetailProvider>()
-                                              .subscribeToSalesHistory((sales) {
+                                              .subscribeToSalesHistory(
+                                                  (sales) async {
+                                            if (!mounted) return;
+                                            final merged =
+                                                await _mergeWithLocalPendingSales(
+                                                    sales);
                                             if (!mounted) return;
                                             setState(() {
-                                              _salesHistory = sales;
+                                              _salesHistory = merged;
                                               _hasMoreHistory =
                                                   sales.length >= _historyLimit;
                                             });
@@ -1822,16 +1869,22 @@ class _SalesScreenState extends State<SalesScreen>
                         final amount = sale['totalAmount'] as num? ?? 0;
                         var worker = sale['workerName'] as String? ?? '';
                         if (worker.isEmpty) {
-                          final workerId = sale['workerId'] as String?;
+                          final workerId = (sale['workerId'] as String?) ??
+                              (sale['createdBy'] as String?);
                           if (workerId != null && workerId.isNotEmpty) {
-                            final adminProvider = context.read<AdminProvider>();
-                            final user = adminProvider.getUserById(workerId);
-                            final allUsers = context.read<AdminProvider>().allUsers;
-                            allUsers.firstWhere(
-                              (u) => (u['id'] as String?) == workerId,
+                            // Workers are scoped to the current business, unlike
+                            // AdminProvider's user list which is only populated
+                            // on admin screens and is empty here — looking it up
+                            // there always fell through to "Unknown".
+                            final workersProvider =
+                                context.read<WorkersProvider>();
+                            final match = workersProvider.workers.firstWhere(
+                              (w) => (w['id'] as String?) == workerId,
                               orElse: () => <String, dynamic>{},
                             );
-                            worker = user?['name'] as String? ?? 'Unknown';
+                            worker = (match['name'] ?? match['fullName'])
+                                    as String? ??
+                                '';
                           }
                         }
                         if (worker.isEmpty) worker = 'Unknown';
@@ -1842,7 +1895,7 @@ class _SalesScreenState extends State<SalesScreen>
                             'refunded');
                         final refundedAtTs = sale['returnedAt'] as Timestamp?;
                         final isPendingSync =
-                            sale['isPendingSync'] as bool? ?? false;
+                            sale['pendingSync'] as bool? ?? false;
                         final refundedAtText = refundedAtTs != null
                             ? DateFormat('dd/MM/yyyy HH:mm')
                                 .format(refundedAtTs.toDate())
@@ -2041,7 +2094,7 @@ class _SalesScreenState extends State<SalesScreen>
   void _showSaleDetails(BuildContext context, Map<String, dynamic> sale) {
     final items = (sale['items'] as List<dynamic>?) ?? [];
     final retail = context.read<RetailProvider>();
-    final isPendingSync = sale['isPendingSync'] as bool? ?? false;
+    final isPendingSync = sale['pendingSync'] as bool? ?? false;
 
     showModalBottomSheet(
       context: context,
