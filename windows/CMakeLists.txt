@@ -10,6 +10,15 @@ set(BINARY_NAME "business_manager")
 # versions of CMake.
 cmake_policy(VERSION 3.14...3.25)
 
+# Some bundled plugins (e.g. flutter_inappwebview_windows) call
+# add_custom_command(TARGET ... DEPENDS ...), which CMake 3.31+'s CMP0175
+# rejects unless it's explicitly told to use the pre-3.31 behavior. Those
+# plugins don't set the policy themselves, so set the default here for any
+# subdirectory that doesn't opt in on its own.
+if(POLICY CMP0175)
+  set(CMAKE_POLICY_DEFAULT_CMP0175 OLD)
+endif()
+
 # Define build configuration option.
 get_property(IS_MULTICONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if(IS_MULTICONFIG)
@@ -31,6 +40,11 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
+
+# Some plugins still use the deprecated /await flag (<experimental/coroutine>),
+# which newer MSVC STL versions turn into a hard error (STL1011). Silence it
+# so those plugins keep compiling until they migrate to C++20 coroutines.
+add_definitions(-D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
 
 # Compilation settings that should be applied to most targets.
 #

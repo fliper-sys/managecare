@@ -19,6 +19,7 @@ import '../../../providers/workers_provider.dart';
 import 'inventory_alerts_screen.dart';
 import 'low_stock_products_screen.dart';
 import 'distributor_sales_report_screen.dart';
+import '../../dashboard/owner/utils/procurement_filter_utils.dart';
 
 class InventoryListScreen extends StatefulWidget {
   const InventoryListScreen({
@@ -219,6 +220,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   }
 
   void _filterInventory() {
+    final hideIngredientsInBakeryMode = _isBakeryBusiness() && !widget.showIngredientsOnly;
+
     List<Map<String, dynamic>> filtered = _inventory.where((item) {
       final name = (item['name'] ?? '').toString();
       final barcode = (item['barcode'] ?? '').toString();
@@ -227,6 +230,10 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       final quantity = item['quantity'] ?? 0;
       final minStock = item['minStock'] ?? 10;
       final isIngredient = _isIngredientItem(item);
+
+      if (hideIngredientsInBakeryMode && isIngredient) {
+        return false;
+      }
 
       final searchQuery = _searchController.text;
 
@@ -382,111 +389,9 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     return businessType == 'bakery' || businessType == 'bakeryshop' || businessType == 'bakeshop';
   }
 
-  Future<void> _showBakeryResupplyDialog(Map<String, dynamic> item) async {
+  void _navigateToBakeryResupplyScreen() {
     if (!_isBakeryBusiness()) return;
-
-    final quantityController = TextEditingController(text: '1');
-    final notesController = TextEditingController();
-    String? selectedBakerId;
-    String? selectedBakerName;
-
-    final workersProvider = context.read<WorkersProvider>();
-    final bakeryWorkers = workersProvider.workers.where((worker) {
-      final role = (worker['role'] ?? worker['roles'] ?? '').toString().toLowerCase();
-      return role.contains('baker') || role.contains('pastry');
-    }).toList();
-
-    final selected = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Issue to Baker'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Send stock from ${item['name'] ?? 'this item'} to production.'),
-              const SizedBox(height: 12),
-              TextField(
-                controller: quantityController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Quantity'),
-              ),
-              const SizedBox(height: 12),
-              if (bakeryWorkers.isNotEmpty)
-                DropdownButtonFormField<String>(
-                  value: selectedBakerId,
-                  decoration: const InputDecoration(labelText: 'Baker'),
-                  items: bakeryWorkers.map((worker) {
-                    final name = (worker['name'] ?? worker['fullName'] ?? 'Unnamed').toString();
-                    return DropdownMenuItem<String>(
-                      value: (worker['id'] ?? '').toString(),
-                      child: Text(name),
-                    );
-                  }).toList(),
-                  onChanged: (value) {
-                    selectedBakerId = value;
-                    final worker = bakeryWorkers.firstWhere(
-                      (entry) => (entry['id'] ?? '').toString() == value,
-                      orElse: () => <String, dynamic>{},
-                    );
-                    selectedBakerName = (worker['name'] ?? worker['fullName'] ?? '').toString();
-                  },
-                )
-              else
-                const Text('Add bakery workers first to assign this resupply to a baker.'),
-              const SizedBox(height: 12),
-              TextField(
-                controller: notesController,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Notes (optional)'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Record Resupply'),
-          ),
-        ],
-      ),
-    );
-
-    if (selected != true) return;
-
-    final quantity = int.tryParse(quantityController.text.trim()) ?? 0;
-    if (quantity <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Quantity must be greater than zero')));
-      return;
-    }
-
-    final businessProvider = context.read<BusinessProvider>();
-    final businessId = businessProvider.currentBusiness?.id ?? '';
-    if (businessId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No business selected')));
-      return;
-    }
-
-    try {
-      final repo = InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
-      await repo.recordBakeryResupply(
-        businessId: businessId,
-        inventoryId: (item['id'] ?? '').toString(),
-        quantity: quantity,
-        bakerId: selectedBakerId,
-        bakerName: selectedBakerName,
-        notes: notesController.text.trim(),
-        performedById: context.read<AuthProvider>().currentUser?.id,
-        performedByName: context.read<AuthProvider>().currentUser?.fullName ?? context.read<AuthProvider>().currentUser?.email,
-      );
-      await _loadInventory();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Resupply recorded')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to record resupply: $e'), backgroundColor: Colors.red));
-    }
+    Navigator.pushNamed(context, Routes.bakeryResupply);
   }
 
   Future<void> _showDistributorSaleDialog(Map<String, dynamic> item) async {
@@ -945,6 +850,22 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                if (_isBakeryBusiness())
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _navigateToBakeryResupplyScreen,
+                        icon: const Icon(Icons.shopping_cart_checkout),
+                        label: const Text('Bakery Resupply'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    ),
+                  ),
 
                 // Stats Row
                 Row(
@@ -1036,6 +957,22 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               },
             ),
           ),
+          if (_isBakeryBusiness())
+            Container(
+              width: double.infinity,
+              color: theme.cardColor,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              child: OutlinedButton.icon(
+                onPressed: _navigateToBakeryResupplyScreen,
+                icon: const Icon(Icons.bakery_dining_outlined),
+                label: const Text('Open Bakery Resupply'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.orange.shade800,
+                  side: const BorderSide(color: Colors.orange),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
 
           // Product List
           Expanded(
@@ -1103,7 +1040,6 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                         arguments: {'productId': item['id'] ?? ''},
                       );
                     },
-                    onBakeryResupply: _isBakeryBusiness() ? () => _showBakeryResupplyDialog(item) : null,
                     onDistributorSale: () => _showDistributorSaleDialog(item),
                     onDelete: () => _confirmDelete(item),
                   );
@@ -1122,7 +1058,13 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
                 child: FloatingActionButton.extended(
-                  onPressed: () => Navigator.pushNamed(context, Routes.procurement),
+                  onPressed: () => Navigator.pushNamed(
+                    context,
+                    Routes.procurement,
+                    arguments: {
+                      'showIngredientsOnly': widget.showIngredientsOnly || isIngredientFilterActive(_selectedCategory),
+                    },
+                  ),
                   icon: const Icon(Icons.shopping_bag_outlined),
                   label: const Text('Procurement'),
                   backgroundColor: Colors.orange,
@@ -1130,7 +1072,11 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               ),
               FloatingActionButton.extended(
                 onPressed: () {
-                  Navigator.pushNamed(context, Routes.inventoryAdd);
+                  Navigator.pushNamed(
+                    context,
+                    Routes.inventoryAdd,
+                    arguments: {'ingredientOnlyMode': widget.showIngredientsOnly || _selectedCategory == 'Ingredient'},
+                  );
                 },
                 icon: const Icon(Icons.add),
                 label: Text(widget.showIngredientsOnly ? 'Add Ingredient' : 'Add Product'),
@@ -1142,7 +1088,11 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
         return FloatingActionButton.extended(
           onPressed: () {
-            Navigator.pushNamed(context, Routes.inventoryAdd);
+            Navigator.pushNamed(
+              context,
+              Routes.inventoryAdd,
+              arguments: {'ingredientOnlyMode': widget.showIngredientsOnly || _selectedCategory == 'Ingredient'},
+            );
           },
           icon: const Icon(Icons.add),
           label: Text(widget.showIngredientsOnly ? 'Add Ingredient' : 'Add Product'),
@@ -1380,18 +1330,7 @@ class _ProductCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (onBakeryResupply != null) ...[
-                        IconButton(
-                          icon: const Icon(Icons.bakery_dining_outlined, size: 20),
-                          tooltip: 'Issue to baker',
-                          onPressed: onBakeryResupply,
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.orange.withOpacity(0.12),
-                            foregroundColor: Colors.orange.shade800,
-                            padding: const EdgeInsets.all(8),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                      ],
+                            ],
                       if (onDistributorSale != null) ...[
                         IconButton(
                           icon: const Icon(Icons.local_shipping_outlined, size: 20),

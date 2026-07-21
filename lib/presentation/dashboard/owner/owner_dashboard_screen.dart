@@ -3549,13 +3549,6 @@ class _HomeTabState extends State<_HomeTab> {
             arguments: const {'showIngredientsOnly': true},
           ),
           _QuickActionItem(
-            title: 'Freshness Tracker',
-            subtitle: 'Monitor expiry and batches',
-            icon: Icons.event_busy_rounded,
-            color: Colors.red,
-            route: Routes.expiryTracker,
-          ),
-          _QuickActionItem(
             title: 'Low Stock',
             subtitle: 'Ingredients and products',
             icon: Icons.warning_rounded,
@@ -3563,39 +3556,11 @@ class _HomeTabState extends State<_HomeTab> {
             route: Routes.lowStockProducts,
           ),
           _QuickActionItem(
-            title: 'Procurement',
-            subtitle: 'Buy ingredients and stock',
-            icon: Icons.shopping_cart_rounded,
-            color: Colors.teal,
-            route: Routes.procurement,
-          ),
-          _QuickActionItem(
-            title: 'Suppliers',
-            subtitle: 'Ingredient vendors',
-            icon: Icons.local_shipping_rounded,
-            color: Colors.brown,
-            route: Routes.retailSuppliers,
-          ),
-          _QuickActionItem(
-            title: 'Sales History',
-            subtitle: 'Daily bakery sales',
-            icon: Icons.history_rounded,
-            color: Colors.green,
-            route: Routes.salesHistory,
-          ),
-          _QuickActionItem(
             title: 'Distributor Sales',
             subtitle: 'Distributor sale records',
             icon: Icons.local_shipping_rounded,
             color: Colors.deepOrange,
             route: Routes.distributorSalesReport,
-          ),
-          _QuickActionItem(
-            title: 'Bakery Procurements',
-            subtitle: 'View bakery procurements',
-            icon: Icons.history_rounded,
-            color: Colors.brown,
-            route: Routes.bakeryProcurements,
           ),
           _QuickActionItem(
             title: 'Reports',

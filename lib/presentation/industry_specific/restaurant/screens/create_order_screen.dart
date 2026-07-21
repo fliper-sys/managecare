@@ -18,8 +18,11 @@ import '../../../../providers/hotel_provider.dart' as hotel;
 import '../../../../providers/retail_provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/utils/currency.dart';
+import '../../../../core/utils/connectivity_helper.dart';
+import '../../../../data/local/database_helper.dart';
 import '../../../../data/repositories/sales_repository_impl.dart';
 import '../../../../services/offline_sales_service.dart';
+import '../../../../services/sync_service.dart';
 import '../../../../services/payment_service.dart';
 import '../../../../services/receipt_manager.dart';
 import '../../../../services/web_download.dart' as web_download;
@@ -737,13 +740,36 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
         };
 
-        final firestore = FirebaseFirestore.instance;
-        final docRef = await firestore
-            .collection('businesses')
-            .doc(order.businessId)
-            .collection('sales')
-            .add(saleData);
-        await docRef.update({'saleId': docRef.id});
+        // Check connectivity up front rather than relying on the Firestore
+        // write to throw — with offline persistence enabled, writes resolve
+        // locally without an exception even with no network, which would
+        // otherwise make the offline fallback below almost never trigger for
+        // genuinely offline sales.
+        final hasNetwork = await ConnectivityHelper.hasInternetConnection();
+
+        String saleId;
+        var isOfflineSale = false;
+
+        if (!hasNetwork) {
+          debugPrint('[CreateOrderScreen] No network detected, saving sale offline');
+          saleId = await _saveRestaurantSaleOffline(saleData);
+          isOfflineSale = true;
+        } else {
+          try {
+            final firestore = FirebaseFirestore.instance;
+            final docRef = await firestore
+                .collection('businesses')
+                .doc(order.businessId)
+                .collection('sales')
+                .add(saleData);
+            await docRef.update({'saleId': docRef.id});
+            saleId = docRef.id;
+          } catch (e) {
+            debugPrint('[CreateOrderScreen] Firestore write failed, saving locally: $e');
+            saleId = await _saveRestaurantSaleOffline(saleData);
+            isOfflineSale = true;
+          }
+        }
 
         // Add completed order to provider
         await context.read<RestaurantProvider>().createOrder(order);
@@ -754,8 +780,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         if (!mounted) return;
         final firstTx = paymentBreakdown.isNotEmpty ? (paymentBreakdown.first['transactionId'] ?? '') : '';
         final saleMap = {
-          'id': docRef.id,
-          'saleId': docRef.id,
+          'id': saleId,
+          'saleId': saleId,
           'businessId': order.businessId,
           'orderId': order.id,
           'items': itemsList,
@@ -793,7 +819,12 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         );
 
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Payment successful and order completed'), backgroundColor: AppColors.success),
+          SnackBar(
+            content: Text(isOfflineSale
+                ? 'Sale recorded offline — order completed and will sync when online'
+                : 'Payment successful and order completed'),
+            backgroundColor: isOfflineSale ? AppColors.warning : AppColors.success,
+          ),
         );
 
         // Clear local cart
@@ -805,6 +836,63 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment error: $e'), backgroundColor: AppColors.error));
     }
+  }
+
+  /// Persists a restaurant sale to the local database and queues it for
+  /// sync when connectivity returns, mirroring the fallback used by the
+  /// retail/wholesale POS flows. The generic sync pipeline (SyncService ->
+  /// SalesRepositoryImpl.syncSaleToFirestore) writes the sale to both the
+  /// root `sales` collection and `businesses/{id}/sales` once it uploads,
+  /// matching where the online path writes directly. Returns the
+  /// locally-generated sale id to use in place of a Firestore doc id.
+  Future<String> _saveRestaurantSaleOffline(Map<String, dynamic> saleData) async {
+    final dbHelper = DatabaseHelper.instance;
+    final saleId = 'SALE-${DateTime.now().millisecondsSinceEpoch}';
+
+    final localSale = {
+      'id': saleId,
+      'businessId': saleData['businessId'],
+      'totalAmount': saleData['totalAmount'],
+      'discountAmount': saleData['discount'],
+      'taxAmount': saleData['tax'],
+      'finalAmount': saleData['finalAmount'],
+      'paymentMethod': saleData['paymentMethod'],
+      'category': saleData['category'],
+      'status': saleData['status'],
+      'createdBy': saleData['workerId'] ?? '',
+      'createdAt': DateTime.now().toIso8601String(),
+      'syncStatus': 'pending',
+      if (saleData['storeId'] != null) 'storeId': saleData['storeId'],
+    };
+
+    await dbHelper.insert('sales', localSale);
+
+    final items = (saleData['items'] as List<dynamic>?) ?? const [];
+    for (final raw in items) {
+      final item = Map<String, dynamic>.from(raw as Map);
+      final itemId = '${DateTime.now().millisecondsSinceEpoch}-${item['menuItemId'] ?? ''}';
+      await dbHelper.insert('sale_items', {
+        'id': itemId,
+        'saleId': saleId,
+        'productId': item['menuItemId'],
+        'productName': item['menuItemName'],
+        'quantity': item['quantity'],
+        'unitPrice': item['unitPrice'],
+        'discount': 0.0,
+        'total': item['total'],
+      });
+    }
+
+    await dbHelper.addToSyncQueue(
+        entityType: 'sale', entityId: saleId, action: 'create', data: localSale);
+
+    // Try to trigger a background sync (no-op if still offline)
+    try {
+      final syncService = SyncService();
+      await syncService.syncSales();
+    } catch (_) {}
+
+    return saleId;
   }
 
   Future<void> _confirmPaymentForAdmin() async {

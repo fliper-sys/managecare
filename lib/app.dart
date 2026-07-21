@@ -29,7 +29,6 @@ import 'services/business_reminder_service.dart';
 import 'services/snackbar_service.dart';
 import 'services/startup_notifications.dart';
 import 'services/subscription_service.dart';
-import 'widgets/offline_indicator.dart';
 
 class App extends StatefulWidget {
   const App({super.key});
@@ -51,8 +50,10 @@ class _AppState extends State<App> {
       _businessRestrictionSub;
   AuthProvider? _authProvider;
   BusinessProvider? _businessProvider;
+  ConnectivityProvider? _connectivityProviderRef;
   VoidCallback? _authListener;
   VoidCallback? _businessListener;
+  VoidCallback? _connectivityListener;
   String? _lastStartupNotificationKey;
   String? _watchedRestrictionBusinessId;
   String? _activeRestrictionBusinessId;
@@ -72,19 +73,31 @@ class _AppState extends State<App> {
   }
 
   void _attachProviderListeners() {
-    context.read<ConnectivityProvider>().initialize();
+    // Without this, ConnectivityProvider's reconnect handler silently no-ops
+    // (its _syncProvider stays null forever) and offline sales never get
+    // pushed to Firebase automatically when the network comes back.
+    final syncProvider = context.read<SyncProvider>();
+    final connectivityProvider = context.read<ConnectivityProvider>();
+    connectivityProvider
+      ..setSyncProvider(syncProvider)
+      ..initialize();
+    syncProvider.checkPendingItems();
 
-    // ── Offline sync: check pending items on startup ────────────
-    // SyncProvider.pendingItems starts at 0; without this call the
-    // OfflineIndicator would show 0 pending even if the app was closed
-    // mid-sync and sales are still queued in the local SQLite DB.
-    unawaited(context.read<SyncProvider>().checkPendingItems());
-    // Wire SyncProvider into ConnectivityProvider so it gets notified
-    // when connectivity changes and can update the pending count.
-    context.read<ConnectivityProvider>().setSyncProvider(
-      context.read<SyncProvider>(),
-    );
-    // ────────────────────────────────────────────────────────────
+    // Fuel/gas pump sales are queued in a separate local store (not the
+    // generic sales table SyncProvider watches), so they need their own
+    // hook into "connection just came back" — otherwise they only flush
+    // when the cashier happens to reopen the pump screen or make another
+    // sale while online.
+    _connectivityProviderRef = connectivityProvider;
+    _connectivityListener = _handleConnectivityChangedForPumpSync;
+    connectivityProvider.addListener(_connectivityListener!);
+
+    // A live offline->online transition may never fire this session if the
+    // device is already connected by the time the app opens — proactively
+    // push anything that piled up locally (from this session or an older
+    // install of the app) right away instead of waiting for one.
+    unawaited(syncProvider.syncNow());
+    _syncPendingPumpSalesIfPossible();
 
     _authProvider = context.read<AuthProvider>();
     _businessProvider = context.read<BusinessProvider>();
@@ -98,6 +111,22 @@ class _AppState extends State<App> {
     _handleAuthStateChanged();
     _handleBusinessChanged();
     unawaited(_syncBusinessRestrictionWatcher());
+  }
+
+  void _handleConnectivityChangedForPumpSync() {
+    if (!mounted || _connectivityProviderRef == null) return;
+    if (_connectivityProviderRef!.isConnected) {
+      _syncPendingPumpSalesIfPossible();
+    }
+  }
+
+  void _syncPendingPumpSalesIfPossible() {
+    try {
+      // No-ops safely if no business is selected yet or the queue is empty.
+      context.read<RetailProvider>().syncPendingPumpSales();
+    } catch (e) {
+      debugPrint('[App] Error syncing pending pump sales: $e');
+    }
   }
 
   void _handleAuthStateChanged() {
@@ -146,6 +175,11 @@ class _AppState extends State<App> {
       unawaited(receiptProvider.fetchReceiptSettings(business.id));
     }
     unawaited(receiptProvider.fetchReceiptPreferences(business.id));
+
+    // RetailProvider's businessId (and therefore its pump-sale queue key)
+    // isn't guaranteed to be set the first time _syncPendingPumpSalesIfPossible
+    // ran at startup, so retry now that a business is confirmed selected.
+    _syncPendingPumpSalesIfPossible();
 
     _queueStartupNotificationsIfNeeded();
     unawaited(_syncBusinessReminders());
@@ -484,6 +518,9 @@ class _AppState extends State<App> {
     if (_businessProvider != null && _businessListener != null) {
       _businessProvider!.removeListener(_businessListener!);
     }
+    if (_connectivityProviderRef != null && _connectivityListener != null) {
+      _connectivityProviderRef!.removeListener(_connectivityListener!);
+    }
 
     _appRouter.dispose();
     _dunningTimer?.cancel();
@@ -540,26 +577,133 @@ class _ConnectivityBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
 
-    return Consumer<ConnectivityProvider>(
-      builder: (context, connectivity, _) {
+    return Consumer2<ConnectivityProvider, SyncProvider>(
+      builder: (context, connectivity, sync, _) {
+        // Priority: no connection > actively syncing pending sales > sales
+        // still waiting to sync (e.g. sync attempt failed) > nothing to show.
+        // This is the persistent, app-wide counterpart to the one-time
+        // "Sale recorded offline" snackbar shown right at checkout — it
+        // keeps reassuring the cashier that pending offline sales exist and
+        // haven't been lost, until they're confirmed synced.
+        final scheme = Theme.of(context).colorScheme;
+        String? message;
+        IconData? icon;
+        Color backgroundColor = scheme.errorContainer;
+        Color foregroundColor = scheme.onErrorContainer;
+        Color borderColor = scheme.error.withOpacity(0.18);
+
+        bool tappableToSync = false;
+
+        if (!connectivity.isConnected) {
+          message = 'No Internet Connection - Working Offline';
+          icon = Icons.wifi_off;
+        } else if (sync.isSyncing) {
+          message = 'Syncing ${sync.pendingItems} offline sale'
+              '${sync.pendingItems == 1 ? '' : 's'}...';
+          icon = Icons.sync;
+          backgroundColor = scheme.tertiaryContainer;
+          foregroundColor = scheme.onTertiaryContainer;
+          borderColor = scheme.tertiary.withOpacity(0.18);
+        } else if (sync.hasErroredItems) {
+          // Distinct from the generic "waiting to sync" state — these have
+          // already failed to sync repeatedly and need attention (bad data,
+          // a deleted product, etc.), not just a moment to catch up.
+          message = '${sync.erroredItems} sale${sync.erroredItems == 1 ? '' : 's'} '
+              'repeatedly failed to sync - tap to retry';
+          icon = Icons.error_outline;
+          tappableToSync = true;
+        } else if (sync.hasHighRiskBacklog) {
+          // A large unsynced backlog is a real data-loss risk if this
+          // device is lost, reset, or uninstalled before it syncs — escalate
+          // beyond the routine tertiary "waiting to sync" styling.
+          message = '${sync.pendingItems} offline sales waiting to sync - '
+              'tap now to avoid losing them';
+          icon = Icons.warning_amber_rounded;
+          tappableToSync = true;
+        } else if (sync.hasPendingItems) {
+          message = '${sync.pendingItems} offline sale'
+              '${sync.pendingItems == 1 ? '' : 's'} waiting to sync - tap to push now';
+          icon = Icons.cloud_upload_outlined;
+          backgroundColor = scheme.tertiaryContainer;
+          foregroundColor = scheme.onTertiaryContainer;
+          borderColor = scheme.tertiary.withOpacity(0.18);
+          tappableToSync = true;
+        }
+
         return Stack(
           children: [
             Positioned.fill(child: child),
-            // OfflineIndicator handles all states:
-            // - Offline → red bar "You're Offline"
-            // - Online + pending sync → amber bar with count + sync button
-            // - Online + syncing → progress bar
-            // - Online + all synced → hidden (SizedBox.shrink)
-            Positioned(
-              top: 0, left: 0, right: 0,
-              child: SafeArea(
-                bottom: false,
-                child: const OfflineIndicator(),
+            if (message != null)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: GestureDetector(
+                  onTap: tappableToSync
+                      ? () async {
+                          final result = await sync.syncNow();
+                          final messenger = scaffoldMessengerKey.currentState;
+                          if (messenger != null) {
+                            messenger.showSnackBar(SnackBar(content: Text(result)));
+                          }
+                        }
+                      : null,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: backgroundColor,
+                      border: Border(
+                        bottom: BorderSide(color: borderColor),
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (icon != null) ...[
+                              Icon(icon, size: 15, color: foregroundColor),
+                              const SizedBox(width: 6),
+                            ],
+                            Flexible(
+                              child: Text(
+                                message,
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                      color: foregroundColor,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (tappableToSync && sync.lastSyncTime != null)
+                          Text(
+                            'Last synced ${_relativeSyncTime(sync.lastSyncTime!)}',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  color: foregroundColor.withOpacity(0.75),
+                                ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
           ],
         );
       },
     );
+  }
+
+  String _relativeSyncTime(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inSeconds < 60) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 }

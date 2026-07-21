@@ -10,6 +10,25 @@
       "client_info": {
         "mobilesdk_app_id": "1:481744910720:android:4a5d7debd6070c03b92965",
         "android_client_info": {
+          "package_name": "com.example.mc"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBxaqlfcndDWnEXJuAWJ1Q41nS3-2-1vvU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:481744910720:android:3378fe8c78553feab92965",
+        "android_client_info": {
           "package_name": "com.managecare"
         }
       },

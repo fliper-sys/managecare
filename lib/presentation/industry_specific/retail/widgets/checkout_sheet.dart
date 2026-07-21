@@ -13,6 +13,7 @@ import '../../../../core/localization/app_localization.dart';
 import '../../../../core/utils/currency.dart';
 import '../../../../providers/retail_provider.dart';
 import '../../../../providers/auth_provider.dart';
+import '../../../../providers/sync_provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../data/repositories/worker_repository_impl.dart';
 import '../../../../widgets/profile_avatar.dart';
@@ -1174,20 +1175,33 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                             'storeName': storeNameForReceipt,
                         };
 
-                        final savedOffline = await provider.checkout(
-                          paymentMethod: _selectedPaymentMethod,
-                          workerId: _selectedWorkerId ?? auth.currentUser?.id,
-                          workerName: _selectedWorkerName ?? auth.currentUser?.fullName,
-                          customerId: customerId,
-                          customerEmail: customerEmail,
-                          customerName: customerName,
-                          storeId: storeIdForReceipt,
-                          tax: _taxPercent,
-                          discount: discountAmt,
-                        );
+                        bool savedOffline;
+                        try {
+                          savedOffline = await provider.checkout(
+                            paymentMethod: _selectedPaymentMethod,
+                            workerId: _selectedWorkerId ?? auth.currentUser?.id,
+                            workerName: _selectedWorkerName ?? auth.currentUser?.fullName,
+                            customerId: customerId,
+                            customerEmail: customerEmail,
+                            customerName: customerName,
+                            storeId: storeIdForReceipt,
+                            tax: _taxPercent,
+                            discount: discountAmt,
+                          );
+                        } catch (e) {
+                          // Neither the online write nor the offline
+                          // fallback succeeded — nothing was recorded.
+                          // Leave the sheet open and say so plainly rather
+                          // than closing it as if the sale went through.
+                          scaffoldMessenger.showSnackBar(SnackBar(
+                              content: Text('Sale could not be saved: $e. Please try again.'),
+                              backgroundColor: AppColors.error));
+                          return;
+                        }
                         Navigator.of(context).pop();
 
                         if (savedOffline) {
+                          context.read<SyncProvider>().checkPendingItems();
                           scaffoldMessenger.showSnackBar(SnackBar(
                               content: Text('Sale recorded offline and will sync when online'),
                               backgroundColor: AppColors.warning));

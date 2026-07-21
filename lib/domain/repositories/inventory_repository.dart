@@ -28,6 +28,10 @@ abstract class InventoryRepository {
     String? notes,
     String? performedById,
     String? performedByName,
+    num? expectedProductionAmount,
+    num? actualProductionAmount,
+    String? productionUnit,
+    String? productionItemName,
   });
 
   /// Stream inventory history for an item (ordered by createdAt desc)

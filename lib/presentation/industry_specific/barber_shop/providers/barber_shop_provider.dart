@@ -5,6 +5,7 @@ import 'package:business_manager/services/business_reminder_service.dart';
 import 'package:business_manager/services/whatsapp_service.dart';
 import 'dart:convert';
 import '../../../../data/local/database_helper.dart';
+import '../../../../core/utils/connectivity_helper.dart';
 
 // ==================== MODELS ====================
 
@@ -863,13 +864,29 @@ class BarberShopProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> recordSale(BarberShopSale sale) async {
+  /// Records a completed barber shop sale. Returns true if the sale had to
+  /// be stored offline (queued for sync), false when it uploaded to
+  /// Firestore immediately.
+  Future<bool> recordSale(BarberShopSale sale) async {
+    if (!hasBusinessContext) {
+      _errorMessage = 'No business selected';
+      notifyListeners();
+      return false;
+    }
+
+    // Check connectivity up front rather than relying on the Firestore
+    // write to throw — with offline persistence enabled, writes resolve
+    // locally without an exception even with no network, which previously
+    // meant this method never noticed it was offline: the sale looked
+    // "recorded" but silently sat in Firestore's local cache with no
+    // pending-sync indicator and no local queue entry.
+    final hasNetwork = await ConnectivityHelper.hasInternetConnection();
+    if (!hasNetwork) {
+      debugPrint('[BarberShopProvider] No network detected, saving sale offline');
+      return await _saveSaleOffline(sale);
+    }
+
     try {
-      if (!hasBusinessContext) {
-        _errorMessage = 'No business selected';
-        notifyListeners();
-        return;
-      }
       final data = {
         ...sale.toJson(),
         'businessId': _businessId,
@@ -895,113 +912,101 @@ class BarberShopProvider extends ChangeNotifier {
       } catch (_) {}
 
       _sales.insert(0, sale);
-
-      // persist locally as synced record
-      try {
-        DatabaseHelper? db;
-        try {
-          db = DatabaseHelper.instance;
-        } catch (_) {
-          db = null;
-        }
-
-        if (db != null) {
-          final local = {
-            'id': sale.id,
-            'businessId': _businessId,
-            'customerId': null,
-            'totalAmount': sale.total,
-            'discountAmount': 0.0,
-            'taxAmount': sale.tax,
-            'finalAmount': sale.total,
-            'paymentMethod': sale.paymentMethod,
-            'status': 'completed',
-            'notes': jsonEncode({'barberId': sale.barberId, 'payments': sale.payments}),
-            'createdBy': '',
-            'createdAt': sale.saleDate.toIso8601String(),
-            'syncStatus': 'synced',
-          };
-          try {
-            await db.insert('sales', local);
-          } catch (_) {}
-
-          // insert sale items for services
-          for (final sv in sale.services) {
-            final itemId = '${sale.id}-${sv['serviceId']}';
-            final itemData = {
-              'id': itemId,
-              'saleId': sale.id,
-              'productId': sv['serviceId'],
-              'productName': sv['serviceName'],
-              'quantity': 1,
-              'unitPrice': sv['price'],
-              'discount': 0.0,
-              'total': sv['price'],
-            };
-            try {
-              await db.insert('sale_items', itemData);
-            } catch (_) {}
-          }
-        }
-      } catch (_) {}
+      await _persistSaleLocally(sale, syncStatus: 'synced');
 
       _errorMessage = null;
       notifyListeners();
+      return false; // uploaded successfully
     } catch (e) {
-      // On failure, write local pending record for later sync
-      try {
-        DatabaseHelper? db;
-        try {
-          db = DatabaseHelper.instance;
-        } catch (_) {
-          db = null;
-        }
+      debugPrint('[BarberShopProvider] Firestore write failed, saving locally: $e');
+      return await _saveSaleOffline(sale);
+    }
+  }
 
-        if (db != null) {
-          final local = {
-            'id': sale.id,
-            'businessId': _businessId,
-            'customerId': null,
-            'totalAmount': sale.total,
-            'discountAmount': 0.0,
-            'taxAmount': sale.tax,
-            'finalAmount': sale.total,
-            'paymentMethod': sale.paymentMethod,
-            'status': 'completed',
-            'notes': jsonEncode({'barberId': sale.barberId, 'payments': sale.payments}),
-            'createdBy': '',
-            'createdAt': sale.saleDate.toIso8601String(),
-            'syncStatus': 'pending',
-          };
-          try {
-            await db.insert('sales', local);
-          } catch (_) {}
-
-          for (final sv in sale.services) {
-            final itemId = '${sale.id}-${sv['serviceId']}';
-            final itemData = {
-              'id': itemId,
-              'saleId': sale.id,
-              'productId': sv['serviceId'],
-              'productName': sv['serviceName'],
-              'quantity': 1,
-              'unitPrice': sv['price'],
-              'discount': 0.0,
-              'total': sv['price'],
-            };
-            try {
-              await db.insert('sale_items', itemData);
-            } catch (_) {}
-          }
-
-          try {
-            await db.addToSyncQueue(entityType: 'sale', entityId: sale.id, action: 'create', data: {...sale.toJson(), 'id': sale.id});
-          } catch (_) {}
-        }
-      } catch (_) {}
-
-      _errorMessage = e.toString();
+  /// Persists a sale to the local database and queues it for sync when
+  /// connectivity returns. Used both when we already know we're offline and
+  /// as a fallback if a Firestore write unexpectedly fails.
+  Future<bool> _saveSaleOffline(BarberShopSale sale) async {
+    final persisted = await _persistSaleLocally(sale, syncStatus: 'pending');
+    if (!persisted) {
+      // Neither Firestore nor the local DB captured this sale — it isn't
+      // recorded anywhere. Surface that clearly instead of reporting
+      // "saved offline" for a sale that was actually lost.
+      _errorMessage = 'Failed to save sale — please retry.';
       notifyListeners();
+      throw Exception(_errorMessage);
+    }
+    try {
+      final db = DatabaseHelper.instance;
+      await db.addToSyncQueue(entityType: 'sale', entityId: sale.id, action: 'create', data: {...sale.toJson(), 'id': sale.id});
+    } catch (_) {}
+
+    _sales.insert(0, sale);
+    _errorMessage = null;
+    notifyListeners();
+    return true; // saved offline
+  }
+
+  /// Returns true if the sale row (and all of its service line items) was
+  /// written successfully. On a partial failure (sale row written but items
+  /// didn't finish), rolls back the sale row too rather than leave a
+  /// half-written record that would sync with missing services.
+  Future<bool> _persistSaleLocally(BarberShopSale sale, {required String syncStatus}) async {
+    DatabaseHelper? db;
+    try {
+      db = DatabaseHelper.instance;
+    } catch (_) {
+      db = null;
+    }
+    if (db == null) return false;
+
+    final local = {
+      'id': sale.id,
+      'businessId': _businessId,
+      'customerId': null,
+      'totalAmount': sale.total,
+      'discountAmount': 0.0,
+      'taxAmount': sale.tax,
+      'finalAmount': sale.total,
+      'paymentMethod': sale.paymentMethod,
+      'status': 'completed',
+      'notes': jsonEncode({'barberId': sale.barberId, 'payments': sale.payments}),
+      'createdBy': '',
+      'createdAt': sale.saleDate.toIso8601String(),
+      'syncStatus': syncStatus,
+    };
+
+    try {
+      await db.insert('sales', local);
+    } catch (e) {
+      debugPrint('[BarberShopProvider] Failed to persist sale locally: $e');
+      return false;
+    }
+
+    try {
+      // insert sale items for services
+      for (final sv in sale.services) {
+        final itemId = '${sale.id}-${sv['serviceId']}';
+        final itemData = {
+          'id': itemId,
+          'saleId': sale.id,
+          'productId': sv['serviceId'],
+          'productName': sv['serviceName'],
+          'quantity': 1,
+          'unitPrice': sv['price'],
+          'discount': 0.0,
+          'total': sv['price'],
+        };
+        await db.insert('sale_items', itemData);
+      }
+      return true;
+    } catch (e) {
+      debugPrint('[BarberShopProvider] Failed to persist sale items, rolling back sale ${sale.id}: $e');
+      try {
+        await db.delete('sale_items', where: 'saleId = ?', whereArgs: [sale.id]);
+        await db.delete('sales', where: 'id = ?', whereArgs: [sale.id]);
+      } catch (_) {}
+      return false;
     }
   }
 

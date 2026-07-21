@@ -534,19 +534,29 @@ class _WarehousePosScreenState extends State<WarehousePosScreen> {
         warehouses: warehouses,
         defaultWarehouseId: defaultWarehouseId,
         onComplete: (payment, warehouseId) async {
-          // Save to Firestore via provider
-          await _saveToFirestore(context, payment, warehouseId);
+          // Save to Firestore (or locally, if offline) via provider
+          final savedOffline = await _saveToFirestore(context, payment, warehouseId);
+          if (!context.mounted) return;
           Navigator.pop(context);
           setState(() => _cart.clear());
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Sale completed successfully')),
+            SnackBar(
+              content: Text(
+                savedOffline
+                    ? 'Sale recorded offline and will sync when online'
+                    : 'Sale completed successfully',
+              ),
+              backgroundColor: savedOffline ? AppColors.warning : AppColors.success,
+            ),
           );
         },
       ),
     );
   }
 
-  Future<void> _saveToFirestore(BuildContext context, String paymentMethod, String? warehouseId) async {
+  /// Returns true if the sale was stored offline (queued for sync), false
+  /// when it was uploaded to Firestore immediately.
+  Future<bool> _saveToFirestore(BuildContext context, String paymentMethod, String? warehouseId) async {
     final provider = context.read<WholesaleProvider>();
     final auth = context.read<AuthProvider>();
 
@@ -561,16 +571,36 @@ class _WarehousePosScreenState extends State<WarehousePosScreen> {
             ))
         .toList();
 
+    bool savedOffline;
     try {
-      await provider.createSale(
+      savedOffline = await provider.createSale(
         items: items,
         paymentMethod: paymentMethod,
         workerId: auth.currentUser?.id,
         workerName: auth.currentUser?.fullName,
         warehouseId: warehouseId,
       );
+    } catch (e) {
+      // Neither the online write nor the offline fallback succeeded — the
+      // sale was not recorded anywhere. Tell the cashier explicitly rather
+      // than letting this surface as an unhandled error with no guidance.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sale could not be saved: $e. Please try again.'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      // Propagate so the caller's "success" flow (closing the dialog,
+      // clearing the cart) doesn't run — nothing was actually recorded.
+      rethrow;
+    }
 
-      // Send push notification to business owners
+    // Send push notification to business owners. Skipped when queued
+    // offline — it will be meaningful once the sale actually syncs, and
+    // there's no server-confirmed sale to notify about yet.
+    if (!savedOffline) {
       try {
         final totalAmount = items.fold<double>(0.0, (sum, item) => sum + item.total);
         await BusinessNotificationManager.instance.notifySaleCompleted(
@@ -590,9 +620,9 @@ class _WarehousePosScreenState extends State<WarehousePosScreen> {
       } catch (e) {
         debugPrint('[WarehousePOS] Push notification failed: $e');
       }
-    } catch (e) {
-      debugPrint('[WarehousePOS] Failed to save sale: $e');
     }
+
+    return savedOffline;
   }
 }
 

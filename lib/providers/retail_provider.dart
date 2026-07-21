@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/utils/datetime_utils.dart';
+import '../core/utils/connectivity_helper.dart';
 import '../services/business_notification_manager.dart';
 import '../services/notification_and_email_service.dart';
 import '../data/local/database_helper.dart';
@@ -27,6 +28,7 @@ class Product {
   final DateTime? expiryDate;
   final String? batchLabel;
   final int? shelfLifeDays;
+  final double distributorDiscountPercent;
 
   Product({
     required this.id,
@@ -46,6 +48,7 @@ class Product {
     this.expiryDate,
     this.batchLabel,
     this.shelfLifeDays,
+    this.distributorDiscountPercent = 0.0,
   });
 
   String get resolvedSaleUnit => saleUnit.trim().isEmpty ? unit : saleUnit;
@@ -84,6 +87,9 @@ class Product {
       ),
       batchLabel: data['batchLabel']?.toString(),
       shelfLifeDays: (data['shelfLifeDays'] as num?)?.toInt(),
+      distributorDiscountPercent: (data['distributorDiscountPercent'] as num?)?.toDouble() ??
+          (data['discountPercent'] as num?)?.toDouble() ??
+          0.0,
     );
   }
 
@@ -106,6 +112,7 @@ class Product {
       if (batchLabel != null && batchLabel!.trim().isNotEmpty)
         'batchLabel': batchLabel!.trim(),
       if (shelfLifeDays != null) 'shelfLifeDays': shelfLifeDays,
+      'distributorDiscountPercent': distributorDiscountPercent,
       'updatedAt': FieldValue.serverTimestamp(),
     };
   }
@@ -1904,6 +1911,27 @@ class RetailProvider extends ChangeNotifier {
             '[Checkout] Recording sale for worker: $workerName (ID: $workerId)');
       }
 
+      // Check connectivity up front. Firestore's own offline persistence
+      // would otherwise resolve a write locally without throwing even with
+      // no network — safe for the data, but it means we could never
+      // reliably tell the cashier "this sale is offline and pending sync".
+      // Checking first makes that signal trustworthy.
+      final hasNetwork = await ConnectivityHelper.hasInternetConnection();
+      if (!hasNetwork) {
+        debugPrint('[Checkout] No network detected, saving sale offline');
+        return await _saveSaleOffline(
+          activeCartEntries: activeCartEntries,
+          totalAmount: totalAmount,
+          taxAmount: taxAmount,
+          discount: discount,
+          paymentMethod: paymentMethod,
+          customerId: customerId,
+          workerId: workerId,
+          storeId: storeId,
+          priceOverrides: priceOverrides,
+        );
+      }
+
       // Try to write to Firestore first
       try {
         final saleRef = await _firestore
@@ -2023,136 +2051,184 @@ class RetailProvider extends ChangeNotifier {
       } catch (e) {
         // Firestore write failed — fall back to local DB and queue for sync
         debugPrint('[Checkout] Firestore write failed, saving locally: $e');
-
-        final dbHelper = DatabaseHelper.instance;
-        final saleId = 'SALE-${DateTime.now().millisecondsSinceEpoch}';
-
-        final localSale = {
-          'id': saleId,
-          'businessId': _businessId!,
-          'customerId': customerId,
-          'totalAmount': totalAmount,
-          'discountAmount': discount,
-          'taxAmount': taxAmount,
-          'finalAmount': totalAmount,
-          'paymentMethod': paymentMethod,
-          'status': 'completed',
-          'notes': null,
-          'createdBy': workerId ?? '',
-          'createdAt': DateTime.now().toIso8601String(),
-          'syncStatus': 'pending',
-          if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
-        };
-
-        // Insert sale
-        await dbHelper.insert('sales', localSale);
-
-        // Insert items
-        for (final e in activeCartEntries.entries) {
-          final itemId = DateTime.now().millisecondsSinceEpoch.toString() + e.key;
-          final product = _findProductForCart(e.key);
-          final pricingMode = getPricingModeForCartItem(e.key);
-          final saleUnit = getEffectiveSaleUnitForCartItem(e.key);
-          final saleUnitMultiplier =
-              getEffectiveSaleUnitMultiplierForCartItem(e.key);
-          final item = {
-            'id': itemId,
-            'saleId': saleId,
-            'productId': e.key,
-            'productName': product.name,
-            'quantity': e.value,
-            'unitPrice': priceOverrides != null && priceOverrides.containsKey(e.key)
-                ? priceOverrides[e.key]!
-                : getEffectivePriceForCartItem(e.key),
-            'pricingMode': pricingMode,
-            'inventoryUnit': product.unit,
-            'saleUnit': saleUnit,
-            'saleUnitMultiplier': saleUnitMultiplier,
-            'inventoryQuantity': saleUnitMultiplier * e.value,
-            'discount': 0.0,
-            'total': (priceOverrides != null && priceOverrides.containsKey(e.key)
-                    ? priceOverrides[e.key]!
-                    : getEffectivePriceForCartItem(e.key)) *
-                e.value,
-          };
-          await dbHelper.insert('sale_items', item);
-
-          // Update local inventory record
-          final inv = await dbHelper.query(
-            'inventory',
-            where: '(id = ? OR barcode = ? OR name = ?) AND businessId = ?',
-            whereArgs: [
-              e.key,
-              product.barcode ?? '',
-              product.name,
-              _businessId,
-            ],
-            limit: 1,
-          );
-          if (inv.isNotEmpty) {
-            final currentQty = (inv.first['quantity'] as num).toDouble();
-            final newQty = (currentQty - (saleUnitMultiplier * e.value))
-                .clamp(0, 999999);
-            await dbHelper.update(
-              'inventory',
-              {
-                'quantity': newQty,
-                'stock': newQty,
-                'syncStatus': 'pending',
-                'updatedAt': DateTime.now().toIso8601String(),
-              },
-              where: '(id = ? OR barcode = ? OR name = ?) AND businessId = ?',
-              whereArgs: [
-                e.key,
-                product.barcode ?? '',
-                product.name,
-                _businessId,
-              ],
-            );
-          } else {
-            await dbHelper.insert('inventory', {
-              'id': e.key,
-              'businessId': _businessId!,
-              'name': product.name,
-              'unitPrice': product.price,
-              'barcode': product.barcode,
-              'quantity': (0 - (saleUnitMultiplier * e.value))
-                  .toDouble()
-                  .clamp(0, 999999),
-              'stock': (0 - (saleUnitMultiplier * e.value))
-                  .toDouble()
-                  .clamp(0, 999999),
-              'createdAt': DateTime.now().toIso8601String(),
-              'syncStatus': 'pending',
-            });
-          }
-        }
-
-        // Add to sync queue
-        await dbHelper.addToSyncQueue(entityType: 'sale', entityId: saleId, action: 'create', data: localSale);
-
-        // Try a background sync immediately in case connectivity returns
-        // between when the Firestore write failed and now. Passes firestore
-        // so SalesRepositoryImpl can reach the server if available.
-        try {
-          final syncService = SyncService(firestore: _firestore);
-          await syncService.syncSales();
-        } catch (_) {
-          // Still offline — sale stays queued, sync runs automatically
-          // when ConnectivityProvider detects connectivity is restored.
-        }
-
-        // Clear cart and refresh
-        _resetActiveCartState();
-        _queueCartCacheSave();
-        await loadProducts();
-        notifyListeners();
-
-        return true; // saved offline
+        return await _saveSaleOffline(
+          activeCartEntries: activeCartEntries,
+          totalAmount: totalAmount,
+          taxAmount: taxAmount,
+          discount: discount,
+          paymentMethod: paymentMethod,
+          customerId: customerId,
+          workerId: workerId,
+          storeId: storeId,
+          priceOverrides: priceOverrides,
+        );
       }
     } catch (e) {
       debugPrint('[Checkout] Error during checkout: $e');
       rethrow;
+    }
+  }
+
+  /// Persists a sale to the local database and queues it for sync when
+  /// connectivity returns. Used both when we already know we're offline and
+  /// as a fallback if a Firestore write unexpectedly fails.
+  Future<bool> _saveSaleOffline({
+    required Map<String, int> activeCartEntries,
+    required double totalAmount,
+    required double taxAmount,
+    required double discount,
+    required String paymentMethod,
+    String? customerId,
+    String? workerId,
+    String? storeId,
+    Map<String, double>? priceOverrides,
+  }) async {
+    final dbHelper = DatabaseHelper.instance;
+    final saleId = 'SALE-${DateTime.now().millisecondsSinceEpoch}';
+
+    final localSale = {
+      'id': saleId,
+      'businessId': _businessId!,
+      'customerId': customerId,
+      'totalAmount': totalAmount,
+      'discountAmount': discount,
+      'taxAmount': taxAmount,
+      'finalAmount': totalAmount,
+      'paymentMethod': paymentMethod,
+      'status': 'completed',
+      'notes': null,
+      'createdBy': workerId ?? '',
+      'createdAt': DateTime.now().toIso8601String(),
+      'syncStatus': 'pending',
+      if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
+    };
+
+    // Insert sale
+    await dbHelper.insert('sales', localSale);
+
+    try {
+      await _saveSaleOfflineItems(
+        dbHelper: dbHelper,
+        saleId: saleId,
+        activeCartEntries: activeCartEntries,
+        priceOverrides: priceOverrides,
+      );
+    } catch (e) {
+      // The sale row exists but its items don't (or only partially do) —
+      // syncing it later would create an item-less transaction in
+      // Firestore, same as the bug this whole fix started from. Better to
+      // remove the half-written record and surface the failure clearly so
+      // the cashier knows to retry, rather than silently queue something
+      // broken.
+      debugPrint('[Checkout] Offline item save failed, rolling back local sale $saleId: $e');
+      try {
+        await dbHelper.delete('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
+        await dbHelper.delete('sales', where: 'id = ?', whereArgs: [saleId]);
+      } catch (_) {}
+      rethrow;
+    }
+
+    // Add to sync queue
+    await dbHelper.addToSyncQueue(entityType: 'sale', entityId: saleId, action: 'create', data: localSale);
+
+    // Try to trigger a background sync (no-op if still offline)
+    try {
+      final syncService = SyncService();
+      await syncService.syncSales();
+    } catch (_) {}
+
+    _resetActiveCartState();
+    _queueCartCacheSave();
+    await loadProducts();
+    notifyListeners();
+
+    return true; // saved offline
+  }
+
+  Future<void> _saveSaleOfflineItems({
+    required DatabaseHelper dbHelper,
+    required String saleId,
+    required Map<String, int> activeCartEntries,
+    Map<String, double>? priceOverrides,
+  }) async {
+    for (final e in activeCartEntries.entries) {
+      final itemId = DateTime.now().millisecondsSinceEpoch.toString() + e.key;
+      final product = _findProductForCart(e.key);
+      final pricingMode = getPricingModeForCartItem(e.key);
+      final saleUnit = getEffectiveSaleUnitForCartItem(e.key);
+      final saleUnitMultiplier =
+          getEffectiveSaleUnitMultiplierForCartItem(e.key);
+      final item = {
+        'id': itemId,
+        'saleId': saleId,
+        'productId': e.key,
+        'productName': product.name,
+        'quantity': e.value,
+        'unitPrice': priceOverrides != null && priceOverrides.containsKey(e.key)
+            ? priceOverrides[e.key]!
+            : getEffectivePriceForCartItem(e.key),
+        'pricingMode': pricingMode,
+        'inventoryUnit': product.unit,
+        'saleUnit': saleUnit,
+        'saleUnitMultiplier': saleUnitMultiplier,
+        'inventoryQuantity': saleUnitMultiplier * e.value,
+        'discount': 0.0,
+        'total': (priceOverrides != null && priceOverrides.containsKey(e.key)
+                ? priceOverrides[e.key]!
+                : getEffectivePriceForCartItem(e.key)) *
+            e.value,
+      };
+      await dbHelper.insert('sale_items', item);
+
+      // Update local inventory record
+      final inv = await dbHelper.query(
+        'inventory',
+        where: '(id = ? OR barcode = ? OR name = ?) AND businessId = ?',
+        whereArgs: [
+          e.key,
+          product.barcode ?? '',
+          product.name,
+          _businessId,
+        ],
+        limit: 1,
+      );
+      if (inv.isNotEmpty) {
+        final currentQty = (inv.first['quantity'] as num).toDouble();
+        final newQty = (currentQty - (saleUnitMultiplier * e.value))
+            .clamp(0, 999999);
+        await dbHelper.update(
+          'inventory',
+          {
+            'quantity': newQty,
+            'stock': newQty,
+            'syncStatus': 'pending',
+            'updatedAt': DateTime.now().toIso8601String(),
+          },
+          where: '(id = ? OR barcode = ? OR name = ?) AND businessId = ?',
+          whereArgs: [
+            e.key,
+            product.barcode ?? '',
+            product.name,
+            _businessId,
+          ],
+        );
+      } else {
+        await dbHelper.insert('inventory', {
+          'id': e.key,
+          'businessId': _businessId!,
+          'name': product.name,
+          'unitPrice': product.price,
+          'barcode': product.barcode,
+          'quantity': (0 - (saleUnitMultiplier * e.value))
+              .toDouble()
+              .clamp(0, 999999),
+          'stock': (0 - (saleUnitMultiplier * e.value))
+              .toDouble()
+              .clamp(0, 999999),
+          'createdAt': DateTime.now().toIso8601String(),
+          'syncStatus': 'pending',
+        });
+      }
     }
   }
 
@@ -2410,17 +2486,11 @@ class RetailProvider extends ChangeNotifier {
         (product.stock.toDouble() - qty).clamp(0.0, 999999.0).toDouble();
 
     var saleWrittenOnline = false;
-    try {
-      await saleRef.set(saleData);
-      saleWrittenOnline = true;
-      await _writeInventoryStock(product, newQty);
-      final productIndex = _products.indexWhere((p) => p.id == product.id);
-      if (productIndex != -1) {
-        _products[productIndex].stock = newQty;
-        notifyListeners();
-      }
-      unawaited(syncPendingPumpSales());
-    } catch (e) {
+
+    // Shared by both the "we already know we're offline" and the "the
+    // Firestore write unexpectedly failed" paths, so the pump sale is
+    // queued locally the same way either way.
+    Future<Map<String, dynamic>> queueFuelSaleOffline() async {
       final queuedAt = DateTime.now();
       final offlineSaleData = Map<String, dynamic>.from(saleData);
       offlineSaleData['createdAt'] = queuedAt.toIso8601String();
@@ -2454,6 +2524,31 @@ class RetailProvider extends ChangeNotifier {
         'saleStatus': 'completed',
         'paymentStatus': 'paid',
       };
+    }
+
+    // Check connectivity up front rather than relying on the Firestore write
+    // to throw — with offline persistence enabled, writes resolve locally
+    // without an exception even with no network, which would otherwise make
+    // "offlineQueued" almost never trigger for genuinely offline sales.
+    final hasNetwork = await ConnectivityHelper.hasInternetConnection();
+    if (!hasNetwork) {
+      debugPrint(
+          '[RetailProvider.fuelSale] No network detected, queueing sale offline');
+      return await queueFuelSaleOffline();
+    }
+
+    try {
+      await saleRef.set(saleData);
+      saleWrittenOnline = true;
+      await _writeInventoryStock(product, newQty);
+      final productIndex = _products.indexWhere((p) => p.id == product.id);
+      if (productIndex != -1) {
+        _products[productIndex].stock = newQty;
+        notifyListeners();
+      }
+      unawaited(syncPendingPumpSales());
+    } catch (e) {
+      return await queueFuelSaleOffline();
     }
 
     // Notify if low stock
@@ -2788,6 +2883,40 @@ class RetailProvider extends ChangeNotifier {
     return null;
   }
 
+  /// Sales that only exist locally (queued while offline, or stuck after a
+  /// failed sync attempt) so Sales History can show them before they've
+  /// actually reached Firestore. Each entry is shaped like a Firestore sale
+  /// doc plus a `pendingSync: true` marker and its line items attached.
+  Future<List<Map<String, dynamic>>> getLocalPendingSales() async {
+    if (_businessId == null) return [];
+    try {
+      final dbHelper = DatabaseHelper.instance;
+      final pending = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['pending']);
+      final failed = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['failed']);
+      final errored = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['error']);
+      final rows = [...pending, ...failed, ...errored]
+          .where((r) => r['businessId']?.toString() == _businessId);
+
+      final result = <Map<String, dynamic>>[];
+      for (final row in rows) {
+        final saleId = row['id']?.toString() ?? '';
+        final itemRows = saleId.isEmpty
+            ? <Map<String, dynamic>>[]
+            : await dbHelper.query('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
+        result.add({
+          ...Map<String, dynamic>.from(row),
+          'items': itemRows.map((i) => Map<String, dynamic>.from(i)).toList(),
+          'pendingSync': true,
+          'syncError': row['syncStatus'] == 'error',
+        });
+      }
+      return result;
+    } catch (e) {
+      debugPrint('[RetailProvider] Error fetching local pending sales: $e');
+      return [];
+    }
+  }
+
   // Paged sales fetch — returns sales plus the last document snapshot (for startAfter)
   // This method merges business-level sales and root 'sales' collection (filtered by businessId).
   // Paging uses the nested business collection's document snapshot as the cursor (startAfterDoc).
@@ -2802,33 +2931,76 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return {'sales': <Map<String, dynamic>>[], 'lastDoc': null};
 
     try {
-      var nestedQuery = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .orderBy('createdAt', descending: true) as dynamic;
-      if (storeId != null && storeId.isNotEmpty) nestedQuery = nestedQuery.where('storeId', isEqualTo: storeId);
-      if (status != null && status.isNotEmpty && status != 'all') nestedQuery = nestedQuery.where('status', isEqualTo: status);
-      if (start != null) nestedQuery = nestedQuery.where('createdAt', isGreaterThanOrEqualTo: start);
-      if (end != null) nestedQuery = nestedQuery.where('createdAt', isLessThanOrEqualTo: end);
-      if (startAfterDoc != null) nestedQuery = nestedQuery.startAfterDocument(startAfterDoc);
-
-      // Root query for sales with businessId set
-      var rootQuery = _firestore.collection('sales').where('businessId', isEqualTo: _businessId) as dynamic;
-      if (storeId != null && storeId.isNotEmpty) rootQuery = rootQuery.where('storeId', isEqualTo: storeId);
-      if (status != null && status.isNotEmpty && status != 'all') rootQuery = rootQuery.where('status', isEqualTo: status);
-      if (start != null) rootQuery = rootQuery.where('createdAt', isGreaterThanOrEqualTo: start);
-      if (end != null) rootQuery = rootQuery.where('createdAt', isLessThanOrEqualTo: end);
-
-      final nestedSnapshot = await nestedQuery.limit(limit).get();
-      final rootSnapshot = await rootQuery.limit(limit).get();
+      // A "refunded" filter should also surface partially-refunded sales —
+      // otherwise a partial return makes a sale vanish from both the
+      // Completed tab (it's no longer that status) and the Refunded tab
+      // (its status isn't an exact match). Queried as separate equality
+      // filters (rather than whereIn) so this doesn't require deploying a
+      // new Firestore composite index beyond what the existing per-status
+      // filters already rely on.
+      final statusValues = status == 'refunded'
+          ? const ['refunded', 'partially_refunded']
+          : <String>[if (status != null && status.isNotEmpty && status != 'all') status];
 
       final Map<String, Map<String, dynamic>> combined = {};
-      for (final doc in rootSnapshot.docs) {
-        combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
-      }
-      for (final doc in nestedSnapshot.docs) {
-        combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
+      DocumentSnapshot? lastDoc;
+
+      if (statusValues.isEmpty) {
+        var nestedQuery = _firestore
+            .collection('businesses')
+            .doc(_businessId)
+            .collection('sales')
+            .orderBy('createdAt', descending: true) as dynamic;
+        if (storeId != null && storeId.isNotEmpty) nestedQuery = nestedQuery.where('storeId', isEqualTo: storeId);
+        if (start != null) nestedQuery = nestedQuery.where('createdAt', isGreaterThanOrEqualTo: start);
+        if (end != null) nestedQuery = nestedQuery.where('createdAt', isLessThanOrEqualTo: end);
+        if (startAfterDoc != null) nestedQuery = nestedQuery.startAfterDocument(startAfterDoc);
+
+        var rootQuery = _firestore.collection('sales').where('businessId', isEqualTo: _businessId) as dynamic;
+        if (storeId != null && storeId.isNotEmpty) rootQuery = rootQuery.where('storeId', isEqualTo: storeId);
+        if (start != null) rootQuery = rootQuery.where('createdAt', isGreaterThanOrEqualTo: start);
+        if (end != null) rootQuery = rootQuery.where('createdAt', isLessThanOrEqualTo: end);
+
+        final nestedSnapshot = await nestedQuery.limit(limit).get();
+        final rootSnapshot = await rootQuery.limit(limit).get();
+        for (final doc in rootSnapshot.docs) {
+          combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
+        }
+        for (final doc in nestedSnapshot.docs) {
+          combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
+        }
+        if (nestedSnapshot.docs.isNotEmpty) lastDoc = nestedSnapshot.docs.last;
+      } else {
+        for (final statusValue in statusValues) {
+          var nestedQuery = _firestore
+              .collection('businesses')
+              .doc(_businessId)
+              .collection('sales')
+              .orderBy('createdAt', descending: true)
+              .where('status', isEqualTo: statusValue) as dynamic;
+          if (storeId != null && storeId.isNotEmpty) nestedQuery = nestedQuery.where('storeId', isEqualTo: storeId);
+          if (start != null) nestedQuery = nestedQuery.where('createdAt', isGreaterThanOrEqualTo: start);
+          if (end != null) nestedQuery = nestedQuery.where('createdAt', isLessThanOrEqualTo: end);
+          if (startAfterDoc != null) nestedQuery = nestedQuery.startAfterDocument(startAfterDoc);
+
+          var rootQuery = _firestore
+              .collection('sales')
+              .where('businessId', isEqualTo: _businessId)
+              .where('status', isEqualTo: statusValue) as dynamic;
+          if (storeId != null && storeId.isNotEmpty) rootQuery = rootQuery.where('storeId', isEqualTo: storeId);
+          if (start != null) rootQuery = rootQuery.where('createdAt', isGreaterThanOrEqualTo: start);
+          if (end != null) rootQuery = rootQuery.where('createdAt', isLessThanOrEqualTo: end);
+
+          final nestedSnapshot = await nestedQuery.limit(limit).get();
+          final rootSnapshot = await rootQuery.limit(limit).get();
+          for (final doc in rootSnapshot.docs) {
+            combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
+          }
+          for (final doc in nestedSnapshot.docs) {
+            combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
+          }
+          if (nestedSnapshot.docs.isNotEmpty) lastDoc = nestedSnapshot.docs.last;
+        }
       }
 
       List<Map<String, dynamic>> sales = combined.values.toList();
@@ -2850,8 +3022,6 @@ class RetailProvider extends ChangeNotifier {
       sales.sort((a, b) => _createdAtToMillis(b['createdAt']).compareTo(_createdAtToMillis(a['createdAt'])));
 
       if (sales.length > limit) sales = sales.sublist(0, limit);
-
-      final lastDoc = nestedSnapshot.docs.isNotEmpty ? nestedSnapshot.docs.last : null;
 
       debugPrint('[RetailProvider] Fetched ${sales.length} (paged, combined root & nested) sales records');
       return {'sales': sales, 'lastDoc': lastDoc};
@@ -2954,16 +3124,55 @@ class RetailProvider extends ChangeNotifier {
       // Update original sale with return reference
       final saleId = returnData['saleId'];
       if (saleId != null && saleId.isNotEmpty) {
-        await FirebaseFirestore.instance
+        final saleRef = FirebaseFirestore.instance
             .collection('businesses')
             .doc(businessId)
             .collection('sales')
-            .doc(saleId)
-            .update({
+            .doc(saleId);
+
+        // Determine whether this (plus any prior) refund covers the full
+        // sale amount, so the sale's status reflects reality and the
+        // "Refunded" tab in Sales History actually picks it up — a partial
+        // return should not silently hide the sale from view.
+        final refundAmount = ((returnData['refundAmount'] ?? 0) as num).toDouble();
+        String status = 'partially_refunded';
+        try {
+          final saleSnap = await saleRef.get();
+          final saleData = saleSnap.data() ?? <String, dynamic>{};
+          final saleTotal = ((saleData['finalAmount'] ?? saleData['totalAmount'] ?? saleData['total'] ?? 0) as num).toDouble();
+          final priorReturnAmount = ((saleData['returnAmount'] ?? 0) as num).toDouble();
+          final totalReturned = priorReturnAmount + refundAmount;
+          if (saleTotal <= 0 || totalReturned >= saleTotal - 0.01) {
+            status = 'refunded';
+          }
+        } catch (e) {
+          print('[RetailProvider] Error reading sale to determine refund status: $e');
+        }
+
+        final updateMap = <String, dynamic>{
           'hasReturn': true,
-          'returnAmount': returnData['refundAmount'],
+          'status': status,
+          'returnAmount': FieldValue.increment(refundAmount),
           'returnedAt': FieldValue.serverTimestamp(),
-        });
+          // Mark this return so it may or may not subtract from sales totals
+          'excludeReturnFromTotals': returnData['excludeFromTotals'] == true,
+        };
+
+        // Accumulate per-item returned quantities (dot-path updates merge
+        // into the existing map rather than overwriting it) so a later
+        // partial refund on the same sale knows exactly how much of each
+        // item is still available to return.
+        final itemsReturned = returnData['itemsReturned'] as List? ?? const [];
+        for (final raw in itemsReturned) {
+          if (raw is! Map) continue;
+          final item = Map<String, dynamic>.from(raw);
+          final productId = (item['productId'] ?? '').toString();
+          final qty = ((item['quantity'] ?? 0) as num);
+          if (productId.isEmpty || qty <= 0) continue;
+          updateMap['returnedQuantities.$productId'] = FieldValue.increment(qty);
+        }
+
+        await saleRef.update(updateMap);
       }
 
       print(

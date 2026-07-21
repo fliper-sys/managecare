@@ -686,7 +686,7 @@ class SubscriptionService {
         family: familyFuel,
         tier: 'tier2',
         durationCode: '3m',
-        price: 47515.0,
+        price: 47615.0,
         days: 90,
         features: [
           '2 locations',
@@ -708,7 +708,7 @@ class SubscriptionService {
         family: familyFuel,
         tier: 'tier2',
         durationCode: '6m',
-        price: 84775.0,
+        price: 85600.0,
         days: 180,
         features: [
           '2 locations',
@@ -730,7 +730,7 @@ class SubscriptionService {
         family: familyFuel,
         tier: 'tier2',
         durationCode: '12m',
-        price: 152048.0,
+        price: 152045.0,
         days: 365,
         features: [
           '2 locations',

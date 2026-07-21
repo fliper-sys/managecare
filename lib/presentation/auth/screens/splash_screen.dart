@@ -48,19 +48,22 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _checkAuthAndNavigate() async {
     try {
-      // Wait minimum 2 seconds for splash animation
-      await Future.delayed(const Duration(seconds: 2));
-      if (!mounted) return;
-
       final authProvider = context.read<AuthProvider>();
 
-      // If status is still 'initial', wait a bit more for auth initialization
-      // This handles slow local storage reads
-      int retries = 0;
-      while (authProvider.status == AuthStatus.initial && retries < 10) {
-        await Future.delayed(const Duration(milliseconds: 200));
-        retries++;
-      }
+      // Wait for the real auto-login/cached-user check to finish (this is
+      // normally a handful of milliseconds — local storage reads), capped
+      // by a safety timeout in case something hangs. Run this in parallel
+      // with a short minimum splash duration purely for branding, rather
+      // than blocking on a fixed delay before we even look at auth state.
+      final authReady = authProvider.status == AuthStatus.initial
+          ? authProvider.initializationComplete
+              .timeout(const Duration(seconds: 3), onTimeout: () {})
+          : Future<void>.value();
+
+      await Future.wait([
+        authReady,
+        Future.delayed(const Duration(milliseconds: 500)),
+      ]);
 
       if (!mounted) return;
 
@@ -252,16 +255,21 @@ class _SplashScreenState extends State<SplashScreen>
     final businessProvider = context.read<BusinessProvider>();
     final businessId = user.businessId?.toString() ?? '';
 
+    // These hit Firestore; if connectivity is flaky (reports connected but
+    // requests don't actually complete) don't let the splash screen hang —
+    // fall back to whatever is already cached and move on.
+    const businessLoadTimeout = Duration(seconds: 4);
     if (businessId.isNotEmpty) {
       try {
-        await businessProvider.loadBusinessById(businessId);
+        await businessProvider
+            .loadBusinessById(businessId)
+            .timeout(businessLoadTimeout);
       } catch (_) {}
     } else {
       try {
-        await businessProvider.ensureBusinessForWorker(
-          user.id,
-          workerEmail: user.email,
-        );
+        await businessProvider
+            .ensureBusinessForWorker(user.id, workerEmail: user.email)
+            .timeout(businessLoadTimeout);
       } catch (_) {}
     }
 
