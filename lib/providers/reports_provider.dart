@@ -4151,11 +4151,16 @@ class ReportsProvider extends ChangeNotifier {
         _inventoryReports.where((r) => r.quantity < r.reorderLevel).length;
     double inventoryValue =
         _inventoryReports.fold(0, (sum, report) => sum + report.totalValue);
+    double inventoryCostValue = _inventoryReports.fold(
+      0.0,
+      (sum, report) => sum + (report.quantity * report.costPrice),
+    );
 
     return {
       'totalItems': totalItems,
       'lowStockItems': lowStockItems,
       'inventoryValue': inventoryValue,
+      'inventoryCostValue': inventoryCostValue,
     };
   }
 

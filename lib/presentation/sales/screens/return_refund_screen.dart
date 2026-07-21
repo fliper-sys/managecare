@@ -165,8 +165,9 @@ class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
 
     try {
       final authProvider = context.read<AuthProvider>();
+      final currentUser = authProvider.currentUser;
       final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
-          authProvider.currentUser?.businessId;
+          currentUser?.businessId;
       final retailProvider = context.read<RetailProvider>();
 
       if (businessId == null || businessId.isEmpty) {
@@ -185,12 +186,26 @@ class _ReturnRefundScreenState extends State<ReturnRefundScreen> {
             .where((item) => item.selectedQuantity > 0)
             .map((item) => {
                   'productId': item.productId,
+                  'productName': item.productName,
                   'quantity': item.selectedQuantity,
                   'amount': item.price * item.selectedQuantity,
                 })
             .toList(),
         'processedAt': DateTime.now(),
-        'processedBy': authProvider.currentUser?.fullName ?? 'Unknown',
+        'processedBy': currentUser?.fullName ?? 'Unknown',
+        'processedById': currentUser?.id,
+        'enteredById': currentUser?.id,
+        'enteredByName': currentUser?.fullName ?? currentUser?.email ?? 'Unknown',
+        'enteredByEmail': currentUser?.email,
+        'enteredByRole': currentUser?.role,
+        'saleReference': _sale['referenceId'] ?? _sale['receiptNumber'] ?? _sale['id'],
+        'soldById': _sale['workerId'] ?? _sale['createdBy'] ?? _sale['cashierId'],
+        'soldByName': _sale['workerName'] ??
+            _sale['cashierName'] ??
+            _sale['createdByName'] ??
+            _sale['soldBy'],
+        'customerId': _sale['customerId'],
+        'customerName': _sale['customerName'],
       };
 
       // Save return to Firestore

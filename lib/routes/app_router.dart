@@ -30,6 +30,7 @@ import '../presentation/business/screens/business_switcher_screen.dart';
 import '../presentation/sales/screens/sales_screen.dart';
 import '../presentation/sales/screens/bakery_sales_screen.dart';
 import '../presentation/sales/screens/sales_history_screen.dart';
+import '../presentation/sales/screens/refund_history_screen.dart';
 import '../presentation/inventory/screens/inventory_list_screen.dart';
 import '../presentation/inventory/screens/inventory_expiry_tracker_screen.dart';
 import '../presentation/inventory/screens/distributor_sales_report_screen.dart';
@@ -301,6 +302,9 @@ class AppRouter {
 
       case Routes.salesHistory:
         return _buildRoute(const SalesHistoryScreen());
+
+      case Routes.refundHistory:
+        return _buildRoute(const RefundHistoryScreen());
 
       case Routes.productInstallation:
         return _buildRoute(const ProductInstallationScreen());
