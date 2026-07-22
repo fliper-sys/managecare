@@ -48,3 +48,10 @@ app.*.map.json
 # Android signing keys (keep these files out of source control)
 /android/key.properties
 /my-release-key.jks
+
+# Secrets and dependency trees - never commit
+.env
+.env.local
+**/node_modules/
+functions/serviceAccountKey.json
+functions/*firebase-adminsdk*.json

@@ -7,7 +7,7 @@
 - Port: 5432
 - Database: managecare
 - User: managecare
-- Password: BqHjAf8aMMmhHhOlW0j6bYIj4T7Owrya
+- Password: see `server/postgres-api/.env` (never committed to git)
 
 ## Phase 1 - Server Preparation
 - [ ] Update Ubuntu packages
