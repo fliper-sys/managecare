@@ -1,7 +1,7 @@
 name: business_manager
 description: A comprehensive business management app for multiple industries
 publish_to: 'none'
-version: 1.0.57+57
+version: 1.0.59+59
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -13,13 +13,17 @@ dependencies:
   # State Management
   provider: ^6.1.1
 
-  # Firebase
+  # Firebase (messaging + analytics only - Auth/Firestore/Storage are being
+  # migrated to the self-hosted Supabase stack, see docs/ managecare migration plan)
   firebase_core: ^4.2.1
   firebase_auth: ^6.1.2
   cloud_firestore: ^6.1.0
   firebase_storage: ^13.0.4
   firebase_messaging: ^16.0.4
   firebase_analytics: ^12.0.4
+
+  # Self-hosted backend (replacing Firestore/Auth/Storage)
+  supabase_flutter: ^2.8.0
 
   # Local Storage
   sqflite: ^2.4.2

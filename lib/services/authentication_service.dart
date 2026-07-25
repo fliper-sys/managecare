@@ -1,46 +1,60 @@
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_core/firebase_core.dart' as fb_core;
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/config/supabase_config.dart';
 import '../core/utils/worker_permissions.dart';
 import '../data/models/user_model.dart';
-import 'deletion_recovery_service.dart';
 
-/// Comprehensive authentication service handling owner and worker login
+/// Result of resolving whether a signed-in user is allowed access.
+///
+/// NOTE: this is currently a pass-through stub - the soft-delete/recovery
+/// gate that existed against Firestore (deletion_recovery_service.dart) has
+/// not been ported to the new backend yet. That is deliberately deferred
+/// (matches Phase 6 of the migration plan: purge cron jobs + recovery
+/// windows) since no real users are on the new backend yet. Before this goes
+/// live for real users, this needs the same gating logic reimplemented
+/// against `profiles`/`business_members`.
+class ResolvedUserAccess {
+  final bool isAllowed;
+  final UserModel? user;
+  final String? message;
+  final bool recoveredAccount;
+  final bool recoveredBusiness;
+
+  const ResolvedUserAccess({
+    required this.isAllowed,
+    this.user,
+    this.message,
+    this.recoveredAccount = false,
+    this.recoveredBusiness = false,
+  });
+}
+
+/// Comprehensive authentication service handling owner and worker login,
+/// backed by the self-hosted Supabase stack (GoTrue + Postgres) instead of
+/// Firebase Auth + Firestore.
 class AuthenticationService {
-  final FirebaseAuth _firebaseAuth;
-  final FirebaseFirestore _firestore;
-  late final DeletionRecoveryService _deletionRecoveryService;
+  final GoTrueClient _auth = Supabase.instance.client.auth;
+  final SupabaseClient _db = Supabase.instance.client;
 
-  AuthenticationService({
-    FirebaseAuth? firebaseAuth,
-    FirebaseFirestore? firestore,
-  })  : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance {
-    _deletionRecoveryService =
-        DeletionRecoveryService(firestore: _firestore);
-  }
-
-  /// Authenticate user with email and password
-  /// Returns UserModel on success, throws exception on failure
+  /// Authenticate user with email and password.
+  /// Returns UserModel on success, throws exception on failure.
   Future<UserModel> authenticateUser({
     required String email,
     required String password,
   }) async {
     try {
-      // Sign in with Firebase Auth
-      final userCredential = await _firebaseAuth.signInWithEmailAndPassword(
+      final response = await _auth.signInWithPassword(
         email: email.trim(),
         password: password,
       );
 
-      if (userCredential.user == null) {
+      if (response.user == null) {
         throw Exception('Authentication failed: No user returned');
       }
 
-      // Retrieve complete user data from Firestore and resolve
-      // deletion/recovery access during explicit sign-in.
-      final userModel = await _getAccessibleUserFromFirestore(
-        userCredential.user!.uid,
+      final userModel = await _getAccessibleUser(
+        response.user!.id,
         allowSelfRecovery: true,
       );
 
@@ -49,30 +63,42 @@ class AuthenticationService {
       }
 
       return userModel;
-    } on FirebaseAuthException catch (e) {
-      throw _handleFirebaseAuthException(e);
+    } on AuthException catch (e) {
+      throw _handleAuthException(e);
     } catch (e) {
       if (e is Exception) rethrow;
       throw Exception('Authentication error: ${e.toString()}');
     }
   }
 
+  /// Stubbed pass-through - see ResolvedUserAccess doc comment.
   Future<ResolvedUserAccess> resolveUserAccess(
-    String firebaseUid, {
+    String userId, {
     bool allowSelfRecovery = false,
-  }) {
-    return _deletionRecoveryService.resolveUserAccess(
-      firebaseUid,
-      allowSelfRecovery: allowSelfRecovery,
-    );
+  }) async {
+    try {
+      final userModel = await _buildUserModel(userId);
+      if (userModel == null) {
+        return const ResolvedUserAccess(
+          isAllowed: false,
+          message: 'User profile not found.',
+        );
+      }
+      return ResolvedUserAccess(isAllowed: true, user: userModel);
+    } catch (e) {
+      return ResolvedUserAccess(
+        isAllowed: false,
+        message: 'Failed to load user profile: $e',
+      );
+    }
   }
 
-  Future<UserModel?> _getAccessibleUserFromFirestore(
-    String firebaseUid, {
+  Future<UserModel?> _getAccessibleUser(
+    String userId, {
     bool allowSelfRecovery = false,
   }) async {
     final access = await resolveUserAccess(
-      firebaseUid,
+      userId,
       allowSelfRecovery: allowSelfRecovery,
     );
 
@@ -88,61 +114,92 @@ class AuthenticationService {
     return access.user;
   }
 
-  /// Get user data from Firestore by Firebase UID
-  Future<UserModel?> _getUserFromFirestore(String firebaseUid) async {
-    try {
-      print(
-          '[Auth._getUserFromFirestore] Fetching user profile for UID: $firebaseUid');
-      final doc = await _firestore.collection('users').doc(firebaseUid).get();
+  /// Assembles a UserModel by joining profiles + business_members +
+  /// businesses. Unlike the Firestore model (which mirrored subscription
+  /// fields directly onto the user document), subscription data correctly
+  /// lives on `businesses` in the new schema and is joined in here.
+  Future<UserModel?> _buildUserModel(String userId) async {
+    final profile = await _db
+        .from('profiles')
+        .select('id, email, full_name, phone_number, photo_url, pin, current_business_id, created_at, updated_at')
+        .eq('id', userId)
+        .maybeSingle();
 
-      if (!doc.exists || doc.data() == null) {
-        print(
-            '[Auth._getUserFromFirestore] User document does NOT exist for UID: $firebaseUid');
-        return null;
-      }
+    if (profile == null) return null;
 
-      final data = doc.data() as Map<String, dynamic>;
-      print(
-          '[Auth._getUserFromFirestore] User data: role=${data['role']}, businessId=${data['businessId']}, preferredBusinessId=${data['preferredBusinessId']}');
+    final memberships = await _db
+        .from('business_members')
+        .select('business_id, role, is_owner, permissions, store_id, is_active')
+        .eq('user_id', userId);
 
-      // Ensure the ID matches Firebase UID
-      data['id'] = firebaseUid;
-      final userModel = UserModel.fromJson(data);
-      print(
-          '[Auth._getUserFromFirestore] Loaded UserModel: id=${userModel.id}, role=${userModel.role}, businessId=${userModel.businessId}');
+    final businessIds = memberships
+        .map((m) => m['business_id'] as String)
+        .toList(growable: false);
 
-      // Backfill/migrate legacy fields: if businessIds is empty but businessId exists, persist businessIds and currentBusinessId
-      try {
-        if ((userModel.businessIds.isEmpty) && (userModel.businessId.isNotEmpty)) {
-          await _firestore.collection('users').doc(firebaseUid).set({
-            'businessIds': [userModel.businessId],
-            'currentBusinessId': userModel.businessId,
-            'preferredBusinessId': userModel.preferredBusinessId ?? userModel.businessId,
-            // Keep legacy businessId in sync
-            'businessId': userModel.businessId,
-          }, SetOptions(merge: true));
-          print('[Auth._getUserFromFirestore] Migrated legacy businessId -> businessIds for user: $firebaseUid');
-        } else if (userModel.businessIds.isNotEmpty) {
-          // Ensure legacy businessId matches primary business
-          final primary = userModel.primaryBusinessId;
-          if (primary.isNotEmpty && primary != userModel.businessId) {
-            await _firestore.collection('users').doc(firebaseUid).set({'businessId': primary}, SetOptions(merge: true));
-            print('[Auth._getUserFromFirestore] Synchronized legacy businessId for user: $firebaseUid');
-          }
-        }
-      } catch (e) {
-        print('[Auth._getUserFromFirestore] Warning: failed to migrate business fields for $firebaseUid: $e');
-      }
-
-      return userModel;
-    } catch (e) {
-      print('[Auth._getUserFromFirestore] ERROR: $e');
-      if (e is Exception) rethrow;
-      throw Exception('Failed to load user profile: ${e.toString()}');
+    String? currentBusinessId = profile['current_business_id'] as String?;
+    Map<String, dynamic>? currentMembership;
+    if (currentBusinessId != null) {
+      currentMembership = memberships.cast<Map<String, dynamic>?>().firstWhere(
+            (m) => m?['business_id'] == currentBusinessId,
+            orElse: () => null,
+          );
     }
+    // Fall back to the first membership if there's no (or a stale) current
+    // business selection.
+    currentMembership ??= memberships.isNotEmpty ? memberships.first : null;
+    currentBusinessId = currentMembership?['business_id'] as String?;
+
+    Map<String, dynamic>? business;
+    if (currentBusinessId != null) {
+      business = await _db
+          .from('businesses')
+          .select(
+              'business_type, subscription_plan, subscription_start_date, subscription_end_date, is_subscription_active')
+          .eq('id', currentBusinessId)
+          .maybeSingle();
+    }
+
+    final permissions = (currentMembership?['permissions'] as Map<String, dynamic>?)
+            ?.entries
+            .where((e) => e.value == true)
+            .map((e) => e.key)
+            .toList() ??
+        const <String>[];
+
+    return UserModel(
+      id: profile['id'] as String,
+      email: (profile['email'] as String?) ?? '',
+      fullName: (profile['full_name'] as String?) ?? '',
+      photoUrl: profile['photo_url'] as String?,
+      phoneNumber: profile['phone_number'] as String?,
+      role: (currentMembership?['role'] as String?) ?? 'staff',
+      permissions: permissions,
+      businessId: currentBusinessId ?? '',
+      businessIds: businessIds,
+      currentBusinessId: currentBusinessId,
+      preferredBusinessId: currentBusinessId,
+      businessType: business?['business_type'] as String?,
+      storeId: currentMembership?['store_id'] as String?,
+      isActive: (currentMembership?['is_active'] as bool?) ?? true,
+      isOwner: (currentMembership?['is_owner'] as bool?) ?? false,
+      pin: profile['pin'] as String?,
+      hasActiveSubscription: (business?['is_subscription_active'] as bool?) ?? false,
+      subscriptionPlan: business?['subscription_plan'] as String?,
+      subscriptionStartDate: business?['subscription_start_date'] != null
+          ? DateTime.tryParse(business!['subscription_start_date'] as String)
+          : null,
+      subscriptionEndDate: business?['subscription_end_date'] != null
+          ? DateTime.tryParse(business!['subscription_end_date'] as String)
+          : null,
+      createdAt: DateTime.tryParse(profile['created_at'] as String? ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(profile['updated_at'] as String? ?? '') ?? DateTime.now(),
+    );
   }
 
-  /// Create a new worker user with Firebase Auth and Firestore
+  /// Create a new worker: goes through managecare-admin-api (server-side,
+  /// service-role key) instead of the temporary secondary Firebase app
+  /// instance trick the old code used to avoid hijacking the owner's
+  /// session - the admin API never touches the caller's session at all.
   Future<UserModel> createWorkerUser({
     required String email,
     required String password,
@@ -153,413 +210,158 @@ class AuthenticationService {
     String? phoneNumber,
     String? pin,
   }) async {
-    try {
-      // 1. Create Firebase Auth user using a temporary Firebase app so we don't
-      // replace the currently signed-in user (common when admin creates a worker)
-      try {
-        // Lazily import Firebase core to reuse default app options
-        final defaultApp = fb_core.Firebase.app();
-        final tempAppName = 'temp_create_user_${DateTime.now().millisecondsSinceEpoch}';
-        final tempApp = await fb_core.Firebase.initializeApp(
-          name: tempAppName,
-          options: defaultApp.options,
-        );
-        final tempAuth = FirebaseAuth.instanceFor(app: tempApp);
-        final authResult = await tempAuth.createUserWithEmailAndPassword(
-          email: email.trim(),
-          password: password,
-        );
-        // Clean up temp auth state and app
-        await tempAuth.signOut();
-        await tempApp.delete();
-
-        if (authResult.user == null) {
-          throw Exception('Failed to create authentication account');
-        }
-
-        final firebaseUid = authResult.user!.uid;
-
-        // Continue below with creating Firestore user doc using firebaseUid
-        
-        // 2. Create Firestore user document
-        // If businessType was not provided, attempt to read it from the businesses collection
-        String? resolvedBusinessType = businessType;
-        if ((resolvedBusinessType == null || resolvedBusinessType.isEmpty) &&
-            businessId.isNotEmpty) {
-          try {
-            final bdoc = await _firestore.collection('businesses').doc(businessId).get();
-            if (bdoc.exists) {
-              final bdata = bdoc.data();
-              resolvedBusinessType = bdata?['businessType'] as String?;
-            }
-          } catch (_) {}
-        }
-
-        final randomPin = pin ?? (1000 + (DateTime.now().millisecondsSinceEpoch % 9000)).toString();
-        final userModel = UserModel(
-          id: firebaseUid,
-          email: email.trim(),
-          fullName: fullName.trim(),
-          phoneNumber: phoneNumber,
-          role: role,
-          permissions: WorkerPermissions.getPermissionsForRole(role),
-          businessId: businessId,
-          // Ensure businessIds/current/preferred are set for new worker
-          businessIds: businessId.isNotEmpty ? [businessId] : const [],
-          currentBusinessId: businessId.isNotEmpty ? businessId : null,
-          preferredBusinessId: businessId.isNotEmpty ? businessId : null,
-          businessType: resolvedBusinessType,
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-          isActive: true,
-          isOwner: false,
-          pin: randomPin,
-        );
-
-        await _firestore
-            .collection('users')
-            .doc(firebaseUid)
-            .set(userModel.toJson());
-
-        return userModel;
-      } catch (e) {
-        // If temp app approach fails, fallback to regular create (may sign-in the admin)
-        final authResult = await _firebaseAuth.createUserWithEmailAndPassword(
-          email: email.trim(),
-          password: password,
-        );
-
-        if (authResult.user == null) {
-          throw Exception('Failed to create authentication account');
-        }
-
-        final firebaseUid = authResult.user!.uid;
-
-        // 2. Create Firestore user document (fallback path)
-        String? resolvedBusinessType = businessType;
-        if ((resolvedBusinessType == null || resolvedBusinessType.isEmpty) &&
-            businessId.isNotEmpty) {
-          try {
-            final bdoc = await _firestore.collection('businesses').doc(businessId).get();
-            if (bdoc.exists) {
-              final bdata = bdoc.data();
-              resolvedBusinessType = bdata?['businessType'] as String?;
-            }
-          } catch (_) {}
-        }
-
-        final randomPin = pin ?? (1000 + (DateTime.now().millisecondsSinceEpoch % 9000)).toString();
-        final userModel = UserModel(
-          id: firebaseUid,
-          email: email.trim(),
-          fullName: fullName.trim(),
-          phoneNumber: phoneNumber,
-          role: role,
-          permissions: WorkerPermissions.getPermissionsForRole(role),
-          businessId: businessId,
-          businessIds: businessId.isNotEmpty ? [businessId] : const [],
-          currentBusinessId: businessId.isNotEmpty ? businessId : null,
-          preferredBusinessId: businessId.isNotEmpty ? businessId : null,
-          businessType: resolvedBusinessType,
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-          isActive: true,
-          isOwner: false,
-          pin: randomPin,
-        );
-
-        await _firestore
-            .collection('users')
-            .doc(firebaseUid)
-            .set(userModel.toJson());
-
-        return userModel;
-      }
-    } on FirebaseAuthException catch (e) {
-      throw _handleFirebaseAuthException(e);
-    } catch (e) {
-      throw Exception('Failed to create worker: ${e.toString()}');
+    final accessToken = _auth.currentSession?.accessToken;
+    if (accessToken == null) {
+      throw Exception('You must be signed in to create a worker.');
     }
+
+    final permissions = <String, bool>{
+      for (final p in WorkerPermissions.getPermissionsForRole(role)) p: true,
+    };
+
+    http.Response response;
+    try {
+      response = await http.post(
+        Uri.parse('${SupabaseConfig.adminApiUrl}/workers'),
+        headers: {
+          'Authorization': 'Bearer $accessToken',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'business_id': businessId,
+          'email': email.trim(),
+          'password': password,
+          'full_name': fullName.trim(),
+          'role': role,
+          'permissions': permissions,
+        }),
+      );
+    } catch (e) {
+      throw Exception('Failed to reach worker management service: $e');
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode >= 400) {
+      throw Exception(body['error'] ?? 'Failed to create worker');
+    }
+
+    final randomPin =
+        pin ?? (1000 + (DateTime.now().millisecondsSinceEpoch % 9000)).toString();
+
+    return UserModel(
+      id: body['id'] as String,
+      email: email.trim(),
+      fullName: fullName.trim(),
+      phoneNumber: phoneNumber,
+      role: role,
+      permissions: WorkerPermissions.getPermissionsForRole(role),
+      businessId: businessId,
+      businessIds: [businessId],
+      currentBusinessId: businessId,
+      preferredBusinessId: businessId,
+      businessType: businessType,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      isActive: true,
+      isOwner: false,
+      pin: randomPin,
+    );
   }
 
-
-  /// Verify worker credentials for manual verification
+  /// Verify worker credentials for manual verification.
+  /// NOTE: like the previous Firebase implementation, this replaces the
+  /// current session as a side effect of calling signInWithPassword.
   Future<bool> verifyWorkerCredentials({
     required String email,
     required String password,
   }) async {
     try {
-      final userCredential = await _firebaseAuth.signInWithEmailAndPassword(
+      final response = await _auth.signInWithPassword(
         email: email.trim(),
         password: password,
       );
-      return userCredential.user != null;
+      return response.user != null;
     } catch (e) {
       return false;
     }
   }
 
-  /// Get authentication error message based on Firebase error
-  static String _handleFirebaseAuthException(FirebaseAuthException e) {
-    switch (e.code) {
-      case 'user-not-found':
-        return 'No user found with this email address';
-      case 'wrong-password':
-        return 'Incorrect password. Please try again';
-      case 'email-already-in-use':
-        return 'An account already exists with this email';
-      case 'invalid-email':
-        return 'The email address format is invalid';
-      case 'weak-password':
-        return 'Password must be at least 6 characters';
-      case 'user-disabled':
-        return 'This account has been disabled';
-      case 'too-many-requests':
-        return 'Too many login attempts. Please try again later';
-      case 'operation-not-allowed':
-        return 'This operation is not allowed';
-      case 'network-request-failed':
-        return 'Network error. Please check your connection';
-      default:
-        return 'Authentication failed: ${e.message}';
+  static Exception _handleAuthException(AuthException e) {
+    final msg = e.message.toLowerCase();
+    if (msg.contains('invalid login credentials')) {
+      return Exception('Incorrect email or password. Please try again');
     }
+    if (msg.contains('email not confirmed')) {
+      return Exception('Please confirm your email address before signing in');
+    }
+    if (msg.contains('already registered') || msg.contains('already exists')) {
+      return Exception('An account already exists with this email');
+    }
+    if (msg.contains('password') && msg.contains('least')) {
+      return Exception('Password is too weak - please choose a stronger one');
+    }
+    if (msg.contains('user not found')) {
+      return Exception('No user found with this email address');
+    }
+    if (msg.contains('rate limit') || msg.contains('too many')) {
+      return Exception('Too many attempts. Please try again later');
+    }
+    return Exception('Authentication failed: ${e.message}');
   }
 
-  /// Authenticate worker by worker ID or email and password
-  /// Looks up the worker in Firestore by ID or email, then authenticates via Firebase
+  /// Authenticate a worker by email and password.
+  ///
+  /// The previous Firestore-backed version also supported signing in with a
+  /// short numeric "worker ID" (looked up in a separate `workers`
+  /// collection, falling back to email). GoTrue only supports email-based
+  /// sign-in natively, so that lookup has been dropped for now - workers
+  /// sign in with email, same as owners. A short-code lookup can be
+  /// reintroduced later (e.g. a `worker_code` column on business_members)
+  /// if the cashier/POS workflow needs it.
   Future<UserModel> authenticateWorkerByWorkerId({
     required String workerId,
     required String password,
   }) async {
     try {
-      print('[Auth] Attempting worker authentication for: $workerId');
-
-      // 1. First try to find worker by ID
-      var workerDoc =
-          await _firestore.collection('workers').doc(workerId).get();
-
-      // 2. If not found by ID, try searching by email
-      if (!workerDoc.exists) {
-        print(
-            '[Auth] Worker not found by ID ($workerId), searching by email...');
-        final workerQuery = await _firestore
-            .collection('workers')
-            .where('email', isEqualTo: workerId)
-            .limit(1)
-            .get();
-
-        if (workerQuery.docs.isEmpty) {
-          print('[Auth] Worker document not found for ID or email: $workerId');
-          throw Exception('Worker not found with ID or email: $workerId');
-        }
-
-        workerDoc = workerQuery.docs.first;
-      }
-
-      final workerData = workerDoc.data() as Map<String, dynamic>;
-      final workerEmail = workerData['email'] as String?;
-      final workerRole = workerData['role'] as String? ?? 'staff';
-      final workerBusinessId = workerData['businessId'] as String?;
-      final workerPermissions = <String>{
-        ...((workerData['permissions'] as List<dynamic>?)
-                ?.map((permission) => permission.toString()) ??
-            const <String>[]),
-        ...((workerData['customPermissions'] as List<dynamic>?)
-                ?.map((permission) => permission.toString()) ??
-            const <String>[]),
-      }.toList();
-
-      // Try to infer businessType from worker record or business doc
-      String? workerBusinessType = (workerData['businessType'] as String?) ?? (workerData['industry'] as String?);
-      if ((workerBusinessType == null || workerBusinessType.isEmpty) && (workerBusinessId != null && workerBusinessId.isNotEmpty)) {
-        try {
-          final bdoc = await _firestore.collection('businesses').doc(workerBusinessId).get();
-          if (bdoc.exists) {
-            final bdata = bdoc.data();
-            workerBusinessType = bdata?['businessType'] as String?;
-          }
-        } catch (_) {}
-      }
-
-      if (workerEmail == null || workerEmail.isEmpty) {
-        print('[Auth] Worker email not configured for ID: $workerId');
-        throw Exception('Worker email not configured');
-      }
-
-      print(
-          '[Auth] Found worker email: $workerEmail, role: $workerRole, businessId: $workerBusinessId');
-
-      // 3. Authenticate with the worker's email and password
-      final userCredential = await _firebaseAuth.signInWithEmailAndPassword(
-        email: workerEmail,
+      final response = await _auth.signInWithPassword(
+        email: workerId.trim(),
         password: password,
       );
 
-      if (userCredential.user == null) {
-        throw Exception('Firebase authentication failed');
+      if (response.user == null) {
+        throw Exception('Authentication failed');
       }
 
-      // 4. Load the UserModel from users collection
-      var userModel = await _getUserFromFirestore(userCredential.user!.uid);
-
-      if (userModel != null &&
-          userModel.permissions.isEmpty &&
-          workerPermissions.isNotEmpty) {
-        userModel = userModel.copyWith(permissions: workerPermissions);
-        try {
-          await _firestore.collection('users').doc(userModel.id).set({
-            'permissions': workerPermissions,
-          }, SetOptions(merge: true));
-        } catch (_) {}
-      }
-
-      if (userModel == null) {
-        print(
-            '[Auth] User profile not found in Firestore, creating one for worker...');
-
-        // Create a user document for the worker
-        final workerStoreId = workerData['storeId'] as String?;
-
-        userModel = UserModel(
-          id: userCredential.user!.uid,
-          email: workerEmail,
-          fullName:
-              workerEmail.split('@')[0], // Use email prefix as default name
-          role: workerRole,
-          permissions: workerPermissions,
-          businessId: workerBusinessId as String,
-          // Ensure this worker user has the business in the array and current/preferred set
-          businessIds: (workerBusinessId.isNotEmpty) ? [workerBusinessId] : const [],
-          currentBusinessId: (workerBusinessId.isNotEmpty) ? workerBusinessId : null,
-          preferredBusinessId: (workerBusinessId.isNotEmpty) ? workerBusinessId : null,
-          businessType: workerBusinessType,
-          storeId: workerStoreId,
-          isOwner: false,
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-          isActive: true,
-        );
-
-        // Save to Firestore
-        await _firestore.collection('users').doc(userCredential.user!.uid).set({
-          'id': userModel.id,
-          'email': userModel.email,
-          'fullName': userModel.fullName,
-          'role': userModel.role,
-          'permissions': userModel.permissions,
-          'businessId': userModel.businessId,
-          'businessIds': userModel.businessIds,
-          'currentBusinessId': userModel.currentBusinessId,
-          'preferredBusinessId': userModel.preferredBusinessId,
-          'isOwner': false,
-          'businessType': workerData['businessType'] ?? workerData['industry'] ?? null,
-          'storeId': workerStoreId ?? null,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-          'isActive': true,
-        });
-
-        print('[Auth] Created user profile for worker: ${userModel.id}');
-      }
-
-      // 5. IMPORTANT: Ensure role and businessId are set from worker record
-      // The user document might not have these fields set correctly
-      if (userModel.role.isEmpty) {
-        userModel = userModel.copyWith(role: workerRole);
-        print('[Auth] Updated user role to: $workerRole');
-      }
-
-      if (userModel.permissions.isEmpty && workerPermissions.isNotEmpty) {
-        userModel = userModel.copyWith(permissions: workerPermissions);
-        try {
-          await _firestore.collection('users').doc(userModel.id).set({
-            'permissions': workerPermissions,
-          }, SetOptions(merge: true));
-        } catch (_) {}
-      }
-
-      if (userModel.businessId.isEmpty && workerBusinessId != null) {
-        // Merge into businessIds, set current/preferred and persist to Firestore
-        final mergedBusinessIds = List<String>.from({...userModel.businessIds, workerBusinessId});
-        userModel = userModel.copyWith(
-          businessId: workerBusinessId,
-          businessIds: mergedBusinessIds,
-          currentBusinessId: workerBusinessId,
-          preferredBusinessId: workerBusinessId,
-        );
-        try {
-          await _firestore.collection('users').doc(userModel.id).set({
-            'businessIds': FieldValue.arrayUnion([workerBusinessId]),
-            'currentBusinessId': workerBusinessId,
-            'preferredBusinessId': workerBusinessId,
-            'businessId': workerBusinessId,
-          }, SetOptions(merge: true));
-          print('[Auth] Persisted worker businessId and businessIds for user: ${userModel.id}');
-        } catch (e) {
-          print('[Auth] Warning: failed to persist worker business info: $e');
-        }
-      }
-
-      // Ensure businessType is set on the user model and persist if missing
-      if ((userModel.businessType == null || (userModel.businessType?.isEmpty ?? true)) && (workerBusinessType != null && workerBusinessType.isNotEmpty)) {
-        userModel = userModel.copyWith(businessType: workerBusinessType);
-        try {
-          await _firestore.collection('users').doc(userModel.id).update({'businessType': workerBusinessType});
-          print('[Auth] Updated user businessType to: $workerBusinessType');
-        } catch (_) {
-          // Non-fatal
-        }
-      }
-
-      // Ensure storeId from worker record is set on user model
-      final workerStoreId = workerData['storeId'] as String?;
-      if ((userModel.storeId == null || (userModel.storeId?.isEmpty ?? true)) && (workerStoreId != null && workerStoreId.isNotEmpty)) {
-        userModel = userModel.copyWith(storeId: workerStoreId);
-        try {
-          await _firestore.collection('users').doc(userModel.id).update({'storeId': workerStoreId});
-          print('[Auth] Updated user storeId to: $workerStoreId');
-        } catch (_) {
-          // Non-fatal
-        }
-      }
-
-      final resolvedUser = await _getAccessibleUserFromFirestore(
-        userCredential.user!.uid,
+      final resolvedUser = await _getAccessibleUser(
+        response.user!.id,
         allowSelfRecovery: true,
       );
       if (resolvedUser == null) {
         throw Exception('Worker profile not found in database');
       }
-
-      print(
-          '[Auth] Worker authentication successful: ${resolvedUser.id}, role: ${resolvedUser.role}, businessId: ${resolvedUser.businessId}');
       return resolvedUser;
-    } on FirebaseAuthException catch (e) {
-      print('[Auth] Firebase Auth Exception: ${e.code} - ${e.message}');
-      throw _handleFirebaseAuthException(e);
+    } on AuthException catch (e) {
+      throw _handleAuthException(e);
     } catch (e) {
-      print('[Auth] Worker authentication error: $e');
       if (e is Exception) rethrow;
       throw Exception('Worker authentication failed: ${e.toString()}');
     }
   }
 
-  /// Sign out current user
   Future<void> signOut() async {
     try {
-      await _firebaseAuth.signOut();
+      await _auth.signOut();
     } catch (e) {
       throw Exception('Sign out failed: ${e.toString()}');
     }
   }
 
-  /// Check if user is currently authenticated
-  bool get isUserAuthenticated => _firebaseAuth.currentUser != null;
+  bool get isUserAuthenticated => _auth.currentUser != null;
 
-  /// Get current Firebase user
-  User? get currentFirebaseUser => _firebaseAuth.currentUser;
+  /// Kept for API compatibility with the previous Firebase-backed service;
+  /// not referenced elsewhere in the codebase as of this migration.
+  User? get currentFirebaseUser => _auth.currentUser;
 
-  /// Listen to authentication state changes
-  Stream<User?> get authStateChanges => _firebaseAuth.authStateChanges();
+  Stream<User?> get authStateChanges =>
+      _auth.onAuthStateChange.map((state) => state.session?.user);
 }
-

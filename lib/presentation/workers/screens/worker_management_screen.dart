@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:provider/provider.dart';
 import '../../../data/repositories/auth_repository_impl.dart';
 import '../../../data/repositories/worker_repository_impl.dart';
@@ -723,9 +722,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     if (confirmed != true) return;
 
     try {
-      await AuthRepositoryImpl(
-        firebaseAuth: FirebaseAuth.instance,
-      ).resetPassword(workerEmail);
+      await AuthRepositoryImpl().resetPassword(workerEmail);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

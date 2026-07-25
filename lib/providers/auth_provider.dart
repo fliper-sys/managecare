@@ -26,8 +26,7 @@ enum AuthStatus {
 }
 
 class AuthProvider with ChangeNotifier {
-  final AuthRepositoryImpl _authRepository =
-      AuthRepositoryImpl(firebaseAuth: FirebaseAuth.instance);
+  final AuthRepositoryImpl _authRepository = AuthRepositoryImpl();
   final AuthService _authService = AuthService();
   final AuthenticationService _authenticationService = AuthenticationService();
   final SubscriptionService _subscriptionService =
@@ -106,10 +105,10 @@ class AuthProvider with ChangeNotifier {
     _initializeLocalStorage();
 
     // Listen to auth state changes
-    _authService.authStateChanges.listen((User? firebaseUser) async {
+    _authService.authStateChanges.listen((firebaseUser) async {
       if (firebaseUser != null) {
         _loadCurrentUser(
-          firebaseUser.uid,
+          firebaseUser.id,
           allowSelfRecovery: _status == AuthStatus.loading,
         );
       } else {
@@ -791,7 +790,7 @@ class AuthProvider with ChangeNotifier {
 
         if (userCredential.user != null) {
           await _loadCurrentUser(
-            userCredential.user!.uid,
+            userCredential.user!.id,
             allowSelfRecovery: true,
           );
 
@@ -1163,7 +1162,7 @@ class AuthProvider with ChangeNotifier {
       if (userCredential.user != null) {
         // Create user document in Firestore
         final user = UserModel(
-          id: userCredential.user!.uid,
+          id: userCredential.user!.id,
           email: email,
           fullName: fullName,
           phoneNumber: phoneNumber,
@@ -1181,7 +1180,7 @@ class AuthProvider with ChangeNotifier {
         );
 
         await _authRepository.createUser(user);
-        await _loadCurrentUser(userCredential.user!.uid);
+        await _loadCurrentUser(userCredential.user!.id);
 
         // If initial businessId was provided, persist it to user's document and cache
         if (businessId.isNotEmpty) {

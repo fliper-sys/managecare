@@ -10,8 +10,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'firebase_options.dart';
+import 'core/config/supabase_config.dart';
 import 'app.dart';
 import 'providers/auth_provider.dart';
 import 'providers/business_provider.dart';
@@ -81,10 +83,7 @@ void main() async {
     databaseFactory = databaseFactoryFfi;
   }
 
-  // Run the independent startup steps concurrently — none of these depend
-  // on each other's results, so doing them one-by-one only adds latency
-  // before the first frame (and, for a cached user, before auto-login can
-  // even begin).
+  // Run the independent startup steps concurrently.
   await Future.wait([
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -92,7 +91,13 @@ void main() async {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]),
-    _initializeFirebase(),
+    // Firebase is only used for push notifications (FCM) + crash reporting.
+    // All business data now flows through Supabase/Postgres.
+    _initializeFirebaseIfAvailable(),
+    Supabase.initialize(
+      url: SupabaseConfig.url,
+      anonKey: SupabaseConfig.anonKey,
+    ),
     Hive.initFlutter(),
     if (!kIsWeb) _initializeLocalDatabase(),
   ]);
@@ -125,26 +130,20 @@ void main() async {
   runApp(const MyApp());
 }
 
-Future<void> _initializeFirebase() async {
+/// Initialise Firebase purely for push notifications (FCM).
+///
+/// This is intentionally non-fatal; all business data now flows through
+/// Supabase/Postgres.  If Firebase isn't configured for this platform the
+/// app will still start — only push notifications will be unavailable.
+Future<void> _initializeFirebaseIfAvailable() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-
-    // ── Quota optimisation: Firestore offline persistence ───────────────
-    // Serves recently-read documents and query results from the on-device
-    // cache, reducing Firestore reads on repeat visits to the same screen.
-    // 100MB cache (default is 40MB) reduces evictions for larger catalogues.
-    FirebaseFirestore.instance.settings = const Settings(
-      persistenceEnabled: true,
-      cacheSizeBytes: 104857600, // 100 MB
-    );
-    // ─────────────────────────────────────────────────────────────────
-  } on FirebaseException catch (e) {
-    if (e.code != 'duplicate-app') {
-      rethrow;
-    }
-    // App already initialized, continue
+  } catch (e) {
+    // Firebase not available — notifications will be degraded, but the app
+    // still works.  Typical on custom builds / side-loads / emulators.
+    debugPrint('[main] Firebase init failed (non-fatal): $e');
   }
 }
 

@@ -461,8 +461,16 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           subscriptionTransactionId: passwordHash,
         );
 
-        final repo =
-            AuthRepositoryImpl(firebaseAuth: fb_auth.FirebaseAuth.instance);
+        // TODO(managecare-migration): this still creates the worker's login
+        // in Firebase Auth via a duplicate of the temp-app pattern that used
+        // to live in AuthenticationService.createWorkerUser. That method now
+        // calls managecare-admin-api (Supabase-backed) instead - this screen
+        // needs a follow-up pass to call it too, so workers created here can
+        // actually sign in against the new backend. Left as-is for now since
+        // it also writes vertical-specific worker metadata (roles, service
+        // assignments, commission, pump assignments) that hasn't been
+        // modeled in Postgres yet (Phase 4 of the migration plan).
+        final repo = AuthRepositoryImpl();
         await repo.createOrUpdateUser(worker);
       } on fb_auth.FirebaseAuthException catch (e) {
         if (e.code == 'email-already-in-use') {
@@ -528,7 +536,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
               subscriptionTransactionId: passwordHash,
             );
 
-            final repo = AuthRepositoryImpl(firebaseAuth: fb_auth.FirebaseAuth.instance);
+            final repo = AuthRepositoryImpl();
             await repo.createOrUpdateUser(linkedWorker);
 
             // Also ensure a workers document exists with this UID
