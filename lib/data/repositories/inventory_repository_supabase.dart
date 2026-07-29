@@ -173,19 +173,23 @@ class InventoryRepositorySupabase implements InventoryRepository {
     return getExpiredItems(businessId);
   }
 
+  // The custom backend doesn't implement Supabase's Realtime protocol
+  // (it's a plain REST API, not real Postgres logical replication over a
+  // websocket), so a genuine `.stream()` against it would just hang.
+  // Polling is the honest equivalent here.
+  static const _pollInterval = Duration(seconds: 15);
+
   @override
-  Stream<List<Map<String, dynamic>>> streamInventory(String businessId, {String? storeId}) {
-    // Client-side filtering since eq() is not available on SupabaseStreamBuilder in this SDK version
-    return _supabase
-        .from('inventory')
-        .stream(primaryKey: ['id'])
-        .map((maps) {
-          var filtered = maps.where((m) => m['business_id'] == businessId);
-          if (storeId != null && storeId.isNotEmpty) {
-            filtered = filtered.where((m) => m['store_id'] == storeId);
-          }
-          return filtered.map((m) => Map<String, dynamic>.from(m)).toList();
-        });
+  Stream<List<Map<String, dynamic>>> streamInventory(String businessId, {String? storeId}) async* {
+    while (true) {
+      try {
+        final items = await getInventory(businessId, storeId: storeId);
+        yield items.cast<Map<String, dynamic>>();
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_pollInterval);
+    }
   }
 
   @override
@@ -202,14 +206,20 @@ class InventoryRepositorySupabase implements InventoryRepository {
   }
 
   @override
-  Stream<List<Map<String, dynamic>>> streamInventoryHistory(String businessId, String inventoryId) {
-    return _supabase
-        .from('inventory_history')
-        .stream(primaryKey: ['id'])
-        .map((maps) {
-          var filtered = maps.where((m) => m['business_id'] == businessId && m['inventory_id'] == inventoryId);
-          return filtered.map((m) => Map<String, dynamic>.from(m)).toList();
-        });
+  Stream<List<Map<String, dynamic>>> streamInventoryHistory(String businessId, String inventoryId) async* {
+    while (true) {
+      try {
+        final response = await _http.get(
+          '/inventory/$businessId/$inventoryId/history',
+          options: Options(headers: _headers),
+        );
+        final data = (response.data['data'] as List?) ?? [];
+        yield data.cast<Map<String, dynamic>>();
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_pollInterval);
+    }
   }
 
   @override

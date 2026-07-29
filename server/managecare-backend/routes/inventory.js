@@ -187,6 +187,112 @@ module.exports = function(pool) {
     res.json(result.rows[0]);
   }));
 
+  // POST /api/inventory/:businessId/:id/history - Add a history entry
+  router.post('/:businessId/:id/history', asyncHandler(async (req, res) => {
+    const { businessId, id } = req.params;
+    const {
+      change_type, quantity_change, quantity_after, notes,
+      performed_by_id, performed_by_name, ...rest
+    } = req.body || {};
+
+    const item = await pool.query(
+      'SELECT id FROM inventory WHERE id = $1 AND business_id = $2',
+      [id, businessId]
+    );
+    if (item.rows.length === 0) {
+      return res.status(404).json({ error: 'Inventory item not found' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO inventory_history
+         (business_id, inventory_id, change_type, quantity_change, quantity_after, notes, performed_by_id, performed_by_name, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        businessId, id, change_type || 'adjustment', quantity_change ?? null, quantity_after ?? null,
+        notes || null, performed_by_id || null, performed_by_name || null, JSON.stringify(rest || {}),
+      ]
+    );
+    res.status(201).json(result.rows[0]);
+  }));
+
+  // GET /api/inventory/:businessId/:id/history - List history entries
+  router.get('/:businessId/:id/history', pagination, asyncHandler(async (req, res) => {
+    const { businessId, id } = req.params;
+    const { limit, offset } = req.pagination;
+
+    const result = await pool.query(
+      `SELECT * FROM inventory_history
+       WHERE business_id = $1 AND inventory_id = $2
+       ORDER BY created_at DESC LIMIT $3 OFFSET $4`,
+      [businessId, id, limit, offset]
+    );
+    res.json({ data: result.rows });
+  }));
+
+  // POST /api/inventory/:businessId/:id/resupply - Record a bakery-style
+  // resupply: increments quantity and logs a history entry atomically.
+  router.post('/:businessId/:id/resupply', requireFields('quantity'), asyncHandler(async (req, res) => {
+    const { businessId, id } = req.params;
+    const {
+      quantity, baker_id, baker_name, notes, performed_by_id, performed_by_name,
+      expected_production_amount, actual_production_amount, production_unit, production_item_name,
+    } = req.body;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const updated = await client.query(
+        `UPDATE inventory SET quantity = quantity + $1, updated_at = NOW()
+         WHERE id = $2 AND business_id = $3 RETURNING *`,
+        [quantity, id, businessId]
+      );
+      if (updated.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Inventory item not found' });
+      }
+
+      const historyEntry = await client.query(
+        `INSERT INTO inventory_history
+           (business_id, inventory_id, change_type, quantity_change, quantity_after, notes, performed_by_id, performed_by_name, metadata)
+         VALUES ($1, $2, 'resupply', $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [
+          businessId, id, quantity, updated.rows[0].quantity, notes || null,
+          performed_by_id || null, performed_by_name || null,
+          JSON.stringify({
+            baker_id, baker_name, expected_production_amount,
+            actual_production_amount, production_unit, production_item_name,
+          }),
+        ]
+      );
+
+      await client.query('COMMIT');
+      res.status(201).json({ inventory: updated.rows[0], history: historyEntry.rows[0] });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }));
+
+  // PATCH /api/inventory/:businessId/assign-store - Bulk-assign a store to
+  // every inventory item currently without one (used when a business
+  // creates its first store after already having unassigned stock).
+  router.patch('/:businessId/assign-store', requireFields('store_id'), asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const { store_id } = req.body;
+
+    const result = await pool.query(
+      `UPDATE inventory SET store_id = $1, updated_at = NOW()
+       WHERE business_id = $2 AND store_id IS NULL
+       RETURNING id`,
+      [store_id, businessId]
+    );
+    res.json({ updated: result.rows.length });
+  }));
+
   return router;
 };
 

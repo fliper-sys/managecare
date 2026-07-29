@@ -200,6 +200,51 @@ module.exports = function(pool) {
     res.status(201).json({ ...sale, items: items || [] });
   }));
 
+  // PUT /api/sales/:businessId/:id - Update sale metadata (not items/inventory)
+  router.put('/:businessId/:id', asyncHandler(async (req, res) => {
+    const { businessId, id } = req.params;
+    const {
+      customer_id, store_id, worker_id, worker_name,
+      total_amount, discount_amount, tax_amount, final_amount,
+      payment_method, status, notes,
+    } = req.body;
+
+    const fields = [];
+    const params = [];
+    let paramIndex = 1;
+    const set = (col, val) => {
+      if (val !== undefined) { fields.push(`${col} = $${paramIndex++}`); params.push(val); }
+    };
+    set('customer_id', customer_id);
+    set('store_id', store_id);
+    set('worker_id', worker_id);
+    set('worker_name', worker_name);
+    set('total_amount', total_amount);
+    set('discount_amount', discount_amount);
+    set('tax_amount', tax_amount);
+    set('final_amount', final_amount);
+    set('payment_method', payment_method);
+    set('status', status);
+    set('notes', notes);
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    fields.push('updated_at = NOW()');
+    params.push(id, businessId);
+
+    const result = await pool.query(
+      `UPDATE sales SET ${fields.join(', ')} WHERE id = $${paramIndex++} AND business_id = $${paramIndex} RETURNING *`,
+      params
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Sale not found' });
+    }
+    res.json(result.rows[0]);
+  }));
+
   // DELETE /api/sales/:businessId/:id - Delete sale (restore inventory)
   router.delete('/:businessId/:id', asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
