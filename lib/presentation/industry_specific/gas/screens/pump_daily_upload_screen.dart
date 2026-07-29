@@ -34,6 +34,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   bool _isSaving = false;
   String? _lastLoadedPumpId;
   String? _loadingPumpId;
+  String? _uploadingPhotoKind;
   final _openingController = TextEditingController();
   String? _openingPhotoPath;
   String? _openingPhotoUrl;
@@ -384,17 +385,21 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   }
 
   Future<void> _pickAndUploadPhoto(String kind) async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.camera,
-      imageQuality: 80,
-      maxWidth: 1600,
-    );
-    if (picked == null) return;
-    if (!kIsWeb) {
-      _setPhotoDraft(kind: kind, path: picked.path);
-    }
-    setState(() => _isSaving = true);
+    if (_uploadingPhotoKind != null || _isSaving) return;
+
+    setState(() => _uploadingPhotoKind = kind);
+
     try {
+      final picked = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        imageQuality: 80,
+        maxWidth: 1600,
+      );
+      if (picked == null) return;
+      if (!kIsWeb) {
+        _setPhotoDraft(kind: kind, path: picked.path);
+      }
+
       String? url;
       if (kIsWeb) {
         final bytes = await picked.readAsBytes();
@@ -421,8 +426,38 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) setState(() => _uploadingPhotoKind = null);
     }
+  }
+
+  bool _isPhotoUploading(String kind) => _uploadingPhotoKind == kind;
+
+  Widget _photoUploadIcon({
+    required String kind,
+    required bool hasPhoto,
+  }) {
+    if (_isPhotoUploading(kind)) {
+      return const SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+    }
+
+    return Icon(
+      hasPhoto ? Icons.check_circle_outline : Icons.camera_alt_outlined,
+      color: hasPhoto ? Colors.green : null,
+    );
+  }
+
+  String _photoUploadLabel({
+    required String kind,
+    required bool hasPhoto,
+    required String uploadText,
+    required String savedText,
+  }) {
+    if (_isPhotoUploading(kind)) return 'Uploading...';
+    return hasPhoto ? savedText : uploadText;
   }
 
   Future<String?> _ensurePhotoUrl({
@@ -903,26 +938,24 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                               ),
                             const SizedBox(height: 12),
                             OutlinedButton.icon(
-                              onPressed: _isSaving
+                              onPressed: _isSaving || _uploadingPhotoKind != null
                                   ? null
                                   : () => _pickAndUploadPhoto(
                                         'shiftOpeningCash',
                                       ),
-                              icon: Icon(
-                                _shiftOpeningCashPhotoUrl == null &&
-                                        _shiftOpeningCashPhotoPath == null
-                                    ? Icons.camera_alt_outlined
-                                    : Icons.check_circle_outline,
-                                color: _shiftOpeningCashPhotoUrl == null &&
-                                        _shiftOpeningCashPhotoPath == null
-                                    ? null
-                                    : Colors.green,
+                              icon: _photoUploadIcon(
+                                kind: 'shiftOpeningCash',
+                                hasPhoto: _shiftOpeningCashPhotoUrl != null ||
+                                    _shiftOpeningCashPhotoPath != null,
                               ),
                               label: Text(
-                                _shiftOpeningCashPhotoUrl == null &&
-                                        _shiftOpeningCashPhotoPath == null
-                                    ? 'Upload shift opening cash image'
-                                    : 'Shift opening cash image saved',
+                                _photoUploadLabel(
+                                  kind: 'shiftOpeningCash',
+                                  hasPhoto: _shiftOpeningCashPhotoUrl != null ||
+                                      _shiftOpeningCashPhotoPath != null,
+                                  uploadText: 'Upload shift opening cash image',
+                                  savedText: 'Shift opening cash image saved',
+                                ),
                               ),
                             ),
                             const SizedBox(height: 16),
@@ -944,26 +977,24 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                             ),
                             const SizedBox(height: 12),
                             OutlinedButton.icon(
-                              onPressed: _isSaving
+                              onPressed: _isSaving || _uploadingPhotoKind != null
                                   ? null
                                   : () => _pickAndUploadPhoto(
                                         'shiftCloseCash',
                                       ),
-                              icon: Icon(
-                                _shiftCloseCashPhotoUrl == null &&
-                                        _shiftCloseCashPhotoPath == null
-                                    ? Icons.camera_alt_outlined
-                                    : Icons.check_circle_outline,
-                                color: _shiftCloseCashPhotoUrl == null &&
-                                        _shiftCloseCashPhotoPath == null
-                                    ? null
-                                    : Colors.green,
+                              icon: _photoUploadIcon(
+                                kind: 'shiftCloseCash',
+                                hasPhoto: _shiftCloseCashPhotoUrl != null ||
+                                    _shiftCloseCashPhotoPath != null,
                               ),
                               label: Text(
-                                _shiftCloseCashPhotoUrl == null &&
-                                        _shiftCloseCashPhotoPath == null
-                                    ? 'Upload shift close cash image'
-                                    : 'Shift close cash image saved',
+                                _photoUploadLabel(
+                                  kind: 'shiftCloseCash',
+                                  hasPhoto: _shiftCloseCashPhotoUrl != null ||
+                                      _shiftCloseCashPhotoPath != null,
+                                  uploadText: 'Upload shift close cash image',
+                                  savedText: 'Shift close cash image saved',
+                                ),
                               ),
                             ),
                           ],
@@ -975,45 +1006,45 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: _isSaving
+                            onPressed: _isSaving || _uploadingPhotoKind != null
                                 ? null
                                 : () => _pickAndUploadPhoto('opening'),
-                            icon: Icon(
-                              _openingPhotoUrl == null &&
-                                      _openingPhotoPath == null
-                                  ? Icons.camera_alt_outlined
-                                  : Icons.check_circle_outline,
-                              color: _openingPhotoUrl == null &&
-                                      _openingPhotoPath == null
-                                  ? null
-                                  : Colors.green,
+                            icon: _photoUploadIcon(
+                              kind: 'opening',
+                              hasPhoto: _openingPhotoUrl != null ||
+                                  _openingPhotoPath != null,
                             ),
-                            label: Text(_openingPhotoUrl == null &&
-                                    _openingPhotoPath == null
-                                ? 'Closing pump volume upload'
-                                : 'Closing pump volume saved'),
+                            label: Text(
+                              _photoUploadLabel(
+                                kind: 'opening',
+                                hasPhoto: _openingPhotoUrl != null ||
+                                    _openingPhotoPath != null,
+                                uploadText: 'Closing pump volume upload',
+                                savedText: 'Closing pump volume saved',
+                              ),
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: _isSaving
+                            onPressed: _isSaving || _uploadingPhotoKind != null
                                 ? null
                                 : () => _pickAndUploadPhoto('closing'),
-                            icon: Icon(
-                              _closingPhotoUrl == null &&
-                                      _closingPhotoPath == null
-                                  ? Icons.camera_alt_outlined
-                                  : Icons.check_circle_outline,
-                              color: _closingPhotoUrl == null &&
-                                      _closingPhotoPath == null
-                                  ? null
-                                  : Colors.green,
+                            icon: _photoUploadIcon(
+                              kind: 'closing',
+                              hasPhoto: _closingPhotoUrl != null ||
+                                  _closingPhotoPath != null,
                             ),
-                            label: Text(_closingPhotoUrl == null &&
-                                    _closingPhotoPath == null
-                                ? 'Opening pump volume upload'
-                                : 'Opening pump volume saved'),
+                            label: Text(
+                              _photoUploadLabel(
+                                kind: 'closing',
+                                hasPhoto: _closingPhotoUrl != null ||
+                                    _closingPhotoPath != null,
+                                uploadText: 'Opening pump volume upload',
+                                savedText: 'Opening pump volume saved',
+                              ),
+                            ),
                           ),
                         ),
                       ],
@@ -1148,6 +1179,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                     const SizedBox(height: 20),
                     ElevatedButton.icon(
                       onPressed: _isSaving ||
+                              _uploadingPhotoKind != null ||
                               selectedPump == null ||
                               !_allImagesSelected()
                           ? null
