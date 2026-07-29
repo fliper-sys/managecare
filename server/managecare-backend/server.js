@@ -11,6 +11,7 @@ const Minio = require('minio');
 
 // ── Route imports ───────────────────────────────────────────
 const inventoryRoutes = require('./routes/inventory');
+const storesRoutes = require('./routes/stores');
 const salesRoutes = require('./routes/sales');
 const customersRoutes = require('./routes/customers');
 const workersRoutes = require('./routes/workers');
@@ -1182,6 +1183,7 @@ app.get('/api/attendance', authMiddleware, async (req, res) => {
 
 // ── Business-scoped API routes (require auth) ──────────────
 app.use('/api/inventory', authMiddleware, inventoryRoutes(pool));
+app.use('/api/stores', authMiddleware, storesRoutes(pool));
 app.use('/api/sales', authMiddleware, salesRoutes(pool));
 app.use('/api/customers', authMiddleware, customersRoutes(pool));
 app.use('/api/workers', authMiddleware, workersRoutes(pool));
