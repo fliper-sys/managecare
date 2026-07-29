@@ -143,23 +143,39 @@ module.exports = function(pool) {
     res.json(formatSale(result.rows[0]));
   }));
 
-  // POST /api/sales/:businessId - Create sale with items
+  // POST /api/sales/:businessId - Create sale with items.
+  // Accepts an optional client-supplied id for idempotent offline-sync
+  // retries (SalesRepositorySupabase.syncSaleToFirestore sends the locally
+  // generated sale id so a retry after a partial failure - e.g. sale
+  // created but the inventory decrement failed - doesn't create a second,
+  // duplicate sale). If a sale with that id already exists, it's returned
+  // as-is rather than re-inserted.
   router.post('/:businessId', requireFields('final_amount', 'payment_method', 'created_by'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const {
-      customer_id, store_id, worker_id, worker_name,
+      id, customer_id, store_id, worker_id, worker_name,
       total_amount, discount_amount, tax_amount, final_amount,
       payment_method, status, notes, created_by, sale_type, items,
     } = req.body;
 
+    if (id) {
+      const existing = await pool.query(
+        'SELECT * FROM sales WHERE id = $1 AND business_id = $2',
+        [id, businessId]
+      );
+      if (existing.rows.length > 0) {
+        return res.status(200).json({ ...existing.rows[0], items: items || [], alreadyExisted: true });
+      }
+    }
+
     // Create sale
     const saleResult = await pool.query(
-      `INSERT INTO sales (business_id, customer_id, store_id, worker_id, worker_name,
+      `INSERT INTO sales (id, business_id, customer_id, store_id, worker_id, worker_name,
         total_amount, discount_amount, tax_amount, final_amount,
         payment_method, status, notes, created_by, sale_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       VALUES (COALESCE($1, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING *`,
-      [businessId, customer_id || null, store_id || null, worker_id || null, worker_name || null,
+      [id || null, businessId, customer_id || null, store_id || null, worker_id || null, worker_name || null,
        total_amount || final_amount, discount_amount || 0, tax_amount || 0, final_amount,
        payment_method, status || 'completed', notes || null, created_by, sale_type || 'retail']
     );
