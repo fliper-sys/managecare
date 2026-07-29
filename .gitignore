@@ -58,3 +58,5 @@ functions/*firebase-adminsdk*.json
 *firebase-adminsdk*.json
 firestore-postgres-import.sql
 firestore-import-passwords.csv
+server/managecare-backend/backups_*/
+*.bak_*
