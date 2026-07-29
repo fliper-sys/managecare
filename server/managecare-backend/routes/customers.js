@@ -72,12 +72,12 @@ module.exports = function(pool) {
   // POST /api/customers/:businessId - Create customer
   router.post('/:businessId', requireFields('name'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
-    const { name, email, phone, address, city, state } = req.body;
+    const { name, email, phone, address, city, state, notes } = req.body;
 
     const result = await pool.query(
-      `INSERT INTO customers (business_id, name, email, phone, address, city, state)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [businessId, name, email || null, phone || null, address || null, city || null, state || null]
+      `INSERT INTO customers (business_id, name, email, phone, address, city, state, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [businessId, name, email || null, phone || null, address || null, city || null, state || null, notes || null]
     );
     res.status(201).json(result.rows[0]);
   }));
@@ -85,7 +85,7 @@ module.exports = function(pool) {
   // PUT /api/customers/:businessId/:id - Update customer
   router.put('/:businessId/:id', asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
-    const { name, email, phone, address, city, state, is_active } = req.body;
+    const { name, email, phone, address, city, state, is_active, notes } = req.body;
 
     const fields = [];
     const params = [];
@@ -98,6 +98,7 @@ module.exports = function(pool) {
     if (city !== undefined) { fields.push(`city = $${paramIndex++}`); params.push(city); }
     if (state !== undefined) { fields.push(`state = $${paramIndex++}`); params.push(state); }
     if (is_active !== undefined) { fields.push(`is_active = $${paramIndex++}`); params.push(is_active); }
+    if (notes !== undefined) { fields.push(`notes = $${paramIndex++}`); params.push(notes); }
 
     if (fields.length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
@@ -109,6 +110,35 @@ module.exports = function(pool) {
     const result = await pool.query(
       `UPDATE customers SET ${fields.join(', ')} WHERE id = $${paramIndex++} AND business_id = $${paramIndex} RETURNING *`,
       params
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+    res.json(result.rows[0]);
+  }));
+
+  // PATCH /api/customers/:businessId/:id/purchase - Record a purchase.
+  // Atomic server-side increment (avoids a read-then-write race between
+  // concurrent POS terminals updating the same customer).
+  router.patch('/:businessId/:id/purchase', requireFields('amount'), asyncHandler(async (req, res) => {
+    const { businessId, id } = req.params;
+    const amount = parseFloat(req.body.amount);
+    if (!Number.isFinite(amount)) {
+      return res.status(400).json({ error: 'amount must be a number' });
+    }
+
+    const result = await pool.query(
+      `UPDATE customers SET
+         total_transactions = total_transactions + 1,
+         total_spent = total_spent + $1,
+         average_order_value = (total_spent + $1) / (total_transactions + 1),
+         first_purchase_date = COALESCE(first_purchase_date, NOW()),
+         last_purchase_date = NOW(),
+         updated_at = NOW()
+       WHERE id = $2 AND business_id = $3
+       RETURNING *`,
+      [amount, id, businessId]
     );
 
     if (result.rows.length === 0) {

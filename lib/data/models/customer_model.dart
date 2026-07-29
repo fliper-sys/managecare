@@ -46,45 +46,56 @@ class CustomerModel {
   }) {
     final now = DateTime.now();
     final totalSpent = _readDouble(
-          json['totalSpent'] ?? json['totalPurchases'],
+          json['totalSpent'] ?? json['totalPurchases'] ?? json['total_spent'],
         ) ??
         0.0;
     final totalTransactions = _readInt(
-          json['totalTransactions'] ?? json['totalOrders'],
+          json['totalTransactions'] ??
+              json['totalOrders'] ??
+              json['total_transactions'],
         ) ??
         0;
-    final createdAt = _readDateTime(json['createdAt']) ?? now;
-    final updatedAt = _readDateTime(json['updatedAt']) ?? createdAt;
-    final firstPurchaseDate =
-        _readDateTime(json['firstPurchaseDate']) ?? createdAt;
-    final lastPurchaseDate =
-        _readDateTime(json['lastPurchaseDate']) ?? updatedAt;
+    final createdAt =
+        _readDateTime(json['createdAt'] ?? json['created_at']) ?? now;
+    final updatedAt =
+        _readDateTime(json['updatedAt'] ?? json['updated_at']) ?? createdAt;
+    final firstPurchaseDate = _readDateTime(
+          json['firstPurchaseDate'] ?? json['first_purchase_date'],
+        ) ??
+        createdAt;
+    final lastPurchaseDate = _readDateTime(
+          json['lastPurchaseDate'] ?? json['last_purchase_date'],
+        ) ??
+        updatedAt;
 
     return CustomerModel(
       id: _readString(json['id']) ??
           _readString(json['customerId']) ??
           documentId ??
           '',
-      businessId: _readString(json['businessId']) ?? '',
+      businessId:
+          _readString(json['businessId']) ?? _readString(json['business_id']) ?? '',
       name: _readString(json['name']) ??
           _readString(json['fullName']) ??
           _readString(json['displayName']) ??
           '',
       email: _readNullableString(json['email']),
-      phone:
-          _readNullableString(json['phone']) ?? _readNullableString(json['phoneNumber']),
+      phone: _readNullableString(json['phone']) ??
+          _readNullableString(json['phoneNumber']),
       address: _readNullableString(json['address']),
       city: _readNullableString(json['city']),
       state: _readNullableString(json['state']),
       totalSpent: totalSpent,
       totalTransactions: totalTransactions,
-      averageOrderValue: _readDouble(json['averageOrderValue']) ??
+      averageOrderValue: _readDouble(
+            json['averageOrderValue'] ?? json['average_order_value'],
+          ) ??
           (totalTransactions > 0 ? totalSpent / totalTransactions : 0.0),
       firstPurchaseDate: firstPurchaseDate,
       lastPurchaseDate: lastPurchaseDate,
       createdAt: createdAt,
       updatedAt: updatedAt,
-      isActive: _readBool(json['isActive']) ?? true,
+      isActive: _readBool(json['isActive'] ?? json['is_active']) ?? true,
       notes: _readNullableString(json['notes']),
     );
   }
