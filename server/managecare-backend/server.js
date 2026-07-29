@@ -476,15 +476,27 @@ async function restAuthorize(req, res, next) {
     if (req.method !== 'GET') {
       return res.status(403).json({ error: 'Use /api/workers to manage business membership' });
     }
-    const raw = req.query.business_id;
-    const businessId = typeof raw === 'string' && raw.startsWith('eq.') ? raw.slice(3) : null;
-    if (!businessId) {
-      return res.status(400).json({ error: 'business_id filter is required' });
+    const rawBusinessId = req.query.business_id;
+    const businessId = typeof rawBusinessId === 'string' && rawBusinessId.startsWith('eq.')
+      ? rawBusinessId.slice(3)
+      : null;
+    if (businessId) {
+      if (!(await isBusinessMember(bearerUser.id, businessId))) {
+        return res.status(403).json({ error: 'You are not a member of this business' });
+      }
+      return next();
     }
-    if (!(await isBusinessMember(bearerUser.id, businessId))) {
-      return res.status(403).json({ error: 'You are not a member of this business' });
+    // No business_id filter: allow a caller to look up their OWN
+    // memberships by user_id (needed to discover which businesses they
+    // belong to in the first place - e.g. right after signing in).
+    const rawUserId = req.query.user_id;
+    const userId = typeof rawUserId === 'string' && rawUserId.startsWith('eq.')
+      ? rawUserId.slice(3)
+      : null;
+    if (userId && userId === bearerUser.id) {
+      return next();
     }
-    return next();
+    return res.status(400).json({ error: 'A business_id filter, or a user_id filter matching yourself, is required' });
   }
 
   if (BUSINESS_SCOPED_TABLES.has(table)) {
