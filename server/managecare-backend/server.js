@@ -52,6 +52,52 @@ async function sendMail({ to, subject, html }) {
   console.log('[Mail] Sent:', info.messageId, 'to', to, 'response:', info.response);
 }
 
+// Email HTML needs inline styles, not a <style> block - many clients
+// (Outlook desktop, some webmail) strip or ignore <style> tags entirely.
+// Table-based layout keeps this rendering consistently across clients.
+function renderResetEmailHtml({ name, resetUrl }) {
+  const greeting = name ? `Hi ${escapeHtml(name)},` : 'Hi,';
+  return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /></head>
+<body style="margin:0; padding:0; background-color:#0d1b2a; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0d1b2a; padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px; width:100%; background-color:#ffffff; border-radius:16px; overflow:hidden;">
+          <tr>
+            <td style="background:linear-gradient(135deg,#1a56db,#1543ab); background-color:#1a56db; padding:28px 32px;">
+              <span style="color:#ffffff; font-size:20px; font-weight:700; letter-spacing:0.3px;">ManageCare</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px;">
+              <div style="width:56px; height:56px; background-color:#eef2ff; border-radius:14px; text-align:center; line-height:56px; font-size:26px; margin-bottom:20px;">&#128274;</div>
+              <h1 style="margin:0 0 16px; font-size:21px; line-height:1.3; color:#10223f; font-weight:700;">Reset your password</h1>
+              <p style="margin:0 0 12px; font-size:15px; line-height:1.6; color:#4a5568;">${greeting}</p>
+              <p style="margin:0 0 24px; font-size:15px; line-height:1.6; color:#4a5568;">We received a request to reset your ManageCare password. Click the button below to choose a new one. This link expires in <strong>1 hour</strong> and can only be used once.</p>
+              <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+                <tr>
+                  <td style="background-color:#1a56db; border-radius:10px;">
+                    <a href="${resetUrl}" style="display:inline-block; padding:14px 28px; font-size:15px; font-weight:600; color:#ffffff; text-decoration:none; border-radius:10px;">Reset Password</a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 8px; font-size:13px; line-height:1.6; color:#94a3b8;">Or copy and paste this link into your browser:</p>
+              <p style="margin:0 0 24px; font-size:13px; line-height:1.6; word-break:break-all;"><a href="${resetUrl}" style="color:#1a56db; text-decoration:underline;">${resetUrl}</a></p>
+              <hr style="border:none; border-top:1px solid #e2e8f0; margin:0 0 20px;" />
+              <p style="margin:0; font-size:13px; line-height:1.6; color:#94a3b8;">If you didn't request a password reset, you can safely ignore this email — your password won't be changed.</p>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:20px 0 0; font-size:12px; color:#5b7290;">&copy; ${new Date().getFullYear()} ManageCare. This is an automated message, please don't reply.</p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
 function escapeHtml(str) {
   return String(str || '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -497,12 +543,7 @@ app.post('/auth/v1/recover', async (req, res) => {
         await sendMail({
           to: email,
           subject: 'Reset your ManageCare password',
-          html: `
-            <p>Hi ${escapeHtml(user.full_name || '')},</p>
-            <p>Click the link below to set a new password. This link expires in 1 hour and can only be used once.</p>
-            <p><a href="${resetUrl}">${resetUrl}</a></p>
-            <p>If you didn't request this, you can safely ignore this email.</p>
-          `,
+          html: renderResetEmailHtml({ name: user.full_name, resetUrl }),
         });
       } catch (mailErr) {
         console.error('[recover] Failed to send reset email:', mailErr.message);
