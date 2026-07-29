@@ -55,3 +55,6 @@ app.*.map.json
 **/node_modules/
 functions/serviceAccountKey.json
 functions/*firebase-adminsdk*.json
+*firebase-adminsdk*.json
+firestore-postgres-import.sql
+firestore-import-passwords.csv

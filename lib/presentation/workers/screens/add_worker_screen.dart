@@ -422,6 +422,53 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           return;
         }
       }
+
+      final selectedBusinessId =
+          context.read<BusinessProvider>().currentBusiness?.id ??
+              authProvider.currentUser!.businessId;
+      if (selectedBusinessId.isEmpty) {
+        throw Exception('Select a business before creating a worker.');
+      }
+
+      final createdWorkerLogin = await authProvider.register(
+        email: normalizedEmail,
+        password: password,
+        fullName: _fullNameController.text.trim(),
+        phoneNumber: _phoneController.text.trim(),
+        role: 'worker',
+        businessId: selectedBusinessId,
+      );
+      if (!createdWorkerLogin) {
+        throw Exception(
+          authProvider.errorMessage ?? 'Failed to create worker account.',
+        );
+      }
+
+      try {
+        final businessProvider = context.read<BusinessProvider>();
+        final bid = businessProvider.currentBusiness?.id ?? selectedBusinessId;
+        if (bid.isNotEmpty) {
+          await context.read<WorkersProvider>().refreshForBusiness(bid);
+          await businessProvider.refreshBusinessStats(bid);
+        }
+      } catch (_) {}
+
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Worker account created for $normalizedEmail'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        if (authProvider.isOwnerUser) {
+          Navigator.pushReplacementNamed(context, Routes.workers);
+        } else {
+          Navigator.pop(context);
+        }
+      }
+      return;
+
       try {
         final defaultApp = fb_core.Firebase.app();
         final tempAppName =

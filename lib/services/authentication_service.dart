@@ -135,6 +135,7 @@ class AuthenticationService {
     final businessIds = memberships
         .map((m) => m['business_id'] as String)
         .toList(growable: false);
+    final hasMembership = memberships.isNotEmpty;
 
     String? currentBusinessId = profile['current_business_id'] as String?;
     Map<String, dynamic>? currentMembership;
@@ -172,7 +173,7 @@ class AuthenticationService {
       fullName: (profile['full_name'] as String?) ?? '',
       photoUrl: profile['photo_url'] as String?,
       phoneNumber: profile['phone_number'] as String?,
-      role: (currentMembership?['role'] as String?) ?? 'staff',
+      role: (currentMembership?['role'] as String?) ?? 'owner',
       permissions: permissions,
       businessId: currentBusinessId ?? '',
       businessIds: businessIds,
@@ -181,7 +182,7 @@ class AuthenticationService {
       businessType: business?['business_type'] as String?,
       storeId: currentMembership?['store_id'] as String?,
       isActive: (currentMembership?['is_active'] as bool?) ?? true,
-      isOwner: (currentMembership?['is_owner'] as bool?) ?? false,
+      isOwner: (currentMembership?['is_owner'] as bool?) ?? !hasMembership,
       pin: profile['pin'] as String?,
       hasActiveSubscription: (business?['is_subscription_active'] as bool?) ?? false,
       subscriptionPlan: business?['subscription_plan'] as String?,
@@ -210,9 +211,15 @@ class AuthenticationService {
     String? phoneNumber,
     String? pin,
   }) async {
-    final accessToken = _auth.currentSession?.accessToken;
+    var accessToken = _auth.currentSession?.accessToken;
     if (accessToken == null) {
       throw Exception('You must be signed in to create a worker.');
+    }
+    try {
+      final refreshed = await _auth.refreshSession();
+      accessToken = refreshed.session?.accessToken ?? accessToken;
+    } catch (_) {
+      // Keep the current token; the server will reject it if it is truly stale.
     }
 
     final permissions = <String, bool>{

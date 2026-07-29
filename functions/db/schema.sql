@@ -6,6 +6,16 @@
 
 -- Enable UUID generation
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE SCHEMA IF NOT EXISTS auth;
+
+CREATE OR REPLACE FUNCTION auth.uid()
+RETURNS UUID AS $$
+BEGIN
+  RETURN NULLIF(current_setting('request.jwt.claim.sub', true), '')::UUID;
+EXCEPTION WHEN others THEN
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE;
 
 -- ============================================================
 -- TABLES
@@ -15,12 +25,33 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- This table is automatically populated via a trigger on auth.users insert.
 -- Do NOT drop; it's already in use.
 -- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS ...
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT UNIQUE,
+  full_name TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS businesses (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL DEFAULT '',
+  business_type TEXT,
+  owner_id UUID REFERENCES profiles(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- Add missing columns to profiles if they don't exist
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pin TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS current_business_id UUID REFERENCES businesses(id);
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone_number TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS photo_url TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS deletion_reason TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
 -- BUSINESSES
 -- Already exists. Add missing columns if needed.
@@ -35,6 +66,7 @@ ALTER TABLE businesses ADD COLUMN IF NOT EXISTS store_ids UUID[] DEFAULT '{}';
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS last_sku_number INTEGER DEFAULT 0;
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_tier TEXT DEFAULT 'free';
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_plan TEXT DEFAULT 'free';
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_start_date TIMESTAMPTZ;
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS subscription_end_date TIMESTAMPTZ;
 ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_subscription_active BOOLEAN DEFAULT false;
@@ -121,6 +153,7 @@ CREATE TABLE IF NOT EXISTS customers (
 CREATE TABLE IF NOT EXISTS workers (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email TEXT,
+  password_hash TEXT,
   full_name TEXT NOT NULL,
   phone TEXT,
   role TEXT NOT NULL DEFAULT 'staff',
@@ -131,6 +164,21 @@ CREATE TABLE IF NOT EXISTS workers (
   pin TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- BUSINESS MEMBERS
+CREATE TABLE IF NOT EXISTS business_members (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'staff',
+  store_id UUID,
+  is_owner BOOLEAN DEFAULT false,
+  is_active BOOLEAN DEFAULT true,
+  permissions JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, business_id)
 );
 
 -- ATTENDANCE (for biometric device integration)
@@ -210,6 +258,125 @@ CREATE TABLE IF NOT EXISTS subscription_transactions (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Upgrade older partial VPS schemas where CREATE TABLE IF NOT EXISTS skipped
+-- existing tables that were missing columns used by this backend.
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE CASCADE;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS sku TEXT;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS barcode TEXT;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS unit_price DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS cost_price DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS quantity DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS min_stock_level DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS unit TEXT DEFAULT 'pcs';
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS expiry_date TIMESTAMPTZ;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS store_id UUID;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE CASCADE;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS customer_id UUID;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS store_id UUID;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS worker_id UUID;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS worker_name TEXT;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS total_amount DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS tax_amount DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS final_amount DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS payment_method TEXT;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'completed';
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS created_by UUID;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS sale_type TEXT DEFAULT 'retail';
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS sale_id UUID REFERENCES sales(id) ON DELETE CASCADE;
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS product_id UUID;
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS product_name TEXT;
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS quantity DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS unit_price DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS discount DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS total DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS pricing_mode TEXT;
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS inventory_unit TEXT;
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS sale_unit TEXT;
+ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS sale_unit_multiplier DECIMAL(12,2) DEFAULT 1;
+
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE CASCADE;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS city TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS state TEXT;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS loyalty_points INTEGER DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS total_purchases DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS total_spent DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'staff';
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE CASCADE;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS store_id UUID;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}';
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS pin TEXT;
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE workers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS worker_id UUID REFERENCES workers(id) ON DELETE SET NULL;
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE CASCADE;
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS device_sn TEXT;
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS user_id_on_device TEXT;
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS timestamp TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS status TEXT;
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS verify_mode TEXT;
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS serial_number TEXT;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id);
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE CASCADE;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS amount DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS paid_by TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS receipt_url TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS created_by UUID;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE procurements ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE CASCADE;
+ALTER TABLE procurements ADD COLUMN IF NOT EXISTS supplier_name TEXT;
+ALTER TABLE procurements ADD COLUMN IF NOT EXISTS total_amount DECIMAL(12,2) DEFAULT 0;
+ALTER TABLE procurements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
+ALTER TABLE procurements ADD COLUMN IF NOT EXISTS notes TEXT;
+ALTER TABLE procurements ADD COLUMN IF NOT EXISTS created_by UUID;
+ALTER TABLE procurements ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE procurements ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE distributors ADD COLUMN IF NOT EXISTS business_id UUID REFERENCES businesses(id) ON DELETE CASCADE;
+ALTER TABLE distributors ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE distributors ADD COLUMN IF NOT EXISTS contact_person TEXT;
+ALTER TABLE distributors ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE distributors ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE distributors ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE distributors ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE distributors ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE distributors ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
 -- ============================================================
 -- INDEXES
 -- ============================================================
@@ -226,6 +393,9 @@ CREATE INDEX IF NOT EXISTS idx_customers_business ON customers(business_id);
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 CREATE INDEX IF NOT EXISTS idx_workers_business ON workers(business_id);
 CREATE INDEX IF NOT EXISTS idx_workers_email ON workers(email);
+CREATE INDEX IF NOT EXISTS idx_business_members_user ON business_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_business_members_business ON business_members(business_id);
+CREATE INDEX IF NOT EXISTS idx_business_members_active ON business_members(business_id, is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_attendance_worker ON attendance(worker_id);
 CREATE INDEX IF NOT EXISTS idx_attendance_timestamp ON attendance(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_attendance_business ON attendance(business_id);
@@ -314,31 +484,37 @@ ALTER TABLE procurements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE distributors ENABLE ROW LEVEL SECURITY;
 
 -- Users can only access data for their own businesses
+DROP POLICY IF EXISTS business_isolation ON inventory;
 CREATE POLICY business_isolation ON inventory
   USING (business_id IN (
     SELECT business_id FROM business_members WHERE user_id = auth.uid()
   ));
 
+DROP POLICY IF EXISTS business_isolation ON sales;
 CREATE POLICY business_isolation ON sales
   USING (business_id IN (
     SELECT business_id FROM business_members WHERE user_id = auth.uid()
   ));
 
+DROP POLICY IF EXISTS business_isolation ON customers;
 CREATE POLICY business_isolation ON customers
   USING (business_id IN (
     SELECT business_id FROM business_members WHERE user_id = auth.uid()
   ));
 
+DROP POLICY IF EXISTS business_isolation ON workers;
 CREATE POLICY business_isolation ON workers
   USING (business_id IN (
     SELECT business_id FROM business_members WHERE user_id = auth.uid()
   ));
 
+DROP POLICY IF EXISTS business_isolation ON attendance;
 CREATE POLICY business_isolation ON attendance
   USING (business_id IN (
     SELECT business_id FROM business_members WHERE user_id = auth.uid()
   ));
 
+DROP POLICY IF EXISTS business_isolation ON expenses;
 CREATE POLICY business_isolation ON expenses
   USING (business_id IN (
     SELECT business_id FROM business_members WHERE user_id = auth.uid()
@@ -356,7 +532,31 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+DO $$
+BEGIN
+  IF to_regclass('auth.users') IS NOT NULL THEN
+    EXECUTE 'DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users';
+    EXECUTE 'CREATE TRIGGER on_auth_user_created
+      AFTER INSERT ON auth.users
+      FOR EACH ROW EXECUTE FUNCTION handle_new_user()';
+  END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'managecare') THEN
+    GRANT USAGE ON SCHEMA public TO managecare;
+    GRANT USAGE ON SCHEMA auth TO managecare;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO managecare;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO managecare;
+    GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO managecare;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO managecare;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      GRANT USAGE, SELECT ON SEQUENCES TO managecare;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      GRANT EXECUTE ON FUNCTIONS TO managecare;
+  END IF;
+END;
+$$;

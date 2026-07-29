@@ -351,7 +351,7 @@ class AuthProvider with ChangeNotifier {
           password: password,
           fullName: fullName,
           businessId: businessId,
-          role: '',
+          role: 'staff',
         );
         _errorMessage = null;
         _status =
@@ -450,9 +450,14 @@ class AuthProvider with ChangeNotifier {
   }) async {
     if (_currentUser == null) return;
     try {
+      final nextBusinessId = businessId ?? _currentUser!.businessId;
+      final nextCurrentBusinessId =
+          currentBusinessId ?? (businessId ?? _currentUser!.currentBusinessId);
       final merged = businessIds != null
           ? List<String>.from({..._currentUser!.businessIds, ...businessIds})
-          : _currentUser!.businessIds;
+          : businessId != null && businessId.isNotEmpty
+              ? List<String>.from({..._currentUser!.businessIds, businessId})
+              : _currentUser!.businessIds;
       final updated = _currentUser!.copyWith(
         email: email,
         fullName: fullName,
@@ -460,16 +465,18 @@ class AuthProvider with ChangeNotifier {
         address: address,
         jobTitle: jobTitle,
         photoUrl: photoUrl,
-        businessId: businessId ?? _currentUser!.businessId,
+        businessId: nextBusinessId,
         businessIds: merged,
-        currentBusinessId: currentBusinessId ?? _currentUser!.currentBusinessId,
+        currentBusinessId: nextCurrentBusinessId,
         isOwner: isOwner ?? _currentUser!.isOwner,
       );
       await _authRepo.updateUser(updated);
       _currentUser = updated;
       await _localStorage?.saveUser(updated);
-      if (currentBusinessId != null && _localBusinessStorage != null) {
-        await _localBusinessStorage!.setCurrentBusiness(currentBusinessId);
+      if (nextCurrentBusinessId != null &&
+          nextCurrentBusinessId.isNotEmpty &&
+          _localBusinessStorage != null) {
+        await _localBusinessStorage!.setCurrentBusiness(nextCurrentBusinessId);
       }
       notifyListeners();
     } catch (e) {
@@ -738,10 +745,11 @@ class AuthProvider with ChangeNotifier {
         .from('profiles')
         .stream(primaryKey: ['id'])
         .eq('id', userId)
-        .listen((maps) {
+        .listen((maps) async {
       if (maps.isEmpty) return;
-      final data = maps.first;
-      final updated = UserModel.fromJson({'id': userId, ...data});
+      final access = await _authService.resolveUserAccess(userId);
+      final updated = access.user;
+      if (!access.isAllowed || updated == null) return;
 
       final bool changed =
           updated.currentBusinessId != _currentUser?.currentBusinessId ||

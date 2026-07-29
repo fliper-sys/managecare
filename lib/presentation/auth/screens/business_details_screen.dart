@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:uuid/uuid.dart';
 import 'dart:io';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -28,6 +29,8 @@ class BusinessDetailsScreen extends StatefulWidget {
 }
 
 class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
+  static const _uuid = Uuid();
+
   final _formKey = GlobalKey<FormState>();
   final _businessNameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -337,7 +340,7 @@ class _BusinessDetailsScreenState extends State<BusinessDetailsScreen> {
     final trialEndDate = trialStartDate.add(const Duration(days: 7));
 
     final business = BusinessModel(
-      id: 'bus_${DateTime.now().millisecondsSinceEpoch}',
+      id: _uuid.v4(),
       name: _businessNameController.text.trim(),
       businessType: widget.businessType,
       ownerId: authProvider.currentUser!.id,
