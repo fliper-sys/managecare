@@ -22,6 +22,86 @@ const pushRoutes = require('./routes/push');
 const { authMiddleware, requireAuth } = require('./middleware/auth');
 const { errorHandler } = require('./middleware/validation');
 const crypto = require('crypto');
+const nodemailer = require('nodemailer');
+
+const PUBLIC_URL = process.env.PUBLIC_URL || 'https://backend.managecare.info';
+
+let mailTransporter = null;
+if (process.env.SMTP_HOST) {
+  mailTransporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT, 10) || 465,
+    secure: (process.env.SMTP_PORT || '465') === '465',
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+  console.log('[Mail] SMTP transport configured for', process.env.SMTP_HOST);
+} else {
+  console.warn('[Mail] SMTP_HOST not set - password recovery emails will not be sent');
+}
+
+async function sendMail({ to, subject, html }) {
+  if (!mailTransporter) {
+    throw new Error('SMTP is not configured');
+  }
+  const info = await mailTransporter.sendMail({
+    from: `"${process.env.SMTP_SENDER_NAME || 'ManageCare'}" <${process.env.SMTP_USER}>`,
+    to,
+    subject,
+    html,
+  });
+  console.log('[Mail] Sent:', info.messageId, 'to', to, 'response:', info.response);
+}
+
+function escapeHtml(str) {
+  return String(str || '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+function renderResetPasswordPage({ token, error, success }) {
+  const body = success
+    ? `
+      <h1>Password updated</h1>
+      <p>Your password has been changed. You can now sign in with your new password in the ManageCare app.</p>
+    `
+    : `
+      <h1>Reset your password</h1>
+      ${error ? `<p class="error">${escapeHtml(error)}</p>` : ''}
+      ${token
+        ? `
+          <form method="POST" action="/reset-password">
+            <input type="hidden" name="token" value="${escapeHtml(token)}" />
+            <label>New password<input type="password" name="password" minlength="8" required autofocus /></label>
+            <label>Confirm new password<input type="password" name="confirm_password" minlength="8" required /></label>
+            <button type="submit">Set new password</button>
+          </form>
+        `
+        : '<p>Request a new reset link from the ManageCare app.</p>'}
+    `;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ManageCare - Reset Password</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1b2a; color: #1a2438; margin: 0; padding: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .card { background: #fff; border-radius: 16px; padding: 32px; max-width: 400px; width: calc(100% - 48px); box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  p { line-height: 1.5; color: #4a5568; }
+  .error { color: #c0392b; background: #fdecea; padding: 10px 14px; border-radius: 8px; }
+  label { display: block; margin: 16px 0 6px; font-size: 14px; font-weight: 600; }
+  input { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #d0d7de; border-radius: 8px; font-size: 15px; }
+  button { margin-top: 20px; width: 100%; padding: 12px; background: #1a56db; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  button:hover { background: #1543ab; }
+</style>
+</head>
+<body>
+  <div class="card">${body}</div>
+</body>
+</html>`;
+}
 
 // ── App setup ───────────────────────────────────────────────
 const app = express();
@@ -380,6 +460,116 @@ app.post('/auth/v1/logout', async (req, res) => {
     }
   }
   res.json({});
+});
+
+// ── Password recovery ───────────────────────────────────────
+// AuthService.sendPasswordResetEmail (gotrue-dart's resetPasswordForEmail)
+// POSTs to /auth/v1/recover with an email + PKCE fields we don't need to
+// validate for this simplified flow. The user completes the reset on a
+// plain web page (the Flutter app has no deep-link handling for this -
+// forgot_password_screen.dart just tells the user to check their email),
+// so there's no need to replicate GoTrue's PKCE code-exchange flow.
+app.post('/auth/v1/recover', async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    if (!email) {
+      return res.status(400).json({ error: 'email is required' });
+    }
+
+    const result = await pool.query(
+      'SELECT id, full_name FROM profiles WHERE lower(email) = $1',
+      [email]
+    );
+
+    // Always respond success regardless of whether the account exists,
+    // to avoid leaking which emails are registered.
+    if (result.rows.length > 0) {
+      const user = result.rows[0];
+      const token = crypto.randomBytes(32).toString('hex');
+      await pool.query(
+        `INSERT INTO password_reset_tokens (token, user_id, expires_at)
+         VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
+        [token, user.id]
+      );
+
+      const resetUrl = `${PUBLIC_URL}/reset-password?token=${token}`;
+      try {
+        await sendMail({
+          to: email,
+          subject: 'Reset your ManageCare password',
+          html: `
+            <p>Hi ${escapeHtml(user.full_name || '')},</p>
+            <p>Click the link below to set a new password. This link expires in 1 hour and can only be used once.</p>
+            <p><a href="${resetUrl}">${resetUrl}</a></p>
+            <p>If you didn't request this, you can safely ignore this email.</p>
+          `,
+        });
+      } catch (mailErr) {
+        console.error('[recover] Failed to send reset email:', mailErr.message);
+      }
+    }
+
+    res.json({});
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ── GET /reset-password?token=... - serves a minimal, self-contained form.
+app.get('/reset-password', async (req, res) => {
+  const token = typeof req.query.token === 'string' ? req.query.token : '';
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(renderResetPasswordPage({ token }));
+});
+
+// ── POST /reset-password - processes the form submission.
+app.post('/reset-password', express.urlencoded({ extended: true }), async (req, res) => {
+  const { token, password, confirm_password } = req.body || {};
+  res.set('Content-Type', 'text/html; charset=utf-8');
+
+  if (!token) {
+    return res.status(400).send(renderResetPasswordPage({ token: '', error: 'Missing reset token.' }));
+  }
+  if (!password || password.length < 8) {
+    return res.status(400).send(renderResetPasswordPage({ token, error: 'Password must be at least 8 characters.' }));
+  }
+  if (password !== confirm_password) {
+    return res.status(400).send(renderResetPasswordPage({ token, error: 'Passwords do not match.' }));
+  }
+
+  try {
+    const tokenRow = await pool.query(
+      'SELECT user_id FROM password_reset_tokens WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()',
+      [token]
+    );
+    if (tokenRow.rows.length === 0) {
+      return res.status(400).send(renderResetPasswordPage({ token: '', error: 'This reset link is invalid or has expired. Request a new one from the app.' }));
+    }
+
+    const userId = tokenRow.rows[0].user_id;
+    const hash = await bcrypt.hash(password, 10);
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('UPDATE profiles SET password_hash = $1, updated_at = NOW() WHERE id = $2', [hash, userId]);
+      await client.query('UPDATE workers SET password_hash = $1, updated_at = NOW() WHERE id = $2', [hash, userId]);
+      await client.query('UPDATE password_reset_tokens SET used_at = NOW() WHERE token = $1', [token]);
+      // Revoke any existing sessions - a leaked old refresh token shouldn't
+      // survive a password reset.
+      await client.query('DELETE FROM refresh_tokens WHERE user_id = $1', [userId]);
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    res.send(renderResetPasswordPage({ token: '', success: true }));
+  } catch (err) {
+    res.status(500).send(renderResetPasswordPage({ token, error: 'Something went wrong. Please try again.' }));
+  }
 });
 
 // ── Minimal PostgREST-compatible API for supabase_flutter ───
