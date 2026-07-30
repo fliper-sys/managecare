@@ -105,6 +105,15 @@ class CustomerRepositorySupabase implements CustomerRepository {
           queryParams['isActive'] =
               filters['isActive'] == true ? 'true' : 'false';
         }
+        if (filters.containsKey('startDate') && filters['startDate'] != null) {
+          queryParams['startDate'] = filters['startDate'];
+        }
+        if (filters.containsKey('endDate') && filters['endDate'] != null) {
+          queryParams['endDate'] = filters['endDate'];
+        }
+        if (filters.containsKey('limit') && filters['limit'] != null) {
+          queryParams['limit'] = filters['limit'];
+        }
       }
 
       final response = await _http.get(

@@ -4,7 +4,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 ///
 /// Replaces the Firestore-based DeletionRecoveryService. Soft-delete and
 /// recovery are handled through `profiles` and `businesses` tables in
-/// PostgreSQL instead of Firestore.
+/// PostgreSQL instead of Firestore. Both tables' PATCH is already gated
+/// server-side (profiles: self-only; businesses: owner-only), so these
+/// calls need no dedicated backend routes.
+///
+/// The actual login-time gate lives in
+/// `AuthenticationService.resolveUserAccess` - this class just performs the
+/// mutations (soft-delete/restore) that the UI (settings screens,
+/// BusinessProvider.deleteBusiness) triggers directly.
 class DeletionRecoveryServiceSupabase {
   static const Duration recoveryGracePeriod = Duration(days: 30);
 
@@ -26,7 +33,7 @@ class DeletionRecoveryServiceSupabase {
       'is_active': false,
       'deleted_at': now,
       'recovery_deadline_at': deadline,
-      'deleted_by_user_id': actorId,
+      'deleted_by_id': actorId,
       'deletion_reason': reason ?? '',
     }).eq('id', userId);
   }
@@ -37,61 +44,43 @@ class DeletionRecoveryServiceSupabase {
       'is_active': true,
       'deleted_at': null,
       'recovery_deadline_at': null,
-      'deleted_by_user_id': null,
+      'deleted_by_id': null,
       'deletion_reason': null,
     }).eq('id', userId);
   }
 
-  Future<String?> checkUserAccess(String userId) async {
-    final profile = await _supabase
-        .from('profiles')
-        .select('is_deleted, is_active, deleted_at, recovery_deadline_at, deletion_reason')
-        .eq('id', userId)
-        .maybeSingle();
+  /// Soft-delete a business (owner-only - enforced server-side by the
+  /// businesses PATCH gate). business_members rows are left untouched:
+  /// membership stays real, the business is just hidden from use until
+  /// restored.
+  Future<void> softDeleteBusiness({
+    required String businessId,
+    required String actorId,
+    String? reason,
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    final deadline = DateTime.now().add(recoveryGracePeriod).toIso8601String();
 
-    if (profile == null) return 'User profile not found.';
-    if (profile['is_deleted'] != true) return null;
-
-    final deadlineStr = profile['recovery_deadline_at'] as String?;
-    if (deadlineStr != null) {
-      final deadline = DateTime.tryParse(deadlineStr);
-      if (deadline != null && DateTime.now().isAfter(deadline)) {
-        return 'This account has passed the 30-day recovery window and can no longer be restored.';
-      }
-    }
-
-    return 'This account has been deleted. Please contact support for recovery.';
+    await _supabase.from('businesses').update({
+      'is_deleted': true,
+      'is_active': false,
+      'deleted_at': now,
+      'recovery_deadline_at': deadline,
+      'deleted_by_id': actorId,
+      'deleted_by_type': 'owner',
+      'deletion_reason': reason ?? '',
+    }).eq('id', businessId);
   }
 
-  Future<bool> trySelfRecover(String userId) async {
-    final profile = await _supabase
-        .from('profiles')
-        .select('is_deleted, recovery_deadline_at, deleted_by_user_id')
-        .eq('id', userId)
-        .maybeSingle();
-
-    if (profile == null) return false;
-    if (profile['is_deleted'] != true) return false;
-
-    final deadlineStr = profile['recovery_deadline_at'] as String?;
-    if (deadlineStr == null) return false;
-    final deadline = DateTime.tryParse(deadlineStr);
-    if (deadline == null || DateTime.now().isAfter(deadline)) return false;
-
-    final deletedBy = profile['deleted_by_user_id'] as String?;
-    if (deletedBy == userId) {
-      await restoreUser(userId: userId);
-      return true;
-    }
-
-    return false;
-  }
-
-  Future<Map<String, dynamic>?> getDeletionState(String userId) async {
-    return await _supabase
-        .from('profiles')
-        .select('is_deleted, is_active, deleted_at, recovery_deadline_at, deletion_reason')
-        .eq('id', userId)
-        .maybeSingle();
+  Future<void> restoreBusiness({required String businessId}) async {
+    await _supabase.from('businesses').update({
+      'is_deleted': false,
+      'is_active': true,
+      'deleted_at': null,
+      'recovery_deadline_at': null,
+      'deleted_by_id': null,
+      'deleted_by_type': null,
+      'deletion_reason': null,
+    }).eq('id', businessId);
   }
 }

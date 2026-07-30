@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../core/utils/datetime_utils.dart';
 
 /// Inventory alert model for low stock notifications
 class InventoryAlert {
@@ -46,21 +46,11 @@ class InventoryAlert {
       severity: json['severity'] ?? 'normal',
       isActive: json['isActive'] ?? true,
       acknowledged: json['acknowledged'] ?? false,
-      createdAt: json['createdAt'] is Timestamp
-          ? (json['createdAt'] as Timestamp).toDate()
-          : json['createdAt'] is DateTime
-              ? json['createdAt']
-              : DateTime.now(),
-      updatedAt: json['updatedAt'] is Timestamp
-          ? (json['updatedAt'] as Timestamp).toDate()
-          : json['updatedAt'] is DateTime
-              ? json['updatedAt']
-              : DateTime.now(),
-      acknowledgedAt: json['acknowledgedAt'] is Timestamp
-          ? (json['acknowledgedAt'] as Timestamp).toDate()
-          : json['acknowledgedAt'] is DateTime
-              ? json['acknowledgedAt']
-              : null,
+      createdAt: parseTimestamp(json['createdAt']),
+      updatedAt: parseTimestamp(json['updatedAt']),
+      acknowledgedAt: json['acknowledgedAt'] == null
+          ? null
+          : parseTimestamp(json['acknowledgedAt']),
       notes: json['notes'],
     );
   }

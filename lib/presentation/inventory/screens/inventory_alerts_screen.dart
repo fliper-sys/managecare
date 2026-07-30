@@ -29,7 +29,6 @@ class _InventoryAlertsScreenState extends State<InventoryAlertsScreen>
 
   Future<void> _loadAlerts() async {
     await alertsProvider.loadAlerts();
-    await alertsProvider.checkInventoryThresholds();
   }
 
   @override

@@ -12,6 +12,9 @@ const Minio = require('minio');
 // ── Route imports ───────────────────────────────────────────
 const inventoryRoutes = require('./routes/inventory');
 const storesRoutes = require('./routes/stores');
+const returnsRoutes = require('./routes/returns');
+const inventoryAlertsRoutes = require('./routes/inventory_alerts');
+const reordersRoutes = require('./routes/reorders');
 const salesRoutes = require('./routes/sales');
 const customersRoutes = require('./routes/customers');
 const workersRoutes = require('./routes/workers');
@@ -1185,6 +1188,9 @@ app.get('/api/attendance', authMiddleware, async (req, res) => {
 app.use('/api/inventory', authMiddleware, inventoryRoutes(pool));
 app.use('/api/stores', authMiddleware, storesRoutes(pool));
 app.use('/api/sales', authMiddleware, salesRoutes(pool));
+app.use('/api/returns', authMiddleware, returnsRoutes(pool));
+app.use('/api/inventory-alerts', authMiddleware, inventoryAlertsRoutes(pool));
+app.use('/api/reorders', authMiddleware, reordersRoutes(pool));
 app.use('/api/customers', authMiddleware, customersRoutes(pool));
 app.use('/api/workers', authMiddleware, workersRoutes(pool));
 app.use('/api/expenses', authMiddleware, expensesRoutes(pool));

@@ -1,12 +1,14 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:business_manager/core/utils/formatters.dart';
 import '../core/utils/datetime_utils.dart';
 import '../providers/auth_provider.dart';
+import '../services/managecare_api_client.dart';
+import '../data/repositories/sales_repository_supabase.dart';
+import '../data/repositories/inventory_repository_supabase.dart';
+import '../data/repositories/customer_repository_supabase.dart';
 import 'dart:io';
 import '../services/web_email_receipt_service.dart';
 import 'package:path_provider/path_provider.dart';
@@ -40,7 +42,11 @@ class WarehouseSales {
 
 /// Provider for managing all reports and analytics across the application
 class ReportsProvider extends ChangeNotifier {
-  late final FirebaseFirestore _firestore;
+  final ManagecareApiClient _api = ManagecareApiClient.instance;
+  final SalesRepositorySupabase _salesRepo = SalesRepositorySupabase();
+  final InventoryRepositorySupabase _inventoryRepo =
+      InventoryRepositorySupabase();
+  final CustomerRepositorySupabase _customerRepo = CustomerRepositorySupabase();
   AuthProvider? _authProvider;
 
   // Sales Report Data
@@ -73,28 +79,27 @@ class ReportsProvider extends ChangeNotifier {
   bool _isComputingFinancials = false;
   String? _error;
 
-  // Firestore subscriptions
-  StreamSubscription<QuerySnapshot>? _salesSubscription;
-  StreamSubscription<QuerySnapshot>? _financialSalesSubscription;
-  StreamSubscription<QuerySnapshot>? _expensesSubscription;
-  StreamSubscription<QuerySnapshot>? _inventorySubscription;
-  StreamSubscription<QuerySnapshot>? _customersSubscription;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _latestSalesDocs = [];
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _latestExpensesDocs = [];
+  // The custom backend doesn't implement Supabase's Realtime protocol, so
+  // these "subscriptions" are polled the same way
+  // InventoryRepositorySupabase.streamInventory is (see that class for the
+  // fuller explanation).
+  static const _pollInterval = Duration(seconds: 15);
+  Timer? _salesSubscription;
+  Timer? _financialSalesSubscription;
+  Timer? _expensesSubscription;
+  Timer? _inventorySubscription;
+  List<Map<String, dynamic>> _latestSalesDocs = [];
+  List<Map<String, dynamic>> _latestExpensesDocs = [];
   final Map<String, double> _inventoryCostCache = {};
   String? _inventoryCostCacheBusinessId;
 
   ReportsProvider({
-    FirebaseFirestore? firestore,
     AuthProvider? authProvider,
   }) {
-    _firestore = firestore ?? FirebaseFirestore.instance;
     _authProvider = authProvider;
   }
 
   String? _currentSubscribedBusinessId;
-
-  bool _triedTimestampSalesQuery = false;
 
   Future<Map<String, double>> _getInventoryCostMap(
     String businessId, {
@@ -107,20 +112,13 @@ class ReportsProvider extends ChangeNotifier {
     }
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('inventory')
-          .get();
+      final items = await _inventoryRepo.getInventory(businessId);
       final nextCache = <String, double>{};
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        nextCache[doc.id] =
-            ((data['averageCost'] ??
-                        data['cost'] ??
-                        data['lastProcurementCost']) as num?)
-                    ?.toDouble() ??
-                0.0;
+      for (final raw in items) {
+        final data = raw as Map<String, dynamic>;
+        final id = (data['id'] ?? '').toString();
+        if (id.isEmpty) continue;
+        nextCache[id] = (data['cost_price'] as num?)?.toDouble() ?? 0.0;
       }
       _inventoryCostCacheBusinessId = businessId;
       _inventoryCostCache
@@ -238,27 +236,6 @@ class ReportsProvider extends ChangeNotifier {
       // Try to access 'error' property for boxed errors (web platform)
       if (error is Map && error.containsKey('error')) {
         return error['error'].toString();
-      }
-
-      // Handle Future exception where error might be in nested structure
-      if (error.runtimeType.toString().contains('Future') ||
-          error.toString().contains('Dart exception thrown')) {
-        debugPrint(
-            '[extractErrorMessage] Detected wrapped Future exception, attempting deep extraction');
-        // Try to extract from toString which may contain the actual error
-        String str = error.toString();
-        if (str.isNotEmpty) {
-          // Remove the wrapper message and try to find the actual error
-          if (str.contains('Dart exception thrown from converted Future')) {
-            return 'Transaction failed - likely a permission or networking issue. Check Firebase console logs.';
-          }
-        }
-      }
-
-      if (error is FirebaseException) {
-        final code = error.code;
-        final msg = error.message ?? '';
-        return '$code${msg.isNotEmpty ? ': $msg' : ''}'.trim();
       }
 
       // For wrapped exceptions, try to extract the actual message
@@ -430,52 +407,30 @@ class ReportsProvider extends ChangeNotifier {
     final startDate = start ?? _salesStartDate;
     final endDate = (end ?? _salesEndDate).add(const Duration(days: 1));
 
-    // Try createdAt (Timestamp) based query first
-    var query = _firestore
-        .collection('businesses')
-        .doc(bid)
-        .collection('sales')
-        .where('createdAt',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
-
-    var snapshot = await query.get();
-
-    if (snapshot.docs.isEmpty) {
-      // Fallback to numeric timestamp range
-      final tsQuery = _firestore
-          .collection('businesses')
-          .doc(bid)
-          .collection('sales')
-          .where('timestamp',
-              isGreaterThanOrEqualTo: startDate.millisecondsSinceEpoch)
-          .where('timestamp',
-              isLessThanOrEqualTo: endDate.millisecondsSinceEpoch);
-      snapshot = await tsQuery.get();
-    }
+    final sales = await _salesRepo.fetchSales(
+      businessId: bid,
+      start: startDate,
+      end: endDate,
+    );
 
     final Map<String, double> totals = {};
-    for (var doc in snapshot.docs) {
-      final data = doc.data();
-      final storeId = (data['storeId'] as String?)?.toString() ?? 'unassigned';
-      final amount = ((data['finalAmount'] ??
-              data['totalAmount'] ??
-              data['total'] ??
+    for (var data in sales) {
+      final storeId =
+          (data['store_id'] as String?)?.toString() ?? 'unassigned';
+      final amount = ((data['final_amount'] ??
+              data['total_amount'] ??
               0) as num)
           .toDouble();
       totals[storeId] = (totals[storeId] ?? 0.0) + amount;
     }
 
     // Map store ids to human-friendly names
-    final storesSnapshot = await _firestore
-        .collection('businesses')
-        .doc(bid)
-        .collection('stores')
-        .get();
+    final storesData = await _api.get('/stores/$bid');
     final Map<String, String> storeNames = {};
-    for (var s in storesSnapshot.docs) {
-      final data = s.data() as Map<String, dynamic>?;
-      storeNames[s.id] = (data?['name'] as String?) ?? '';
+    for (final raw in (storesData as List? ?? [])) {
+      final data = raw as Map<String, dynamic>;
+      storeNames[(data['id'] ?? '').toString()] =
+          (data['name'] as String?) ?? '';
     }
 
     final result = totals.entries
@@ -523,56 +478,14 @@ class ReportsProvider extends ChangeNotifier {
   }
 
   /// Get per-warehouse sales totals for a given date range (used by Wholesale)
+  // TODO(migration): the wholesale/distributor vertical (warehouses,
+  // distributor_sales, distributors) hasn't been migrated to the custom
+  // backend yet - there's no `warehouses` table. This has no confirmed UI
+  // call sites currently, so it's stubbed rather than guessed at; revisit
+  // when the wholesale vertical migration happens.
   Future<List<WarehouseSales>> getWarehouseSalesBreakdown(
       {String? businessId, DateTime? start, DateTime? end}) async {
-    final bid = businessId ??
-        _currentSubscribedBusinessId ??
-        _authProvider?.currentUser?.currentBusinessId ??
-        _authProvider?.currentUser?.preferredBusinessId ??
-        _authProvider?.currentUser?.businessId;
-    if (bid == null || bid.isEmpty) throw Exception('No business ID found');
-
-    final startDate = start ?? _salesStartDate;
-    final endDate = (end ?? _salesEndDate).add(const Duration(days: 1));
-
-    var query = _firestore
-        .collection('businesses')
-        .doc(bid)
-        .collection('sales')
-        .where('createdAt',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
-
-    var snapshot = await query.get();
-
-    if (snapshot.docs.isEmpty) {
-      final tsQuery = _firestore
-          .collection('businesses')
-          .doc(bid)
-          .collection('sales')
-          .where('timestamp',
-              isGreaterThanOrEqualTo: startDate.millisecondsSinceEpoch)
-          .where('timestamp',
-              isLessThanOrEqualTo: endDate.millisecondsSinceEpoch);
-      snapshot = await tsQuery.get();
-    }
-
-    final List<Map<String, dynamic>> salesDocs =
-        snapshot.docs.map((d) => d.data()).toList();
-
-    // Map warehouse ids to friendly names
-    final warehousesSnapshot = await _firestore
-        .collection('businesses')
-        .doc(bid)
-        .collection('warehouses')
-        .get();
-    final Map<String, String> warehouseNames = {};
-    for (var s in warehousesSnapshot.docs) {
-      final data = s.data() as Map<String, dynamic>?;
-      warehouseNames[s.id] = (data?['name'] as String?) ?? '';
-    }
-
-    return buildWarehouseSalesFromRaw(salesDocs, warehouseNames);
+    return const [];
   }
 
   /// Get payment method breakdown for a business within a date range (aggregates values per method)
@@ -588,46 +501,18 @@ class ReportsProvider extends ChangeNotifier {
     final startDate = start ?? _financialStartDate;
     final endDate = (end ?? _financialEndDate).add(const Duration(days: 1));
 
-    var query = _firestore
-        .collection('businesses')
-        .doc(bid)
-        .collection('sales')
-        .where('saleDate',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-        .where('saleDate', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
-
-    var snapshot = await query.get();
-    if (snapshot.docs.isEmpty) {
-      // fallback to createdAt range
-      query = _firestore
-          .collection('businesses')
-          .doc(bid)
-          .collection('sales')
-          .where('createdAt',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate));
-      snapshot = await query.get();
-    }
+    final sales = await _salesRepo.fetchSales(
+      businessId: bid,
+      start: startDate,
+      end: endDate,
+    );
 
     final Map<String, double> totals = {};
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
-      // if there are split payments, sum each method individually
-      if (data['payments'] is List) {
-        for (final p in data['payments']) {
-          final method = (p['method'] as String?) ?? 'unknown';
-          final amt = ((p['amount'] ?? 0) as num).toDouble();
-          totals[method] = (totals[method] ?? 0.0) + amt;
-        }
-      } else {
-        final method = (data['paymentMethod'] as String?) ?? 'unknown';
-        final amt = ((data['total'] ??
-                data['finalAmount'] ??
-                data['totalAmount'] ??
-                0) as num)
-            .toDouble();
-        totals[method] = (totals[method] ?? 0.0) + amt;
-      }
+    for (final data in sales) {
+      final method = (data['payment_method'] as String?) ?? 'unknown';
+      final amt = ((data['final_amount'] ?? data['total_amount'] ?? 0) as num)
+          .toDouble();
+      totals[method] = (totals[method] ?? 0.0) + amt;
     }
 
     return totals;
@@ -651,138 +536,15 @@ class ReportsProvider extends ChangeNotifier {
     final startDate = start ?? _salesStartDate;
     final endDate = (end ?? _salesEndDate).add(const Duration(days: 1));
 
-    // We'll query both the nested business sales and the root 'sales' collection (filtered by businessId)
-    // to ensure we capture records written to either location. Combine, dedupe (nested takes precedence), and sort.
-    List<QuerySnapshot> snapshots = [];
+    final sales = await _salesRepo.fetchSales(
+      businessId: bid,
+      start: startDate,
+      end: endDate,
+    );
 
-    try {
-      var nestedQuery = _firestore
-          .collection('businesses')
-          .doc(bid)
-          .collection('sales')
-          .where('createdAt',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-          .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(endDate))
-          .orderBy('createdAt', descending: true)
-          .limit(limit) as dynamic;
-
-      var rootQuery = _firestore
-          .collection('sales')
-          .where('businessId', isEqualTo: bid) as dynamic;
-
-      // Try to apply createdAt constraints to root query as well
-      try {
-        rootQuery = rootQuery
-            .where('createdAt',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
-            .where('createdAt',
-                isLessThanOrEqualTo: Timestamp.fromDate(endDate))
-            .orderBy('createdAt', descending: true)
-            .limit(limit);
-      } catch (_) {
-        // root docs may not have createdAt as Timestamp or queries may require composite indexes; ignore and fetch by businessId only
-        rootQuery = rootQuery.limit(limit);
-      }
-
-      final nestedSnap = await nestedQuery.get();
-      snapshots.add(nestedSnap);
-
-      final rootSnap = await rootQuery.get();
-      snapshots.add(rootSnap);
-
-      // If nested snapshot is empty, try timestamp numeric fallback on nested (older docs may use numeric 'timestamp')
-      if (nestedSnap.docs.isEmpty) {
-        try {
-          final tsQuery = _firestore
-              .collection('businesses')
-              .doc(bid)
-              .collection('sales')
-              .where('timestamp',
-                  isGreaterThanOrEqualTo: startDate.millisecondsSinceEpoch)
-              .where('timestamp',
-                  isLessThanOrEqualTo: endDate.millisecondsSinceEpoch)
-              .orderBy('timestamp', descending: true)
-              .limit(limit);
-          final tsSnap = await tsQuery.get();
-          snapshots[0] = tsSnap;
-        } catch (_) {}
-      }
-    } catch (e) {
-      // If query failed (e.g., composite index required), attempt more permissive fetches
-      String errStr = e.toString();
-      final isIndexError =
-          errStr.contains('failed-precondition') || errStr.contains('index');
-      if (isIndexError) {
-        debugPrint(
-            '[ReportsProvider] fetchSalesList requires Firestore composite index. Creating a composite index on (businessId, createdAt) is recommended for better performance.');
-      } else {
-        debugPrint(
-            '[ReportsProvider] fetchSalesList primary query failed: $errStr');
-      }
-      try {
-        final nestedSnap = await _firestore
-            .collection('businesses')
-            .doc(bid)
-            .collection('sales')
-            .limit(limit)
-            .get();
-        final rootSnap = await _firestore
-            .collection('sales')
-            .where('businessId', isEqualTo: bid)
-            .limit(limit)
-            .get();
-        snapshots.add(nestedSnap);
-        snapshots.add(rootSnap);
-      } catch (e2) {
-        final errStr2 = extractErrorMessage(e2);
-        debugPrint(
-            '[ReportsProvider] fetchSalesList fallback failed: $errStr2');
-        rethrow;
-      }
-    }
-
-    // Combine and dedupe (nested docs overwrite root docs)
-    final Map<String, Map<String, dynamic>> combined = {};
-    if (snapshots.isNotEmpty) {
-      // root snapshot is at index 1 if present, nested at 0
-      for (final doc in (snapshots.length > 1
-          ? snapshots[1].docs
-          : <QueryDocumentSnapshot>[])) {
-        combined[doc.id] = {
-          ...(doc.data() as Map<String, dynamic>),
-          'id': doc.id
-        };
-      }
-      for (final doc in snapshots[0].docs) {
-        combined[doc.id] = {
-          ...(doc.data() as Map<String, dynamic>),
-          'id': doc.id
-        };
-      }
-    }
-
-    List<Map<String, dynamic>> list = combined.values
-        .map((m) => {'id': m['id'], 'data': m..remove('id')})
+    List<Map<String, dynamic>> list = sales
+        .map((data) => {'id': data['id'], 'data': Map<String, dynamic>.from(data)..remove('id')})
         .toList();
-
-    int _createdAtToMillis(dynamic v) {
-      if (v == null) return 0;
-      if (v is Timestamp) return v.toDate().millisecondsSinceEpoch;
-      if (v is DateTime) return v.millisecondsSinceEpoch;
-      if (v is num) return v.toInt();
-      if (v is String) {
-        final p = int.tryParse(v);
-        if (p != null) return p;
-        final dt = DateTime.tryParse(v);
-        if (dt != null) return dt.millisecondsSinceEpoch;
-      }
-      return 0;
-    }
-
-    list.sort((a, b) => _createdAtToMillis(
-            (b['data'] as Map)['createdAt'] ?? (b['data'] as Map)['timestamp'])
-        .compareTo(_createdAtToMillis((a['data'] as Map)['createdAt'] ??
-            (a['data'] as Map)['timestamp'])));
 
     if (list.length > limit) list = list.sublist(0, limit);
 
@@ -792,23 +554,22 @@ class ReportsProvider extends ChangeNotifier {
         final data = item['data'] as Map<String, dynamic>;
         final id = (item['id'] as String).toLowerCase();
         final customer = (data['customerName'] ??
-                data['customerDisplayName'] ??
-                data['customer'] ??
+                data['customer_name'] ??
                 '')
             .toString()
             .toLowerCase();
-        final pm = (data['paymentMethod'] ?? data['payment'] ?? '')
+        final pm = (data['paymentMethod'] ?? data['payment_method'] ?? '')
             .toString()
             .toLowerCase();
-        final cashier =
-            (data['cashier'] ?? data['workerName'] ?? data['soldBy'] ?? '')
-                .toString()
-                .toLowerCase();
+        final cashier = (data['workerName'] ?? data['worker_name'] ?? '')
+            .toString()
+            .toLowerCase();
         final products = ((data['items'] as List?) ?? []).map((it) {
-          if (it is Map)
-            return ((it['name'] ?? it['productName'] ?? it['title']) ?? '')
+          if (it is Map) {
+            return ((it['name'] ?? it['productName'] ?? it['product_name']) ?? '')
                 .toString()
                 .toLowerCase();
+          }
           return it.toString().toLowerCase();
         }).join(' ');
         return id.contains(q) ||
@@ -823,160 +584,11 @@ class ReportsProvider extends ChangeNotifier {
     return list;
   }
 
-  /// Delete a sale document (business-level and optional top-level mirror)
-  /// Returns a map with auditId, items and businessId if available so UI can display restored quantities.
-  /// Web-specific fallback for deleteSale that avoids complex transaction issues on web platform
-  Future<Map<String, dynamic>?> _deleteSaleWeb(
-      String saleId, String bid) async {
-    try {
-      debugPrint(
-          '[ReportsProvider.deleteSaleWeb] Using web fallback for sale deletion');
-
-      // Step 1: Read the sale document
-      final saleRef = _firestore
-          .collection('businesses')
-          .doc(bid)
-          .collection('sales')
-          .doc(saleId);
-      final saleSnap = await saleRef.get();
-
-      List<dynamic> items = [];
-      Map<String, dynamic> data = {};
-
-      if (saleSnap.exists) {
-        data = saleSnap.data() as Map<String, dynamic>;
-        items = (data['items'] as List<dynamic>?) ?? [];
-      } else {
-        // Try root sales collection
-        final rootRef = _firestore.collection('sales').doc(saleId);
-        final rootSnap = await rootRef.get();
-        if (!rootSnap.exists) {
-          return {'auditId': null, 'items': [], 'businessId': null};
-        }
-        data = rootSnap.data() as Map<String, dynamic>;
-        items = (data['items'] as List<dynamic>?) ?? [];
-      }
-
-      final actualBid = (data['businessId'] ?? bid)?.toString() ?? '';
-
-      // Step 2: Update inventory (without transaction to avoid web issues)
-      if (actualBid.isNotEmpty) {
-        for (final raw in items) {
-          if (raw is! Map<String, dynamic>) continue;
-          final pid = (raw['productId'] ?? raw['id'] ?? raw['product_id'] ?? '')
-              .toString();
-          final qtyNum =
-              (raw['quantity'] ?? raw['qty'] ?? raw['quantitySold'] ?? 0);
-          double qty;
-          try {
-            if (qtyNum is num)
-              qty = qtyNum.toDouble();
-            else {
-              final cleaned =
-                  qtyNum?.toString().replaceAll(RegExp(r'[^0-9.\-]'), '');
-              qty = double.tryParse(cleaned!) ?? 0.0;
-            }
-          } catch (_) {
-            qty = 0.0;
-          }
-
-          if (pid.isEmpty || qty <= 0) continue;
-
-          try {
-            final invRef = _firestore
-                .collection('businesses')
-                .doc(actualBid)
-                .collection('inventory')
-                .doc(pid);
-            final invSnap = await invRef.get();
-
-            if (invSnap.exists) {
-              await invRef.update({
-                'quantity': FieldValue.increment(qty),
-                'updatedAt': FieldValue.serverTimestamp(),
-              });
-            } else {
-              await invRef.set({
-                'quantity': qty,
-                'name': (raw['name'] ?? raw['productName'] ?? '').toString(),
-                'createdAt': FieldValue.serverTimestamp(),
-                'updatedAt': FieldValue.serverTimestamp(),
-              });
-            }
-          } catch (e) {
-            debugPrint(
-                '[ReportsProvider._deleteSaleWeb] Error updating inventory for $pid: $e');
-            // Continue even if inventory update fails
-          }
-        }
-
-        // Step 3: Create audit log
-        try {
-          final auditRef = _firestore
-              .collection('businesses')
-              .doc(actualBid)
-              .collection('sale_deletions')
-              .doc();
-          await auditRef.set({
-            'saleId': saleId,
-            'deletedBy': _authProvider?.currentUser?.id ?? 'system',
-            'items': items,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
-        } catch (e) {
-          debugPrint(
-              '[ReportsProvider._deleteSaleWeb] Error creating audit log: $e');
-        }
-      }
-
-      // Step 4: Delete the sale documents
-      try {
-        if (saleSnap.exists) {
-          await saleRef.delete();
-        }
-      } catch (e) {
-        debugPrint(
-            '[ReportsProvider._deleteSaleWeb] Error deleting business sale: $e');
-      }
-
-      try {
-        final rootRef = _firestore.collection('sales').doc(saleId);
-        final rootSnap = await rootRef.get();
-        if (rootSnap.exists) {
-          await rootRef.delete();
-        }
-      } catch (e) {
-        debugPrint(
-            '[ReportsProvider._deleteSaleWeb] Error deleting root sale: $e');
-      }
-
-      // Refresh subscription if active
-      try {
-        if (_salesSubscription != null) {
-          subscribeToSalesReports(businessId: bid);
-        }
-      } catch (_) {}
-
-      debugPrint(
-          '[ReportsProvider._deleteSaleWeb] Sale deletion completed successfully');
-      return {
-        'auditId': null,
-        'items': items,
-        'businessId': actualBid,
-        'success': true
-      };
-    } catch (e, st) {
-      final errMsg = extractErrorMessage(e);
-      final fullMsg =
-          'Sale deletion failed on web: $errMsg - Please check Firebase security rules and try again';
-      debugPrint('[ReportsProvider._deleteSaleWeb] Error: $fullMsg');
-      debugPrint('[ReportsProvider._deleteSaleWeb] Stack: $st');
-
-      return {'success': false, 'error': fullMsg, 'stack': st.toString()};
-    }
-  }
-
-  /// Native/mobile transaction-based deletion (Android, iOS)
+  /// Delete a sale. The backend restores inventory and writes the audit log
+  /// (`sale_deletions` table) atomically as part of the DELETE call
+  /// (routes/sales.js) - this used to be a client-side transaction (and a
+  /// separate web-specific fallback, since Firestore transactions behaved
+  /// differently there) but a REST DELETE doesn't have that platform split.
   Future<Map<String, dynamic>?> deleteSale(String saleId,
       {String? businessId}) async {
     final bid = businessId ??
@@ -986,190 +598,67 @@ class ReportsProvider extends ChangeNotifier {
         _authProvider?.currentUser?.businessId;
     if (bid == null || bid.isEmpty) throw Exception('No business ID found');
 
-    // Web platform has stricter transaction handling; use fallback for web
-    if (kIsWeb) {
-      return _deleteSaleWeb(saleId, bid);
-    }
-
     try {
-      // Perform atomic restock + delete in a transaction to avoid races and partial updates
-      final result = await _firestore.runTransaction((tx) async {
-        final saleRef = _firestore
-            .collection('businesses')
-            .doc(bid)
-            .collection('sales')
-            .doc(saleId);
-        final saleSnap = await tx.get(saleRef);
+      await _salesRepo.deleteSaleForBusiness(bid, saleId);
 
-        List<dynamic> items = [];
-        Map<String, dynamic> data = {};
-
-        if (saleSnap.exists) {
-          data = saleSnap.data() as Map<String, dynamic>;
-          items = (data['items'] as List<dynamic>?) ?? [];
-        } else {
-          // Try to fall back to root 'sales' document if business-level sale is missing
-          final rootRefFallback = _firestore.collection('sales').doc(saleId);
-          final rootSnapFallback = await tx.get(rootRefFallback);
-          if (!rootSnapFallback.exists) {
-            // nothing to do
-            return {'auditId': null, 'items': [], 'businessId': null};
-          }
-          data = rootSnapFallback.data() as Map<String, dynamic>;
-          items = (data['items'] as List<dynamic>?) ?? [];
-        }
-
-        final actualBid = (data['businessId'] ?? bid)?.toString() ?? '';
-        if (actualBid.isNotEmpty) {
-          final List<Map<String, dynamic>> _deleteErrors = [];
-          for (final raw in items) {
-            if (raw is! Map<String, dynamic>) continue;
-            final pid =
-                (raw['productId'] ?? raw['id'] ?? raw['product_id'] ?? '')
-                    .toString();
-            final qtyNum =
-                (raw['quantity'] ?? raw['qty'] ?? raw['quantitySold'] ?? 0);
-            double qty;
-            try {
-              if (qtyNum is num)
-                qty = qtyNum.toDouble();
-              else {
-                final cleaned =
-                    qtyNum?.toString().replaceAll(RegExp(r'[^0-9.\-]'), '');
-                qty = double.tryParse(cleaned!) ?? 0.0;
-              }
-            } catch (_) {
-              qty = 0.0;
-            }
-
-            if (pid.isEmpty || qty <= 0) continue;
-
-            try {
-              final invRef = _firestore
-                  .collection('businesses')
-                  .doc(actualBid)
-                  .collection('inventory')
-                  .doc(pid);
-              final invSnap = await tx.get(invRef);
-
-              if (invSnap.exists) {
-                tx.update(invRef, {
-                  'quantity': FieldValue.increment(qty),
-                  'updatedAt': FieldValue.serverTimestamp(),
-                });
-              } else {
-                tx.set(invRef, {
-                  'quantity': qty,
-                  'name': (raw['name'] ?? raw['productName'] ?? '').toString(),
-                  'createdAt': FieldValue.serverTimestamp(),
-                  'updatedAt': FieldValue.serverTimestamp(),
-                });
-              }
-            } catch (e) {
-              _deleteErrors.add({'productId': pid, 'error': e.toString()});
-            }
-          }
-
-          // log the deletion for audit (include any per-item errors)
-          final auditRef = _firestore
-              .collection('businesses')
-              .doc(actualBid)
-              .collection('sale_deletions')
-              .doc();
-          tx.set(auditRef, {
-            'saleId': saleId,
-            'deletedBy': _authProvider?.currentUser?.id ?? 'system',
-            'items': items,
-            'errors': _deleteErrors,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
-
-          // delete the sale doc from the business collection if it existed
-          if (saleSnap.exists) tx.delete(saleRef);
-
-          final saleType = (data['saleType'] ?? '').toString().trim().toLowerCase();
-          final distributorId = (data['distributorId'] ?? '').toString().trim();
-          if (saleType == 'distributor' && distributorId.isNotEmpty) {
-            final distributorSaleRef = _firestore.collection('businesses').doc(actualBid).collection('distributor_sales').doc(saleId);
-            final distributorSaleSnap = await tx.get(distributorSaleRef);
-            if (distributorSaleSnap.exists) tx.delete(distributorSaleRef);
-
-            final distributorDocSaleRef = _firestore
-                .collection('businesses')
-                .doc(actualBid)
-                .collection('distributors')
-                .doc(distributorId)
-                .collection('sales')
-                .doc(saleId);
-            final distributorDocSaleSnap = await tx.get(distributorDocSaleRef);
-            if (distributorDocSaleSnap.exists) tx.delete(distributorDocSaleRef);
-          }
-
-          // delete mirror in root 'sales' collection if it exists
-          final rootRef = _firestore.collection('sales').doc(saleId);
-          final rootSnap = await tx.get(rootRef);
-          if (rootSnap.exists) tx.delete(rootRef);
-
-          final resMap = {
-            'auditId': auditRef.id,
-            'items': items,
-            'businessId': actualBid,
-            'success': true
-          };
-          return resMap;
-        }
-
-        // If we cannot determine a business id, still attempt to delete docs
-        if (saleSnap.exists) tx.delete(saleRef);
-        final rootRef = _firestore.collection('sales').doc(saleId);
-        final rootSnap = await tx.get(rootRef);
-        if (rootSnap.exists) tx.delete(rootRef);
-
-        return {
-          'auditId': null,
-          'items': [],
-          'businessId': null,
-          'success': true
-        };
-      });
-
-      // refresh subscription if active
-      try {
-        if (_salesSubscription != null) {
-          subscribeToSalesReports(businessId: bid);
-        }
-      } catch (_) {}
-
-      return result;
-    } catch (e, st) {
-      final errMsg = extractErrorMessage(e);
-
-      // Add context-specific hints
-      String fullMsg = errMsg;
-      if (errMsg.toLowerCase().contains('permission')) {
-        fullMsg +=
-            ' - Check Firestore security rules for sale_deletions and inventory write permissions';
-      } else if (errMsg.toLowerCase().contains('transaction')) {
-        fullMsg +=
-            ' - Ensure Firestore indexes exist for timestamp-based queries';
-      } else if (errMsg.toLowerCase().contains('failed') || errMsg.isEmpty) {
-        fullMsg =
-            'Sale deletion transaction failed. This may be due to: 1) Missing Firestore indexes, 2) Security rule restrictions, or 3) Network connectivity. Check Firebase console.';
+      if (_salesSubscription != null) {
+        subscribeToSalesReports(businessId: bid);
       }
 
-      // Always log the raw error for debugging
-      debugPrint(
-          '[ReportsProvider.deleteSale] Raw error type: ${e.runtimeType}');
-      debugPrint('[ReportsProvider.deleteSale] Raw error: $e');
-      debugPrint('[ReportsProvider.deleteSale] transaction failed: $fullMsg');
+      return {'businessId': bid, 'success': true};
+    } catch (e, st) {
+      final errMsg = extractErrorMessage(e);
+      debugPrint('[ReportsProvider.deleteSale] Error: $errMsg');
       debugPrint('[ReportsProvider.deleteSale] stack trace: $st');
-
-      // Return structured error instead of throwing to make UI handling clearer
-      return {'success': false, 'error': fullMsg, 'stack': st.toString()};
+      return {'success': false, 'error': errMsg, 'stack': st.toString()};
     }
   }
 
-  /// Subscribe to sales report realtime updates
+  SaleReport _buildSaleReport(Map<String, dynamic> data) {
+    final date = _parseDate(data['createdAt'] ?? data['created_at']);
+    final products = _normalizeSaleProducts(data['items']);
+
+    return SaleReport(
+      date: date,
+      category: data['category'] ?? data['sale_type'] ?? 'N/A',
+      itemsCount: products.length,
+      totalAmount: ((data['totalAmount'] ??
+              data['final_amount'] ??
+              data['total_amount'] ??
+              0) as num)
+          .toDouble(),
+      cashier: _extractStringValue(data['workerName']) ??
+          _extractStringValue(data['worker_name']) ??
+          'N/A',
+      paymentMethod: _extractStringValue(data['paymentMethod']) ??
+          _extractStringValue(data['payment_method']) ??
+          'N/A',
+      productNames: products
+          .map((p) => _extractStringValue(p['name']) ?? 'Unknown')
+          .toList(),
+      products: products,
+      receiptId: (data['id'] ?? '').toString(),
+      customerId: _extractStringValue(data['customerId']) ??
+          _extractStringValue(data['customer_id']) ??
+          '',
+      customerName: _extractStringValue(data['customerName']) ??
+          _extractStringValue(data['customer_name']) ??
+          '',
+    );
+  }
+
+  Future<void> _fetchSalesReportsInternal(String bid) async {
+    final sales = await _salesRepo.fetchSales(
+      businessId: bid,
+      start: _salesStartDate,
+      end: _salesEndDate.add(const Duration(days: 1)),
+    );
+    _latestSalesDocs = sales;
+    _salesReports = sales.map(_buildSaleReport).toList();
+  }
+
+  /// Poll for sales report updates (see class-level note on why this polls
+  /// instead of subscribing to a realtime stream).
   void subscribeToSalesReports({String? businessId}) {
     _salesSubscription?.cancel();
     _isLoading = true;
@@ -1191,124 +680,43 @@ class ReportsProvider extends ChangeNotifier {
       return;
     }
 
-    final endDatePlusOne = _salesEndDate.add(const Duration(days: 1));
-    _triedTimestampSalesQuery = false;
-    final createdAtQuery = _firestore
-        .collection('businesses')
-        .doc(bid)
-        .collection('sales')
-        .where('createdAt',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(_salesStartDate))
-        .where('createdAt',
-            isLessThanOrEqualTo: Timestamp.fromDate(endDatePlusOne));
-    final createdAtOrderedQuery =
-        createdAtQuery.orderBy('createdAt', descending: true);
-    _salesSubscription = createdAtOrderedQuery.snapshots().listen((snapshot) {
-      _salesReports = snapshot.docs.map((doc) {
-        final data = doc.data();
-        final date = _parseDate(data['createdAt'] ?? data['timestamp']);
-
-        // Extract items/products and payment information
-        final products = _normalizeSaleProducts(data['items']);
-
-        return SaleReport(
-          date: date,
-          category: data['category'] ?? data['type'] ?? 'N/A',
-          itemsCount: products.length,
-          totalAmount: (data['totalAmount'] ?? data['total'] ?? 0).toDouble(),
-          cashier: _extractStringValue(data['cashier']) ??
-              _extractStringValue(data['workerName']) ??
-              _extractStringValue(data['soldBy']) ??
-              'N/A',
-          paymentMethod: _extractStringValue(data['paymentMethod']) ??
-              _extractStringValue(data['payment']) ??
-              _extractStringValue(data['tenderType']) ??
-              'N/A',
-          productNames: products
-              .map((p) => _extractStringValue(p['name']) ?? 'Unknown')
-              .toList(),
-          products: products,
-          receiptId: doc.id,
-          customerId: _extractStringValue(data['customerId']) ??
-              _extractStringValue(data['customer']) ??
-              '',
-          customerName: _extractStringValue(data['customerName']) ??
-              _extractStringValue(data['customerDisplayName']) ??
-              '',
-        );
-      }).toList();
-      _isLoading = false;
-      _error = null;
-      debugPrint(
-          '[subscribeToSalesReports] Sales count: ${_salesReports.length}');
-      notifyListeners();
-      if (snapshot.docs.isEmpty && !_triedTimestampSalesQuery) {
-        _triedTimestampSalesQuery = true;
+    Future<void> poll() async {
+      try {
+        await _fetchSalesReportsInternal(bid);
+        _isLoading = false;
+        _error = null;
         debugPrint(
-            '[subscribeToSalesReports] No docs found on createdAt; falling back to timestamp field');
-        _salesSubscription?.cancel();
-        final tsQuery = _firestore
-            .collection('businesses')
-            .doc(bid)
-            .collection('sales')
-            .where('timestamp',
-                isGreaterThanOrEqualTo: _salesStartDate.millisecondsSinceEpoch)
-            .where('timestamp',
-                isLessThanOrEqualTo: endDatePlusOne.millisecondsSinceEpoch);
-        _salesSubscription = tsQuery
-            .orderBy('timestamp', descending: true)
-            .snapshots()
-            .listen((tsSnapshot) {
-          _salesReports = tsSnapshot.docs.map((doc) {
-            final data = doc.data();
-            final date = _parseDate(data['createdAt'] ?? data['timestamp']);
-
-            final products = _normalizeSaleProducts(data['items']);
-
-            return SaleReport(
-              date: date,
-              category: data['category'] ?? data['type'] ?? 'N/A',
-              itemsCount: products.length,
-              totalAmount:
-                  (data['totalAmount'] ?? data['total'] ?? 0).toDouble(),
-              cashier: data['cashier'] ??
-                  data['workerName'] ??
-                  data['soldBy'] ??
-                  'N/A',
-              paymentMethod: data['paymentMethod'] ??
-                  data['payment'] ??
-                  data['tenderType'] ??
-                  'N/A',
-              productNames: products.map((p) => p['name'].toString()).toList(),
-              products: products,
-              receiptId: doc.id,
-              customerId: data['customerId'] ?? data['customer'] ?? '',
-              customerName:
-                  data['customerName'] ?? data['customerDisplayName'] ?? '',
-            );
-          }).toList();
-          _isLoading = false;
-          _error = null;
-          debugPrint(
-              '[subscribeToSalesReports] Timestamp fallback sales count: ${_salesReports.length}');
-          notifyListeners();
-        }, onError: (e) {
-          _error = 'Failed to subscribe to sales (timestamp fallback): $e';
-          _isLoading = false;
-          notifyListeners();
-        });
-        return;
+            '[subscribeToSalesReports] Sales count: ${_salesReports.length}');
+        notifyListeners();
+      } catch (e) {
+        _error = 'Failed to subscribe to sales: $e';
+        _isLoading = false;
+        notifyListeners();
       }
-    }, onError: (e) {
-      _error = 'Failed to subscribe to sales: $e';
-      _isLoading = false;
-      notifyListeners();
-    });
+    }
+
+    unawaited(poll());
+    _salesSubscription = Timer.periodic(_pollInterval, (_) => poll());
   }
 
-  /// Subscribe to financial report realtime updates
+  Future<List<Map<String, dynamic>>> _fetchExpensesInternal(
+    String bid, {
+    DateTime? start,
+    DateTime? end,
+  }) async {
+    final response = await _api.get('/expenses/$bid', query: {
+      'limit': 100,
+      if (start != null) 'startDate': start.toIso8601String(),
+      if (end != null) 'endDate': end.toIso8601String(),
+    });
+    final data = (response['data'] as List?) ?? [];
+    return data.cast<Map<String, dynamic>>();
+  }
+
+  /// Poll for financial report updates (sales + expenses), recomputing on
+  /// each tick (see class-level note on why this polls instead of
+  /// subscribing to a realtime stream).
   void subscribeToFinancialReports({String? businessId}) {
-    // Cancel any existing subscriptions
     _expensesSubscription?.cancel();
     _financialSalesSubscription?.cancel();
     _isLoading = true;
@@ -1329,66 +737,29 @@ class ReportsProvider extends ChangeNotifier {
       return;
     }
 
-    final salesEnd = _financialEndDate.add(const Duration(days: 1));
-    _triedTimestampSalesQuery = false;
-    final salesQuery = _firestore
-        .collection('businesses')
-        .doc(bid)
-        .collection('sales')
-        .where('createdAt',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(_financialStartDate))
-        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(salesEnd));
-    final salesOrderedQuery = salesQuery.orderBy('createdAt', descending: true);
-
-    // Subscribe to both sales and expenses to recompute financial figures in realtime
-    _financialSalesSubscription =
-        salesOrderedQuery.snapshots().listen((salesSnapshot) {
-      _latestSalesDocs = salesSnapshot.docs;
-      _recomputeFinancialReports(bid);
-      if (salesSnapshot.docs.isEmpty && !_triedTimestampSalesQuery) {
-        _triedTimestampSalesQuery = true;
-        debugPrint(
-            '[subscribeToFinancialReports] No sales docs on createdAt range; trying timestamp range as fallback');
-        _financialSalesSubscription?.cancel();
-        final tsQuery = _firestore
-            .collection('businesses')
-            .doc(bid)
-            .collection('sales')
-            .where('timestamp',
-                isGreaterThanOrEqualTo:
-                    _financialStartDate.millisecondsSinceEpoch)
-            .where('timestamp',
-                isLessThanOrEqualTo: salesEnd.millisecondsSinceEpoch);
-        _financialSalesSubscription = tsQuery
-            .orderBy('timestamp', descending: true)
-            .snapshots()
-            .listen((tsSnapshot) {
-          _latestSalesDocs = tsSnapshot.docs;
-          _recomputeFinancialReports(bid);
-        }, onError: (e) {
-          _error =
-              'Failed to subscribe to financials (sales timestamp fallback): $e';
-          _isLoading = false;
-          notifyListeners();
-        });
+    Future<void> poll() async {
+      try {
+        final salesEnd = _financialEndDate.add(const Duration(days: 1));
+        _latestSalesDocs = await _salesRepo.fetchSales(
+          businessId: bid,
+          start: _financialStartDate,
+          end: salesEnd,
+        );
+        _latestExpensesDocs = await _fetchExpensesInternal(
+          bid,
+          start: _financialStartDate,
+          end: salesEnd,
+        );
+        await _recomputeFinancialReports(bid);
+      } catch (e) {
+        _error = 'Failed to subscribe to financials: $e';
+        _isLoading = false;
+        notifyListeners();
       }
-    }, onError: (e) {
-      _error = 'Failed to subscribe to financials (sales): $e';
-      _isLoading = false;
-      notifyListeners();
-    });
+    }
 
-    final expensesQuery =
-        _firestore.collection('businesses').doc(bid).collection('expenses');
-    _expensesSubscription =
-        expensesQuery.snapshots().listen((expensesSnapshot) {
-      _latestExpensesDocs = expensesSnapshot.docs;
-      _recomputeFinancialReports(bid);
-    }, onError: (e) {
-      _error = 'Failed to subscribe to financials (expenses): $e';
-      _isLoading = false;
-      notifyListeners();
-    });
+    unawaited(poll());
+    _financialSalesSubscription = Timer.periodic(_pollInterval, (_) => poll());
   }
 
   Future<void> _recomputeFinancialReports(String bid) async {
@@ -1402,28 +773,46 @@ class ReportsProvider extends ChangeNotifier {
       final monthlyData = <int, (double, double, double)>{};
 
       // compute revenue & cogs from sales
-      for (var doc in _latestSalesDocs) {
-        final data = doc.data();
-        final date = _parseDate(data['createdAt'] ?? data['timestamp']);
+      for (var data in _latestSalesDocs) {
+        final date = _parseDate(data['createdAt'] ?? data['created_at']);
         if (date.isAfter(
                 _financialStartDate.subtract(const Duration(days: 1))) &&
             date.isBefore(_financialEndDate.add(const Duration(days: 1)))) {
           final month = date.month;
+          final grossRevenue = ((data['totalAmount'] ??
+                  data['final_amount'] ??
+                  data['total_amount'] ??
+                  0) as num)
+              .toDouble();
+
+          // If part or all of this sale was returned/refunded, subtract the
+          // refunded amount so profit isn't overstated.
+          final returnAmount =
+              ((data['returnAmount'] ?? data['return_amount'] ?? 0) as num)
+                  .toDouble();
           final revenue =
-              ((data['totalAmount'] ?? data['total'] ?? 0) as num).toDouble();
+              (grossRevenue - returnAmount).clamp(0, double.infinity).toDouble();
+
           final items = data['items'] as List? ?? [];
           double cogsForSale = 0.0;
           for (var item in items) {
             if (item is Map<String, dynamic>) {
               final itemCost = _resolveItemCost(item, inventoryCostMap);
-              final itemQty =
-                  ((item['inventoryQuantity'] ??
-                              item['quantity'] ??
-                              item['qty'] ??
-                              1) as num)
-                          .toDouble();
+              final itemQty = ((item['inventoryQuantity'] ??
+                          item['quantity'] ??
+                          1) as num)
+                      .toDouble();
               cogsForSale += (itemCost * itemQty).toDouble();
             }
+          }
+          // Without item-level return details, approximate the COGS for the
+          // returned portion proportionally to the sale's overall cost
+          // ratio, so a partial refund doesn't leave COGS for goods that
+          // came back.
+          if (returnAmount > 0 && grossRevenue > 0) {
+            final returnedFraction =
+                (returnAmount / grossRevenue).clamp(0.0, 1.0);
+            cogsForSale = cogsForSale * (1 - returnedFraction);
           }
           if (monthlyData.containsKey(month)) {
             final (existingRevenue, existingCogs, existingOther) =
@@ -1439,10 +828,9 @@ class ReportsProvider extends ChangeNotifier {
         }
       }
 
-      // add other expenses from latest expenses snapshot
-      for (var doc in _latestExpensesDocs) {
-        final data = doc.data();
-        final date = _parseDate(data['date']);
+      // add other expenses from latest expenses fetch
+      for (var data in _latestExpensesDocs) {
+        final date = _parseDate(data['date'] ?? data['created_at']);
         if (date.isAfter(
                 _financialStartDate.subtract(const Duration(days: 1))) &&
             date.isBefore(_financialEndDate.add(const Duration(days: 1)))) {
@@ -1476,12 +864,6 @@ class ReportsProvider extends ChangeNotifier {
       debugPrint(
           '[recomputeFinancialReports] Months: ${_financialReports.length}');
       notifyListeners();
-
-      _isLoading = false;
-      _error = null;
-      debugPrint(
-          '[recomputeFinancialReports] Months: ${_financialReports.length}');
-      notifyListeners();
     } catch (e) {
       _error = 'Failed to recompute financials: $e';
       _isLoading = false;
@@ -1490,6 +872,40 @@ class ReportsProvider extends ChangeNotifier {
   }
 
   /// Subscribe to inventory report updates (optional store scoping)
+  InventoryReport _buildInventoryReport(Map<String, dynamic> data) {
+    final id = (data['id'] ?? '').toString();
+    final cost = (data['cost_price'] as num?)?.toDouble() ?? 0.0;
+    return InventoryReport(
+      productId: id,
+      productName: data['name'] ?? 'Unknown',
+      quantity: (data['quantity'] as num?)?.toInt() ?? 0,
+      reorderLevel: (data['min_stock_level'] as num?)?.toInt() ?? 10,
+      unitPrice: (data['unit_price'] as num?)?.toDouble() ?? 0.0,
+      costPrice: cost,
+      unit: (data['unit'] ?? 'pc').toString(),
+      businessSection: '',
+      category: (data['category'] ?? '').toString(),
+      lastProcurementAt: _parseDate(data['updated_at']),
+    );
+  }
+
+  Future<void> _fetchInventoryReportsInternal(String bid,
+      {String? storeId}) async {
+    final items = await _inventoryRepo.getInventory(bid, storeId: storeId);
+    final data = items.cast<Map<String, dynamic>>();
+
+    _inventoryCostCacheBusinessId = bid;
+    _inventoryCostCache
+      ..clear()
+      ..addEntries(data.map((item) => MapEntry(
+          (item['id'] ?? '').toString(),
+          (item['cost_price'] as num?)?.toDouble() ?? 0.0)));
+
+    _inventoryReports = data.map(_buildInventoryReport).toList();
+  }
+
+  /// Poll for inventory report updates (see class-level note on why this
+  /// polls instead of subscribing to a realtime stream).
   void subscribeToInventoryReports({String? businessId, String? storeId}) {
     _inventorySubscription?.cancel();
     _isLoading = true;
@@ -1510,138 +926,37 @@ class ReportsProvider extends ChangeNotifier {
 
     debugPrint(
         '[subscribeToInventoryReports] Invoked with businessId: $businessId; resolved bid: $bid; storeId: $storeId');
-    Query query =
-        _firestore.collection('businesses').doc(bid).collection('inventory');
-    if (storeId != null && storeId.isNotEmpty)
-      query = query.where('storeId', isEqualTo: storeId);
 
-    _inventorySubscription = query.snapshots().listen((snapshot) async {
-      _inventoryCostCacheBusinessId = bid;
-      _inventoryCostCache
-        ..clear()
-        ..addEntries(snapshot.docs.map((doc) {
-          final data = doc.data() as Map<String, dynamic>? ?? {};
-          final cost =
-              ((data['averageCost'] ?? data['cost'] ?? data['lastProcurementCost'])
-                      as num?)
-                  ?.toDouble() ??
-                  0.0;
-          return MapEntry(doc.id, cost);
-        }));
-      _inventoryReports = snapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>? ?? {};
-        final cost = _inventoryCostCache[doc.id] ?? ((data['averageCost'] ?? data['cost'] ?? data['lastProcurementCost']) as num?)?.toDouble() ?? 0.0;
-        return InventoryReport(
-          productId: doc.id,
-          productName: data['name'] ?? 'Unknown',
-          quantity: (data['quantity'] as num?)?.toInt() ?? 0,
-          reorderLevel: (data['reorderLevel'] as num?)?.toInt() ?? 10,
-          unitPrice: (data['price'] as num?)?.toDouble() ?? 0.0,
-          costPrice: cost,
-          unit: (data['unit'] ?? 'pc').toString(),
-          businessSection: (data['businessSection'] ?? data['section'] ?? '').toString(),
-          category: (data['category'] ?? data['type'] ?? '').toString(),
-          lastProcurementAt: _parseDate(data['lastProcurementAt'] ?? data['lastProcuredAt'] ?? data['lastProcured']),
-        );
-      }).toList();
-
-      // Fallback: inventory might be stored in 'documents' if primary collection is empty
-      if (_inventoryReports.isEmpty) {
-        try {
-          final documentsSnapshot = await _firestore
-              .collection('businesses')
-              .doc(bid)
-              .collection('documents')
-              .get();
-          final docItems = <InventoryReport>[];
-          for (var d in documentsSnapshot.docs) {
-            final ddata = d.data();
-            Iterable<dynamic>? items;
-            if (ddata.containsKey('items') && ddata['items'] is List) {
-              items = ddata['items'] as List;
-            } else if (ddata.containsKey('inventory') &&
-                ddata['inventory'] is List)
-              items = ddata['inventory'] as List;
-            else if ((ddata['name'] ?? '')
-                    .toString()
-                    .toLowerCase()
-                    .contains('inventory') &&
-                ddata.containsKey('data') &&
-                ddata['data'] is List) items = ddata['data'] as List;
-
-            if (items != null) {
-              var ii = 0;
-              for (final raw in items) {
-                if (raw is Map<String, dynamic>) {
-                  final rawCost = ((raw['averageCost'] ?? raw['cost'] ?? raw['costPrice'] ?? raw['purchasePrice']) as num?)?.toDouble() ?? 0.0;
-                  docItems.add(InventoryReport(
-                    productId: '${d.id}_$ii',
-                    productName:
-                        (raw['name'] ?? raw['item'] ?? 'Unknown').toString(),
-                    quantity: (raw['quantity'] as num?)?.toInt() ??
-                        (raw['qty'] as num?)?.toInt() ??
-                        0,
-                    reorderLevel: (raw['reorderLevel'] as num?)?.toInt() ?? 10,
-                    unitPrice: (raw['price'] as num?)?.toDouble() ?? 0.0,
-                    costPrice: rawCost,
-                    unit: (raw['unit'] ?? 'pc').toString(),
-                  ));
-                }
-                ii++;
-              }
-            }
-          }
-          if (docItems.isNotEmpty) {
-            _inventoryReports = docItems;
-            debugPrint(
-                '[subscribeToInventoryReports] Document-based inventory found: ${docItems.length} items for business $bid');
-          }
-        } catch (e) {
-          debugPrint(
-              '[subscribeToInventoryReports] Document-based inventory fallback failed: $e');
-        }
+    Future<void> poll() async {
+      try {
+        await _fetchInventoryReportsInternal(bid, storeId: storeId);
+        _isLoading = false;
+        _error = null;
+        debugPrint(
+            '[subscribeToInventoryReports] Inventory count: ${_inventoryReports.length}');
+        notifyListeners();
+      } catch (e) {
+        _error = 'Failed to subscribe to inventory: $e';
+        _isLoading = false;
+        notifyListeners();
       }
+    }
 
-      _isLoading = false;
-      _error = null;
-      debugPrint(
-          '[subscribeToInventoryReports] Inventory count: ${_inventoryReports.length}');
-      notifyListeners();
-    }, onError: (e) {
-      _error = 'Failed to subscribe to inventory: $e';
-      _isLoading = false;
-      notifyListeners();
-    });
+    unawaited(poll());
+    _inventorySubscription = Timer.periodic(_pollInterval, (_) => poll());
   }
 
   /// Cancel all subscriptions
   void unsubscribeFromReportSubscriptions() {
     debugPrint('[unsubscribeFromReportSubscriptions] Cancelling subscriptions');
-    if (_salesSubscription != null)
-      debugPrint(
-          '[unsubscribeFromReportSubscriptions] _salesSubscription active, canceling');
-    if (_financialSalesSubscription != null)
-      debugPrint(
-          '[unsubscribeFromReportSubscriptions] _financialSalesSubscription active, canceling');
-    if (_expensesSubscription != null)
-      debugPrint(
-          '[unsubscribeFromReportSubscriptions] _expensesSubscription active, canceling');
-    if (_inventorySubscription != null)
-      debugPrint(
-          '[unsubscribeFromReportSubscriptions] _inventorySubscription active, canceling');
-    if (_customersSubscription != null)
-      debugPrint(
-          '[unsubscribeFromReportSubscriptions] _customersSubscription active, canceling');
     _salesSubscription?.cancel();
     _financialSalesSubscription?.cancel();
     _expensesSubscription?.cancel();
     _inventorySubscription?.cancel();
-    _customersSubscription?.cancel();
     _salesSubscription = null;
     _financialSalesSubscription = null;
     _expensesSubscription = null;
     _inventorySubscription = null;
-    _customersSubscription = null;
   }
 
   /// Cancel only sales subscription
@@ -1687,7 +1002,12 @@ class ReportsProvider extends ChangeNotifier {
 
   // ===================== EXPENSE MANAGEMENT METHODS =====================
 
-  /// Add a new expense record
+  /// Add a new expense record.
+  // Note: the backend's `expenses` table has no `receipt_url` column - the
+  // receipt-upload feature (WebEmailReceiptService) isn't backed by
+  // persisted storage yet, so receiptUrl is kept in the in-memory list for
+  // this session but won't survive a reload. Flagged rather than dropped
+  // silently.
   Future<void> addExpense({
     required String description,
     required double amount,
@@ -1695,47 +1015,31 @@ class ReportsProvider extends ChangeNotifier {
     String? receiptUrl,
   }) async {
     try {
-      final newExpense = {
-        'id': 'exp_${DateTime.now().millisecondsSinceEpoch}',
-        'description': description,
-        'amount': amount,
-        'category': category,
-        'receiptUrl': receiptUrl,
-        // Store date as Firestore `Timestamp` locally for consistency with server
-        'date': Timestamp.fromDate(DateTime.now()),
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      };
-
-      _expenses.add(newExpense);
-
-      // Save to Firebase if user is authenticated and businessId is available
       final bid = _currentSubscribedBusinessId ??
           _authProvider?.currentUser?.currentBusinessId ??
           _authProvider?.currentUser?.preferredBusinessId ??
           _authProvider?.currentUser?.businessId;
-      if (bid != null && bid.isNotEmpty && newExpense['id'] != null) {
-        final docRef = _firestore
-            .collection('businesses')
-            .doc(bid)
-            .collection('expenses')
-            .doc(newExpense['id'] as String);
-        final payload = {
-          'id': newExpense['id'],
-          'description': description,
-          'amount': amount,
-          'category': category,
-          'date': Timestamp.fromDate(DateTime.now()),
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-        };
-        if (receiptUrl != null && receiptUrl.isNotEmpty)
-          payload['receiptUrl'] = receiptUrl;
-
-        await docRef.set(payload);
-      } else {
-        debugPrint(
-            '[ReportsProvider.addExpense] No business ID available - expense stored locally only');
+      if (bid == null || bid.isEmpty) {
+        throw Exception('No business ID available');
       }
 
+      final created = await _api.post('/expenses/$bid', body: {
+        'description': description,
+        'amount': amount,
+        'category': category,
+        'created_by': _authProvider?.currentUser?.id,
+      });
+
+      final newExpense = {
+        'id': created['id'],
+        'description': description,
+        'amount': amount,
+        'category': category,
+        'receiptUrl': receiptUrl,
+        'date': DateTime.now(),
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
+      _expenses.add(newExpense);
       notifyListeners();
     } catch (e) {
       throw Exception('Failed to add expense: $e');
@@ -1763,18 +1067,12 @@ class ReportsProvider extends ChangeNotifier {
 
       _expenses.removeWhere((expense) => expense['id'] == expenseId);
 
-      // Remove from Firebase if user is authenticated and businessId available
       final bid = _currentSubscribedBusinessId ??
           _authProvider?.currentUser?.currentBusinessId ??
           _authProvider?.currentUser?.preferredBusinessId ??
           _authProvider?.currentUser?.businessId;
       if (bid != null && bid.isNotEmpty) {
-        await _firestore
-            .collection('businesses')
-            .doc(bid)
-            .collection('expenses')
-            .doc(expenseId)
-            .delete();
+        await _api.delete('/expenses/$bid/$expenseId');
       }
 
       notifyListeners();
@@ -2280,88 +1578,7 @@ class ReportsProvider extends ChangeNotifier {
         return;
       }
 
-      // Query sales within date range for current business
-      final query = _firestore
-          .collection('businesses')
-          .doc(bid)
-          .collection('sales')
-          .where('createdAt',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(_salesStartDate))
-          .where('createdAt',
-              isLessThanOrEqualTo: Timestamp.fromDate(
-                  _salesEndDate.add(const Duration(days: 1))))
-          .orderBy('createdAt', descending: true);
-
-      final snapshot = await query.get();
-
-      // Fallback: if no docs found using `createdAt`, attempt numeric `timestamp` range
-      if (snapshot.docs.isEmpty) {
-        try {
-          debugPrint(
-              '[generateSalesReport] No sales found with createdAt; trying timestamp field fallback');
-          final tsQuery = _firestore
-              .collection('businesses')
-              .doc(bid)
-              .collection('sales')
-              .where('timestamp',
-                  isGreaterThanOrEqualTo:
-                      _salesStartDate.millisecondsSinceEpoch)
-              .where('timestamp',
-                  isLessThanOrEqualTo: _salesEndDate
-                      .add(const Duration(days: 1))
-                      .millisecondsSinceEpoch)
-              .orderBy('timestamp', descending: true);
-          final tsSnapshot = await tsQuery.get();
-          if (tsSnapshot.docs.isNotEmpty) {
-            debugPrint(
-                '[generateSalesReport] Found ${tsSnapshot.docs.length} sales using timestamp fallback');
-            // Populate using timestamp results
-            _salesReports = tsSnapshot.docs.map((doc) {
-              final data = doc.data();
-              final products = _normalizeSaleProducts(data['items']);
-              return SaleReport(
-                date: _parseDate(data['createdAt'] ?? data['timestamp']),
-                totalAmount:
-                    ((data['total'] ?? data['totalAmount'] ?? 0) as num)
-                        .toDouble(),
-                itemsCount: products.length,
-                category: data['category'] ?? 'General',
-                productNames: products.map((p) => p['name'].toString()).toList(),
-                products: products,
-                receiptId: doc.id,
-                paymentMethod: data['paymentMethod'] ?? 'Cash',
-                cashier: data['cashier'] ??
-                    data['workerName'] ??
-                    data['soldBy'] ??
-                    'N/A',
-              );
-            }).toList();
-          }
-        } catch (e) {
-          debugPrint('[generateSalesReport] Timestamp fallback failed: $e');
-        }
-      }
-
-      _salesReports = snapshot.docs.map((doc) {
-        final data = doc.data();
-
-        final products = _normalizeSaleProducts(data['items']);
-
-        return SaleReport(
-          date: _parseDate(data['createdAt'] ?? data['timestamp']),
-          totalAmount:
-              ((data['total'] ?? data['totalAmount'] ?? 0) as num).toDouble(),
-          itemsCount: products.length,
-          category: data['category'] ?? 'General',
-          productNames: products.map((p) => p['name'].toString()).toList(),
-          products: products,
-          receiptId: doc.id,
-          paymentMethod: data['paymentMethod'] ?? 'Cash',
-          cashier:
-              data['cashier'] ?? data['workerName'] ?? data['soldBy'] ?? 'N/A',
-        );
-      }).toList();
-
+      await _fetchSalesReportsInternal(bid);
       _isLoading = false;
     } catch (e) {
       _error = 'Failed to load sales report: $e';
@@ -2378,7 +1595,6 @@ class ReportsProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Get business ID from parameter, current subscribed business, or auth provider
       String? bid = businessId ??
           _currentSubscribedBusinessId ??
           _authProvider?.currentUser?.currentBusinessId ??
@@ -2392,189 +1608,18 @@ class ReportsProvider extends ChangeNotifier {
         return;
       }
 
-      // Query sales for revenue - add 1 day to end date to include all of that day
       final endDatePlusOne = _financialEndDate.add(const Duration(days: 1));
-      final salesQuery = _firestore
-          .collection('businesses')
-          .doc(bid)
-          .collection('sales')
-          .where('createdAt',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(_financialStartDate))
-          .where('createdAt',
-              isLessThanOrEqualTo: Timestamp.fromDate(endDatePlusOne));
-
-      final salesSnapshot =
-          await salesQuery.orderBy('createdAt', descending: true).get();
-
-      // We'll unify docs into saleDocs for processing (supporting fallback)
-      List salesDocs = salesSnapshot.docs;
-
-      // Fallback to numeric timestamp if createdAt-based query returned nothing
-      if (salesDocs.isEmpty) {
-        try {
-          debugPrint(
-              '[generateFinancialReport] No sales found with createdAt; trying timestamp fallback');
-          final tsQuery = _firestore
-              .collection('businesses')
-              .doc(bid)
-              .collection('sales')
-              .where('timestamp',
-                  isGreaterThanOrEqualTo:
-                      _financialStartDate.millisecondsSinceEpoch)
-              .where('timestamp',
-                  isLessThanOrEqualTo: endDatePlusOne.millisecondsSinceEpoch)
-              .orderBy('timestamp', descending: true);
-          final tsSnapshot = await tsQuery.get();
-          if (tsSnapshot.docs.isNotEmpty) {
-            debugPrint(
-                '[generateFinancialReport] Found ${tsSnapshot.docs.length} sales using timestamp fallback');
-            // Use tsSnapshot instead of salesSnapshot
-            // Assign fallback docs to saleDocs so the rest of the function uses them
-            salesDocs = tsSnapshot.docs;
-            // We'll process fallbackDocs similarly as salesSnapshot later in the method
-            // Replace the salesSnapshot variable by creating placeholder
-            // Convert fallbackDocs to a Firestore QuerySnapshot-like list by reusing its docs
-            // We'll copy the processing below to handle fallbackDocs in the next sections
-            // For simplicity, we'll proceed with fallbackDocs in place of salesSnapshot in subsequent steps.
-          }
-        } catch (e) {
-          debugPrint('[generateFinancialReport] Timestamp fallback failed: $e');
-        }
-      }
-
-      // Mark computing state while we calculate COGS and expenses
-      _isComputingFinancials = true;
-      notifyListeners();
-      final inventoryCostMap = await _getInventoryCostMap(bid);
-
-      // Group sales by month and calculate totals
-      // monthlyData maps month -> (revenue, cogs, otherExpenses)
-      final monthlyData = <int, (double, double, double)>{};
-      double totalCostOfGoods = 0.0;
-
-      debugPrint('[FinancialReport] Found ${salesDocs.length} sales records');
-
-      for (var doc in salesDocs) {
-        final data = doc.data();
-        final date = _parseDate(data['createdAt'] ?? data['timestamp']);
-        final month = date.month;
-        final grossRevenue =
-            ((data['totalAmount'] ?? data['total'] ?? 0) as num).toDouble();
-
-        // If part or all of this sale was returned/refunded, subtract the
-        // refunded amount from revenue so profit isn't overstated.
-        final returnAmount = ((data['returnAmount'] ?? 0) as num).toDouble();
-        final excludeReturn = data['excludeReturnFromTotals'] == true;
-        final effectiveReturnAmount = excludeReturn ? 0.0 : returnAmount;
-        final revenue = (grossRevenue - effectiveReturnAmount).clamp(0, double.infinity).toDouble();
-
-        // Calculate cost of goods sold from items if available
-        final items = data['items'] as List? ?? [];
-        double saleCogs = 0.0;
-        for (var item in items) {
-          if (item is Map<String, dynamic>) {
-            final itemCost = _resolveItemCost(item, inventoryCostMap);
-            final itemQty =
-                ((item['inventoryQuantity'] ??
-                            item['quantity'] ??
-                            item['qty'] ??
-                            1) as num)
-                        .toDouble();
-            final itemCogs = (itemCost * itemQty).toDouble();
-            saleCogs += itemCogs;
-          }
-        }
-
-        // Without item-level return details, approximate the COGS for the
-        // returned portion proportionally to the sale's overall cost ratio,
-        // so a partial refund doesn't leave COGS for goods that came back.
-        if (effectiveReturnAmount > 0 && grossRevenue > 0) {
-          final returnedFraction = (effectiveReturnAmount / grossRevenue).clamp(0.0, 1.0);
-          saleCogs = saleCogs * (1 - returnedFraction);
-        }
-        totalCostOfGoods += saleCogs;
-
-        debugPrint(
-            '[FinancialReport] Sale - Date: $date, Month: $month, Revenue: ₦$revenue, COGS: ₦$saleCogs');
-
-        if (monthlyData.containsKey(month)) {
-          final (existingRevenue, existingCogs, existingOther) =
-              monthlyData[month]!;
-          monthlyData[month] = (
-            existingRevenue + revenue,
-            existingCogs + saleCogs,
-            existingOther
-          );
-        } else {
-          monthlyData[month] = (revenue, saleCogs, 0.0);
-        }
-      }
-
-      // Query expenses from expenses collection
-      double totalOtherExpenses = 0.0;
-      try {
-        final expensesQuery =
-            _firestore.collection('businesses').doc(bid).collection('expenses');
-
-        final expensesSnapshot = await expensesQuery.get();
-
-        for (var doc in expensesSnapshot.docs) {
-          final data = doc.data();
-          final date = _parseDate(data['date']);
-
-          // Only include expenses within date range (including both start and end dates)
-          if (date.isAfter(
-                  _financialStartDate.subtract(const Duration(days: 1))) &&
-              date.isBefore(endDatePlusOne)) {
-            final month = date.month;
-            final amount = (data['amount'] ?? 0) as num;
-            totalOtherExpenses += amount.toDouble();
-
-            if (monthlyData.containsKey(month)) {
-              final (revenue, cogs, existingOther) = monthlyData[month]!;
-              monthlyData[month] =
-                  (revenue, cogs, existingOther + amount.toDouble());
-            } else {
-              monthlyData[month] = (0.0, 0.0, amount.toDouble());
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint(
-            '[FinancialReport] Note: Expenses collection may not exist: $e');
-      }
-
-      // Include cost of goods in total expenses (for backward-compatible logging)
-      final double totalExpenses = totalOtherExpenses + totalCostOfGoods;
-
-      // Convert to FinancialReport list
-      _financialReports = monthlyData.entries.map((entry) {
-        final (revenue, cogs, otherExpenses) = entry.value;
-        final report = FinancialReport(
-          month: entry.key,
-          revenue: revenue,
-          cogs: cogs,
-          expenses: otherExpenses,
-          salaries:
-              otherExpenses * 0.6, // Estimate 60% of other expenses as salaries
-          utilities: otherExpenses *
-              0.4, // Estimate 40% of other expenses as utilities
-        );
-        debugPrint(
-            '[FinancialReport] Month ${report.month}: Revenue=₦${report.revenue}, COGS=₦${report.cogs}, OtherExpenses=₦${report.expenses}');
-        return report;
-      }).toList();
-
-      debugPrint(
-          '[FinancialReport] Total Revenue: ₦${_financialReports.fold(0.0, (sum, r) => sum + r.revenue)}');
-      debugPrint(
-          '[FinancialReport] Total Expenses (including COGS): ₦$totalExpenses');
-      debugPrint('[FinancialReport] Total Cost of Goods: ₦$totalCostOfGoods');
-      debugPrint(
-          '[FinancialReport] Net Profit: ₦${_financialReports.fold(0.0, (sum, r) => sum + r.netProfit)}');
-
-      _isComputingFinancials = false;
-      _isLoading = false;
+      _latestSalesDocs = await _salesRepo.fetchSales(
+        businessId: bid,
+        start: _financialStartDate,
+        end: endDatePlusOne,
+      );
+      _latestExpensesDocs = await _fetchExpensesInternal(
+        bid,
+        start: _financialStartDate,
+        end: endDatePlusOne,
+      );
+      await _recomputeFinancialReports(bid);
     } catch (e) {
       debugPrint('[FinancialReport] Error: $e');
       _error = 'Failed to load financial report: $e';
@@ -2607,93 +1652,9 @@ class ReportsProvider extends ChangeNotifier {
         return;
       }
 
-      // Query inventory for current business (optionally scoped to a store)
       debugPrint(
           '[generateInventoryReport] Invoked with businessId: $businessId; resolved bid: $bid; storeId: $storeId');
-      Query query =
-          _firestore.collection('businesses').doc(bid).collection('inventory');
-      if (storeId != null && storeId.isNotEmpty)
-        query = query.where('storeId', isEqualTo: storeId);
-
-      final snapshot = await query.get();
-
-      _inventoryReports = snapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>? ?? {};
-        final cost = _inventoryCostCache[doc.id] ?? ((data['averageCost'] ?? data['cost'] ?? data['lastProcurementCost']) as num?)?.toDouble() ?? 0.0;
-        return InventoryReport(
-          productId: doc.id,
-          productName: data['name'] ?? 'Unknown',
-          quantity: (data['quantity'] as num?)?.toInt() ?? 0,
-          reorderLevel: (data['reorderLevel'] as num?)?.toInt() ?? 10,
-          unitPrice: (data['price'] as num?)?.toDouble() ?? 0.0,
-          costPrice: cost,
-          unit: (data['unit'] ?? 'pc').toString(),
-          businessSection: (data['businessSection'] ?? data['section'] ?? '').toString(),
-          category: (data['category'] ?? data['type'] ?? '').toString(),
-          lastProcurementAt: _parseDate(data['lastProcurementAt'] ?? data['lastProcuredAt'] ?? data['lastProcured']),
-        );
-      }).toList();
-
-      // If inventory collection has no items, fallback to documents' embedded inventory lists
-      if (_inventoryReports.isEmpty) {
-        try {
-          final documentsSnapshot = await _firestore
-              .collection('businesses')
-              .doc(bid)
-              .collection('documents')
-              .get();
-          final docItems = <InventoryReport>[];
-          for (var d in documentsSnapshot.docs) {
-            final ddata = d.data();
-            Iterable<dynamic>? items;
-            if (ddata.containsKey('items') && ddata['items'] is List) {
-              items = ddata['items'] as List;
-            } else if (ddata.containsKey('inventory') &&
-                ddata['inventory'] is List)
-              items = ddata['inventory'] as List;
-            else if ((ddata['name'] ?? '')
-                    .toString()
-                    .toLowerCase()
-                    .contains('inventory') &&
-                ddata.containsKey('data') &&
-                ddata['data'] is List) items = ddata['data'] as List;
-
-            if (items != null) {
-              var ii = 0;
-              for (final raw in items) {
-                if (raw is Map<String, dynamic>) {
-                  final rawCost = ((raw['averageCost'] ?? raw['cost'] ?? raw['costPrice'] ?? raw['purchasePrice']) as num?)?.toDouble() ?? 0.0;
-                  docItems.add(InventoryReport(
-                    productId: '${d.id}_$ii',
-                    productName:
-                        (raw['name'] ?? raw['item'] ?? 'Unknown').toString(),
-                    quantity: (raw['quantity'] as num?)?.toInt() ??
-                        (raw['qty'] as num?)?.toInt() ??
-                        0,
-                    reorderLevel: (raw['reorderLevel'] as num?)?.toInt() ?? 10,
-                    unitPrice: (raw['price'] as num?)?.toDouble() ?? 0.0,
-                    costPrice: rawCost,
-                    unit: (raw['unit'] ?? 'pc').toString(),
-                    businessSection: (raw['businessSection'] ?? raw['section'] ?? '').toString(),
-                    category: (raw['category'] ?? raw['type'] ?? '').toString(),
-                    lastProcurementAt: _parseDate(raw['lastProcurementAt'] ?? raw['lastProcuredAt'] ?? raw['lastProcured']),
-                  ));
-                }
-                ii++;
-              }
-            }
-          }
-          if (docItems.isNotEmpty) {
-            _inventoryReports = docItems;
-            debugPrint(
-                '[generateInventoryReport] Document-based inventory found: ${docItems.length} items for business $bid');
-          }
-        } catch (e) {
-          debugPrint(
-              '[generateInventoryReport] Document inventory fallback failed: $e');
-        }
-      }
-
+      await _fetchInventoryReportsInternal(bid, storeId: storeId);
       _isLoading = false;
     } catch (e) {
       _error = 'Failed to load inventory report: $e';
@@ -2703,6 +1664,20 @@ class ReportsProvider extends ChangeNotifier {
   }
 
   /// Subscribe to expenses collection to keep in-memory _expenses in sync
+  Future<void> _fetchExpensesReportInternal(String bid) async {
+    final data = await _fetchExpensesInternal(bid);
+    data.sort((a, b) {
+      final aDate = _parseDate(a['date'] ?? a['created_at']);
+      final bDate = _parseDate(b['date'] ?? b['created_at']);
+      return bDate.compareTo(aDate);
+    });
+    _expenses
+      ..clear()
+      ..addAll(data);
+  }
+
+  /// Poll for expense updates (see class-level note on why this polls
+  /// instead of subscribing to a realtime stream).
   void subscribeToExpensesReports({String? businessId}) {
     _expensesSubscription?.cancel();
     _isLoading = true;
@@ -2721,44 +1696,23 @@ class ReportsProvider extends ChangeNotifier {
       return;
     }
 
-    final collectionRef =
-        _firestore.collection('businesses').doc(bid).collection('expenses');
-    _expensesSubscription = collectionRef.snapshots().listen((snapshot) {
-      _expenses.clear();
-
-      // Normalize and sort docs locally. Some historical docs may use numeric
-      // `timestamp`, others may use `date` (a Timestamp). We sort by numeric
-      // timestamp when available, else by parsed `date`.
-      final docs = snapshot.docs.toList();
-      docs.sort((a, b) {
-        final aData = a.data();
-        final bData = b.data();
-        final aTs = aData['timestamp'];
-        final bTs = bData['timestamp'];
-        if (aTs is num && bTs is num) return bTs.compareTo(aTs);
-        final aDate = _parseDate(aData['date']);
-        final bDate = _parseDate(bData['date']);
-        return bDate.compareTo(aDate);
-      });
-
-      for (var doc in docs) {
-        final data = doc.data();
-        _expenses.add({
-          'id': doc.id,
-          ...data,
-        });
+    Future<void> poll() async {
+      try {
+        await _fetchExpensesReportInternal(bid);
+        _isLoading = false;
+        _error = null;
+        debugPrint(
+            '[subscribeToExpensesReports] Expenses count: ${_expenses.length}');
+        notifyListeners();
+      } catch (e) {
+        _error = 'Failed to subscribe to expenses: $e';
+        _isLoading = false;
+        notifyListeners();
       }
+    }
 
-      _isLoading = false;
-      _error = null;
-      debugPrint(
-          '[subscribeToExpensesReports] Expenses count: ${_expenses.length}');
-      notifyListeners();
-    }, onError: (e) {
-      _error = 'Failed to subscribe to expenses: $e';
-      _isLoading = false;
-      notifyListeners();
-    });
+    unawaited(poll());
+    _expensesSubscription = Timer.periodic(_pollInterval, (_) => poll());
   }
 
   /// Load expenses once without keeping a live subscription.
@@ -2781,26 +1735,7 @@ class ReportsProvider extends ChangeNotifier {
         return;
       }
 
-      final collectionRef =
-          _firestore.collection('businesses').doc(bid).collection('expenses');
-      final snapshot = await collectionRef.get();
-
-      final docs = snapshot.docs.toList();
-      docs.sort((a, b) {
-        final aData = a.data();
-        final bData = b.data();
-        final aTs = aData['timestamp'];
-        final bTs = bData['timestamp'];
-        if (aTs is num && bTs is num) return bTs.compareTo(aTs);
-        final aDate = _parseDate(aData['date']);
-        final bDate = _parseDate(bData['date']);
-        return bDate.compareTo(aDate);
-      });
-
-      _expenses
-        ..clear()
-        ..addAll(docs.map((doc) => {'id': doc.id, ...doc.data()}));
-
+      await _fetchExpensesReportInternal(bid);
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -2832,38 +1767,31 @@ class ReportsProvider extends ChangeNotifier {
         return;
       }
 
-      // Query customers for current business
-      final query =
-          _firestore.collection('businesses').doc(bid).collection('customers');
-
-      final snapshot = await query.get();
+      final customers = await _customerRepo.getCustomers(bid);
 
       // For each customer, calculate total spent and orders
       _customerReports = [];
-      for (var customerDoc in snapshot.docs) {
-        final customerData = customerDoc.data();
+      for (final raw in customers) {
+        final customerData = raw as Map<String, dynamic>;
+        final customerId = (customerData['id'] ?? '').toString();
 
-        // Query sales for this customer
-        final salesQuery = _firestore
-            .collection('businesses')
-            .doc(bid)
-            .collection('sales')
-            .where('customerId', isEqualTo: customerDoc.id);
-
-        final salesSnapshot = await salesQuery.get();
+        final sales = await _salesRepo.getSales(bid, filters: {
+          'customerId': customerId,
+        });
 
         double totalSpent = 0;
-        for (var saleDoc in salesSnapshot.docs) {
-          totalSpent += ((saleDoc.data()['totalAmount'] ?? 0)).toDouble();
+        for (final sale in sales) {
+          totalSpent +=
+              ((sale['final_amount'] ?? sale['total_amount'] ?? 0) as num)
+                  .toDouble();
         }
 
         _customerReports.add(CustomerReport(
-          customerId: customerDoc.id,
-          customerName:
-              customerData['name'] ?? customerData['displayName'] ?? 'Unknown',
+          customerId: customerId,
+          customerName: customerData['name'] ?? 'Unknown',
           totalSpent: totalSpent,
-          totalOrders: salesSnapshot.docs.length,
-          isActive: salesSnapshot.docs.isNotEmpty,
+          totalOrders: sales.length,
+          isActive: sales.isNotEmpty,
         ));
       }
 
@@ -2875,7 +1803,7 @@ class ReportsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Get list of raw sales documents for a given customer id
+  /// Get list of raw sales records for a given customer id
   Future<List<Map<String, dynamic>>> getCustomerTransactions(String customerId,
       {String? businessId}) async {
     try {
@@ -2884,40 +1812,18 @@ class ReportsProvider extends ChangeNotifier {
           _authProvider?.currentUser?.businessId;
       if (bid == null || bid.isEmpty || customerId.isEmpty) return [];
 
-      final salesRef = _firestore
-          .collection('businesses')
-          .doc(bid)
-          .collection('sales');
+      final sales = await _salesRepo.getSales(bid, filters: {
+        'customerId': customerId,
+      });
 
-      // Some sales records store the customer link as customerId, some use a nested
-      // customer object with an id field, and some may store the customer value
-      // directly on the customer field. Query all common variants and merge.
-      final queries = <Future<QuerySnapshot>>[
-        salesRef.where('customerId', isEqualTo: customerId).get(),
-        salesRef.where('customer.id', isEqualTo: customerId).get(),
-        salesRef.where('customer', isEqualTo: customerId).get(),
-      ];
-
-      final snapshots = await Future.wait(queries);
-      final Map<String, Map<String, dynamic>> salesById = {};
-
-      for (final snap in snapshots) {
-        for (final doc in snap.docs) {
-          final saleData = doc.data() as Map<String, dynamic>?;
-          salesById[doc.id] = {...?saleData, 'id': doc.id};
-        }
-      }
-
-      final sales = salesById.values.toList();
-      sales.sort((a, b) {
-        final aDate = DateTime.tryParse(a['createdAt']?.toString() ?? '') ??
-            (a['createdAt'] is Timestamp ? (a['createdAt'] as Timestamp).toDate() : DateTime.fromMillisecondsSinceEpoch(0));
-        final bDate = DateTime.tryParse(b['createdAt']?.toString() ?? '') ??
-            (b['createdAt'] is Timestamp ? (b['createdAt'] as Timestamp).toDate() : DateTime.fromMillisecondsSinceEpoch(0));
+      final result = sales.cast<Map<String, dynamic>>().toList();
+      result.sort((a, b) {
+        final aDate = _parseDate(a['createdAt'] ?? a['created_at']);
+        final bDate = _parseDate(b['createdAt'] ?? b['created_at']);
         return bDate.compareTo(aDate);
       });
 
-      return sales;
+      return result;
     } catch (e) {
       return [];
     }
@@ -4024,9 +2930,8 @@ class ReportsProvider extends ChangeNotifier {
     double calculatedRevenue = 0.0;
     double calculatedCogs = 0.0;
 
-    for (final doc in _latestSalesDocs) {
-      final data = doc.data();
-      final saleDate = _parseDate(data['createdAt'] ?? data['timestamp']);
+    for (final data in _latestSalesDocs) {
+      final saleDate = _parseDate(data['createdAt'] ?? data['created_at']);
       if (saleDate.isBefore(startDate) || !saleDate.isBefore(endDate)) {
         continue;
       }
@@ -4085,11 +2990,15 @@ class ReportsProvider extends ChangeNotifier {
       calculatedCogs += saleCogs;
 
       sales.add({
-        'id': doc.id,
+        'id': (data['id'] ?? '').toString(),
         'date': saleDate,
         'receiptNumber': (data['receiptNumber'] ?? '').toString(),
-        'customerName': (data['customerName'] ?? 'Walk-in').toString(),
-        'paymentMethod': (data['paymentMethod'] ?? 'cash').toString(),
+        'customerName':
+            (data['customerName'] ?? data['customer_name'] ?? 'Walk-in')
+                .toString(),
+        'paymentMethod':
+            (data['paymentMethod'] ?? data['payment_method'] ?? 'cash')
+                .toString(),
         'revenue': saleRevenue,
         'cogs': saleCogs,
         'grossProfit': saleRevenue - saleCogs,
@@ -4104,9 +3013,9 @@ class ReportsProvider extends ChangeNotifier {
 
     final expenses = <Map<String, dynamic>>[];
     double operatingExpenses = 0.0;
-    for (final doc in _latestExpensesDocs) {
-      final data = doc.data();
-      final expenseDate = _parseDate(data['date'] ?? data['createdAt'] ?? data['timestamp']);
+    for (final data in _latestExpensesDocs) {
+      final expenseDate =
+          _parseDate(data['date'] ?? data['createdAt'] ?? data['created_at']);
       if (expenseDate.isBefore(startDate) || !expenseDate.isBefore(endDate)) {
         continue;
       }
@@ -4114,7 +3023,7 @@ class ReportsProvider extends ChangeNotifier {
       final amount = _toDouble(data['amount'] ?? data['value'] ?? 0) ?? 0.0;
       operatingExpenses += amount;
       expenses.add({
-        'id': doc.id,
+        'id': (data['id'] ?? '').toString(),
         'date': expenseDate,
         'amount': amount,
         'category': (data['category'] ?? 'Expense').toString(),
@@ -4201,13 +3110,15 @@ class ReportsProvider extends ChangeNotifier {
       return [];
     }
 
-    return _latestSalesDocs.map((doc) {
-      final data = doc.data();
+    return _latestSalesDocs.map((data) {
       final items = (data['items'] as List?) ?? [];
       final itemNames = items
           .map((item) {
             if (item is Map<String, dynamic>) {
-              return (item['name'] ?? item['productName'] ?? item['title'] ?? '')
+              return (item['name'] ??
+                      item['productName'] ??
+                      item['product_name'] ??
+                      '')
                   .toString();
             }
             return item.toString();
@@ -4218,22 +3129,25 @@ class ReportsProvider extends ChangeNotifier {
 
       return {
         'date': _parseDate(
-          data['saleDate'] ?? data['createdAt'] ?? data['timestamp'],
+          data['saleDate'] ?? data['createdAt'] ?? data['created_at'],
         ).toIso8601String(),
         'description': itemNames.isNotEmpty
             ? itemNames
-            : (data['category'] ?? data['type'] ?? 'Sale').toString(),
+            : (data['category'] ?? data['sale_type'] ?? 'Sale').toString(),
         'type': 'Sale',
-        'amount': ((data['totalAmount'] ?? data['total'] ?? 0) as num)
+        'amount': ((data['totalAmount'] ??
+                data['final_amount'] ??
+                data['total_amount'] ??
+                0) as num)
             .toDouble(),
         'cashier': (data['cashier'] ??
                 data['workerName'] ??
-                data['soldBy'] ??
+                data['worker_name'] ??
                 'N/A')
             .toString(),
         'items': items.length,
         'paymentMethod':
-            (data['paymentMethod'] ?? data['payment'] ?? data['tenderType'] ?? 'N/A')
+            (data['paymentMethod'] ?? data['payment_method'] ?? 'N/A')
                 .toString(),
       };
     }).toList()

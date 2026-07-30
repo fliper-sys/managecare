@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
+import '../services/managecare_api_client.dart';
 import '../data/models/business_model.dart';
 import '../data/models/apartment_model.dart';
 import '../data/models/unit_model.dart';
@@ -9,13 +10,13 @@ import '../data/repositories/apartment_repository_impl.dart';
 import '../data/repositories/worker_repository_impl.dart';
 import '../services/local_business_storage.dart';
 import '../services/local_user_storage.dart';
-import '../services/deletion_recovery_service.dart';
+import '../services/deletion_recovery_service_supabase.dart';
 import '../services/subscription_service.dart';
 
 class BusinessProvider with ChangeNotifier {
   final BusinessRepository _repository;
-  final DeletionRecoveryService _deletionRecoveryService =
-      DeletionRecoveryService(firestore: FirebaseFirestore.instance);
+  final DeletionRecoveryServiceSupabase _deletionRecoveryService =
+      DeletionRecoveryServiceSupabase();
   LocalBusinessStorage? _localStorage;
   LocalUserStorage? _localUserStorage;
 
@@ -563,33 +564,27 @@ class BusinessProvider with ChangeNotifier {
           remainingBusinesses.isNotEmpty ? remainingBusinesses.first : null;
 
       String? cachedUserId;
-      String? cachedUserRole;
       dynamic cachedUser;
       try {
         _localUserStorage ??= await LocalUserStorage.create();
         cachedUser = _localUserStorage?.getCachedUser();
         cachedUserId = cachedUser?.id;
-        cachedUserRole = cachedUser?.role;
       } catch (e) {
         print('[BusinessProvider] Warning: failed to update local cached user after delete: $e');
       }
 
       final ownerId = deletingBusiness.ownerId.isNotEmpty
           ? deletingBusiness.ownerId
-          : (cachedUserId ?? '');
-      final actorId =
-          ownerId.isNotEmpty
-              ? ownerId
-              : (FirebaseAuth.instance.currentUser?.uid ?? '');
-      if (actorId.isEmpty) {
+          : (cachedUserId ??
+              Supabase.instance.client.auth.currentUser?.id ??
+              '');
+      if (ownerId.isEmpty) {
         throw Exception('Unable to identify the account deleting this business.');
       }
 
       await _deletionRecoveryService.softDeleteBusiness(
         businessId: businessId,
-        actorId: actorId,
-        actorType: 'user',
-        actorRole: cachedUserRole ?? 'owner',
+        actorId: ownerId,
         reason: 'Deleted by the business owner.',
       );
 
@@ -633,14 +628,10 @@ class BusinessProvider with ChangeNotifier {
       }
 
       if (ownerId.isNotEmpty) {
-        final fallbackId = fallbackBusiness?.id;
-        await FirebaseFirestore.instance.collection('users').doc(ownerId).set({
-          'businessIds': _userBusinesses.map((b) => b.id).toList(),
-          'businessId': fallbackId ?? '',
-          'currentBusinessId': fallbackId,
-          'preferredBusinessId': fallbackId,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        // businessIds/businessId are derived fresh from business_members on
+        // every login (AuthenticationService), not stored - only the
+        // "last selected business" hint needs persisting here.
+        await _syncCurrentBusinessToProfile(ownerId, fallbackBusiness?.id);
       }
 
       _isLoading = false;
@@ -697,21 +688,31 @@ class BusinessProvider with ChangeNotifier {
     _dedupeUserBusinesses();
   }
 
+  /// Persist the user's "last selected business" hint
+  /// (`profiles.current_business_id`). businessIds/businessId are never
+  /// stored - AuthenticationService derives them fresh from
+  /// business_members on every login, so there's nothing else to sync here.
+  Future<void> _syncCurrentBusinessToProfile(
+    String userId,
+    String? businessId,
+  ) async {
+    try {
+      await Supabase.instance.client
+          .from('profiles')
+          .update({'current_business_id': businessId})
+          .eq('id', userId)
+          .timeout(const Duration(seconds: 10));
+    } catch (e) {
+      print('[BusinessProvider] Error saving business preference: $e');
+      _errorMessage = 'Failed to save business preference: $e';
+    }
+  }
+
   Future<void> _persistBusinessSelectionForUser(
     String userId,
     BusinessModel business,
   ) async {
-    final firestore = FirebaseFirestore.instance;
-    try {
-      await firestore.collection('users').doc(userId).update({
-        'preferredBusinessId': business.id,
-        'currentBusinessId': business.id,
-        'businessIds': FieldValue.arrayUnion([business.id]),
-      }).timeout(const Duration(seconds: 10));
-    } catch (e) {
-      print('[BusinessProvider] Error saving user preference to Firestore: $e');
-      _errorMessage = 'Failed to save business preference: $e';
-    }
+    await _syncCurrentBusinessToProfile(userId, business.id);
 
     try {
       final localUserStorage = await LocalUserStorage.create();
@@ -792,24 +793,10 @@ class BusinessProvider with ChangeNotifier {
         print('[BusinessProvider] Saved business to local storage');
       }
 
-      // Save preferred business ID, ensure currentBusinessId and businessIds are persisted to user document
-      final firestore = FirebaseFirestore.instance;
+      // Save the "last selected business" hint and local cache.
       try {
-        try {
-          await firestore.collection('users').doc(userId).update({
-            'preferredBusinessId': business.id,
-            'currentBusinessId': business.id,
-            // Ensure businessIds contains this business id
-            'businessIds': FieldValue.arrayUnion([business.id]),
-          }).timeout(const Duration(seconds: 10));
-        } catch (e) {
-          // If the update times out or fails, record and continue. This should not block UI indefinitely.
-          print('[BusinessProvider] Error saving user preference to Firestore (timeout or error): $e');
-          _errorMessage = 'Failed to save business preference: $e';
-          notifyListeners();
-        }
+        await _syncCurrentBusinessToProfile(userId, business.id);
 
-        // Also update local cached user if available
         try {
           final localUserStorage = await LocalUserStorage.create();
           await localUserStorage.updateCachedUser(
@@ -825,7 +812,7 @@ class BusinessProvider with ChangeNotifier {
         // background loads do not unintentionally override this choice
         _loadedForUserId = userId;
 
-        print('[BusinessProvider] Saved business preference to Firebase and local cache');
+        print('[BusinessProvider] Saved business preference and local cache');
         notifyListeners();
 
         // Refresh aggregated stats for the business in background
@@ -892,114 +879,28 @@ class BusinessProvider with ChangeNotifier {
     }
   }
 
-  /// Attempt to locate and load the business associated with a worker.
-  ///
-  /// This will try multiple strategies in order:
-  ///   1. Inspect an existing user->businessId mapping (AuthProvider should have set it)
-  ///   2. Query the `workers` collection by document id
-  ///   3. Query the `workers` collection by email (if provided)
-  /// If a business is found it will be loaded and cached. This method never throws.
+  /// Attempt to locate and load the business associated with a worker, by
+  /// looking up their active business_members row directly. (Postgres has
+  /// a single membership table keyed by user id - the old multi-field
+  /// Firestore fallback chain across userId/uid/email variants across a
+  /// `workers` collection no longer applies.) This method never throws.
   Future<bool> ensureBusinessForWorker(String workerId,
       {String? workerEmail}) async {
     if (_currentBusiness != null) return true;
 
     try {
+      final memberships = await Supabase.instance.client
+          .from('business_members')
+          .select('business_id')
+          .eq('user_id', workerId)
+          .eq('is_active', true)
+          .limit(1);
 
+      final foundBusinessId = memberships.isNotEmpty
+          ? memberships.first['business_id'] as String?
+          : null;
 
-      // First, try to find a worker doc by id via repository
-      final workerRepo = WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
-      dynamic workerDoc;
-      try {
-        workerDoc = await workerRepo.getWorkerById(workerId);
-        if (workerDoc != null) print('[BusinessProvider] WorkerRepo returned: $workerDoc');
-      } catch (e) {
-        print('[BusinessProvider] Worker repo lookup by id failed: $e');
-      }
-
-      // If still not found, try querying the workers collection for multiple possible fields
-      if (workerDoc == null) {
-        try {
-          // Try userId/uid/workerId fields
-          final byIdQuery = await FirebaseFirestore.instance
-              .collection('workers')
-              .where('userId', isEqualTo: workerId)
-              .limit(1)
-              .get();
-          if (byIdQuery.docs.isNotEmpty) {
-            workerDoc = {'id': byIdQuery.docs.first.id, ...byIdQuery.docs.first.data()};
-            print('[BusinessProvider] Found worker by userId: ${byIdQuery.docs.first.id}');
-          }
-        } catch (e) {
-          print('[BusinessProvider] Worker lookup by userId failed: $e');
-        }
-      }
-
-      if (workerDoc == null) {
-        try {
-          final byUidQuery = await FirebaseFirestore.instance
-              .collection('workers')
-              .where('uid', isEqualTo: workerId)
-              .limit(1)
-              .get();
-          if (byUidQuery.docs.isNotEmpty) {
-            workerDoc = {'id': byUidQuery.docs.first.id, ...byUidQuery.docs.first.data()};
-            print('[BusinessProvider] Found worker by uid: ${byUidQuery.docs.first.id}');
-          }
-        } catch (e) {
-          print('[BusinessProvider] Worker lookup by uid failed: $e');
-        }
-      }
-
-      if (workerDoc == null && workerEmail != null && workerEmail.contains('@')) {
-        try {
-          // Try email and emailAddress fields
-          final byEmailQuery = await FirebaseFirestore.instance
-              .collection('workers')
-              .where('email', isEqualTo: workerEmail)
-              .limit(1)
-              .get();
-          if (byEmailQuery.docs.isNotEmpty) {
-            workerDoc = {'id': byEmailQuery.docs.first.id, ...byEmailQuery.docs.first.data()};
-            print('[BusinessProvider] Found worker by email: ${byEmailQuery.docs.first.id}');
-          } else {
-            final byAltEmailQuery = await FirebaseFirestore.instance
-                .collection('workers')
-                .where('emailAddress', isEqualTo: workerEmail)
-                .limit(1)
-                .get();
-            if (byAltEmailQuery.docs.isNotEmpty) {
-              workerDoc = {'id': byAltEmailQuery.docs.first.id, ...byAltEmailQuery.docs.first.data()};
-              print('[BusinessProvider] Found worker by emailAddress: ${byAltEmailQuery.docs.first.id}');
-            }
-          }
-        } catch (e) {
-          print('[BusinessProvider] Worker lookup by email failed: $e');
-        }
-      }
-
-      // As a final fallback, check the users collection for a businessId entry
-      if (workerDoc == null) {
-        try {
-          final userDoc = await FirebaseFirestore.instance.collection('users').doc(workerId).get();
-          if (userDoc.exists) {
-            final data = userDoc.data() as Map<String, dynamic>;
-            if (data.containsKey('businessId') && (data['businessId'] as String).isNotEmpty) {
-              final found = data['businessId'] as String;
-              print('[BusinessProvider] Found businessId on users doc: $found');
-              await loadBusinessById(found);
-              return _currentBusiness != null;
-            }
-          }
-        } catch (e) {
-          print('[BusinessProvider] User doc lookup failed: $e');
-        }
-      }
-
-      final foundBusinessId = (workerDoc != null && workerDoc is Map<String, dynamic>)
-          ? (workerDoc['businessId'] as String?) ?? ''
-          : '';
-
-      if (foundBusinessId.isNotEmpty) {
+      if (foundBusinessId != null && foundBusinessId.isNotEmpty) {
         print('[BusinessProvider] Found businessId for worker: $foundBusinessId');
         await loadBusinessById(foundBusinessId);
         return _currentBusiness != null;
@@ -1018,46 +919,32 @@ class BusinessProvider with ChangeNotifier {
   Future<void> _refreshBusinessStats(String businessId) async {
     try {
       print('[BusinessProvider] Refreshing business stats for $businessId');
-      final fs = FirebaseFirestore.instance;
+      final api = ManagecareApiClient.instance;
 
-      // Products and customers still use subcollection counts (fast count aggregation)
-      final prodSnap = await fs
-          .collection('businesses')
-          .doc(businessId)
-          .collection('inventory')
-          .count()
-          .get();
-      final products = prodSnap.count ?? 0;
+      int products = 0;
+      try {
+        final inv = await api.get('/inventory/$businessId', query: {'limit': 1});
+        products = (inv['pagination']?['total'] as num?)?.toInt() ?? 0;
+      } catch (e) {
+        print('[BusinessProvider] Failed to compute product count: $e');
+      }
 
-      final custSnap = await fs
-          .collection('businesses')
-          .doc(businessId)
-          .collection('customers')
-          .count()
-          .get();
-      final customers = custSnap.count ?? 0;
+      int customers = 0;
+      try {
+        final cust = await api.get('/customers/$businessId', query: {'limit': 1});
+        customers = (cust['pagination']?['total'] as num?)?.toInt() ?? 0;
+      } catch (e) {
+        print('[BusinessProvider] Failed to compute customer count: $e');
+      }
 
       int workers = 0;
-
-      // Prefer authoritative worker list from WorkerRepository (merges global "workers" and "users" collections)
       try {
-        final workerRepo = WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
+        final workerRepo = WorkerRepositoryImpl();
         final list = await workerRepo.getWorkers(businessId);
         workers = list.length;
-        print('[BusinessProvider] WorkerRepo returned ${workers} workers for business');
+        print('[BusinessProvider] WorkerRepo returned $workers workers for business');
       } catch (e) {
-        // Fallback to business subcollection count if repository lookup fails
-        try {
-          final workersSnap = await fs
-              .collection('businesses')
-              .doc(businessId)
-              .collection('workers')
-              .count()
-              .get();
-          workers = workersSnap.count ?? 0;
-        } catch (e2) {
-          print('[BusinessProvider] Failed to compute workers count: $e2');
-        }
+        print('[BusinessProvider] Failed to compute workers count: $e');
       }
 
       print('[BusinessProvider] Counts: products=$products, workers=$workers, customers=$customers');
@@ -1092,7 +979,7 @@ class BusinessProvider with ChangeNotifier {
   /// Helper: Get authoritative list of workers for a business using WorkerRepository
   Future<List<Map<String, dynamic>>> getWorkersForBusiness(String businessId) async {
     try {
-      final repo = WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
+      final repo = WorkerRepositoryImpl();
       final list = await repo.getWorkers(businessId);
       return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (e) {

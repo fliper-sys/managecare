@@ -52,6 +52,7 @@ import 'data/repositories/industry_specific/drink_repository_impl.dart';
 import 'providers/drink_provider.dart';
 import 'presentation/industry_specific/realestate/providers/real_estate_provider.dart';
 import 'providers/realestate_provider.dart'; // wrapper (kept for registration)
+import 'providers/business_logic_provider.dart';
 import 'providers/gym_provider.dart';
 import 'providers/workers_provider.dart';
 import 'providers/inventory_alerts_provider.dart';
@@ -625,6 +626,22 @@ class MyApp extends StatelessWidget {
               previous.setBusinessId(bid);
             }
             return previous;
+          },
+        ),
+        // Backs the real estate maintenance-ticket screens
+        // (create_ticket_screen.dart, maintenance_screen.dart), which read
+        // this via context.read<BusinessLogicProvider>() but had no
+        // registration at all before this - a latent crash waiting to
+        // happen the first time that code path was reached.
+        ChangeNotifierProxyProvider<BusinessProvider, BusinessLogicProvider>(
+          create: (_) => BusinessLogicProvider(),
+          update: (_, businessProvider, previous) {
+            final provider = previous ?? BusinessLogicProvider();
+            final business = businessProvider.currentBusiness;
+            if (business != null) {
+              provider.setBusinessContext(business.id, business.businessType);
+            }
+            return provider;
           },
         ),
         // Customer provider: caches customers for the current business

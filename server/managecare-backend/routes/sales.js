@@ -261,37 +261,59 @@ module.exports = function(pool) {
     res.json(result.rows[0]);
   }));
 
-  // DELETE /api/sales/:businessId/:id - Delete sale (restore inventory)
+  // DELETE /api/sales/:businessId/:id - Delete sale (restore inventory,
+  // log an audit record). Atomic: restock, audit log, and delete all happen
+  // in one transaction so a failure partway through doesn't leave inventory
+  // restored without a matching deletion (or vice versa).
   router.delete('/:businessId/:id', asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
+    const reason = (req.body && req.body.reason) || null;
 
-    // Get sale items first to restore inventory
-    const itemsResult = await pool.query(
-      'SELECT * FROM sale_items WHERE sale_id = $1',
-      [id]
-    );
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    // Restore inventory
-    for (const item of itemsResult.rows) {
-      if (item.product_id) {
-        const qty = parseFloat(item.quantity) * parseFloat(item.sale_unit_multiplier || 1);
-        await pool.query(
-          'UPDATE inventory SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2 AND business_id = $3',
-          [qty, item.product_id, businessId]
-        );
+      const saleResult = await client.query(
+        'SELECT * FROM sales WHERE id = $1 AND business_id = $2 FOR UPDATE',
+        [id, businessId]
+      );
+      if (saleResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Sale not found' });
       }
-    }
+      const sale = saleResult.rows[0];
 
-    // Delete sale (cascades to sale_items)
-    const result = await pool.query(
-      'DELETE FROM sales WHERE id = $1 AND business_id = $2 RETURNING *',
-      [id, businessId]
-    );
+      const itemsResult = await client.query(
+        'SELECT * FROM sale_items WHERE sale_id = $1',
+        [id]
+      );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Sale not found' });
+      for (const item of itemsResult.rows) {
+        if (item.product_id) {
+          const qty = parseFloat(item.quantity) * parseFloat(item.sale_unit_multiplier || 1);
+          await client.query(
+            'UPDATE inventory SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2 AND business_id = $3',
+            [qty, item.product_id, businessId]
+          );
+        }
+      }
+
+      await client.query(
+        `INSERT INTO sale_deletions (business_id, sale_id, deleted_by, reason, sale_snapshot, items_snapshot)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [businessId, id, req.user.id, reason, JSON.stringify(sale), JSON.stringify(itemsResult.rows)]
+      );
+
+      await client.query('DELETE FROM sales WHERE id = $1 AND business_id = $2', [id, businessId]);
+
+      await client.query('COMMIT');
+      res.json({ message: 'Sale deleted successfully', id });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-    res.json({ message: 'Sale deleted successfully', id });
   }));
 
   return router;

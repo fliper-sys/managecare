@@ -1,10 +1,15 @@
- import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../data/models/analytics_model.dart';
+import '../data/repositories/sales_repository_supabase.dart';
+import '../data/repositories/inventory_repository_supabase.dart';
+import '../data/repositories/customer_repository_supabase.dart';
 
 class AnalyticsProvider extends ChangeNotifier {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final SalesRepositorySupabase _salesRepo = SalesRepositorySupabase();
+  final InventoryRepositorySupabase _inventoryRepo =
+      InventoryRepositorySupabase();
+  final CustomerRepositorySupabase _customerRepo = CustomerRepositorySupabase();
 
   String? _businessId;
   AnalyticsModel? _currentAnalytics;
@@ -14,8 +19,13 @@ class AnalyticsProvider extends ChangeNotifier {
   DateTime? _lastRangeEnd;
   final Map<String, AnalyticsModel> _analyticsCache = {};
   final Map<String, Map<String, dynamic>> _productCache = {};
-  StreamSubscription<QuerySnapshot>? _salesSubscription;
-  StreamSubscription<QuerySnapshot>? _productsSubscription;
+
+  // The custom backend doesn't implement Supabase's Realtime protocol, so
+  // these are polled the same way InventoryRepositorySupabase.streamInventory
+  // is (see that class for the fuller explanation).
+  static const _pollInterval = Duration(seconds: 15);
+  Timer? _salesPollTimer;
+  Timer? _productsPollTimer;
   bool _isLoading = false;
   String _errorMessage = '';
 
@@ -26,10 +36,9 @@ class AnalyticsProvider extends ChangeNotifier {
 
   void setBusinessId(String businessId) {
     if (_businessId != null && _businessId != businessId) {
-      // cancel any existing realtime subscriptions
-      _salesSubscription?.cancel();
-      _productsSubscription?.cancel();
-      _salesSubscription = null;
+      _salesPollTimer?.cancel();
+      _productsPollTimer?.cancel();
+      _salesPollTimer = null;
     }
     _businessId = businessId;
     // fetch products to seed product cache
@@ -44,29 +53,21 @@ class AnalyticsProvider extends ChangeNotifier {
   Future<void> fetchProducts() async {
     if (_businessId == null) return;
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory')
-          .get();
+      final items = await _inventoryRepo.getInventory(_businessId!);
 
       final Map<String, Map<String, dynamic>> cache = {};
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        cache[doc.id] = {
-          'id': doc.id,
-          'name':
-              data['name'] ?? data['productName'] ?? data['title'] ?? 'Unknown',
-          'price': (data['price'] as num?)?.toDouble() ??
-              (data['unitPrice'] as num?)?.toDouble() ??
-              0.0,          // cost fields (cost, costPrice, purchasePrice, unitCost)
-          'cost': (data['cost'] as num?)?.toDouble() ??
-              (data['costPrice'] as num?)?.toDouble() ??
-              (data['purchasePrice'] as num?)?.toDouble() ??
-              (data['unitCost'] as num?)?.toDouble() ??
-              0.0,          'category': data['category'] ?? '',
-          'stock': (data['stock'] as num?)?.toInt() ?? 0,
-          'imageUrl': data['imageUrl'],
+      for (final raw in items) {
+        final data = raw as Map<String, dynamic>;
+        final id = (data['id'] ?? '').toString();
+        if (id.isEmpty) continue;
+        cache[id] = {
+          'id': id,
+          'name': data['name'] ?? 'Unknown',
+          'price': (data['unit_price'] as num?)?.toDouble() ?? 0.0,
+          'cost': (data['cost_price'] as num?)?.toDouble() ?? 0.0,
+          'category': data['category'] ?? '',
+          'stock': (data['quantity'] as num?)?.toInt() ?? 0,
+          'imageUrl': data['image_url'],
         };
       }
       _productCache.clear();
@@ -79,53 +80,35 @@ class AnalyticsProvider extends ChangeNotifier {
 
   void subscribeToProductUpdates() {
     if (_businessId == null) return;
-    _productsSubscription?.cancel();
-    _productsSubscription = _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('inventory')
-        .snapshots()
-        .listen((snapshot) {
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        _productCache[doc.id] = {
-          'id': doc.id,
-          'name': data['name'] ?? data['productName'] ?? 'Unknown',
-          'price': (data['price'] as num?)?.toDouble() ??
-              (data['unitPrice'] as num?)?.toDouble() ??
-              0.0,          'cost': (data['cost'] as num?)?.toDouble() ??
-              (data['costPrice'] as num?)?.toDouble() ??
-              (data['purchasePrice'] as num?)?.toDouble() ??
-              (data['unitCost'] as num?)?.toDouble() ??
-              0.0,          'category': data['category'] ?? '',
-          'stock': (data['stock'] as num?)?.toInt() ?? 0,
-          'imageUrl': data['imageUrl'],
-        };
-      }
-      // remove deleted products
-      final ids = snapshot.docs.map((d) => d.id).toSet();
-      _productCache.removeWhere((k, v) => !ids.contains(k));
-      notifyListeners();
+    _productsPollTimer?.cancel();
+
+    Future<void> poll() async {
+      await fetchProducts();
       // Refresh analytics-derived lists if we have a known range
       if (_lastRangeStart != null && _lastRangeEnd != null) {
-        getTopProducts(_lastRangeStart!, _lastRangeEnd!).then((list) {
-          _topProducts = list;
-          notifyListeners();
-        });
-        getRevenueTrend(_lastRangeStart!, _lastRangeEnd!).then((list) {
-          _revenueTrend = list;
-          notifyListeners();
-        });
+        _topProducts = await getTopProducts(_lastRangeStart!, _lastRangeEnd!);
+        _revenueTrend = await getRevenueTrend(_lastRangeStart!, _lastRangeEnd!);
+        notifyListeners();
       }
-    }, onError: (e) {
-      debugPrint('[AnalyticsProvider] Product subscription error: $e');
-    });
+    }
+
+    _productsPollTimer = Timer.periodic(_pollInterval, (_) => poll());
   }
 
   void unsubscribeFromProductUpdates() {
-    _productsSubscription?.cancel();
-    _productsSubscription = null;
+    _productsPollTimer?.cancel();
+    _productsPollTimer = null;
   }
+
+  String? _itemProductId(Map<String, dynamic> item) =>
+      (item['productId'] ?? item['product_id'])?.toString();
+
+  double _saleAmount(Map<String, dynamic> data) =>
+      (data['totalAmount'] as num?)?.toDouble() ??
+      (data['final_amount'] as num?)?.toDouble() ??
+      (data['total_amount'] as num?)?.toDouble() ??
+      (data['total'] as num?)?.toDouble() ??
+      0.0;
 
   /// Calculate analytics for date range
   Future<AnalyticsModel?> calculateAnalytics(
@@ -141,210 +124,23 @@ class AnalyticsProvider extends ChangeNotifier {
       // store range for subsequent refreshes
       _lastRangeStart = startDate;
       _lastRangeEnd = endDate;
-      // Get all sales in range
-      final salesSnapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .where('createdAt', isGreaterThanOrEqualTo: startDate)
-          .where('createdAt', isLessThanOrEqualTo: endDate)
-          .get();
 
-      final sales = salesSnapshot.docs;
-
-      // Calculate metrics
-      double totalRevenue = 0;
-      double totalCogs = 0.0;
-      int totalTransactions = sales.length;
-      Map<String, Map<String, dynamic>> productStats = {};
-      Map<String, double> workerSalesMap = {};
-      // Set<String> newCustomerIds = {};
-      Set<String> allCustomerIds = {};
-
-      for (var sale in sales) {
-        final data = sale.data();
-        // supporters use totalAmount for clarity; fall back to old 'total' if present
-        final amount = (data['totalAmount'] as num?)?.toDouble() ??
-            (data['total'] as num?)?.toDouble() ??
-            0.0;
-        totalRevenue += amount;
-
-        // Track customer
-        final customerId = data['customerId'] as String?;
-        if (customerId != null) {
-          allCustomerIds.add(customerId);
-        }
-
-        // Track products
-        final items = (data['items'] as List<dynamic>?) ?? [];
-        for (var item in items) {
-          final itemMap = item as Map<String, dynamic>;
-          final productId = itemMap['productId'] as String?;
-          final productNameFromItem = (itemMap['productName'] as String?) ??
-              (itemMap['name'] as String?);
-          final quantity = (itemMap['quantity'] as num?)?.toInt() ?? 0;
-          double unitPrice = 0.0;
-          if (productId != null && _productCache.containsKey(productId)) {
-            unitPrice = (_productCache[productId]!['price'] as double?) ?? 0.0;
-          }
-          unitPrice = unitPrice == 0.0
-              ? (itemMap['unitPrice'] as num?)?.toDouble() ??
-                  (itemMap['price'] as num?)?.toDouble() ??
-                  0.0
-              : unitPrice;
-          final key = productId ??
-              productNameFromItem ??
-              'unknown_${productStats.length}';
-          final name = productId != null && _productCache.containsKey(productId)
-              ? _productCache[productId]!['name']
-              : (productNameFromItem ?? 'Unknown');
-
-          // determine cost per unit (prefer product cache cost, then item-level fields)
-          double costPerUnit = 0.0;
-          if (productId != null && _productCache.containsKey(productId)) {
-            costPerUnit = (_productCache[productId]!['cost'] as double?) ?? 0.0;
-          }
-          if (costPerUnit == 0.0) {
-            costPerUnit = (itemMap['cost'] as num?)?.toDouble() ??
-                (itemMap['costPrice'] as num?)?.toDouble() ??
-                (itemMap['purchasePrice'] as num?)?.toDouble() ??
-                0.0;
-          }
-
-          if (!productStats.containsKey(key)) {
-            productStats[key] = {
-              'id': productId,
-              'name': name,
-              'quantity': 0,
-              'revenue': 0.0,
-              'unitPrice': unitPrice,
-              'costPerUnit': costPerUnit,
-            };
-          }
-
-          productStats[key]!['quantity'] += quantity;
-          productStats[key]!['revenue'] += quantity * unitPrice;
-          productStats[key]!['unitPrice'] = unitPrice;
-          productStats[key]!['costPerUnit'] = costPerUnit;
-
-          // accumulate COGS
-          totalCogs += (costPerUnit * quantity);
-        }
-
-        // Track workers
-        final workerId = data['workerId'] as String?;
-        final workerName = data['workerName'] as String?;
-        if (workerId != null && workerName != null) {
-          workerSalesMap[workerName] =
-              (workerSalesMap[workerName] ?? 0.0) + amount;
-        }
-      }
-
-      // Get previous period for growth calculation
-      final periodDays = endDate.difference(startDate).inDays;
-      final previousStartDate = startDate.subtract(Duration(days: periodDays));
-      final previousEndDate = startDate;
-
-      final previousSalesSnapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .where('createdAt', isGreaterThanOrEqualTo: previousStartDate)
-          .where('createdAt', isLessThanOrEqualTo: previousEndDate)
-          .get();
-
-      double previousRevenue = 0;
-      int previousTransactions = previousSalesSnapshot.docs.length;
-
-      for (var sale in previousSalesSnapshot.docs) {
-        final amount = (sale.data()['totalAmount'] as num?)?.toDouble() ??
-            (sale.data()['total'] as num?)?.toDouble() ??
-            0.0;
-        previousRevenue += amount;
-      }
-
-      // Calculate growth percentages
-      final revenueGrowth = previousRevenue > 0
-          ? ((totalRevenue - previousRevenue) / previousRevenue) * 100
-          : 0.0;
-
-      final transactionGrowth = totalTransactions - previousTransactions;
-
-      // Get new customers
-      final newCustomersSnapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
-          .where('firstPurchaseDate', isGreaterThanOrEqualTo: startDate)
-          .where('firstPurchaseDate', isLessThanOrEqualTo: endDate)
-          .get();
-
-      int newCustomers = newCustomersSnapshot.docs.length;
-      int returningCustomers = allCustomerIds.length - newCustomers;
-
-      // Calculate retention rate
-      double retentionRate = allCustomerIds.isNotEmpty
-          ? (returningCustomers / allCustomerIds.length) * 100
-          : 0.0;
-
-      // Find top product
-      String topProductName = 'N/A';
-      int topProductSales = 0;
-      String topProductId = '';
-      productStats.forEach((key, stats) {
-        final sales = (stats['quantity'] as int?) ?? 0;
-        if (sales > topProductSales) {
-          topProductSales = sales;
-          topProductName = (stats['name'] as String?) ?? 'N/A';
-          topProductId = (stats['id'] as String?) ?? '';
-        }
-      });
-
-      // Find top worker
-      String topWorkerName = 'N/A';
-      double topWorkerSales = 0.0;
-      workerSalesMap.forEach((name, sales) {
-        if (sales > topWorkerSales) {
-          topWorkerSales = sales;
-          topWorkerName = name;
-        }
-      });
-
-      final averageOrderValue =
-          totalTransactions > 0 ? totalRevenue / totalTransactions : 0.0;
-
-      final grossProfit = totalRevenue - totalCogs;
-      final analytics = AnalyticsModel(
-        period: _getPeriodLabel(periodDays),
-        startDate: startDate,
-        endDate: endDate,
-        totalRevenue: totalRevenue,
-        averageOrderValue: averageOrderValue,
-        revenueGrowth: revenueGrowth,
-        totalTransactions: totalTransactions,
-        transactionGrowth: transactionGrowth,
-        newCustomers: newCustomers,
-        returningCustomers: returningCustomers,
-        customerRetentionRate: retentionRate,
-        topProductId: topProductId,
-        topProductName: topProductName,
-        topProductSales: topProductSales,
-        topWorkerId: 'worker_1',
-        topWorkerName: topWorkerName,
-        topWorkerSales: topWorkerSales,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        totalCogs: totalCogs,
-        grossProfit: grossProfit,
+      final sales = await _salesRepo.fetchSales(
+        businessId: _businessId,
+        start: startDate,
+        end: endDate,
       );
 
-      _currentAnalytics = analytics;
-      // compute a cached topProducts and revenueTrend for UI consumption
+      final model = await _computeAnalyticsFromData(startDate, endDate, sales);
+      _currentAnalytics = model;
       _topProducts = await getTopProducts(startDate, endDate);
       _revenueTrend = await getRevenueTrend(startDate, endDate);
-      _analyticsCache[_getCacheKey(startDate, endDate)] = analytics;
+      if (model != null) {
+        _analyticsCache[_getCacheKey(startDate, endDate)] = model;
+      }
       _errorMessage = '';
-      print('[AnalyticsProvider] Analytics calculated: ₦$totalRevenue revenue');
+      debugPrint(
+          '[AnalyticsProvider] Analytics calculated: ${model?.totalRevenue} revenue');
     } catch (e) {
       _errorMessage = 'Failed to calculate analytics: $e';
       debugPrint('[AnalyticsProvider] Error: $_errorMessage');
@@ -386,6 +182,60 @@ class AnalyticsProvider extends ChangeNotifier {
     return trends;
   }
 
+  Map<String, Map<String, dynamic>> _computeProductStats(
+      List<Map<String, dynamic>> sales) {
+    Map<String, Map<String, dynamic>> productStats = {};
+    for (var data in sales) {
+      final items = (data['items'] as List<dynamic>?) ?? [];
+      for (var item in items) {
+        final itemMap = item as Map<String, dynamic>;
+        final productId = _itemProductId(itemMap);
+        final productNameFromItem = (itemMap['productName'] as String?) ??
+            (itemMap['product_name'] as String?) ??
+            (itemMap['name'] as String?);
+        final quantity = (itemMap['quantity'] as num?)?.toInt() ?? 0;
+        double unitPrice = 0.0;
+        if (productId != null && _productCache.containsKey(productId)) {
+          unitPrice = (_productCache[productId]!['price'] as double?) ?? 0.0;
+        }
+        unitPrice = unitPrice == 0.0
+            ? (itemMap['unitPrice'] as num?)?.toDouble() ??
+                (itemMap['unit_price'] as num?)?.toDouble() ??
+                (itemMap['price'] as num?)?.toDouble() ??
+                0.0
+            : unitPrice;
+        final key = productId ??
+            productNameFromItem ??
+            'unknown_${productStats.length}';
+        final name = productId != null && _productCache.containsKey(productId)
+            ? _productCache[productId]!['name']
+            : (productNameFromItem ?? 'Unknown');
+
+        double costPerUnit = 0.0;
+        if (productId != null && _productCache.containsKey(productId)) {
+          costPerUnit = (_productCache[productId]!['cost'] as double?) ?? 0.0;
+        }
+
+        if (!productStats.containsKey(key)) {
+          productStats[key] = {
+            'id': productId,
+            'name': name,
+            'quantity': 0,
+            'revenue': 0.0,
+            'unitPrice': unitPrice,
+            'costPerUnit': costPerUnit,
+          };
+        }
+
+        productStats[key]!['quantity'] += quantity;
+        productStats[key]!['revenue'] += quantity * unitPrice;
+        productStats[key]!['unitPrice'] = unitPrice;
+        productStats[key]!['costPerUnit'] = costPerUnit;
+      }
+    }
+    return productStats;
+  }
+
   /// Get top products by sales
   Future<List<Map<String, dynamic>>> getTopProducts(
     DateTime startDate,
@@ -395,59 +245,13 @@ class AnalyticsProvider extends ChangeNotifier {
     if (_businessId == null) return [];
 
     try {
-      final salesSnapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .where('createdAt', isGreaterThanOrEqualTo: startDate)
-          .where('createdAt', isLessThanOrEqualTo: endDate)
-          .get();
+      final sales = await _salesRepo.fetchSales(
+        businessId: _businessId,
+        start: startDate,
+        end: endDate,
+      );
 
-      Map<String, Map<String, dynamic>> productStats = {};
-
-      for (var sale in salesSnapshot.docs) {
-        final data = sale.data();
-        final items = (data['items'] as List<dynamic>?) ?? [];
-
-        for (var item in items) {
-          final itemMap = item as Map<String, dynamic>;
-          final productId = itemMap['productId'] as String?;
-          final productNameFromItem = (itemMap['productName'] as String?) ??
-              (itemMap['name'] as String?);
-          final quantity = (itemMap['quantity'] as num?)?.toInt() ?? 0;
-          // Prefer product price from product cache or field 'price'/'unitPrice' on the item
-          double unitPrice = 0.0;
-          if (productId != null && _productCache.containsKey(productId)) {
-            unitPrice = (_productCache[productId]!['price'] as double?) ?? 0.0;
-          }
-          unitPrice = unitPrice == 0.0
-              ? (itemMap['unitPrice'] as num?)?.toDouble() ??
-                  (itemMap['price'] as num?)?.toDouble() ??
-                  0.0
-              : unitPrice;
-          final key = productId ??
-              productNameFromItem ??
-              'unknown_${productStats.length}';
-          final name = productId != null && _productCache.containsKey(productId)
-              ? _productCache[productId]!['name']
-              : (productNameFromItem ?? 'Unknown');
-
-          if (!productStats.containsKey(key)) {
-            productStats[key] = {
-              'id': productId,
-              'name': name,
-              'quantity': 0,
-              'revenue': 0.0,
-              'unitPrice': unitPrice,
-            };
-          }
-
-          productStats[key]!['quantity'] += quantity;
-          productStats[key]!['revenue'] += quantity * unitPrice;
-          // If unitPrice differs, keep latest value
-          productStats[key]!['unitPrice'] = unitPrice;
-        }
-      }
+      final productStats = _computeProductStats(sales);
 
       final sorted = productStats.values.toList()
         ..sort((a, b) =>
@@ -477,20 +281,15 @@ class AnalyticsProvider extends ChangeNotifier {
         final adjustedEndDate =
             periodEndDate.isAfter(endDate) ? endDate : periodEndDate;
 
-        final salesSnapshot = await _firestore
-            .collection('businesses')
-            .doc(_businessId)
-            .collection('sales')
-            .where('createdAt', isGreaterThanOrEqualTo: currentDate)
-            .where('createdAt', isLessThanOrEqualTo: adjustedEndDate)
-            .get();
+        final sales = await _salesRepo.fetchSales(
+          businessId: _businessId,
+          start: currentDate,
+          end: adjustedEndDate,
+        );
 
         double periodRevenue = 0;
-        for (var sale in salesSnapshot.docs) {
-          final amount = (sale.data()['totalAmount'] as num?)?.toDouble() ??
-              (sale.data()['total'] as num?)?.toDouble() ??
-              0.0;
-          periodRevenue += amount;
+        for (var sale in sales) {
+          periodRevenue += _saleAmount(sale);
         }
 
         final key = _formatPeriodKey(currentDate, period);
@@ -510,26 +309,21 @@ class AnalyticsProvider extends ChangeNotifier {
     }
   }
 
-  // Real-time subscription to sales updates for given range
+  // Poll for changes to sales in the given range, recomputing analytics on
+  // each tick.
   void subscribeToSalesUpdates(DateTime startDate, DateTime endDate) {
     if (_businessId == null) return;
-    _salesSubscription?.cancel();
-    _salesSubscription = _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('sales')
-        .where('createdAt', isGreaterThanOrEqualTo: startDate)
-        .where('createdAt', isLessThanOrEqualTo: endDate)
-        .snapshots()
-        .listen((snapshot) async {
-      // Recompute analytics on every change
+    _salesPollTimer?.cancel();
+
+    Future<void> poll() async {
       try {
-        final docs = snapshot.docs;
-        // Convert docs to list of data to reuse existing compute paths
-        final tempSales = docs.map((d) => d.data()).toList();
-        // Use an internal helper to compute analytics directly
+        final sales = await _salesRepo.fetchSales(
+          businessId: _businessId,
+          start: startDate,
+          end: endDate,
+        );
         final model =
-            await _computeAnalyticsFromData(startDate, endDate, tempSales);
+            await _computeAnalyticsFromData(startDate, endDate, sales);
         _currentAnalytics = model;
         _topProducts = await getTopProducts(startDate, endDate);
         _revenueTrend = await getRevenueTrend(startDate, endDate,
@@ -537,16 +331,17 @@ class AnalyticsProvider extends ChangeNotifier {
         _errorMessage = '';
         notifyListeners();
       } catch (e) {
-        debugPrint('[AnalyticsProvider] Realtime calc error: $e');
+        debugPrint('[AnalyticsProvider] Sales poll error: $e');
       }
-    }, onError: (e) {
-      debugPrint('[AnalyticsProvider] Sales subscription error: $e');
-    });
+    }
+
+    unawaited(poll());
+    _salesPollTimer = Timer.periodic(_pollInterval, (_) => poll());
   }
 
   void unsubscribeFromSalesUpdates() {
-    _salesSubscription?.cancel();
-    _salesSubscription = null;
+    _salesPollTimer?.cancel();
+    _salesPollTimer = null;
   }
 
   Future<AnalyticsModel?> _computeAnalyticsFromData(DateTime startDate,
@@ -555,112 +350,73 @@ class AnalyticsProvider extends ChangeNotifier {
       double totalRevenue = 0;
       double totalCogs = 0.0;
       int totalTransactions = salesData.length;
-      Map<String, Map<String, dynamic>> productStats = {};
       Map<String, double> workerSalesMap = {};
       Set<String> allCustomerIds = {};
 
       for (var data in salesData) {
-        final amount = (data['totalAmount'] as num?)?.toDouble() ??
-            (data['total'] as num?)?.toDouble() ??
-            0.0;
+        final amount = _saleAmount(data);
         totalRevenue += amount;
-        final customerId = data['customerId'] as String?;
+        final customerId =
+            (data['customerId'] ?? data['customer_id']) as String?;
         if (customerId != null) allCustomerIds.add(customerId);
+
         final items = (data['items'] as List<dynamic>?) ?? [];
         for (var item in items) {
           final itemMap = item as Map<String, dynamic>;
-          final productId = itemMap['productId'] as String?;
-          final productNameFromItem = (itemMap['productName'] as String?) ??
-              (itemMap['name'] as String?);
+          final productId = _itemProductId(itemMap);
           final quantity = (itemMap['quantity'] as num?)?.toInt() ?? 0;
-          double unitPrice = 0.0;
-          if (productId != null && _productCache.containsKey(productId)) {
-            unitPrice = (_productCache[productId]!['price'] as double?) ?? 0.0;
-          }
-          unitPrice = unitPrice == 0.0
-              ? (itemMap['unitPrice'] as num?)?.toDouble() ??
-                  (itemMap['price'] as num?)?.toDouble() ??
-                  0.0
-              : unitPrice;
-          final key = productId ??
-              productNameFromItem ??
-              'unknown_${productStats.length}';
-          final name = productId != null && _productCache.containsKey(productId)
-              ? _productCache[productId]!['name']
-              : (productNameFromItem ?? 'Unknown');
-
-          // determine cost per unit (prefer product cache cost, then item-level fields)
           double costPerUnit = 0.0;
           if (productId != null && _productCache.containsKey(productId)) {
             costPerUnit = (_productCache[productId]!['cost'] as double?) ?? 0.0;
           }
-          if (costPerUnit == 0.0) {
-            costPerUnit = (itemMap['cost'] as num?)?.toDouble() ??
-                (itemMap['costPrice'] as num?)?.toDouble() ??
-                (itemMap['purchasePrice'] as num?)?.toDouble() ??
-                0.0;
-          }
-
-          if (!productStats.containsKey(key)) {
-            productStats[key] = {
-              'id': productId,
-              'name': name,
-              'quantity': 0,
-              'revenue': 0.0,
-              'unitPrice': unitPrice,
-              'costPerUnit': costPerUnit,
-            };
-          }
-
-          productStats[key]!['quantity'] += quantity;
-          productStats[key]!['revenue'] += quantity * unitPrice;
-          productStats[key]!['unitPrice'] = unitPrice;
-          productStats[key]!['costPerUnit'] = costPerUnit;
-
-          // accumulate COGS
           totalCogs += (costPerUnit * quantity);
         }
-        final workerId = data['workerId'] as String?;
-        final workerName = data['workerName'] as String?;
+
+        final workerId = (data['workerId'] ?? data['worker_id']) as String?;
+        final workerName =
+            (data['workerName'] ?? data['worker_name']) as String?;
         if (workerId != null && workerName != null) {
           workerSalesMap[workerName] =
               (workerSalesMap[workerName] ?? 0.0) + amount;
         }
       }
 
+      final productStats = _computeProductStats(salesData);
+
       final periodDays = endDate.difference(startDate).inDays;
       final previousStartDate = startDate.subtract(Duration(days: periodDays));
       final previousEndDate = startDate;
 
-      final previousSalesSnapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .where('createdAt', isGreaterThanOrEqualTo: previousStartDate)
-          .where('createdAt', isLessThanOrEqualTo: previousEndDate)
-          .get();
+      final previousSales = await _salesRepo.fetchSales(
+        businessId: _businessId,
+        start: previousStartDate,
+        end: previousEndDate,
+      );
 
       double previousRevenue = 0;
-      int previousTransactions = previousSalesSnapshot.docs.length;
-      for (var sale in previousSalesSnapshot.docs) {
-        final amount = (sale.data()['totalAmount'] as num?)?.toDouble() ??
-            (sale.data()['total'] as num?)?.toDouble() ??
-            0.0;
-        previousRevenue += amount;
+      int previousTransactions = previousSales.length;
+      for (var sale in previousSales) {
+        previousRevenue += _saleAmount(sale);
       }
       final revenueGrowth = previousRevenue > 0
           ? ((totalRevenue - previousRevenue) / previousRevenue) * 100
           : 0.0;
       final transactionGrowth = totalTransactions - previousTransactions;
 
-      final newCustomersSnapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
-          .where('firstPurchaseDate', isGreaterThanOrEqualTo: startDate)
-          .where('firstPurchaseDate', isLessThanOrEqualTo: endDate)
-          .get();
-      int newCustomers = newCustomersSnapshot.docs.length;
+      int newCustomers = 0;
+      try {
+        final newCustomersList = await _customerRepo.getCustomers(
+          _businessId!,
+          filters: {
+            'startDate': startDate.toIso8601String(),
+            'endDate': endDate.toIso8601String(),
+            'limit': 200,
+          },
+        );
+        newCustomers = newCustomersList.length;
+      } catch (e) {
+        debugPrint('[AnalyticsProvider] Error fetching new customers: $e');
+      }
       int returningCustomers = allCustomerIds.length - newCustomers;
       double retentionRate = allCustomerIds.isNotEmpty
           ? (returningCustomers / allCustomerIds.length) * 100
@@ -793,4 +549,3 @@ class AnalyticsProvider extends ChangeNotifier {
     notifyListeners();
   }
 }
-

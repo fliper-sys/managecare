@@ -70,7 +70,10 @@ module.exports = function(pool) {
     res.status(201).json(result.rows[0]);
   }));
 
-  // PUT /api/workers/:businessId/:id - Update worker (owner only)
+  // PUT /api/workers/:businessId/:id - Update worker (owner only).
+  // When is_active is explicitly set, the matching business_members row is
+  // kept in sync in the same transaction, since workers.id === profiles.id
+  // and that's what actually gates business access/membership checks.
   router.put('/:businessId/:id', requireBusinessOwner, asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
     const { email, full_name, phone, role, store_id, permissions, pin, is_active } = req.body;
@@ -95,28 +98,70 @@ module.exports = function(pool) {
     fields.push('updated_at = NOW()');
     params.push(id, businessId);
 
-    const result = await pool.query(
-      `UPDATE workers SET ${fields.join(', ')} WHERE id = $${paramIndex++} AND business_id = $${paramIndex} RETURNING *`,
-      params
-    );
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Worker not found' });
+      const result = await client.query(
+        `UPDATE workers SET ${fields.join(', ')} WHERE id = $${paramIndex++} AND business_id = $${paramIndex} RETURNING *`,
+        params
+      );
+
+      if (result.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Worker not found' });
+      }
+
+      if (is_active !== undefined) {
+        await client.query(
+          'UPDATE business_members SET is_active = $1, updated_at = NOW() WHERE user_id = $2 AND business_id = $3',
+          [is_active, id, businessId]
+        );
+      }
+
+      await client.query('COMMIT');
+      res.json(result.rows[0]);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-    res.json(result.rows[0]);
   }));
 
-  // DELETE /api/workers/:businessId/:id - Delete worker (owner only)
+  // DELETE /api/workers/:businessId/:id - Delete worker (owner only).
+  // Also deactivates (not deletes - sales/attendance rows may reference
+  // this user_id) the matching business_members row so membership checks
+  // and worker counts stop treating them as part of the business.
   router.delete('/:businessId/:id', requireBusinessOwner, asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
-    const result = await pool.query(
-      'DELETE FROM workers WHERE id = $1 AND business_id = $2 RETURNING *',
-      [id, businessId]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Worker not found' });
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const result = await client.query(
+        'DELETE FROM workers WHERE id = $1 AND business_id = $2 RETURNING *',
+        [id, businessId]
+      );
+      if (result.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Worker not found' });
+      }
+
+      await client.query(
+        'UPDATE business_members SET is_active = false, updated_at = NOW() WHERE user_id = $1 AND business_id = $2',
+        [id, businessId]
+      );
+
+      await client.query('COMMIT');
+      res.json({ message: 'Worker deleted', id });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-    res.json({ message: 'Worker deleted', id });
   }));
 
   return router;

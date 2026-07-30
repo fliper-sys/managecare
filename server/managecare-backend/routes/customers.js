@@ -13,7 +13,7 @@ module.exports = function(pool) {
   router.get('/:businessId', pagination, asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { limit, offset } = req.pagination;
-    const { search, isActive } = req.query;
+    const { search, isActive, startDate, endDate } = req.query;
 
     let query = 'SELECT * FROM customers WHERE business_id = $1';
     const params = [businessId];
@@ -26,6 +26,14 @@ module.exports = function(pool) {
     }
     if (isActive === 'true') {
       query += ' AND is_active = true';
+    }
+    if (startDate) {
+      query += ` AND first_purchase_date >= $${paramIndex++}`;
+      params.push(startDate);
+    }
+    if (endDate) {
+      query += ` AND first_purchase_date <= $${paramIndex++}`;
+      params.push(endDate);
     }
 
     const countResult = await pool.query(

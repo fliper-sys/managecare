@@ -7,13 +7,13 @@ import '../data/models/user_model.dart';
 
 /// Result of resolving whether a signed-in user is allowed access.
 ///
-/// NOTE: this is currently a pass-through stub - the soft-delete/recovery
-/// gate that existed against Firestore (deletion_recovery_service.dart) has
-/// not been ported to the new backend yet. That is deliberately deferred
-/// (matches Phase 6 of the migration plan: purge cron jobs + recovery
-/// windows) since no real users are on the new backend yet. Before this goes
-/// live for real users, this needs the same gating logic reimplemented
-/// against `profiles`/`business_members`.
+/// Ports the Firestore-based DeletionRecoveryService's soft-delete/recovery
+/// gate to the relational model. The big simplification: business_members
+/// rows are never touched by a business soft-delete (membership stays real,
+/// the business is just hidden until restored), so none of the old
+/// per-user `businessIds`/`deletedBusinessIds` array bookkeeping is needed
+/// - "is this business usable" is just `businesses.is_deleted`, checked
+/// fresh on every login.
 class ResolvedUserAccess {
   final bool isAllowed;
   final UserModel? user;
@@ -71,20 +71,145 @@ class AuthenticationService {
     }
   }
 
-  /// Stubbed pass-through - see ResolvedUserAccess doc comment.
+  static bool _isPast(dynamic isoString) {
+    final dt = DateTime.tryParse(isoString?.toString() ?? '');
+    return dt == null || DateTime.now().isAfter(dt);
+  }
+
   Future<ResolvedUserAccess> resolveUserAccess(
     String userId, {
     bool allowSelfRecovery = false,
   }) async {
     try {
-      final userModel = await _buildUserModel(userId);
-      if (userModel == null) {
+      var profile = await _db
+          .from('profiles')
+          .select()
+          .eq('id', userId)
+          .maybeSingle();
+
+      if (profile == null) {
         return const ResolvedUserAccess(
           isAllowed: false,
           message: 'User profile not found.',
         );
       }
-      return ResolvedUserAccess(isAllowed: true, user: userModel);
+
+      var recoveredAccount = false;
+      if (profile['is_deleted'] == true) {
+        if (_isPast(profile['recovery_deadline_at'])) {
+          return const ResolvedUserAccess(
+            isAllowed: false,
+            message:
+                'This account was deleted and the 30-day recovery window has passed.',
+          );
+        }
+        if (!allowSelfRecovery) {
+          return const ResolvedUserAccess(
+            isAllowed: false,
+            message:
+                'This account was deleted. Sign in again to restore it, or contact support.',
+          );
+        }
+        await _db.from('profiles').update({
+          'is_deleted': false,
+          'is_active': true,
+          'deleted_at': null,
+          'recovery_deadline_at': null,
+          'deleted_by_id': null,
+          'deletion_reason': null,
+        }).eq('id', userId);
+        profile = await _db.from('profiles').select().eq('id', userId).single();
+        recoveredAccount = true;
+      }
+
+      final memberships = await _db
+          .from('business_members')
+          .select('business_id, role, is_owner, permissions, store_id, is_active')
+          .eq('user_id', userId);
+
+      final businessIds = memberships
+          .map((m) => m['business_id'] as String)
+          .toList(growable: false);
+
+      final businessesById = <String, Map<String, dynamic>>{};
+      if (businessIds.isNotEmpty) {
+        final rows = await _db.from('businesses').select().inFilter('id', businessIds);
+        for (final row in rows) {
+          businessesById[row['id'] as String] = row;
+        }
+      }
+
+      var usableMemberships = memberships
+          .where((m) => businessesById[m['business_id']]?['is_deleted'] != true)
+          .toList();
+
+      var recoveredBusiness = false;
+
+      if (usableMemberships.isEmpty && memberships.isNotEmpty) {
+        // Every membership points at a deleted business. Only an owner can
+        // recover one (a worker has to wait for the owner to do it).
+        final deletedOwned = memberships.where((m) => m['is_owner'] == true).toList()
+          ..sort((a, b) {
+            final aDate = businessesById[a['business_id']]?['deleted_at']?.toString() ?? '';
+            final bDate = businessesById[b['business_id']]?['deleted_at']?.toString() ?? '';
+            return bDate.compareTo(aDate);
+          });
+
+        if (deletedOwned.isEmpty) {
+          return ResolvedUserAccess(
+            isAllowed: false,
+            recoveredAccount: recoveredAccount,
+            message:
+                'The business you work for was deleted. Contact the owner for access.',
+          );
+        }
+
+        final businessId = deletedOwned.first['business_id'] as String;
+        final business = businessesById[businessId]!;
+
+        if (_isPast(business['recovery_deadline_at'])) {
+          return ResolvedUserAccess(
+            isAllowed: false,
+            recoveredAccount: recoveredAccount,
+            message:
+                'Your business was deleted and the 30-day recovery window has passed.',
+          );
+        }
+        if (!allowSelfRecovery) {
+          return ResolvedUserAccess(
+            isAllowed: false,
+            recoveredAccount: recoveredAccount,
+            message:
+                'Your business was deleted and can still be recovered by signing in again.',
+          );
+        }
+
+        await _db.from('businesses').update({
+          'is_deleted': false,
+          'is_active': true,
+          'deleted_at': null,
+          'recovery_deadline_at': null,
+          'deleted_by_id': null,
+          'deleted_by_type': null,
+          'deletion_reason': null,
+        }).eq('id', businessId);
+        business['is_deleted'] = false;
+        recoveredBusiness = true;
+        usableMemberships = [deletedOwned.first];
+      }
+
+      final userModel = _composeUserModel(
+        profile: profile,
+        memberships: usableMemberships,
+        businessesById: businessesById,
+      );
+
+      return ResolvedUserAccess(
+        isAllowed: true,
+        user: userModel,
+        recoveredAccount: recoveredAccount,
+        recoveredBusiness: recoveredBusiness,
+      );
     } catch (e) {
       return ResolvedUserAccess(
         isAllowed: false,
@@ -114,24 +239,14 @@ class AuthenticationService {
     return access.user;
   }
 
-  /// Assembles a UserModel by joining profiles + business_members +
-  /// businesses. Unlike the Firestore model (which mirrored subscription
-  /// fields directly onto the user document), subscription data correctly
-  /// lives on `businesses` in the new schema and is joined in here.
-  Future<UserModel?> _buildUserModel(String userId) async {
-    final profile = await _db
-        .from('profiles')
-        .select('id, email, full_name, phone_number, photo_url, pin, current_business_id, created_at, updated_at')
-        .eq('id', userId)
-        .maybeSingle();
-
-    if (profile == null) return null;
-
-    final memberships = await _db
-        .from('business_members')
-        .select('business_id, role, is_owner, permissions, store_id, is_active')
-        .eq('user_id', userId);
-
+  /// Builds a UserModel from already-fetched profile/membership/business
+  /// rows, picking the current (or first available) membership and joining
+  /// its business's subscription fields.
+  UserModel _composeUserModel({
+    required Map<String, dynamic> profile,
+    required List<Map<String, dynamic>> memberships,
+    required Map<String, Map<String, dynamic>> businessesById,
+  }) {
     final businessIds = memberships
         .map((m) => m['business_id'] as String)
         .toList(growable: false);
@@ -145,20 +260,13 @@ class AuthenticationService {
             orElse: () => null,
           );
     }
-    // Fall back to the first membership if there's no (or a stale) current
-    // business selection.
+    // Fall back to the first (usable) membership if there's no current
+    // business selection, or it points at one that got filtered out.
     currentMembership ??= memberships.isNotEmpty ? memberships.first : null;
     currentBusinessId = currentMembership?['business_id'] as String?;
 
-    Map<String, dynamic>? business;
-    if (currentBusinessId != null) {
-      business = await _db
-          .from('businesses')
-          .select(
-              'business_type, subscription_plan, subscription_start_date, subscription_end_date, is_subscription_active')
-          .eq('id', currentBusinessId)
-          .maybeSingle();
-    }
+    final business =
+        currentBusinessId != null ? businessesById[currentBusinessId] : null;
 
     final permissions = (currentMembership?['permissions'] as Map<String, dynamic>?)
             ?.entries

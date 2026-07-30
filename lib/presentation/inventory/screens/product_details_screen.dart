@@ -12,6 +12,7 @@ import '../../../core/theme/text_styles.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/pharmacy_provider.dart';
 import '../../../providers/retail_provider.dart' show Product;
+import '../../../services/managecare_api_client.dart';
 import '../../../services/web_download.dart' as web_download;
 import '../../../widgets/loading_indicator.dart';
 
@@ -61,13 +62,14 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('businesses')
-            .doc(business.id)
-            .collection('inventory')
-            .doc(widget.productId)
-            .snapshots(),
+      // Product details no longer live in Firestore, and the custom backend
+      // doesn't implement realtime push, so this is a one-shot fetch rather
+      // than a live subscription.
+      body: FutureBuilder<Map<String, dynamic>?>(
+        future: ManagecareApiClient.instance
+            .get('/inventory/${business.id}/${widget.productId}')
+            .then((data) => data as Map<String, dynamic>?)
+            .catchError((_) => null),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: LoadingIndicator());
@@ -86,7 +88,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             );
           }
 
-          if (!snapshot.hasData || !snapshot.data!.exists) {
+          if (!snapshot.hasData || snapshot.data == null) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -104,8 +106,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             );
           }
 
-          final productData = snapshot.data!.data() as Map<String, dynamic>;
-          final product = Product.fromFirestore(snapshot.data!);
+          final productData = snapshot.data!;
+          final product = Product.fromJson(productData);
 
           return DefaultTabController(
             length: 3,

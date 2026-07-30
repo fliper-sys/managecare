@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
@@ -405,7 +404,7 @@ class _SalesListState extends State<_SalesList> {
   bool _isLoading = true;
   bool _isLoadingMore = false;
   String? _error;
-  DocumentSnapshot? _lastDoc;
+  int? _nextPage;
   final ScrollController _scrollController = ScrollController();
   final int _pageSize = 50;
 
@@ -451,7 +450,7 @@ class _SalesListState extends State<_SalesList> {
         _isLoading = true;
         _error = null;
         _sales = [];
-        _lastDoc = null;
+        _nextPage = null;
       });
     } else if (_isLoadingMore || !_mountedOrAlive()) {
       return;
@@ -482,11 +481,11 @@ class _SalesListState extends State<_SalesList> {
         start: start,
         end: end,
         status: widget.filter != 'all' ? widget.filter : null,
-        startAfterDoc: reset ? null : _lastDoc,
+        page: reset ? null : _nextPage,
       );
 
       final newSales = (page['sales'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-      final lastDoc = page['lastDoc'] as DocumentSnapshot?;
+      final nextPage = page['nextPage'] as int?;
 
       // Offline sales live only in the local DB until they sync — without
       // this merge they're invisible here even though the sale itself (and
@@ -510,7 +509,6 @@ class _SalesListState extends State<_SalesList> {
           if (filteredLocal.isNotEmpty) {
             combinedSales = [...filteredLocal, ...newSales];
             int millis(dynamic v) {
-              if (v is Timestamp) return v.toDate().millisecondsSinceEpoch;
               if (v is String) return DateTime.tryParse(v)?.millisecondsSinceEpoch ?? 0;
               return 0;
             }
@@ -525,7 +523,7 @@ class _SalesListState extends State<_SalesList> {
         } else {
           _sales.addAll(newSales);
         }
-        _lastDoc = lastDoc;
+        _nextPage = nextPage;
         _isLoading = false;
         _isLoadingMore = false;
       });
@@ -547,7 +545,7 @@ class _SalesListState extends State<_SalesList> {
   bool _mountedOrAlive() => mounted;
 
   Future<void> _loadMore() async {
-    if (_isLoadingMore || _lastDoc == null) return;
+    if (_isLoadingMore || _nextPage == null) return;
     setState(() => _isLoadingMore = true);
     await _loadSales(reset: false);
   }

@@ -86,11 +86,14 @@ class SalesRepositorySupabase implements SalesRepository {
     );
   }
 
-  /// Delete a sale with businessId context
-  Future<void> deleteSaleForBusiness(String businessId, String saleId) async {
+  /// Delete a sale with businessId context. The backend restores inventory
+  /// and writes a `sale_deletions` audit row atomically as part of this call.
+  Future<void> deleteSaleForBusiness(String businessId, String saleId,
+      {String? reason}) async {
     try {
       await _http.delete(
         '/sales/$businessId/$saleId',
+        data: reason != null ? {'reason': reason} : null,
         options: Options(headers: _headers),
       );
     } on DioException catch (e) {
