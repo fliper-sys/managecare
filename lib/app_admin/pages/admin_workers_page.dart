@@ -186,6 +186,8 @@ class _AdminWorkersPageState extends State<AdminWorkersPage> {
         TextEditingController(text: existing?['email']?.toString() ?? '');
     final phoneController =
         TextEditingController(text: existing?['phone']?.toString() ?? '');
+    final passwordController = TextEditingController();
+    var obscurePassword = true;
     var selectedRole = existing?['role']?.toString() ?? _roles.first;
     var isActive = existing?['isActive'] != false;
 
@@ -211,6 +213,24 @@ class _AdminWorkersPageState extends State<AdminWorkersPage> {
                 TextField(
                   controller: phoneController,
                   decoration: const InputDecoration(labelText: 'Phone'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: passwordController,
+                  obscureText: obscurePassword,
+                  decoration: InputDecoration(
+                    labelText: 'Password',
+                    helperText: id == null
+                        ? 'Leave blank to auto-generate'
+                        : 'Leave blank to keep the current password',
+                    suffixIcon: IconButton(
+                      icon: Icon(obscurePassword
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined),
+                      onPressed: () => setDialogState(
+                          () => obscurePassword = !obscurePassword),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
@@ -247,6 +267,14 @@ class _AdminWorkersPageState extends State<AdminWorkersPage> {
                   );
                   return;
                 }
+                var password = passwordController.text.trim();
+                // Only auto-generate on create - leaving it blank on edit
+                // means "don't change the password", not "set it to this".
+                final generated = password.isEmpty && id == null;
+                if (generated) {
+                  password = 'Temp${DateTime.now().millisecondsSinceEpoch}'
+                      .substring(0, 12);
+                }
                 final payload = {
                   'name': nameController.text.trim(),
                   'email': emailController.text.trim(),
@@ -254,11 +282,29 @@ class _AdminWorkersPageState extends State<AdminWorkersPage> {
                   'role': selectedRole,
                   'roleKey': selectedRole.toLowerCase().replaceAll(' ', '_'),
                   'isActive': isActive,
+                  if (password.isNotEmpty) 'password': password,
                 };
                 await _adminRepository.saveInternalWorker(payload, id: id);
                 if (!mounted) return;
                 _refreshWorkers();
                 Navigator.of(dialogContext).pop();
+                if (generated) {
+                  showDialog<void>(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      title: const Text('Worker created'),
+                      content: SelectableText(
+                        'Share this temporary password with ${nameController.text.trim()} - it will not be shown again:\n\n$password',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Done'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
               },
               child: const Text('Save'),
             ),

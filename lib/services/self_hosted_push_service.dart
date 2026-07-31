@@ -164,14 +164,22 @@ class SelfHostedPushService {
   }
 
   Future<void> _fetchUnreadNotifications() async {
-    if (_userId == null) return;
+    // `initialize()` only runs once per app process - if the signed-in
+    // account changes afterward (e.g. logging out and into a different
+    // account without a full restart), the cached `_userId` goes stale
+    // while the session token reflects the new user, and the backend
+    // rejects the mismatch with 403. Re-read the current user each poll
+    // instead of trusting the field set at init time.
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == null) return;
+    _userId = currentUserId;
 
     try {
       final accessToken = _supabase.auth.currentSession?.accessToken;
       if (accessToken == null) return;
 
       final response = await _dio.get(
-        '/api/notifications/unread/$_userId',
+        '/api/notifications/unread/$currentUserId',
         options: Options(headers: {'Authorization': 'Bearer $accessToken'}),
       );
 

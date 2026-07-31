@@ -819,7 +819,9 @@ class BusinessDetailPage extends StatelessWidget {
     final currentClass = business['businessClass']?.toString().toLowerCase() ?? 'tier1';
     final isActive = business['isActive'] ?? true;
     final maxWorkers = (business['maxWorkers'] ?? 50) as int;
-    final currentFeatures = List<String>.from((business['features'] ?? []) as List);
+    final rawFeatures = business['features'];
+    final currentFeatures =
+        List<String>.from(rawFeatures is List ? rawFeatures : []);
     
     String selectedClass = currentClass;
     bool selectedActive = isActive;
@@ -1391,9 +1393,22 @@ class BusinessDetailPage extends StatelessWidget {
               final data = snap.data!;
               final totalSales = (data['totalSales'] ?? 0).toDouble();
               final txCount = data['transactionCount'] ?? 0;
-              final items = Map<String, Map<String, double>>.from((data['items'] ?? {}));
-              final cashierTotals = Map<String, double>.from((data['cashierTotals'] ?? {}));
-              final paymentMethodTotals = Map<String, double>.from((data['paymentMethodTotals'] ?? {}));
+              final rawItems = (data['items'] as Map?) ?? {};
+              final items = <String, Map<String, double>>{
+                for (final entry in rawItems.entries)
+                  entry.key.toString(): {
+                    'quantity': ((entry.value as Map?)?['quantity'] as num?)?.toDouble() ?? 0.0,
+                    'sales': ((entry.value as Map?)?['sales'] as num?)?.toDouble() ?? 0.0,
+                  },
+              };
+              final cashierTotals = <String, double>{
+                for (final entry in ((data['cashierTotals'] as Map?) ?? {}).entries)
+                  entry.key.toString(): (entry.value as num?)?.toDouble() ?? 0.0,
+              };
+              final paymentMethodTotals = <String, double>{
+                for (final entry in ((data['paymentMethodTotals'] as Map?) ?? {}).entries)
+                  entry.key.toString(): (entry.value as num?)?.toDouble() ?? 0.0,
+              };
               final transactions = List<Map<String, dynamic>>.from((data['transactions'] ?? []));
               final previousDayTotal = (data['previousDayTotal'] ?? 0).toDouble();
 

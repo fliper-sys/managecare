@@ -182,21 +182,53 @@ class SyncService {
     final businessId = saleData['businessId']?.toString() ?? '';
     final saleId = saleData['id']?.toString() ?? '';
 
-    final items = await _dbHelper.query(
+    final localItems = await _dbHelper.query(
       'sale_items',
       where: 'saleId = ?',
       whereArgs: [saleId],
     );
 
-    final payload = Map<String, dynamic>.from(saleData);
-    payload['id'] = saleId;
-    if (items.isNotEmpty) {
-      payload['items'] = items;
-    }
-
-    // Ensure updated_at timestamp is present
-    payload['updated_at'] = saleData['updated_at'] ??
-        DateTime.now().toUtc().toIso8601String();
+    // The local offline-sale queue is written in the old Firestore-era
+    // camelCase shape (see retail_provider.dart's _saveSaleOffline), but the
+    // backend's sales route reads Postgres's snake_case columns - sending
+    // saleData through unmapped means every field the server requires
+    // (final_amount, payment_method, ...) reads as undefined and the sync
+    // fails every time. created_at is forwarded explicitly so a sale synced
+    // the next day still lands on the day it actually happened, not the
+    // sync day.
+    final payload = <String, dynamic>{
+      'id': saleId,
+      'customer_id': saleData['customerId'],
+      'store_id': saleData['storeId'],
+      'worker_id': saleData['workerId'],
+      'worker_name': saleData['workerName'],
+      'total_amount': saleData['totalAmount'],
+      'discount_amount': saleData['discountAmount'],
+      'tax_amount': saleData['taxAmount'],
+      'final_amount': saleData['finalAmount'] ?? saleData['totalAmount'],
+      'payment_method': saleData['paymentMethod'] ?? 'Cash',
+      'status': saleData['status'] ?? 'completed',
+      'notes': saleData['notes'],
+      'created_by': saleData['createdBy'],
+      'sale_type': saleData['saleType'] ?? 'retail',
+      'created_at': saleData['createdAt'],
+      'updated_at': saleData['updated_at'] ??
+          DateTime.now().toUtc().toIso8601String(),
+      'items': localItems
+          .map((item) => {
+                'product_id': item['productId'],
+                'product_name': item['productName'],
+                'quantity': item['quantity'],
+                'unit_price': item['unitPrice'],
+                'discount': item['discount'] ?? 0,
+                'total': item['total'],
+                'pricing_mode': item['pricingMode'],
+                'inventory_unit': item['inventoryUnit'],
+                'sale_unit': item['saleUnit'],
+                'sale_unit_multiplier': item['saleUnitMultiplier'] ?? 1,
+              })
+          .toList(),
+    }..removeWhere((key, value) => value == null);
 
     try {
       // Try PUT first (update existing record)

@@ -204,6 +204,7 @@ import '../presentation/marketer/marketer_forgot_password_screen.dart';
 import '../presentation/marketer/marketer_change_password_screen.dart';
 import '../presentation/marketer/register_user_screen.dart';
 import '../presentation/marketer/register_business_screen.dart';
+import '../presentation/internal_worker/internal_worker_dashboard_screen.dart';
 import '../presentation/workers/screens/add_worker_screen.dart';
 import '../presentation/workers/screens/worker_details_screen.dart';
 import '../presentation/workers/screens/attendance_screen.dart';
@@ -544,6 +545,9 @@ class AppRouter {
 
       case Routes.marketerDashboard:
         return _buildRoute(const MarketerDashboardScreen());
+
+      case Routes.internalWorkerDashboard:
+        return _buildRoute(const InternalWorkerDashboardScreen());
 
       // Receipt Routes
       case Routes.receipt:

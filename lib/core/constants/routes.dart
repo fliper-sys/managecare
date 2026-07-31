@@ -290,5 +290,6 @@ class Routes {
   static const String marketerRegisterUser = '/marketer/register-user';
   static const String marketerRegisterBusiness = '/marketer/register-business';
   static const String marketerDashboard = '/marketer/dashboard';
+  static const String internalWorkerDashboard = '/internal-worker/dashboard';
 }
 

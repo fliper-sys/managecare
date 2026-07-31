@@ -29,6 +29,7 @@ class BusinessRepository {
       'is_active': business.isActive,
       'created_at': business.createdAt.toIso8601String(),
       'updated_at': DateTime.now().toIso8601String(),
+      'settings': business.settings,
     }..removeWhere((_, value) => value == null);
   }
 
@@ -90,6 +91,9 @@ class BusinessRepository {
       totalWorkers: i('total_workers', 'totalWorkers'),
       totalProducts: i('total_products', 'totalProducts'),
       totalCustomers: i('total_customers', 'totalCustomers'),
+      settings: data['settings'] is Map
+          ? Map<String, dynamic>.from(data['settings'] as Map)
+          : null,
     );
   }
 

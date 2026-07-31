@@ -295,10 +295,11 @@ class _AdminWorkPageState extends State<AdminWorkPage> {
   Future<void> _showJobDialog() async {
     final titleController = TextEditingController();
     final descriptionController = TextEditingController();
-    final assignedToController = TextEditingController();
     var type = 'fix';
     var priority = 'normal';
     DateTime? dueDate;
+    Map<String, dynamic>? selectedWorker;
+    final workersFuture = _adminRepository.fetchInternalWorkers();
 
     await showDialog<void>(
       context: context,
@@ -320,12 +321,34 @@ class _AdminWorkPageState extends State<AdminWorkPage> {
                   decoration: const InputDecoration(labelText: 'Message'),
                 ),
                 const SizedBox(height: 10),
-                TextField(
-                  controller: assignedToController,
-                  decoration: const InputDecoration(
-                    labelText: 'Assigned to',
-                    hintText: 'Programmer name or email',
-                  ),
+                FutureBuilder<List<Map<String, dynamic>>>(
+                  future: workersFuture,
+                  builder: (context, snapshot) {
+                    final workers = (snapshot.data ?? const [])
+                        .where((worker) => worker['isActive'] != false)
+                        .toList();
+                    return DropdownButtonFormField<Map<String, dynamic>>(
+                      initialValue: selectedWorker,
+                      items: workers
+                          .map((worker) => DropdownMenuItem(
+                                value: worker,
+                                child: Text(
+                                  '${worker['name'] ?? 'Worker'} - ${worker['role'] ?? ''}',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ))
+                          .toList(),
+                      onChanged: (value) =>
+                          setDialogState(() => selectedWorker = value),
+                      decoration: InputDecoration(
+                        labelText: 'Assigned to',
+                        hintText: snapshot.connectionState ==
+                                ConnectionState.waiting
+                            ? 'Loading workers...'
+                            : 'Select a worker',
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 10),
                 SegmentedButton<String>(
@@ -399,7 +422,10 @@ class _AdminWorkPageState extends State<AdminWorkPage> {
                 await _adminRepository.createWorkItem({
                   'title': titleController.text.trim(),
                   'description': descriptionController.text.trim(),
-                  'assignedTo': assignedToController.text.trim(),
+                  if (selectedWorker != null) ...{
+                    'assignedTo': (selectedWorker!['name'] ?? '').toString(),
+                    'assignedToWorkerId': selectedWorker!['id'],
+                  },
                   'type': type,
                   'priority': priority,
                   'status': 'pending',

@@ -2197,9 +2197,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
       auth.isOwnerUser || WorkerPermissions.canApplyDiscount(currentRole);
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: SafeArea(
         child: Padding(
@@ -2288,7 +2288,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                             margin: const EdgeInsets.only(bottom: 8),
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: Theme.of(context).colorScheme.surface,
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(
                                   color: Colors.grey.withOpacity(0.3)),

@@ -215,6 +215,13 @@ class MyApp extends StatelessWidget {
             }
 
             try {
+              // The platform admin account has no business of its own -
+              // skip the business load entirely instead of firing a
+              // request that will always come back empty.
+              if (auth.currentUser!.email.toLowerCase() == 'mcadmin@mc.c') {
+                return previous;
+              }
+
               final preferredId = auth.currentUser!.businessId;
               final isWorker = auth.isWorkerUser;
 

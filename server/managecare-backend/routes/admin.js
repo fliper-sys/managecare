@@ -4,6 +4,7 @@
  */
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcrypt');
 const { asyncHandler } = require('../middleware/validation');
 
 const revenueStatuses = ['approved', 'completed', 'paid', 'successful', 'success'];
@@ -12,6 +13,12 @@ function toBool(value) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') return value.toLowerCase() === 'true';
   return Boolean(value);
+}
+
+function omitPasswordHash(row) {
+  if (!row || typeof row !== 'object') return row;
+  const { password_hash, ...clean } = row;
+  return clean;
 }
 
 function pickColumns(body, allowed) {
@@ -1095,21 +1102,61 @@ module.exports = function(pool) {
       FROM managecare_workers
       ORDER BY created_at DESC
     `);
-    res.json({ data: result.rows });
+    res.json({ data: result.rows.map(omitPasswordHash) });
+  }));
+
+  // Self-scoped by the caller's own JWT id - registered ahead of nothing in
+  // particular (no conflicting :id route exists for GET), but kept next to
+  // the rest of the internal-workers block for readability. A worker's own
+  // session can only ever read their own row this way, never anyone else's.
+  router.get('/internal-workers/me', asyncHandler(async (req, res) => {
+    const result = await pool.query(
+      'SELECT * FROM managecare_workers WHERE id = $1 AND is_active = true',
+      [req.user.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Worker record not found' });
+    }
+    res.json(omitPasswordHash(result.rows[0]));
+  }));
+
+  router.put('/internal-workers/me/password', asyncHandler(async (req, res) => {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'currentPassword and newPassword are required' });
+    }
+    const result = await pool.query(
+      'SELECT password_hash FROM managecare_workers WHERE id = $1 AND is_active = true',
+      [req.user.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Worker record not found' });
+    }
+    const currentHash = result.rows[0].password_hash;
+    if (!currentHash || !(await bcrypt.compare(currentPassword, currentHash))) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      'UPDATE managecare_workers SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+      [newHash, req.user.id]
+    );
+    res.json({ success: true });
   }));
 
   router.post('/internal-workers', asyncHandler(async (req, res) => {
-    const { name, email, phone, role, roleKey, isActive } = req.body || {};
+    const { name, email, phone, role, roleKey, isActive, password } = req.body || {};
     if (!name || !role) {
       return res.status(400).json({ error: 'name and role are required' });
     }
+    const passwordHash = password ? await bcrypt.hash(password, 10) : null;
     const result = await pool.query(`
       INSERT INTO managecare_workers
-        (name, email, phone, role, role_key, is_active, created_by, updated_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+        (name, email, phone, role, role_key, is_active, password_hash, created_by, updated_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
       RETURNING *
-    `, [name, email || null, phone || null, role, roleKey || null, isActive !== false, req.user?.id || null]);
-    res.status(201).json(result.rows[0]);
+    `, [name, email || null, phone || null, role, roleKey || null, isActive !== false, passwordHash, req.user?.id || null]);
+    res.status(201).json(omitPasswordHash(result.rows[0]));
   }));
 
   router.put('/internal-workers/:id', asyncHandler(async (req, res) => {
@@ -1122,6 +1169,12 @@ module.exports = function(pool) {
       isActive: 'is_active',
     };
     const { sets, values } = pickColumns(req.body || {}, allowed);
+    // password isn't in the plain allowlist above - it needs hashing, not a
+    // straight column copy, so a raw string can never land in password_hash.
+    if (req.body?.password) {
+      values.push(await bcrypt.hash(req.body.password, 10));
+      sets.push(`password_hash = $${values.length}`);
+    }
     if (sets.length === 0) {
       return res.status(400).json({ error: 'No supported worker fields supplied' });
     }
@@ -1136,7 +1189,7 @@ module.exports = function(pool) {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Worker not found' });
     }
-    res.json(result.rows[0]);
+    res.json(omitPasswordHash(result.rows[0]));
   }));
 
   router.get('/company-expenses', asyncHandler(async (req, res) => {
@@ -1205,11 +1258,32 @@ module.exports = function(pool) {
     res.json({ data: result.rows });
   }));
 
+  // Self-scoped: only jobs assigned to the caller's own worker id, for the
+  // worker-facing dashboard. Never exposes other workers' assignments.
+  router.get('/work-items/mine', asyncHandler(async (req, res) => {
+    const result = await pool.query(`
+      SELECT *
+      FROM admin_work_items
+      WHERE assigned_to_worker_id = $1
+      ORDER BY
+        CASE priority
+          WHEN 'urgent' THEN 0
+          WHEN 'high' THEN 1
+          WHEN 'normal' THEN 2
+          ELSE 3
+        END,
+        COALESCE(due_date, NOW()) ASC,
+        created_at DESC
+    `, [req.user.id]);
+    res.json({ data: result.rows });
+  }));
+
   router.post('/work-items', asyncHandler(async (req, res) => {
     const {
       title,
       description,
       assignedTo,
+      assignedToWorkerId,
       type,
       priority,
       status,
@@ -1218,15 +1292,24 @@ module.exports = function(pool) {
     if (!title || !description) {
       return res.status(400).json({ error: 'title and description are required' });
     }
+    let resolvedAssignedTo = assignedTo || null;
+    if (assignedToWorkerId && !resolvedAssignedTo) {
+      const workerResult = await pool.query(
+        'SELECT name FROM managecare_workers WHERE id = $1',
+        [assignedToWorkerId]
+      );
+      resolvedAssignedTo = workerResult.rows[0]?.name || null;
+    }
     const result = await pool.query(`
       INSERT INTO admin_work_items
-        (title, description, assigned_to, type, priority, status, due_date, created_by, updated_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+        (title, description, assigned_to, assigned_to_worker_id, type, priority, status, due_date, created_by, updated_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
       RETURNING *
     `, [
       title,
       description,
-      assignedTo || null,
+      resolvedAssignedTo,
+      assignedToWorkerId || null,
       type || 'fix',
       priority || 'normal',
       status || 'pending',
@@ -1236,11 +1319,33 @@ module.exports = function(pool) {
     res.status(201).json(result.rows[0]);
   }));
 
+  // Worker-restricted status transition - the only status change a worker's
+  // own session may make is "I've fixed it, please review", and the UPDATE's
+  // WHERE clause (not just this route existing) is what actually enforces
+  // that a worker can only touch their own pending jobs.
+  router.patch('/work-items/:id/worker-status', asyncHandler(async (req, res) => {
+    const { status } = req.body || {};
+    if (status !== 'review') {
+      return res.status(400).json({ error: 'Workers may only submit a job for review' });
+    }
+    const result = await pool.query(`
+      UPDATE admin_work_items
+      SET status = 'review', updated_by = $1, updated_at = NOW()
+      WHERE id = $2 AND assigned_to_worker_id = $1 AND status = 'pending'
+      RETURNING *
+    `, [req.user.id, req.params.id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Job not found, not assigned to you, or not in a submittable state' });
+    }
+    res.json(result.rows[0]);
+  }));
+
   router.patch('/work-items/:id', asyncHandler(async (req, res) => {
     const allowed = {
       title: 'title',
       description: 'description',
       assignedTo: 'assigned_to',
+      assignedToWorkerId: 'assigned_to_worker_id',
       type: 'type',
       priority: 'priority',
       status: 'status',

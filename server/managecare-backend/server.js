@@ -453,6 +453,15 @@ app.post('/auth/v1/token', async (req, res) => {
       );
     }
     if (result.rows.length === 0) {
+      // Internal ManageCare staff (programmers/testers/etc.) - column
+      // aliases match what buildAuthResponse() below reads from `user`.
+      result = await pool.query(
+        `SELECT *, name AS full_name, phone AS phone_number
+         FROM managecare_workers WHERE lower(email) = $1 AND is_active = true`,
+        [normalizedEmail]
+      );
+    }
+    if (result.rows.length === 0) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const user = result.rows[0];
@@ -1110,13 +1119,14 @@ const STATUS_TABLE_GROUPS = {
   Commerce: [['sales', 'Sales'], ['sale_items', 'Sale items'], ['inventory', 'Inventory items'], ['procurements', 'Procurements'], ['customers', 'Customers'], ['stores', 'Stores'], ['returns', 'Returns'], ['reorders', 'Reorders']],
   Verticals: [['apartments', 'Apartments'], ['apartment_bookings', 'Apartment bookings'], ['pumps', 'Pumps'], ['pump_daily_uploads', 'Pump uploads'], ['restaurant_orders', 'Restaurant orders'], ['hotel_reservations', 'Hotel reservations'], ['pharmacy_prescriptions', 'Pharmacy prescriptions'], ['bakery_resupplies', 'Bakery resupplies'], ['distributor_sales', 'Distributor sales'], ['drink_orders', 'Drink orders']],
   Finance: [['payment_transactions', 'Payment transactions'], ['subscription_requests', 'Subscription requests'], ['subscription_events', 'Subscription events'], ['invoices', 'Invoices'], ['expenses', 'Expenses'], ['company_expenses', 'Company expenses']],
-  System: [['notifications', 'Notifications'], ['admin_notifications', 'Admin notifications'], ['device_tokens', 'Device tokens'], ['refresh_tokens', 'Refresh tokens']],
+  System: [['notifications', 'Notifications'], ['admin_notifications', 'Admin notifications'], ['device_tokens', 'Device tokens'], ['refresh_tokens', 'Refresh tokens'], ['admin_work_items', 'Admin work items']],
 };
 
 const STATUS_MODULES = [
   'Inventory', 'Stores', 'Sales', 'Returns', 'Reorders', 'Customers', 'Workers',
   'Admin', 'Expenses', 'Apartments', 'Pharmacy', 'Drink', 'Restaurant', 'Hotel',
   'Procurement', 'Pumps', 'Subscriptions', 'Payments', 'Distributors', 'Invoices', 'Upload',
+  'Internal Worker Logins', 'Work Item Assignment',
 ];
 
 async function gatherStatusData() {

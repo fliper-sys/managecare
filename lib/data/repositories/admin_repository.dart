@@ -299,6 +299,32 @@ class AdminRepository {
     return _api.patch('/api/admin/work-items/$id', body: {'status': status});
   }
 
+  Future<Map<String, dynamic>> fetchMyWorkerProfile() async {
+    final response = await _api.get('/api/admin/internal-workers/me');
+    return _internalWorkerRow(Map<String, dynamic>.from(response as Map));
+  }
+
+  Future<List<Map<String, dynamic>>> fetchMyWorkItems() async {
+    final response = await _api.get('/api/admin/work-items/mine');
+    return ((response['data'] as List?) ?? [])
+        .map((row) => _workItemRow(Map<String, dynamic>.from(row as Map)))
+        .toList();
+  }
+
+  Future<void> submitWorkItemForReview(String id) {
+    return _api.patch('/api/admin/work-items/$id/worker-status', body: {'status': 'review'});
+  }
+
+  Future<void> changeMyWorkerPassword({
+    required String currentPassword,
+    required String newPassword,
+  }) {
+    return _api.put('/api/admin/internal-workers/me/password', body: {
+      'currentPassword': currentPassword,
+      'newPassword': newPassword,
+    });
+  }
+
   Future<List<Map<String, dynamic>>> fetchCompanyExpenses({
     DateTime? startDate,
     DateTime? endDate,

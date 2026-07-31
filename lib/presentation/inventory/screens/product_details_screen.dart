@@ -67,7 +67,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       // than a live subscription.
       body: FutureBuilder<Map<String, dynamic>?>(
         future: ManagecareApiClient.instance
-            .get('/inventory/${business.id}/${widget.productId}')
+            .get('/api/inventory/${business.id}/${widget.productId}')
             .then((data) => data as Map<String, dynamic>?)
             .catchError((_) => null),
         builder: (context, snapshot) {

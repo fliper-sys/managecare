@@ -921,7 +921,7 @@ class BusinessProvider with ChangeNotifier {
 
       int products = 0;
       try {
-        final inv = await api.get('/inventory/$businessId', query: {'limit': 1});
+        final inv = await api.get('/api/inventory/$businessId', query: {'limit': 1});
         products = (inv['pagination']?['total'] as num?)?.toInt() ?? 0;
       } catch (e) {
         print('[BusinessProvider] Failed to compute product count: $e');
@@ -929,7 +929,7 @@ class BusinessProvider with ChangeNotifier {
 
       int customers = 0;
       try {
-        final cust = await api.get('/customers/$businessId', query: {'limit': 1});
+        final cust = await api.get('/api/customers/$businessId', query: {'limit': 1});
         customers = (cust['pagination']?['total'] as num?)?.toInt() ?? 0;
       } catch (e) {
         print('[BusinessProvider] Failed to compute customer count: $e');

@@ -153,10 +153,19 @@ module.exports = function(pool) {
   router.post('/:businessId', requireFields('final_amount', 'payment_method'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const {
-      id, customer_id, store_id, worker_id, worker_name,
+      id: rawId, customer_id, store_id, worker_id, worker_name,
       total_amount, discount_amount, tax_amount, final_amount,
       payment_method, status, notes, created_by, sale_type, items,
+      created_at,
     } = req.body;
+
+    // Offline-queued sales (and some older client code paths) generate a
+    // human-readable local id like "SALE-<timestamp>" for local bookkeeping,
+    // not a real UUID. Sending that straight into a uuid column crashes the
+    // insert - treat a non-UUID id as absent so the row still gets a real
+    // primary key instead of failing the whole sale.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const id = rawId && UUID_RE.test(rawId) ? rawId : null;
 
     if (id) {
       const existing = await pool.query(
@@ -168,16 +177,24 @@ module.exports = function(pool) {
       }
     }
 
+    // created_at defaults to NOW() for a normal online sale, but an offline
+    // sale synced later must keep the moment it actually happened (its own
+    // client-captured timestamp) - otherwise it lands in the sync day's
+    // sales report instead of the day it was rung up.
+    const createdAt = created_at ? new Date(created_at) : null;
+    const validCreatedAt = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt : null;
+
     // Create sale
     const saleResult = await pool.query(
       `INSERT INTO sales (id, business_id, customer_id, store_id, worker_id, worker_name,
         total_amount, discount_amount, tax_amount, final_amount,
-        payment_method, status, notes, created_by, sale_type)
-       VALUES (COALESCE($1, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        payment_method, status, notes, created_by, sale_type, created_at)
+       VALUES (COALESCE($1, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, COALESCE($16, NOW()))
        RETURNING *`,
       [id || null, businessId, customer_id || null, store_id || null, worker_id || null, worker_name || null,
        total_amount || final_amount, discount_amount || 0, tax_amount || 0, final_amount,
-       payment_method, status || 'completed', notes || null, created_by || null, sale_type || 'retail']
+       payment_method, status || 'completed', notes || null, created_by || null, sale_type || 'retail',
+       validCreatedAt]
     );
     const sale = saleResult.rows[0];
 
@@ -219,6 +236,13 @@ module.exports = function(pool) {
   // PUT /api/sales/:businessId/:id - Update sale metadata (not items/inventory)
   router.put('/:businessId/:id', asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
+    // Clients that sync a locally-queued sale try PUT first and fall back to
+    // POST on 404. A non-UUID id (e.g. an offline sale's local "SALE-..."
+    // label) can never match a real row - fail fast with 404 instead of
+    // letting the uuid cast throw a 500, so that fallback actually triggers.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return res.status(404).json({ error: 'Sale not found' });
+    }
     const {
       customer_id, store_id, worker_id, worker_name,
       total_amount, discount_amount, tax_amount, final_amount,
