@@ -280,7 +280,27 @@ class SalesRepositorySupabase implements SalesRepository {
     if (saleData['items'] is List) {
       for (final raw in saleData['items'] as List) {
         if (raw is Map) {
-          items.add(Map<String, dynamic>.from(raw));
+          // Local sale_items rows are stored in camelCase, but the
+          // backend's insert route reads snake_case fields off each item
+          // (item.product_id, item.unit_price, ...) - sending the raw
+          // camelCase map through left every field it read as undefined,
+          // so items still failed to insert correctly server-side even
+          // once they were attached to the payload at all.
+          final item = Map<String, dynamic>.from(raw);
+          items.add({
+            'product_id': item['productId'] ?? item['product_id'],
+            'product_name': item['productName'] ?? item['product_name'],
+            'quantity': item['quantity'],
+            'unit_price': item['unitPrice'] ?? item['unit_price'],
+            'discount': item['discount'] ?? 0,
+            'total': item['total'],
+            'pricing_mode': item['pricingMode'] ?? item['pricing_mode'],
+            'inventory_unit': item['inventoryUnit'] ?? item['inventory_unit'],
+            'sale_unit': item['saleUnit'] ?? item['sale_unit'],
+            'sale_unit_multiplier': item['saleUnitMultiplier'] ??
+                item['sale_unit_multiplier'] ??
+                1,
+          });
         }
       }
     }
@@ -299,6 +319,10 @@ class SalesRepositorySupabase implements SalesRepository {
       'notes': saleData['notes']?.toString(),
       'created_by': saleData['createdBy']?.toString() ?? '',
       'sale_type': saleData['saleType']?.toString() ?? 'retail',
+      // Without this, the backend defaults created_at to NOW() on insert,
+      // so a sale rung up offline and synced the next day landed in the
+      // sync day's sales report instead of the day it actually happened.
+      'created_at': saleData['createdAt']?.toString(),
       'items': items,
     };
   }
@@ -385,7 +409,27 @@ class SalesRepositorySupabase implements SalesRepository {
           where: 'syncStatus = ?', whereArgs: ['failed']);
       final errored = await _dbHelper.query('sales',
           where: 'syncStatus = ?', whereArgs: ['error']);
-      return [...pending, ...failed, ...errored];
+      final sales = [...pending, ...failed, ...errored];
+
+      // This query only ever touched the `sales` table - the returned rows
+      // never carried their line items, so every offline sale synced with
+      // `items: []` regardless of what was actually rung up. That silently
+      // dropped the sale's line items server-side (no sale_items rows) AND
+      // skipped the backend's inventory-deduction loop, which only runs
+      // when items is non-empty. Attach each sale's real sale_items here so
+      // the payload built from this data actually reflects what was sold.
+      final result = <Map<String, dynamic>>[];
+      for (final sale in sales) {
+        final saleId = sale['id']?.toString() ?? '';
+        final mutable = Map<String, dynamic>.from(sale);
+        if (saleId.isNotEmpty) {
+          final items = await _dbHelper.query('sale_items',
+              where: 'saleId = ?', whereArgs: [saleId]);
+          mutable['items'] = items;
+        }
+        result.add(mutable);
+      }
+      return result;
     } catch (e) {
       rethrow;
     }

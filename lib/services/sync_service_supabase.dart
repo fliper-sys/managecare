@@ -188,6 +188,21 @@ class SyncService {
       whereArgs: [saleId],
     );
 
+    // A completed sale always has at least one cart item
+    // (_saveSaleOfflineItems only runs on a non-empty cart), so finding zero
+    // local sale_items rows here means either they haven't finished writing
+    // yet or something went wrong locally - either way, syncing now would
+    // permanently create an itemless sale on the server (the backend has no
+    // record of what was actually sold, and there's no local copy left to
+    // repair it from once this sale is marked 'synced'). Throwing here - and
+    // doing it before any PUT/POST call - keeps the sale in 'pending'/
+    // 'failed' status so the normal retry loop tries again shortly instead
+    // of silently losing the line items.
+    if (localItems.isEmpty) {
+      throw Exception(
+          'Sale $saleId has no local items to sync yet - retrying later');
+    }
+
     // The local offline-sale queue is written in the old Firestore-era
     // camelCase shape (see retail_provider.dart's _saveSaleOffline), but the
     // backend's sales route reads Postgres's snake_case columns - sending

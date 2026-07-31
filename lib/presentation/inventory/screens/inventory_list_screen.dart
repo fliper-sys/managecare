@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -10,7 +9,7 @@ import '../../../widgets/custom_button.dart';
 import '../../../widgets/animated_lottie.dart';
 import '../../../services/barcode_service.dart';
 import '../../../services/inventory_export_service.dart';
-import '../../../data/repositories/inventory_repository_impl.dart';
+import '../../../data/repositories/inventory_repository_supabase.dart';
 import '../../../data/repositories/distributor_repository.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
@@ -40,7 +39,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   String _selectedCategory = 'All';
   String _sortBy = 'name';
   bool _showLowStock = false;
-  late InventoryRepositoryImpl _repository;
+  late InventoryRepositorySupabase _repository;
   List<Map<String, dynamic>> _inventory = [];
   List<Map<String, dynamic>> _filteredInventory = [];
   bool _isLoading = true;
@@ -62,8 +61,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   @override
   void initState() {
     super.initState();
-    _repository =
-        InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
+    _repository = InventoryRepositorySupabase();
     _selectedCategory = widget.initialCategory ??
         (widget.showIngredientsOnly ? 'Ingredient' : 'All');
     _loadInventory();
@@ -90,48 +88,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final userStoreId = authProvider.currentUser?.storeId;
 
-      var inventoryData =
+      final inventoryData =
           await _repository.getInventory(businessId, storeId: userStoreId);
-
-      // Fallback: if primary query returned no results, try broader fetches
-      if ((inventoryData.isEmpty) && businessId.isNotEmpty) {
-        try {
-          final allItems =
-              await _repository.fetchInventory(storeId: userStoreId);
-          final userBizId = authProvider.currentUser?.businessId ?? '';
-          final businessName = businessProvider.currentBusiness?.name ?? '';
-
-          final fallback = <dynamic>[];
-          for (final it in allItems) {
-            final bid = (it['businessId'] ?? '').toString();
-            final bname = (it['businessName'] ?? '').toString();
-            final createdBy = (it['createdBy'] ?? '').toString();
-
-            if (bid == businessId || bid == userBizId) {
-              fallback.add(it);
-              continue;
-            }
-
-            // Accept items with empty businessId if they reference the same business name
-            if ((bid.isEmpty) && (bname == businessName)) {
-              fallback.add(it);
-              continue;
-            }
-
-            // Accept items with empty businessId created by current user
-            if (bid.isEmpty && createdBy == authProvider.currentUser?.id) {
-              fallback.add(it);
-              continue;
-            }
-          }
-
-          if (fallback.isNotEmpty) {
-            inventoryData = fallback;
-          }
-        } catch (e) {
-          // ignore fallback errors
-        }
-      }
 
       List<Map<String, dynamic>> items = [];
       int lowStock = 0;
@@ -147,34 +105,6 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
             outOfStock++;
           } else if (quantity <= minStock) lowStock++;
         }
-      }
-
-      // If there are pharmacy drugs cached locally (offline-first), merge them in so they are visible here
-      try {
-        final pharmacyProvider =
-            Provider.of<PharmacyProvider>(context, listen: false);
-        for (final d in pharmacyProvider.drugs) {
-          final nameKey = d.name.toLowerCase();
-          final exists = items.any(
-              (it) => (it['name'] ?? '').toString().toLowerCase() == nameKey);
-          if (!exists) {
-            items.add({
-              'id': 'pharmacy_${d.id}',
-              'name': d.name,
-              'price': d.price,
-              'quantity': d.stock,
-              'category': 'Pharmacy',
-              'emoji': '💊',
-            });
-            if (d.stock == 0) {
-              outOfStock++;
-            } else if (d.stock <= (10)) {
-              lowStock++;
-            }
-          }
-        }
-      } catch (_) {
-        // ignore if provider not available
       }
 
       // Sort by selected sort option
@@ -452,8 +382,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     }
 
     try {
-      final repository = InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
-      await repository.updateInventory(productId, {
+      await _repository.updateInventory(productId, {
         'businessId': businessId,
         'distributorDiscountPercent': discount,
         'discountPercent': discount,
@@ -785,12 +714,10 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
               if (selected == null || selected.isEmpty) return;
 
-              final repo = InventoryRepositoryImpl(
-                  firestore: FirebaseFirestore.instance);
               try {
                 ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Assigning...')));
-                final count = await repo.assignAllInventoryToStore(
+                final count = await _repository.assignAllInventoryToStore(
                     businessProvider.currentBusiness!.id, selected);
                 ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Assigned $count items to store')));

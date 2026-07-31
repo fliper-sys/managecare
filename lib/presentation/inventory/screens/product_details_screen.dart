@@ -61,7 +61,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       // Product details no longer live in Firestore, and the custom backend
       // doesn't implement realtime push, so this is a one-shot fetch rather
       // than a live subscription.
@@ -117,7 +117,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 SliverAppBar(
                   expandedHeight: 400,
                   pinned: true,
-                  backgroundColor: Colors.white,
+                  backgroundColor: Theme.of(context).colorScheme.surface,
                   elevation: 0,
                   leading: IconButton(
                     icon: Container(
@@ -253,9 +253,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       slivers: [
         SliverToBoxAdapter(
           child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             ),
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -379,7 +379,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   
                   _buildDetailRow('Barcode', product.barcode ?? 'N/A'),
                   _buildDetailRow('Unit', product.unit),
-                  if ((productData['bagWeightKg'] ?? 0) != null && (productData['bagWeightKg'] as num) > 0)
+                  if ((productData['bagWeightKg'] as num?) != null && (productData['bagWeightKg'] as num) > 0)
                     _buildDetailRow('Bag weight', '${(productData['bagWeightKg'] as num).toString()} kg'),
                   _buildDetailRow('Emoji', product.emoji),
                   _buildDetailRow('Profit Margin', '${(((product.price - product.cost) / product.price) * 100).toStringAsFixed(1)}%'),
@@ -1347,7 +1347,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
         title: Text(drug.name),
         elevation: 0,
@@ -1500,7 +1500,7 @@ class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
     bool overlapsContent,
   ) {
     return Container(
-      color: Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       child: tabBar,
     );
   }

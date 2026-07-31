@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../widgets/loading_indicator.dart';
 import '../../../core/constants/routes.dart';
 import '../../../core/utils/connectivity_helper.dart';
@@ -199,16 +199,10 @@ class _SplashScreenState extends State<SplashScreen>
 
   DateTime? _parseSubscriptionDate(dynamic value) {
     if (value == null) return null;
-    if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
     if (value is String) {
       return DateTime.tryParse(value);
     }
-    try {
-      if (value.runtimeType.toString().contains('Timestamp')) {
-        return (value as dynamic).toDate() as DateTime;
-      }
-    } catch (_) {}
     return null;
   }
 
@@ -235,26 +229,29 @@ class _SplashScreenState extends State<SplashScreen>
     return (hasActiveFlag || statusLooksActive) && isWithinDuration;
   }
 
-  /// Fetch the latest subscription status from Firestore
+  /// Fetch the latest subscription status from the backend (Postgres) -
+  /// businesses no longer live in Firestore, and admin subscription grants
+  /// only ever write to Postgres, so reading Firestore here always found
+  /// stale/missing data and bounced owners back to the subscription screen.
   Future<Map<String, dynamic>?> _fetchBusinessSubscriptionStatus(
       String businessId) async {
     try {
       if (businessId.trim().isEmpty) return null;
-      final doc = await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .get();
+      final data = await Supabase.instance.client
+          .from('businesses')
+          .select()
+          .eq('id', businessId)
+          .maybeSingle();
 
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
+      if (data != null) {
         return {
-          'subscriptionStatus': data['subscriptionStatus'],
-          'subscriptionReviewStatus': data['subscriptionReviewStatus'],
-          'subscriptionPlan': data['subscriptionPlan'],
-          'subscriptionAmount': data['subscriptionAmount'],
-          'hasActiveSubscription': data['isSubscriptionActive'],
-          'isSubscriptionActive': data['isSubscriptionActive'],
-          'subscriptionEndDate': data['subscriptionEndDate'],
+          'subscriptionStatus': data['subscription_status'],
+          'subscriptionReviewStatus': data['subscription_review_status'],
+          'subscriptionPlan': data['subscription_plan'],
+          'subscriptionAmount': data['subscription_amount'],
+          'hasActiveSubscription': data['is_subscription_active'],
+          'isSubscriptionActive': data['is_subscription_active'],
+          'subscriptionEndDate': data['subscription_end_date'],
         };
       }
       return null;

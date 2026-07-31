@@ -225,6 +225,12 @@ class BusinessProvider with ChangeNotifier {
           final updated = b.copyWith(
               subscriptionTier: 'tier1', isSubscriptionActive: false);
           _userBusinesses[i] = updated;
+          // Synthetic placeholders (added above for business ids listed on
+          // the user doc that couldn't actually be fetched) have an empty
+          // ownerId - persisting one writes owner_id = '' into a UUID
+          // column and Postgres rejects it ("invalid input syntax for type
+          // uuid"). There's no real business row to update here anyway.
+          if (updated.ownerId.trim().isEmpty) continue;
           // Persist change so backend reflects new requirement. Best-effort.
           try {
             await _repository.updateBusiness(updated);

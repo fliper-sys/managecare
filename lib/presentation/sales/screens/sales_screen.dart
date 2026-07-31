@@ -24,6 +24,7 @@ import '../../../services/notification_and_email_service.dart';
 import '../../../services/barcode_service.dart';
 import '../../../services/analytics_service.dart';
 import '../../../core/utils/currency.dart';
+import '../../../core/utils/datetime_utils.dart';
 import '../../../widgets/custom_button.dart';
 import '../../../widgets/async_button.dart';
 import '../../../widgets/app_header.dart';
@@ -1861,10 +1862,9 @@ class _SalesScreenState extends State<SalesScreen>
                       }
 
                       final sale = filtered[index];
-                      final createdAt = sale['createdAt'] as Timestamp?;
-                      final formattedTime = createdAt != null
+                      final formattedTime = sale['createdAt'] != null
                           ? DateFormat('dd/MM/yyyy HH:mm')
-                              .format(createdAt.toDate())
+                              .format(parseTimestamp(sale['createdAt']))
                           : 'Unknown time';
                         final amount = sale['totalAmount'] as num? ?? 0;
                         var worker = sale['workerName'] as String? ?? '';
@@ -1893,14 +1893,14 @@ class _SalesScreenState extends State<SalesScreen>
                             'refunded') ||
                           ((sale['status'] ?? '').toString().toLowerCase() ==
                             'refunded');
-                        final refundedAtTs = sale['returnedAt'] as Timestamp?;
                         final isPendingSync =
                             sale['pendingSync'] as bool? ?? false;
-                        final refundedAtText = refundedAtTs != null
+                        final refundedAtText = sale['returnedAt'] != null
                             ? DateFormat('dd/MM/yyyy HH:mm')
-                                .format(refundedAtTs.toDate())
+                                .format(parseTimestamp(sale['returnedAt']))
                             : null;
-                      final itemCount = (sale['items'] as List?)?.length ?? 0;
+                      final itemCount = (sale['items'] as List?)?.length ??
+                          (sale['cartItems'] as List?)?.length;
 
                       return InkWell(
                         onTap: () {

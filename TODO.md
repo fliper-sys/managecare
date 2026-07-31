@@ -1,28 +1,20 @@
-# Runtime Error Fix Plan
+# TODO - Fix Supabase Realtime unhandled exceptions
 
-## Issues Identified from Runtime Logs
+## Problem
+`RealtimeSubscribeException(status: channelError, details: RealtimeCloseEvent(code: 1006))` and
+`JwtSignatureError: Failed to validate JWT signature` unhandled exceptions come from the genuine
+Supabase Realtime `.stream()` subscription on the `profiles` table in
+`lib/providers/auth_provider_supabase.dart` (`_subscribeToProfile`). The self-hosted backend
+(`backend.managecare.info`) does not implement the Supabase Realtime protocol correctly.
 
-### 1. 🔴 CRITICAL: Supabase Realtime WebSocket 502 Error (Port :0)
-**File:** `lib/core/config/supabase_config.dart` + Supabase initialization
-**Issue:** Supabase realtime client connects to port `:0` because the realtime URL resolves incorrectly from `https://backend.managecare.info` without a port.
+## Plan
+Replace the realtime profile subscription with a polling Timer (15s), matching the pattern already
+used by `ReportsProvider` and `InventoryRepositorySupabase`.
 
-### 2. 🔴 CRITICAL: Missing Firestore Composite Indexes
-**Affects:** `inventory_alerts`, `sales`, `pharmacy_prescriptions` queries
-**File:** `firestore.indexes.json`
-
-### 3. 🟡 HIGH: NotificationService - Windows Crash
-**File:** `lib/services/notification_service.dart`
-**Issue:** `sendNotification` called from `background_subscription_checker.dart` crashes on Windows because `initialize()` doesn't configure Windows.
-
-### 4. 🟡 HIGH: Business ID UUID Mismatch
-**Files:** `lib/data/repositories/business_repository_supabase.dart`, `lib/providers/auth_provider_supabase.dart`
-**Issue:** Business IDs like `bus_1785252246491` fail Postgres UUID validation: `invalid input syntax for type uuid: "bus_1785252246491"`
-
-### 5. 🟡 MEDIUM: Hybrid Firebase/Supabase Migration
-**Files:** `lib/services/background_subscription_checker.dart`, `lib/providers/reports_provider.dart`
-**Issue:** These still use `FirebaseFirestore` while other parts use Supabase.
-
-### 6. 🟡 MEDIUM: Worker-Treated-as-Owner Bug
-**Files:** `lib/providers/auth_provider_supabase.dart`, `lib/providers/auth_provider.dart`
-**Issue:** Staff user (role=staff) is incorrectly processed as OWNER.
+## Steps
+- [x] 1. Create TODO.md
+- [x] 2. Replace `StreamSubscription? _profileSubscription` field with `Timer? _profilePollTimer` + poll interval constant
+- [x] 3. Rewrite `_subscribeToProfile()` to poll `resolveUserAccess()` on a 15s timer (preserving changed-logic, wrapped in try/catch)
+- [x] 4. Update cleanup call sites to cancel the timer: `logout()`, `_rejectWorkerFromOwnerLogin()`, `_rejectWorkerDueToBusinessSubscription()`, `_rejectWorkerDueToOwnerRestriction()`, `dispose()`
+- [x] 5. Verified: no remaining `_profileSubscription` references (all replaced with `_profilePollTimer`)
 

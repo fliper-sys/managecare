@@ -11,7 +11,7 @@ import '../core/config/supabase_config.dart';
 import '../core/utils/connectivity_helper.dart';
 import '../data/models/user_model.dart';
 import '../data/repositories/auth_repository_supabase.dart';
-import '../data/repositories/business_repository_supabase.dart';
+import '../data/repositories/business_repository_impl.dart';
 import '../services/authentication_service.dart';
 import '../services/email_service.dart';
 import '../services/subscription_service_supabase.dart';
@@ -33,8 +33,15 @@ class AuthProvider with ChangeNotifier {
   LocalUserStorage? _localStorage;
   LocalBusinessStorage? _localBusinessStorage;
 
-  /// Realtime subscription on the profile row.
-  StreamSubscription? _profileSubscription;
+  /// Poll timer for the profile row.
+  ///
+  /// The custom backend doesn't implement Supabase's Realtime protocol (a
+  /// genuine `.stream()` against it raises unhandled
+  /// RealtimeSubscribeException / JwtSignatureError exceptions), so profile
+  /// updates are polled the same way ReportsProvider and
+  /// InventoryRepositorySupabase poll their data.
+  static const _profilePollInterval = Duration(seconds: 15);
+  Timer? _profilePollTimer;
 
   AuthStatus _status = AuthStatus.initial;
   UserModel? _currentUser;
@@ -422,8 +429,8 @@ class AuthProvider with ChangeNotifier {
     try {
       await _localStorage?.clearUser();
       await _localBusinessStorage?.clearAllBusinessData();
-      await _profileSubscription?.cancel();
-      _profileSubscription = null;
+      _profilePollTimer?.cancel();
+      _profilePollTimer = null;
       await _supabase.auth.signOut();
       _status = AuthStatus.unauthenticated;
       _currentUser = null;
@@ -738,36 +745,40 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  /// Subscribe to profile changes via Supabase realtime.
+  /// Poll for profile changes (see class-level note on why this polls
+  /// instead of subscribing to a realtime stream).
   void _subscribeToProfile(String userId) {
-    _profileSubscription?.cancel();
-    _profileSubscription = _supabase
-        .from('profiles')
-        .stream(primaryKey: ['id'])
-        .eq('id', userId)
-        .listen((maps) async {
-      if (maps.isEmpty) return;
-      final access = await _authService.resolveUserAccess(userId);
-      final updated = access.user;
-      if (!access.isAllowed || updated == null) return;
+    _profilePollTimer?.cancel();
 
-      final bool changed =
-          updated.currentBusinessId != _currentUser?.currentBusinessId ||
-              updated.fullName != _currentUser?.fullName ||
-              updated.email != _currentUser?.email ||
-              updated.role != _currentUser?.role ||
-              updated.businessIds.join(',') !=
-                  _currentUser?.businessIds.join(',') ||
-              updated.hasActiveSubscription !=
-                  _currentUser?.hasActiveSubscription ||
-              updated.subscriptionPlan != _currentUser?.subscriptionPlan;
+    Future<void> poll() async {
+      try {
+        final access = await _authService.resolveUserAccess(userId);
+        final updated = access.user;
+        if (!access.isAllowed || updated == null) return;
 
-      if (changed) {
-        _currentUser = updated;
-        _localStorage?.saveUser(updated);
-        notifyListeners();
+        final bool changed =
+            updated.currentBusinessId != _currentUser?.currentBusinessId ||
+                updated.fullName != _currentUser?.fullName ||
+                updated.email != _currentUser?.email ||
+                updated.role != _currentUser?.role ||
+                updated.businessIds.join(',') !=
+                    _currentUser?.businessIds.join(',') ||
+                updated.hasActiveSubscription !=
+                    _currentUser?.hasActiveSubscription ||
+                updated.subscriptionPlan != _currentUser?.subscriptionPlan;
+
+        if (changed) {
+          _currentUser = updated;
+          _localStorage?.saveUser(updated);
+          notifyListeners();
+        }
+      } catch (e) {
+        debugPrint('[AuthProvider] Profile poll failed: $e');
       }
-    });
+    }
+
+    unawaited(poll());
+    _profilePollTimer = Timer.periodic(_profilePollInterval, (_) => poll());
   }
 
   Future<bool> _validateSubscriptionForUser(
@@ -802,7 +813,14 @@ class AuthProvider with ChangeNotifier {
     if (id.isEmpty || _localBusinessStorage == null) return;
     try {
       await _localBusinessStorage!.setCurrentBusiness(id);
-      final repo = BusinessRepositorySupabase();
+      // BusinessRepositorySupabase.getBusinessById returns a raw,
+      // unmapped Postgres row (snake_case columns) - passing that straight
+      // to saveBusiness (which requires an actual BusinessModel) threw
+      // "type '_Map<String, dynamic>' is not a subtype of type
+      // 'BusinessModel'" on every call. BusinessRepository (the other repo
+      // class) already does the snake_case-aware mapping into a real
+      // BusinessModel, same as everywhere else this cache gets populated.
+      final repo = BusinessRepository();
       final business = await repo.getBusinessById(id);
       if (business != null) {
         await _localBusinessStorage!.saveBusiness(business);
@@ -831,8 +849,8 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> _rejectWorkerFromOwnerLogin() async {
-    await _profileSubscription?.cancel();
-    _profileSubscription = null;
+    _profilePollTimer?.cancel();
+    _profilePollTimer = null;
     await _supabase.auth.signOut();
     _currentUser = null;
     _status = AuthStatus.unauthenticated;
@@ -843,8 +861,8 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> _rejectWorkerDueToBusinessSubscription() async {
-    await _profileSubscription?.cancel();
-    _profileSubscription = null;
+    _profilePollTimer?.cancel();
+    _profilePollTimer = null;
     await _supabase.auth.signOut();
     _currentUser = null;
     _status = AuthStatus.unauthenticated;
@@ -855,8 +873,8 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> _rejectWorkerDueToOwnerRestriction(String message) async {
-    await _profileSubscription?.cancel();
-    _profileSubscription = null;
+    _profilePollTimer?.cancel();
+    _profilePollTimer = null;
     await _supabase.auth.signOut();
     _currentUser = null;
     _status = AuthStatus.unauthenticated;
@@ -904,7 +922,7 @@ class AuthProvider with ChangeNotifier {
 
   @override
   void dispose() {
-    _profileSubscription?.cancel();
+    _profilePollTimer?.cancel();
     super.dispose();
   }
 }

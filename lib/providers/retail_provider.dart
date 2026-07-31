@@ -662,8 +662,15 @@ class RetailProvider extends ChangeNotifier {
     _ensureActiveCart();
     unawaited(syncPendingPumpSales());
 
-    // Check if we should skip initialization (already initialized recently)
-    if (!isBusinessSwitch && _isInitialized && _lastInitTime != null) {
+    // Check if we should skip initialization (already initialized recently).
+    // Only honor this if the previous init actually produced products -
+    // otherwise a single failed/empty fetch (e.g. a transient network blip)
+    // would get "locked in" as the sales screen's product list for the
+    // next 10 minutes, showing zero items despite real inventory existing.
+    if (!isBusinessSwitch &&
+        _isInitialized &&
+        _products.isNotEmpty &&
+        _lastInitTime != null) {
       final elapsed = DateTime.now().difference(_lastInitTime!);
       if (elapsed < _initMinInterval) {
         print(
@@ -1797,7 +1804,15 @@ class RetailProvider extends ChangeNotifier {
       };
       await dbHelper.insert('sale_items', item);
 
-      // Update local inventory record
+      // Update local inventory record. The baseline for the new quantity
+      // always comes from product.stock (the in-memory value from the last
+      // real Postgres fetch) - never from whatever's already in the local
+      // SQLite `inventory` cache. That cache is frequently absent entirely
+      // (this app is Postgres-first) and, worse, can hold a previously
+      // wrong value from an earlier bug or an earlier sale this same
+      // session - reading a stale/zeroed row back as "current stock" just
+      // re-applies whatever was wrong before. product.stock is the single
+      // source of truth here; SQLite is only ever a write target.
       final inv = await dbHelper.query(
         'inventory',
         where: '(id = ? OR barcode = ? OR name = ?) AND businessId = ?',
@@ -1809,15 +1824,15 @@ class RetailProvider extends ChangeNotifier {
         ],
         limit: 1,
       );
+      final newQtyForUi = (product.stock - (saleUnitMultiplier * e.value))
+          .clamp(0, 999999)
+          .toDouble();
       if (inv.isNotEmpty) {
-        final currentQty = (inv.first['quantity'] as num).toDouble();
-        final newQty =
-            (currentQty - (saleUnitMultiplier * e.value)).clamp(0, 999999);
         await dbHelper.update(
           'inventory',
           {
-            'quantity': newQty,
-            'stock': newQty,
+            'quantity': newQtyForUi,
+            'stock': newQtyForUi,
             'syncStatus': 'pending',
             'updatedAt': DateTime.now().toIso8601String(),
           },
@@ -1836,13 +1851,22 @@ class RetailProvider extends ChangeNotifier {
           'name': product.name,
           'unitPrice': product.price,
           'barcode': product.barcode,
-          'quantity':
-              (0 - (saleUnitMultiplier * e.value)).toDouble().clamp(0, 999999),
-          'stock':
-              (0 - (saleUnitMultiplier * e.value)).toDouble().clamp(0, 999999),
+          'quantity': newQtyForUi,
+          'stock': newQtyForUi,
           'createdAt': DateTime.now().toIso8601String(),
           'syncStatus': 'pending',
         });
+      }
+
+      // loadProducts() (called after the offline save completes) hits the
+      // network and silently no-ops while offline, so the SQLite decrement
+      // above never reached the UI's in-memory product list - stock looked
+      // unchanged on the sales screen even though it actually was deducted.
+      // Mirror it into _products directly, same as the online checkout path
+      // already does for its own (server-confirmed) decrement.
+      final idx = _products.indexWhere((p) => p.id == product.id);
+      if (idx != -1) {
+        _products[idx].stock = newQtyForUi;
       }
     }
   }

@@ -705,6 +705,7 @@ module.exports = function(pool) {
       `, [normalizedTier, planId, now, endDate, businessId]);
       if (bizResult.rows.length === 0) {
         await client.query('ROLLBACK');
+        client.release();
         return res.status(404).json({ error: 'Business not found' });
       }
       const business = bizResult.rows[0];
@@ -729,11 +730,25 @@ module.exports = function(pool) {
         SELECT id FROM workers WHERE business_id = $1 AND is_active = true
       `, [businessId]);
 
+      await client.query('COMMIT');
+      res.json({ business, approvedPendingCount: pendingResult.rows.length });
+      client.release();
+
+      // Notifications run after the commit and after the client is
+      // released, on the pool rather than the transaction client:
+      // notifications.user_id only has an FK to profiles(id), not
+      // workers(id), so a worker recipient always threw here. That failure
+      // used to happen *inside* the grant transaction - it left the
+      // transaction aborted, and COMMIT on an aborted transaction silently
+      // rolls back in Postgres, so the whole grant (business subscription
+      // fields, subscription_events) was being discarded even though this
+      // route still returned 200 with the (never-persisted) updated
+      // business row.
       const endLabel = `${endDate.getDate()}/${endDate.getMonth() + 1}/${endDate.getFullYear()}`;
       const io = req.app.get('io');
       for (const row of recipients.rows) {
         try {
-          const notifResult = await client.query(`
+          const notifResult = await pool.query(`
             INSERT INTO notifications (user_id, business_id, title, body, type)
             VALUES ($1, $2, $3, $4, 'subscription')
             RETURNING *
@@ -746,14 +761,10 @@ module.exports = function(pool) {
           console.error(`[Admin] grant-subscription notify skipped for ${row.id}:`, error.message);
         }
       }
-
-      await client.query('COMMIT');
-      res.json({ business, approvedPendingCount: pendingResult.rows.length });
     } catch (error) {
       await client.query('ROLLBACK');
-      throw error;
-    } finally {
       client.release();
+      throw error;
     }
   }));
 
