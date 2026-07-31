@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -191,14 +190,14 @@ class _ProductHistoryScreenState extends State<ProductHistoryScreen> {
                                     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
                                     if (businessId == null || businessId.isEmpty) return const Text('No business selected');
 
-                                    return StreamBuilder<QuerySnapshot>(
+                                    return StreamBuilder<List<Map<String, dynamic>>>(
                                       stream: prov.procurementsStream(businessId: businessId, productId: widget.productId),
                                       builder: (context, snap) {
                                         if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-                                        if (!snap.hasData || snap.data!.docs.isEmpty) return const Text('No procurements found');
+                                        if (!snap.hasData || snap.data!.isEmpty) return const Text('No procurements found');
 
-                                        final filtered = snap.data!.docs.where((d) {
-                                          final created = parseTimestamp(d.get('createdAt'));
+                                        final filtered = snap.data!.where((d) {
+                                          final created = parseTimestamp(d['createdAt']);
                                           return !created.isBefore(prov.start) && !created.isAfter(prov.end);
                                         }).toList();
 
@@ -206,10 +205,10 @@ class _ProductHistoryScreenState extends State<ProductHistoryScreen> {
 
                                         return Column(
                                             children: filtered.map((d) {
-                                          final created = parseTimestamp(d.get('createdAt'));
+                                          final created = parseTimestamp(d['createdAt']);
                                           return ListTile(
-                                            title: Text('${d.get('quantity') ?? ''} units @ ₦${(d.get('cost') ?? 0).toStringAsFixed(2)}'),
-                                            subtitle: Text('${DateFormat.yMMMd().add_jm().format(created)} • ${d.get('procurementId') ?? ''}'),
+                                            title: Text('${d['quantity'] ?? ''} units @ ₦${(d['cost'] ?? 0).toStringAsFixed(2)}'),
+                                            subtitle: Text('${DateFormat.yMMMd().add_jm().format(created)} • ${d['procurementId'] ?? ''}'),
                                           );
                                         }).toList());
                                       },

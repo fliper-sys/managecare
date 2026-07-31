@@ -1,10 +1,8 @@
 import 'dart:async';
 
-import 'package:business_manager/core/utils/datetime_utils.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../data/models/user_model.dart';
 import 'email_service.dart';
+import 'managecare_api_client.dart';
 
 class SubscriptionPlan {
   final String id;
@@ -34,8 +32,8 @@ class SubscriptionService {
   static const int subscriptionGracePeriodDays = 7;
   static const List<int> subscriptionReminderMilestones = [30, 15, 7, 3];
 
-  final FirebaseFirestore _firestore;
   final EmailService _emailService;
+  final ManagecareApiClient _api;
 
   static const String familyStandard = 'standard';
   static const String familyKitchen = 'kitchen';
@@ -907,10 +905,10 @@ class SubscriptionService {
   ];
 
   SubscriptionService({
-    required FirebaseFirestore firestore,
     EmailService? emailService,
-  })  : _firestore = firestore,
-        _emailService = emailService ?? EmailService();
+    ManagecareApiClient? api,
+  })  : _emailService = emailService ?? EmailService(),
+        _api = api ?? ManagecareApiClient.instance;
 
   static String canonicalizeBusinessType(String? businessType) {
     final raw = (businessType ?? '').trim().toLowerCase();
@@ -1374,20 +1372,19 @@ class SubscriptionService {
 
   Future<Map<String, dynamic>?> getUserSubscription(String userId) async {
     try {
-      final doc = await _firestore.collection('users').doc(userId).get();
-      if (!doc.exists) return null;
-      final data = doc.data() as Map<String, dynamic>;
+      final response = await _api.get('/api/subscriptions/user/$userId');
+      final data = Map<String, dynamic>.from(response as Map);
       return {
-        'hasActiveSubscription': data['hasActiveSubscription'] ?? false,
-        'subscriptionPlan': data['subscriptionPlan'],
-        'subscriptionTier': data['subscriptionTier'],
-        'subscriptionStartDate': data['subscriptionStartDate'],
-        'subscriptionEndDate': data['subscriptionEndDate'],
+        'hasActiveSubscription': data['has_active_subscription'] ?? false,
+        'subscriptionPlan': data['subscription_plan'],
+        'subscriptionTier': data['subscription_tier'],
+        'subscriptionStartDate': data['subscription_start_date'],
+        'subscriptionEndDate': data['subscription_end_date'],
         'subscriptionPaymentRequired':
-            data['subscriptionPaymentRequired'] ?? true,
-        'subscriptionAmount': data['subscriptionAmount'],
-        'subscriptionStatus': data['subscriptionStatus'],
-        'currentBusinessId': data['currentBusinessId'],
+            data['subscription_payment_required'] ?? true,
+        'subscriptionAmount': data['subscription_amount'],
+        'subscriptionStatus': data['subscription_status'],
+        'currentBusinessId': data['current_business_id'],
       };
     } catch (e) {
       print('Error getting user subscription: $e');
@@ -1398,24 +1395,22 @@ class SubscriptionService {
   Future<Map<String, dynamic>?> getBusinessSubscription(
       String businessId) async {
     try {
-      final doc =
-          await _firestore.collection('businesses').doc(businessId).get();
-      if (!doc.exists) return null;
-      final data = doc.data() as Map<String, dynamic>;
+      final response = await _api.get('/api/subscriptions/business/$businessId');
+      final data = Map<String, dynamic>.from(response as Map);
       return {
-        'id': doc.id,
+        'id': data['id'],
         'name': data['name'],
-        'businessType': data['businessType'],
-        'subscriptionPlan': data['subscriptionPlan'],
-        'subscriptionTier': data['subscriptionTier'],
-        'businessClass': data['businessClass'],
-        'subscriptionFamily': data['subscriptionFamily'],
-        'subscriptionStatus': data['subscriptionStatus'],
-        'subscriptionReviewStatus': data['subscriptionReviewStatus'],
-        'subscriptionStartDate': data['subscriptionStartDate'],
-        'subscriptionEndDate': data['subscriptionEndDate'],
-        'isSubscriptionActive': data['isSubscriptionActive'] ?? false,
-        'pendingSubscriptionPlan': data['pendingSubscriptionPlan'],
+        'businessType': data['business_type'],
+        'subscriptionPlan': data['subscription_plan'],
+        'subscriptionTier': data['subscription_tier'],
+        'businessClass': data['business_class'],
+        'subscriptionFamily': data['subscription_family'],
+        'subscriptionStatus': data['subscription_status'],
+        'subscriptionReviewStatus': data['subscription_review_status'],
+        'subscriptionStartDate': data['subscription_start_date'],
+        'subscriptionEndDate': data['subscription_end_date'],
+        'isSubscriptionActive': data['is_subscription_active'] ?? false,
+        'pendingSubscriptionPlan': null,
       };
     } catch (e) {
       print('Error getting business subscription: $e');
@@ -1457,30 +1452,12 @@ class SubscriptionService {
 
   Future<bool> expireSubscription(String userId, {String? businessId}) async {
     try {
-      final now = DateTime.now();
       final plan = await _resolvePlanForNotification(userId, businessId) ??
           _fallbackNotificationPlan();
-      await _firestore.collection('users').doc(userId).set({
-        'hasActiveSubscription': false,
-        'subscriptionPaymentRequired': true,
-        'subscriptionStatus': 'expired',
-        'updatedAt': now.toIso8601String(),
-      }, SetOptions(merge: true));
 
-      if (businessId != null && businessId.isNotEmpty) {
-        await _firestore.collection('businesses').doc(businessId).set({
-          'isSubscriptionActive': false,
-          'subscriptionStatus': 'expired',
-          'subscriptionReviewStatus': 'expired',
-          'updatedAt': now.toIso8601String(),
-        }, SetOptions(merge: true));
-      }
-
-      await _firestore.collection('subscription_events').add({
+      await _api.post('/api/subscriptions/expire', body: {
         'userId': userId,
-        'businessId': businessId,
-        'action': 'subscription_expired',
-        'createdAt': now.toIso8601String(),
+        if (businessId != null && businessId.isNotEmpty) 'businessId': businessId,
       });
 
       unawaited(
@@ -1503,30 +1480,12 @@ class SubscriptionService {
 
   Future<bool> cancelSubscription(String userId, {String? businessId}) async {
     try {
-      final now = DateTime.now();
       final plan = await _resolvePlanForNotification(userId, businessId) ??
           _fallbackNotificationPlan();
-      await _firestore.collection('users').doc(userId).set({
-        'hasActiveSubscription': false,
-        'subscriptionPaymentRequired': false,
-        'subscriptionStatus': 'cancelled',
-        'updatedAt': now.toIso8601String(),
-      }, SetOptions(merge: true));
 
-      if (businessId != null && businessId.isNotEmpty) {
-        await _firestore.collection('businesses').doc(businessId).set({
-          'isSubscriptionActive': false,
-          'subscriptionStatus': 'cancelled',
-          'subscriptionReviewStatus': 'cancelled',
-          'updatedAt': now.toIso8601String(),
-        }, SetOptions(merge: true));
-      }
-
-      await _firestore.collection('subscription_events').add({
+      await _api.post('/api/subscriptions/cancel', body: {
         'userId': userId,
-        'businessId': businessId,
-        'action': 'subscription_cancelled',
-        'createdAt': now.toIso8601String(),
+        if (businessId != null && businessId.isNotEmpty) 'businessId': businessId,
       });
 
       unawaited(
@@ -1552,28 +1511,11 @@ class SubscriptionService {
     String? businessId,
   }) async {
     try {
-      final resolvedBusinessId = businessId?.trim().isNotEmpty == true
-          ? businessId!.trim()
-          : await _resolveBusinessIdForUser(userId);
-
-      if (resolvedBusinessId != null && resolvedBusinessId.isNotEmpty) {
-        return validateAndUpdateBusinessSubscriptionStatus(
-          resolvedBusinessId,
-          userId: userId,
-        );
-      }
-
-      final subscription = await getUserSubscription(userId);
-      if (subscription == null) return false;
-      if (subscription['hasActiveSubscription'] == true &&
-          subscription['subscriptionEndDate'] != null) {
-        final endDate = parseTimestamp(subscription['subscriptionEndDate']);
-        if (!isWithinSubscriptionAccessWindow(endDate)) {
-          await expireSubscription(userId);
-          return false;
-        }
-      }
-      return subscription['hasActiveSubscription'] == true;
+      final response = await _api.post('/api/subscriptions/validate', body: {
+        'userId': userId,
+        if (businessId != null && businessId.isNotEmpty) 'businessId': businessId,
+      });
+      return Map<String, dynamic>.from(response as Map)['valid'] == true;
     } catch (e) {
       print('Error validating subscription status: $e');
       return false;
@@ -1586,41 +1528,11 @@ class SubscriptionService {
   }) async {
     try {
       if (businessId.trim().isEmpty) return false;
-      final business = await getBusinessSubscription(businessId);
-      if (business == null) return false;
-
-      final now = DateTime.now();
-      final isActive = business['isSubscriptionActive'] as bool? ?? false;
-      final status = (business['subscriptionStatus'] ?? '').toString().toLowerCase();
-      final endRaw = business['subscriptionEndDate'];
-      final endDate = endRaw != null ? parseTimestamp(endRaw) : null;
-      final isTrial = status == 'trial';
-      final isValid = isActive &&
-          (endDate == null ||
-              (isTrial
-                  ? !normalizeToDate(now).isAfter(normalizeToDate(endDate))
-                  : isWithinSubscriptionAccessWindow(endDate, now: now)));
-
-      if (isActive && endDate != null && !isValid) {
-        await _firestore.collection('businesses').doc(businessId).set({
-          'isSubscriptionActive': false,
-          'subscriptionStatus': 'expired',
-          'subscriptionReviewStatus': 'expired',
-          'subscriptionPaymentRequired': true,
-          'updatedAt': now.toIso8601String(),
-        }, SetOptions(merge: true));
-      }
-
-      if (userId != null && userId.isNotEmpty) {
-        await syncUserSubscriptionSummaryFromBusiness(
-          userId: userId,
-          businessId: businessId,
-          overrideIsActive: isValid,
-          overrideStatus: isValid ? (isTrial ? 'trial' : 'approved') : 'expired',
-        );
-      }
-
-      return isValid;
+      final response = await _api.post('/api/subscriptions/validate', body: {
+        'businessId': businessId,
+        if (userId != null && userId.isNotEmpty) 'userId': userId,
+      });
+      return Map<String, dynamic>.from(response as Map)['valid'] == true;
     } catch (e) {
       print('Error validating business subscription status: $e');
       return false;
@@ -1638,34 +1550,21 @@ class SubscriptionService {
       final plan = getPlanById(planId);
       if (plan == null) return false;
 
-      final now = DateTime.now();
-      final endDate = now.add(Duration(days: plan.durationInDays));
-      final targetBusinessId = businessId?.trim().isNotEmpty == true
-          ? businessId!.trim()
-          : await _resolveBusinessIdForUser(userId);
-
-      await _writeUserSubscriptionSummary(
-        userId: userId,
-        businessId: targetBusinessId,
-        plan: plan,
-        startDate: now,
-        endDate: endDate,
-        amount: amount,
-        receiptUrl: receiptUrl,
-        status: 'approved',
-        isActive: true,
-      );
-
-      if (targetBusinessId != null && targetBusinessId.isNotEmpty) {
-        await syncSubscriptionToBusiness(
-          businessId: targetBusinessId,
-          planId: plan.id,
-          startDate: now,
-          endDate: endDate,
-          amount: amount,
-          receiptUrl: receiptUrl,
-        );
-      }
+      final response = await _api.post('/api/subscriptions/activate', body: {
+        'userId': userId,
+        if (businessId != null && businessId.isNotEmpty) 'businessId': businessId,
+        'planId': plan.id,
+        'planTier': plan.tierId,
+        'planFamily': plan.businessFamily,
+        'durationDays': plan.durationInDays,
+        'amount': amount,
+        'receiptUrl': receiptUrl,
+        'mode': 'immediate',
+      });
+      final data = Map<String, dynamic>.from(response as Map);
+      final targetBusinessId = data['businessId']?.toString();
+      final now = DateTime.parse(data['startDate'].toString());
+      final endDate = DateTime.parse(data['endDate'].toString());
 
       unawaited(
         _sendSubscriptionStatusEmailSafe(
@@ -1699,94 +1598,22 @@ class SubscriptionService {
       final plan = getPlanById(planId);
       if (plan == null) return false;
 
-      final now = DateTime.now();
-      final targetBusinessId = businessId?.trim().isNotEmpty == true
-          ? businessId!.trim()
-          : await _resolveBusinessIdForUser(userId);
-
-      DateTime? existingStart;
-      DateTime? existingEnd;
-
-      if (targetBusinessId != null && targetBusinessId.isNotEmpty) {
-        final existingBusiness =
-            await getBusinessSubscription(targetBusinessId);
-        if (existingBusiness != null) {
-          try {
-            if (existingBusiness['subscriptionStartDate'] != null) {
-              existingStart =
-                  parseTimestamp(existingBusiness['subscriptionStartDate']);
-            }
-          } catch (_) {}
-          try {
-            if (existingBusiness['subscriptionEndDate'] != null) {
-              existingEnd =
-                  parseTimestamp(existingBusiness['subscriptionEndDate']);
-            }
-          } catch (_) {}
-        }
-      } else {
-        final existingUser = await getUserSubscription(userId);
-        if (existingUser != null) {
-          try {
-            if (existingUser['subscriptionStartDate'] != null) {
-              existingStart =
-                  parseTimestamp(existingUser['subscriptionStartDate']);
-            }
-          } catch (_) {}
-          try {
-            if (existingUser['subscriptionEndDate'] != null) {
-              existingEnd = parseTimestamp(existingUser['subscriptionEndDate']);
-            }
-          } catch (_) {}
-        }
-      }
-
-      final startDate = existingStart ?? now;
-      final newEndDate = computeRenewalEndDate(
-        existingEnd: existingEnd,
-        durationInDays: plan.durationInDays,
-        now: now,
-      );
-
-      await _writeUserSubscriptionSummary(
-        userId: userId,
-        businessId: targetBusinessId,
-        plan: plan,
-        startDate: startDate,
-        endDate: newEndDate,
-        amount: amount,
-        receiptUrl: receiptUrl,
-        status: 'approved',
-        isActive: true,
-      );
-
-      if (targetBusinessId != null && targetBusinessId.isNotEmpty) {
-        await syncSubscriptionToBusiness(
-          businessId: targetBusinessId,
-          planId: plan.id,
-          startDate: startDate,
-          endDate: newEndDate,
-          amount: amount,
-          receiptUrl: receiptUrl,
-        );
-      }
-
-      final action = (existingEnd != null && existingEnd.isAfter(now))
-          ? 'subscription_renewed'
-          : 'subscription_activated';
-      await _firestore.collection('subscription_events').add({
+      final response = await _api.post('/api/subscriptions/activate', body: {
         'userId': userId,
-        'businessId': targetBusinessId,
-        'action': action,
+        if (businessId != null && businessId.isNotEmpty) 'businessId': businessId,
         'planId': plan.id,
         'planTier': plan.tierId,
         'planFamily': plan.businessFamily,
+        'durationDays': plan.durationInDays,
         'amount': amount,
         'receiptUrl': receiptUrl,
-        'startDate': startDate.toIso8601String(),
-        'endDate': newEndDate.toIso8601String(),
-        'createdAt': now.toIso8601String(),
+        'mode': 'renew',
       });
+      final data = Map<String, dynamic>.from(response as Map);
+      final targetBusinessId = data['businessId']?.toString();
+      final startDate = DateTime.parse(data['startDate'].toString());
+      final newEndDate = DateTime.parse(data['endDate'].toString());
+      final action = data['action']?.toString() ?? 'subscription_activated';
 
       unawaited(
         _sendSubscriptionStatusEmailSafe(
@@ -1811,6 +1638,8 @@ class SubscriptionService {
     }
   }
 
+  /// Admin-driven: manually applies a plan directly to a business (no
+  /// per-user profile write), used when an admin approves a subscription.
   Future<bool> syncSubscriptionToBusiness({
     required String businessId,
     required String planId,
@@ -1823,23 +1652,15 @@ class SubscriptionService {
       final plan = getPlanById(planId);
       if (plan == null) return false;
 
-      final businessDoc =
-          await _firestore.collection('businesses').doc(businessId).get();
-      final businessType = businessDoc.data()?['businessType'] as String?;
-
-      await _firestore.collection('businesses').doc(businessId).set(
-            _buildBusinessSubscriptionPayload(
-              plan: plan,
-              businessType: businessType,
-              startDate: startDate,
-              endDate: endDate,
-              amount: amount,
-              receiptUrl: receiptUrl,
-              status: 'approved',
-              isActive: true,
-            ),
-            SetOptions(merge: true),
-          );
+      await _api.post('/api/subscriptions/business/$businessId/sync', body: {
+        'planId': plan.id,
+        'planTier': plan.tierId,
+        'planFamily': plan.businessFamily,
+        'startDate': startDate.toIso8601String(),
+        'endDate': endDate.toIso8601String(),
+        'amount': amount,
+        'receiptUrl': receiptUrl,
+      });
 
       return true;
     } catch (e) {
@@ -1848,211 +1669,17 @@ class SubscriptionService {
     }
   }
 
-  Future<bool> syncSubscriptionForUserBusinesses({
-    required String userId,
-    required String planId,
-    required DateTime startDate,
-    required DateTime endDate,
-  }) async {
-    try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .where('ownerId', isEqualTo: userId)
-          .get();
-
-      for (final doc in snapshot.docs) {
-        await syncSubscriptionToBusiness(
-          businessId: doc.id,
-          planId: planId,
-          startDate: startDate,
-          endDate: endDate,
-        );
-      }
-
-      return true;
-    } catch (e) {
-      print(
-          '[SubscriptionService] Error syncing subscription to user businesses: $e');
-      return false;
-    }
-  }
-
-  Future<bool> updateSubscriptionWithBusinesses({
-    required String userId,
-    required String businessIds,
-    required String planId,
-    required DateTime endDate,
-  }) async {
-    try {
-      final plan = getPlanById(planId);
-      if (plan == null) return false;
-
-      final ids = businessIds
-          .split(',')
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-      final startDate = DateTime.now();
-
-      await _writeUserSubscriptionSummary(
-        userId: userId,
-        businessId: ids.isNotEmpty ? ids.first : null,
-        plan: plan,
-        startDate: startDate,
-        endDate: endDate,
-        amount: null,
-        receiptUrl: null,
-        status: 'approved',
-        isActive: true,
-      );
-
-      for (final businessId in ids) {
-        await syncSubscriptionToBusiness(
-          businessId: businessId,
-          planId: plan.id,
-          startDate: startDate,
-          endDate: endDate,
-        );
-      }
-
-      return true;
-    } catch (e) {
-      print('[SubscriptionService] Error updating subscription: $e');
-      return false;
-    }
-  }
-
-  Future<void> syncUserSubscriptionSummaryFromBusiness({
-    required String userId,
-    required String businessId,
-    bool? overrideIsActive,
-    String? overrideStatus,
-  }) async {
-    try {
-      final business = await getBusinessSubscription(businessId);
-      if (business == null) return;
-
-      final planId = business['subscriptionPlan']?.toString();
-      final businessType = business['businessType']?.toString();
-      final plan = getPlanById(planId ?? '');
-      final tierId = normalizeStoredPlanLevel(
-        subscriptionTier: business['subscriptionTier']?.toString(),
-        subscriptionPlan: planId,
-        businessClass: business['businessClass']?.toString(),
-      );
-
-      await _firestore.collection('users').doc(userId).set({
-        'currentBusinessId': businessId,
-        'subscriptionBusinessId': businessId,
-        'subscriptionBusinessType': businessType,
-        'subscriptionPlan': planId,
-        'subscriptionTier': tierId,
-        'subscriptionFamily':
-            plan?.businessFamily ?? getPlanFamilyForBusinessType(businessType),
-        'subscriptionStartDate': business['subscriptionStartDate'],
-        'subscriptionEndDate': business['subscriptionEndDate'],
-        'hasActiveSubscription': overrideIsActive ??
-            (business['isSubscriptionActive'] as bool? ?? false),
-        'subscriptionStatus': overrideStatus ??
-            (business['subscriptionStatus']?.toString() ?? 'inactive'),
-        'subscriptionPaymentRequired': !(overrideIsActive ??
-            (business['isSubscriptionActive'] as bool? ?? false)),
-        'updatedAt': DateTime.now().toIso8601String(),
-      }, SetOptions(merge: true));
-    } catch (e) {
-      print(
-          '[SubscriptionService] Error syncing user subscription summary: $e');
-    }
-  }
-
-  Future<void> _writeUserSubscriptionSummary({
-    required String userId,
-    required SubscriptionPlan plan,
-    required DateTime startDate,
-    required DateTime endDate,
-    required bool isActive,
-    required String status,
-    String? businessId,
-    double? amount,
-    String? receiptUrl,
-  }) async {
-    await _firestore.collection('users').doc(userId).set({
-      'currentBusinessId': businessId,
-      'subscriptionBusinessId': businessId,
-      'subscriptionPlan': plan.id,
-      'subscriptionTier': plan.tierId,
-      'subscriptionFamily': plan.businessFamily,
-      'hasActiveSubscription': isActive,
-      'subscriptionStatus': status,
-      'subscriptionStartDate': startDate.toIso8601String(),
-      'subscriptionEndDate': endDate.toIso8601String(),
-      'subscriptionPaymentRequired': !isActive,
-      'subscriptionReceiptUrl': receiptUrl,
-      'subscriptionAmount': amount,
-      'subscriptionActivatedAt': DateTime.now().toIso8601String(),
-      'pendingSubscriptionPlan': FieldValue.delete(),
-      'pendingSubscriptionTier': FieldValue.delete(),
-      'pendingSubscriptionAmount': FieldValue.delete(),
-      'pendingSubscriptionReceiptUrl': FieldValue.delete(),
-      'pendingSubscriptionStatus': FieldValue.delete(),
-      'pendingSubscriptionRequestedAt': FieldValue.delete(),
-      'updatedAt': DateTime.now().toIso8601String(),
-    }, SetOptions(merge: true));
-  }
-
-  Map<String, dynamic> _buildBusinessSubscriptionPayload({
-    required SubscriptionPlan plan,
-    required String? businessType,
-    required DateTime startDate,
-    required DateTime endDate,
-    required bool isActive,
-    required String status,
-    double? amount,
-    String? receiptUrl,
-  }) {
-    return {
-      'subscriptionTier': plan.tierId,
-      'subscriptionPlan': plan.id,
-      'businessClass': plan.tierId,
-      'subscriptionFamily': plan.businessFamily,
-      'subscriptionBusinessType': canonicalizeBusinessType(businessType),
-      'subscriptionStartDate': startDate.toIso8601String(),
-      'subscriptionEndDate': endDate.toIso8601String(),
-      'subscriptionAmount': amount,
-      'subscriptionReceiptUrl': receiptUrl,
-      'isSubscriptionActive': isActive,
-      'subscriptionStatus': status,
-      'subscriptionReviewStatus': status,
-      'pendingSubscriptionPlan': FieldValue.delete(),
-      'pendingSubscriptionTier': FieldValue.delete(),
-      'pendingBusinessClass': FieldValue.delete(),
-      'pendingSubscriptionAmount': FieldValue.delete(),
-      'pendingSubscriptionReceiptUrl': FieldValue.delete(),
-      'subscriptionSyncedAt': DateTime.now().toIso8601String(),
-      'updatedAt': DateTime.now().toIso8601String(),
-    };
-  }
-
   Future<String?> _resolveBusinessIdForUser(String userId) async {
     try {
-      final doc = await _firestore.collection('users').doc(userId).get();
-      if (!doc.exists) return null;
-      final data = doc.data() ?? <String, dynamic>{};
-
-      final currentBusinessId = data['currentBusinessId']?.toString();
+      final response = await _api.get('/api/subscriptions/user/$userId');
+      final data = Map<String, dynamic>.from(response as Map);
+      final currentBusinessId = data['current_business_id']?.toString();
       if (currentBusinessId != null && currentBusinessId.trim().isNotEmpty) {
         return currentBusinessId.trim();
       }
-
-      final businessIds = data['businessIds'];
-      if (businessIds is List && businessIds.isNotEmpty) {
-        final first = businessIds.first?.toString();
-        if (first != null && first.trim().isNotEmpty) return first.trim();
-      }
-
-      final businessId = data['businessId']?.toString();
-      if (businessId != null && businessId.trim().isNotEmpty) {
-        return businessId.trim();
+      final subscriptionBusinessId = data['subscription_business_id']?.toString();
+      if (subscriptionBusinessId != null && subscriptionBusinessId.trim().isNotEmpty) {
+        return subscriptionBusinessId.trim();
       }
     } catch (e) {
       print('[SubscriptionService] Error resolving business id for user: $e');
@@ -2074,14 +1701,17 @@ class SubscriptionService {
     DateTime? endsOn,
   }) async {
     try {
-      final userDoc = await _firestore.collection('users').doc(userId).get();
-      final userData = userDoc.data() ?? <String, dynamic>{};
+      Map<String, dynamic> userData = <String, dynamic>{};
+      try {
+        final response = await _api.get('/api/subscriptions/user/$userId');
+        userData = Map<String, dynamic>.from(response as Map);
+      } catch (_) {}
       final recipientEmail =
           (userEmail ?? userData['email']?.toString() ?? '').trim();
       if (recipientEmail.isEmpty) return;
 
       final recipientName =
-          (userName ?? userData['fullName']?.toString() ?? 'Business Owner')
+          (userName ?? userData['full_name']?.toString() ?? 'Business Owner')
               .trim();
       final businessContext =
           await _resolveSubscriptionEmailBusinessContext(userId, businessId);
@@ -2136,15 +1766,15 @@ class SubscriptionService {
     }
 
     try {
-      final businessDoc =
-          await _firestore.collection('businesses').doc(resolvedBusinessId).get();
-      final data = businessDoc.data() ?? <String, dynamic>{};
+      final response =
+          await _api.get('/api/subscriptions/business/$resolvedBusinessId');
+      final data = Map<String, dynamic>.from(response as Map);
       return {
         'businessName':
             data['name']?.toString().trim().isNotEmpty == true
                 ? data['name'].toString().trim()
                 : 'Manage Care',
-        'businessType': data['businessType']?.toString(),
+        'businessType': data['business_type']?.toString(),
         'businessEmail': data['email']?.toString(),
       };
     } catch (e) {

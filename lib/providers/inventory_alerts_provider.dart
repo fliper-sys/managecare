@@ -41,7 +41,7 @@ class InventoryAlertsProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await _api.get('/inventory-alerts/$_businessId');
+      final response = await _api.get('/api/inventory-alerts/$_businessId');
       final data = (response['data'] as List?) ?? [];
 
       _allAlerts =
@@ -77,7 +77,7 @@ class InventoryAlertsProvider extends ChangeNotifier {
   Future<void> acknowledgeAlert(String alertId) async {
     if (_businessId == null) return;
     try {
-      await _api.post('/inventory-alerts/$_businessId/$alertId/acknowledge');
+      await _api.post('/api/inventory-alerts/$_businessId/$alertId/acknowledge');
 
       final index = _allAlerts.indexWhere((a) => a.id == alertId);
       if (index >= 0) {
@@ -102,7 +102,7 @@ class InventoryAlertsProvider extends ChangeNotifier {
   Future<void> placeReorder(String alertId, InventoryAlert alert) async {
     if (_businessId == null) return;
     try {
-      await _api.post('/reorders/$_businessId', body: {
+      await _api.post('/api/reorders/$_businessId', body: {
         'product_id': alert.productId,
         'product_name': alert.productName,
         'quantity': alert.reorderQuantity,
@@ -124,7 +124,7 @@ class InventoryAlertsProvider extends ChangeNotifier {
       String productId, String productName, int quantity) async {
     if (_businessId == null) return;
     try {
-      await _api.post('/reorders/$_businessId', body: {
+      await _api.post('/api/reorders/$_businessId', body: {
         'product_id': productId,
         'product_name': productName,
         'quantity': quantity,
@@ -160,7 +160,7 @@ class InventoryAlertsProvider extends ChangeNotifier {
     if (_businessId == null) return [];
 
     try {
-      final response = await _api.get('/reorders/$_businessId');
+      final response = await _api.get('/api/reorders/$_businessId');
       final data = (response['data'] as List?) ?? [];
       return data
           .where((r) => (r as Map)['status'] != 'received')
@@ -176,7 +176,7 @@ class InventoryAlertsProvider extends ChangeNotifier {
   Future<void> markReorderReceived(String reorderId) async {
     if (_businessId == null) return;
     try {
-      await _api.patch('/reorders/$_businessId/$reorderId/receive');
+      await _api.patch('/api/reorders/$_businessId/$reorderId/receive');
 
       debugPrint('[InventoryAlertsProvider] Marked reorder $reorderId as received');
     } catch (e) {

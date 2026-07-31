@@ -819,6 +819,8 @@ class _SaleCard extends StatelessWidget {
       // Direct name fields
       if (item['productName'] is String && (item['productName'] as String).isNotEmpty) {
         name = item['productName'];
+      } else if (item['product_name'] is String && (item['product_name'] as String).isNotEmpty) {
+        name = item['product_name'];
       } else if (item['name'] is String && (item['name'] as String).isNotEmpty) {
         name = item['name'];
       }
@@ -839,8 +841,8 @@ class _SaleCard extends StatelessWidget {
       }
 
       // productId lookup
-      if ((name == null || name.isEmpty) && item['productId'] != null) {
-        final pid = item['productId'].toString();
+      if ((name == null || name.isEmpty) && (item['productId'] ?? item['product_id']) != null) {
+        final pid = (item['productId'] ?? item['product_id']).toString();
         final p = retailProvider.products.firstWhere(
           (prod) => prod.id == pid,
           orElse: () => Product(

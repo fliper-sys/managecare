@@ -973,7 +973,7 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return;
 
     try {
-      final data = await _api.get('/stores/$_businessId');
+      final data = await _api.get('/api/stores/$_businessId');
       final list = (data as List?) ?? [];
       _stores = list
           .map((raw) => StoreLocation.fromJson(raw as Map<String, dynamic>))
@@ -1037,7 +1037,7 @@ class RetailProvider extends ChangeNotifier {
             'Warning: could not verify subscription tier before adding store: $e');
       }
 
-      await _api.post('/stores/$_businessId', body: {
+      await _api.post('/api/stores/$_businessId', body: {
         'name': name,
         'location': location,
         'address': address,
@@ -1061,7 +1061,7 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return;
 
     try {
-      await _api.put('/stores/$_businessId/$storeId', body: {
+      await _api.put('/api/stores/$_businessId/$storeId', body: {
         'name': name,
         'location': location,
         'address': address,
@@ -1081,7 +1081,7 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return;
 
     try {
-      await _api.delete('/stores/$_businessId/$storeId');
+      await _api.delete('/api/stores/$_businessId/$storeId');
 
       await loadStores();
     } catch (e) {
@@ -2514,7 +2514,7 @@ class RetailProvider extends ChangeNotifier {
       final currentPage = page ?? 1;
 
       Future<Map<String, dynamic>> fetchPage(String? statusValue) async {
-        final response = await _api.get('/sales/$_businessId', query: {
+        final response = await _api.get('/api/sales/$_businessId', query: {
           'page': currentPage,
           'limit': limit,
           if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
@@ -2648,7 +2648,7 @@ class RetailProvider extends ChangeNotifier {
         throw Exception('Business ID not found');
       }
 
-      await _api.post('/returns/$businessId', body: {
+      await _api.post('/api/returns/$businessId', body: {
         'sale_id': returnData['saleId'],
         'reason': returnData['reason'],
         'refund_method': returnData['refundMethod'],
@@ -2682,7 +2682,7 @@ class RetailProvider extends ChangeNotifier {
     try {
       if (_businessId == null) return;
 
-      await _api.patch('/inventory/$_businessId/$productId/quantity', body: {
+      await _api.patch('/api/inventory/$_businessId/$productId/quantity', body: {
         'quantity': quantity,
         'operation': 'increment',
       });

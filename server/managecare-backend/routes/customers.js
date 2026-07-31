@@ -135,6 +135,7 @@ module.exports = function(pool) {
     if (!Number.isFinite(amount)) {
       return res.status(400).json({ error: 'amount must be a number' });
     }
+    const { metadata } = req.body;
 
     const result = await pool.query(
       `UPDATE customers SET
@@ -143,10 +144,34 @@ module.exports = function(pool) {
          average_order_value = (total_spent + $1) / (total_transactions + 1),
          first_purchase_date = COALESCE(first_purchase_date, NOW()),
          last_purchase_date = NOW(),
+         metadata = metadata || COALESCE($4::jsonb, '{}'::jsonb),
          updated_at = NOW()
        WHERE id = $2 AND business_id = $3
        RETURNING *`,
-      [amount, id, businessId]
+      [amount, id, businessId, metadata ? JSON.stringify(metadata) : null]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+    res.json(result.rows[0]);
+  }));
+
+  // PATCH /api/customers/:businessId/:id/metadata - Merge extra JSONB fields
+  // only (no stat increments). For callers that already recorded the
+  // purchase itself elsewhere (e.g. sale creation's customer_id side
+  // effect) and just need to attach vertical-specific extras like a
+  // preferred table or a common-purchases tally, without double-counting
+  // total_spent/total_transactions via /purchase.
+  router.patch('/:businessId/:id/metadata', requireFields('metadata'), asyncHandler(async (req, res) => {
+    const { businessId, id } = req.params;
+    const { metadata } = req.body;
+
+    const result = await pool.query(
+      `UPDATE customers SET metadata = metadata || $1::jsonb, updated_at = NOW()
+       WHERE id = $2 AND business_id = $3
+       RETURNING *`,
+      [JSON.stringify(metadata || {}), id, businessId]
     );
 
     if (result.rows.length === 0) {

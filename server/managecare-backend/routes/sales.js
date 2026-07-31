@@ -100,7 +100,7 @@ module.exports = function(pool) {
       FROM sales s
       LEFT JOIN (
         SELECT payment_method, SUM(final_amount)::DECIMAL(12,2) as total
-        FROM sales
+        FROM sales s
         WHERE business_id = $1 AND ${dateFilter}
         GROUP BY payment_method
       ) pmt ON pmt.payment_method = s.payment_method
@@ -150,7 +150,7 @@ module.exports = function(pool) {
   // created but the inventory decrement failed - doesn't create a second,
   // duplicate sale). If a sale with that id already exists, it's returned
   // as-is rather than re-inserted.
-  router.post('/:businessId', requireFields('final_amount', 'payment_method', 'created_by'), asyncHandler(async (req, res) => {
+  router.post('/:businessId', requireFields('final_amount', 'payment_method'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const {
       id, customer_id, store_id, worker_id, worker_name,
@@ -177,7 +177,7 @@ module.exports = function(pool) {
        RETURNING *`,
       [id || null, businessId, customer_id || null, store_id || null, worker_id || null, worker_name || null,
        total_amount || final_amount, discount_amount || 0, tax_amount || 0, final_amount,
-       payment_method, status || 'completed', notes || null, created_by, sale_type || 'retail']
+       payment_method, status || 'completed', notes || null, created_by || null, sale_type || 'retail']
     );
     const sale = saleResult.rows[0];
 

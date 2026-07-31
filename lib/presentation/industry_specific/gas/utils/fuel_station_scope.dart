@@ -3,14 +3,7 @@ import 'package:flutter/material.dart';
 enum FuelStationMode { gas, petroleum }
 
 extension FuelStationModeLabel on FuelStationMode {
-  String get label {
-    switch (this) {
-      case FuelStationMode.petroleum:
-        return 'Petroleum Station';
-      case FuelStationMode.gas:
-        return 'Gas Plant';
-    }
-  }
+  String get label => 'Gas & Petroleum';
 
   String get storageValue {
     switch (this) {
@@ -32,18 +25,17 @@ class FuelStationScope {
 
   static bool isGasBusiness(String businessType) {
     final value = businessType.trim().toLowerCase();
-    return value.contains('gas') && !isPetroleumBusiness(value);
+    return value.contains('gas');
+  }
+
+  static bool isFuelStationBusiness(String businessType) {
+    return isGasBusiness(businessType) || isPetroleumBusiness(businessType);
   }
 
   static bool matches(FuelStationMode mode, String? businessType) {
     final value = businessType?.trim().toLowerCase() ?? '';
     if (value.isEmpty) return true;
-    switch (mode) {
-      case FuelStationMode.petroleum:
-        return isPetroleumBusiness(value);
-      case FuelStationMode.gas:
-        return isGasBusiness(value);
-    }
+    return isFuelStationBusiness(value);
   }
 
   static Widget mismatchScaffold({
@@ -56,7 +48,7 @@ class FuelStationScope {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            '${mode.label} tools cannot be used for '
+            'Gas & Petroleum tools cannot be used for '
             '${businessType?.trim().isEmpty == false ? businessType : 'this'} business.',
             textAlign: TextAlign.center,
           ),

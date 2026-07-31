@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/routes.dart';
 import '../../../widgets/custom_button.dart';
@@ -38,16 +39,34 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
       _errorMessage = null;
     });
 
-    await Future.delayed(const Duration(milliseconds: 500));
-
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
     if (email != _adminEmail || password != _adminPassword) {
+      await Future.delayed(const Duration(milliseconds: 500));
       if (!mounted) return;
       setState(() {
         _isLoading = false;
         _errorMessage = 'Invalid admin credentials';
+      });
+      return;
+    }
+
+    // The admin gate above is a fixed allowlist check, but the admin
+    // dashboard's data calls (payments, settings, transactions, ...) go
+    // through ManagecareApiClient, which requires a real Supabase session
+    // to attach a bearer token. Without this, every admin API call fails
+    // with "No authorization header".
+    try {
+      await Supabase.instance.client.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Admin account sign-in failed: $e';
       });
       return;
     }

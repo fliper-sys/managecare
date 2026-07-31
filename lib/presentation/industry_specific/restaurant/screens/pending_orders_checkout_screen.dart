@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io';
 import 'dart:typed_data';
@@ -16,8 +15,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
 import '../../../../services/payment_service.dart';
-import '../../../../services/offline_sales_service.dart';
-import '../../../../data/repositories/sales_repository_impl.dart';
+import '../../../../data/repositories/sales_repository_supabase.dart';
 import '../../../../providers/connectivity_provider.dart';
 import '../providers/restaurant_provider.dart';
 import '../../../../services/pdf_receipt_generator.dart';
@@ -645,15 +643,44 @@ class _PendingOrdersAndCheckoutScreenState
       };
 
       // Save sale using offline-aware service
-      final firestore = FirebaseFirestore.instance;
       final connectivityProvider = Provider.of<ConnectivityProvider>(context, listen: false);
-      final salesRepository = SalesRepositoryImpl(firestore: firestore);
-      final offlineSalesService = OfflineSalesService(
-        salesRepository: salesRepository,
-        connectivityProvider: connectivityProvider,
-      );
+      final salesRepository = SalesRepositorySupabase();
+      final hasNetwork = connectivityProvider.isConnected;
 
-      final result = await offlineSalesService.createSale(saleData);
+      Map<String, dynamic> result;
+      if (!hasNetwork) {
+        final saleId = await salesRepository.createSaleOffline(saleData);
+        result = {'success': true, 'data': {'id': saleId, ...saleData}, 'mode': 'offline'};
+      } else {
+        try {
+          final created = await salesRepository.createSale({
+            'businessId': businessId,
+            'store_id': saleData['storeId'],
+            'worker_id': saleData['workerId'],
+            'worker_name': saleData['workerName'],
+            'total_amount': order.subtotal,
+            'discount_amount': order.discount,
+            'tax_amount': order.tax,
+            'final_amount': order.total,
+            'payment_method': _paymentMethod,
+            'status': 'completed',
+            'sale_type': 'restaurant',
+            'items': itemsList.map((it) => {
+                  'product_id': it['menuItemId'],
+                  'product_name': it['menuItemName'],
+                  'quantity': it['quantity'],
+                  'unit_price': it['unitPrice'],
+                  'discount': 0,
+                  'total': it['total'],
+                }).toList(),
+          });
+          result = {'success': true, 'data': created, 'mode': 'online'};
+        } catch (e) {
+          debugPrint('[RestaurantPOS] Remote sale write failed, saving locally: $e');
+          final saleId = await salesRepository.createSaleOffline(saleData);
+          result = {'success': true, 'data': {'id': saleId, ...saleData}, 'mode': 'offline'};
+        }
+      }
 
       if (!result['success']) {
         throw Exception(result['error'] ?? 'Failed to save sale');

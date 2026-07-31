@@ -576,7 +576,7 @@ class PharmacyProvider extends ChangeNotifier {
                 'status': lp.status,
                 if (lp.status == 'dispensed') 'dispensedAt': DateTime.now().toIso8601String(),
                 if (lp.status == 'cancelled') 'cancelledAt': DateTime.now().toIso8601String(),
-              });
+              }, businessId: businessId);
             } catch (e) {
               if (kDebugMode) debugPrint('[PharmacyProvider] Failed to re-apply local prescription status for ${lp.id}: $e');
             }
@@ -868,6 +868,7 @@ class PharmacyProvider extends ChangeNotifier {
               'userId': userId ?? 'system',
               'drugIds': items.map((e) => e['drugId']).toList(),
               'controlledDrugIds': controlledInvolved,
+              'businessId': businessId,
             });
           }
         }
@@ -885,6 +886,7 @@ class PharmacyProvider extends ChangeNotifier {
             'userId': userId ?? 'system',
             'drugIds': items.map((e) => e['drugId']).toList(),
             'controlledDrugIds': controlledInvolved,
+            'businessId': businessId,
           });
         }
       }
@@ -954,6 +956,7 @@ class PharmacyProvider extends ChangeNotifier {
           'userId': userId ?? 'system',
           'drugIds': pres.items.map((e) => e['drugId']).toList(),
           'controlledDrugIds': controlledInvolved,
+          'businessId': businessId,
         });
       }
 
@@ -963,7 +966,7 @@ class PharmacyProvider extends ChangeNotifier {
           'status': 'dispensed',
           'dispensedAt': DateTime.now().toIso8601String(),
           'dispensedBy': userId ?? 'system',
-        });
+        }, businessId: businessId);
       } catch (e) {
         // log and continue
         if (kDebugMode) debugPrint('[PharmacyProvider] Failed to update prescription on remote: $e');
@@ -1261,6 +1264,7 @@ class PharmacyProvider extends ChangeNotifier {
         'action': 'prescription_cancelled',
         'prescriptionId': pres.id,
         'userId': userId ?? 'system',
+        'businessId': businessId,
       });
 
       // Persist cancellation to remote prescription document
@@ -1269,7 +1273,7 @@ class PharmacyProvider extends ChangeNotifier {
           'status': 'cancelled',
           'cancelledAt': DateTime.now().toIso8601String(),
           'cancelledBy': userId ?? 'system',
-        });
+        }, businessId: businessId);
       } catch (e) {
         if (kDebugMode) debugPrint('[PharmacyProvider] Failed to update prescription cancellation on remote: $e');
       }

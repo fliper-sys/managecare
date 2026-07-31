@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart'
     show kIsWeb, TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';

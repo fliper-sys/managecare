@@ -1,16 +1,15 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../core/utils/datetime_utils.dart';
 import '../data/models/business_model.dart';
 import 'local_business_storage.dart';
+import 'managecare_api_client.dart';
 import 'notification_service.dart';
 import 'subscription_service.dart';
 
 /// Background subscription status checker
 /// Monitors subscription expiry, status changes, and enforces feature access
 class BackgroundSubscriptionChecker {
-  final FirebaseFirestore _firestore;
   final LocalBusinessStorage _localBusinessStorage;
 
   Timer? _checkTimer;
@@ -33,15 +32,13 @@ class BackgroundSubscriptionChecker {
   String? _activeUserRole;
 
   BackgroundSubscriptionChecker({
-    required FirebaseFirestore firestore,
     required LocalBusinessStorage localBusinessStorage,
     this.onSubscriptionStatusChanged,
     this.onFeatureAccessDenied,
     this.onSubscriptionExpiringSoon,
     this.onSubscriptionRenewalReminder,
     Duration checkInterval = const Duration(minutes: 30),
-  })  : _firestore = firestore,
-        _localBusinessStorage = localBusinessStorage,
+  })  : _localBusinessStorage = localBusinessStorage,
         _checkInterval = checkInterval;
 
   /// Start background subscription checking
@@ -114,26 +111,26 @@ class BackgroundSubscriptionChecker {
       _log.debug(
           'Checking subscription for business: ${business.id} (${business.name})');
 
-      // Get latest from Firebase
-      final docSnapshot =
-          await _firestore.collection('businesses').doc(business.id).get();
-
-      if (!docSnapshot.exists) {
-        _log.warn('Business document not found: ${business.id}');
+      // Get latest from the backend
+      Map<String, dynamic>? data;
+      try {
+        final response = await ManagecareApiClient.instance
+            .get('/api/subscriptions/business/${business.id}');
+        data = Map<String, dynamic>.from(response as Map);
+      } catch (_) {
+        _log.warn('Business record not found: ${business.id}');
         return;
       }
 
-      final data = docSnapshot.data() ?? {};
-
       // Extract subscription info
       final subscriptionTier = SubscriptionService.normalizeStoredPlanLevel(
-        subscriptionTier: data['subscriptionTier'] as String?,
-        subscriptionPlan: data['subscriptionPlan'] as String?,
-        businessClass: data['businessClass'] as String?,
+        subscriptionTier: data['subscription_tier'] as String?,
+        subscriptionPlan: data['subscription_plan'] as String?,
+        businessClass: data['business_class'] as String?,
       );
       final isSubscriptionActive =
-          data['isSubscriptionActive'] as bool? ?? false;
-      final subscriptionEndDateRaw = data['subscriptionEndDate'];
+          data['is_subscription_active'] as bool? ?? false;
+      final subscriptionEndDateRaw = data['subscription_end_date'];
 
       // Check subscription validity
       final wasValid = _isSubscriptionValid(business);
@@ -267,25 +264,14 @@ class BackgroundSubscriptionChecker {
     }
 
     try {
-      await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('notifications')
-          .add({
+      await ManagecareApiClient.instance.post('/api/push/send', body: {
+        'user_id': userId,
         'title': title,
         'body': body,
         'type': 'subscription_renewal_reminder',
-        'businessId': businessId,
-        'businessName': businessName,
-        'daysLeft': daysLeft,
-        'milestoneLabel': milestoneLabel,
-        'channel': 'subscription',
-        'isRead': false,
-        'delivered': true,
-        'createdAt': FieldValue.serverTimestamp(),
         'data': {
-          'type': 'subscription_renewal_reminder',
           'businessId': businessId,
+          'businessName': businessName,
           'daysLeft': daysLeft,
           'milestoneLabel': milestoneLabel,
         },

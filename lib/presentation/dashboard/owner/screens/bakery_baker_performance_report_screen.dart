@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -6,7 +5,9 @@ import 'package:provider/provider.dart';
 import '../../../../../core/theme/colors.dart';
 import '../../../../../core/theme/text_styles.dart';
 import '../../../../../providers/business_provider.dart';
+import '../../../../../services/managecare_api_client.dart';
 import '../../../../presentation/inventory/utils/bakery_assignment_analytics.dart';
+import '../../../../presentation/inventory/utils/bakery_resupply_row_mapper.dart';
 
 class BakeryBakerPerformanceReportScreen extends StatefulWidget {
   const BakeryBakerPerformanceReportScreen({super.key});
@@ -44,21 +45,14 @@ class _BakeryBakerPerformanceReportScreenState extends State<BakeryBakerPerforma
     setState(() => _isLoading = true);
 
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('bakery_resupplies')
-          .orderBy('createdAt', descending: true)
-          .get();
-
-      final assignments = snapshot.docs.map((doc) {
-        final data = doc.data();
-        return {'id': doc.id, ...data};
-      }).toList();
+      final response = await ManagecareApiClient.instance
+          .get('/api/inventory/$businessId/bakery-resupplies', query: {'limit': '500'});
+      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      final assignments = rows.map(bakeryResupplyRowToJson).toList();
 
       if (!mounted) return;
       setState(() {
-        _assignments = assignments.cast<Map<String, dynamic>>();
+        _assignments = assignments;
         _isLoading = false;
       });
     } catch (_) {
@@ -68,8 +62,8 @@ class _BakeryBakerPerformanceReportScreenState extends State<BakeryBakerPerforma
   }
 
   DateTime? _readAssignmentDate(dynamic value) {
-    if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
     return null;
   }
 

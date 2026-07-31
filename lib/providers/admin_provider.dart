@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../core/utils/datetime_utils.dart';
+import '../data/repositories/admin_repository.dart';
 import '../services/deletion_recovery_service.dart';
 import '../services/email_service.dart';
 
@@ -70,6 +71,7 @@ class AdminProvider extends ChangeNotifier {
   final DeletionRecoveryService _deletionRecoveryService =
       DeletionRecoveryService(firestore: FirebaseFirestore.instance);
   final EmailService _emailService = EmailService();
+  final AdminRepository _adminRepository = AdminRepository();
 
   AdminStats _stats = AdminStats();
   bool _isLoading = false;
@@ -79,10 +81,6 @@ class AdminProvider extends ChangeNotifier {
   int _usersCollectionCount = 0;
   int _workersCollectionCount = 0;
 
-  // Installation requests pending count
-  int _pendingInstallationRequests = 0;
-  StreamSubscription<QuerySnapshot>? _installationSub;
-  
   // Throttling: Prevent redundant Firestore calls
   DateTime? _lastStatsLoadTime;
   static const Duration _minStatsRefreshInterval = Duration(minutes: 2);
@@ -94,7 +92,6 @@ class AdminProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   List<Map<String, dynamic>> get allUsers => _allUsers;
   List<Map<String, dynamic>> get allBusinesses => _allBusinesses;
-  int get pendingInstallationRequestsCount => _pendingInstallationRequests;
   int get pendingSubscriptionApprovalsCount =>
       _stats.pendingSubscriptionApprovals;
   int get activeSubscriptionsCount => _stats.activeSubscriptions;
@@ -350,7 +347,7 @@ class AdminProvider extends ChangeNotifier {
     _stats = _stats.copyWith(
       totalBusinesses: _allBusinesses.length,
       activeSubscriptions:
-          _allBusinesses.where(_isSubscriptionActive).length,
+          _allBusinesses.where(_isBusinessAvailable).length,
       restrictedBusinesses:
           _allBusinesses.where(_isBusinessRestricted).length,
       pendingSubscriptionApprovals: pendingFromCache > 0
@@ -362,6 +359,11 @@ class AdminProvider extends ChangeNotifier {
   /// Load persisted admin settings.
   Future<Map<String, dynamic>> getAdminSettings() async {
     try {
+      try {
+        return await _adminRepository.getSettings();
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend settings fallback: $backendError');
+      }
       final doc = await _firestore.collection('system').doc('admin_settings').get();
       return doc.data() ?? const {};
     } catch (e) {
@@ -376,6 +378,15 @@ class AdminProvider extends ChangeNotifier {
     try {
       _isLoading = true;
       notifyListeners();
+
+      try {
+        await _adminRepository.saveSettings(settings);
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend save settings fallback: $backendError');
+      }
 
       await _firestore.collection('system').doc('admin_settings').set({
         ...settings,
@@ -417,6 +428,52 @@ class AdminProvider extends ChangeNotifier {
       // DON'T notify yet - wait until data is fetched to avoid rebuild loop
 
       print('[AdminProvider] 🔄 Fetching admin statistics...');
+
+      try {
+        final dashboard = await _adminRepository.fetchDashboard();
+        final backendStats =
+            Map<String, dynamic>.from(dashboard['stats'] as Map? ?? const {});
+        _allBusinesses =
+            List<Map<String, dynamic>>.from(dashboard['businesses'] as List);
+        _allUsers = List<Map<String, dynamic>>.from(dashboard['users'] as List);
+        _usersCollectionCount = (dashboard['usersCount'] as num?)?.toInt() ??
+            _allUsers.where((u) => u['tableSource'] == 'users').length;
+        _workersCollectionCount =
+            (dashboard['workersCount'] as num?)?.toInt() ??
+                _allUsers.where((u) => u['isWorker'] == true).length;
+        _stats = AdminStats(
+          totalBusinesses:
+              (backendStats['totalBusinesses'] as num?)?.toInt() ??
+                  _allBusinesses.length,
+          activeUsers: (backendStats['activeUsers'] as num?)?.toInt() ?? 0,
+          totalRevenue: (backendStats['totalRevenue'] as num?)?.toInt() ?? 0,
+          pendingPayments:
+              (backendStats['pendingPayments'] as num?)?.toInt() ?? 0,
+          totalTransactions:
+              (backendStats['totalTransactions'] as num?)?.toInt() ?? 0,
+          pendingSubscriptionApprovals:
+              (backendStats['pendingSubscriptionApprovals'] as num?)?.toInt() ??
+                  0,
+          activeSubscriptions:
+              (backendStats['activeSubscriptions'] as num?)?.toInt() ??
+                  _allBusinesses.where(_isBusinessAvailable).length,
+          restrictedBusinesses:
+              (backendStats['restrictedBusinesses'] as num?)?.toInt() ??
+                  _allBusinesses.where(_isBusinessRestricted).length,
+          totalMarketers:
+              (backendStats['totalMarketers'] as num?)?.toInt() ?? 0,
+          recentActivities: List<Map<String, dynamic>>.from(
+            backendStats['recentActivities'] as List? ?? const [],
+          ),
+        );
+        _lastStatsLoadTime = DateTime.now();
+        _isLoading = false;
+        _isStatsLoadInProgress = false;
+        notifyListeners();
+        return;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend stats fallback: $backendError');
+      }
 
       // Fetch all businesses
       final businessesSnapshot =
@@ -597,15 +654,12 @@ class AdminProvider extends ChangeNotifier {
         totalTransactions: totalTransactions,
         pendingSubscriptionApprovals: pendingSubscriptionApprovals,
         activeSubscriptions:
-            _allBusinesses.where(_isSubscriptionActive).length,
+            _allBusinesses.where(_isBusinessAvailable).length,
         restrictedBusinesses:
             _allBusinesses.where(_isBusinessRestricted).length,
         totalMarketers: totalMarketers,
         recentActivities: recentActivities,
       );
-
-      // Start listening to installation requests count (real-time)
-      _startInstallationRequestsListener();
 
       _lastStatsLoadTime = DateTime.now();
       _isLoading = false;
@@ -630,6 +684,19 @@ class AdminProvider extends ChangeNotifier {
     try {
       _isLoading = true;
       notifyListeners();
+
+      try {
+        await _adminRepository.broadcastNotification(
+          title: title,
+          body: body,
+          userIds: userIds,
+        );
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend sendNotificationToUsers fallback: $backendError');
+      }
 
       // Store notification in Firestore
       final notificationId = _firestore.collection('notifications').doc().id;
@@ -687,6 +754,40 @@ class AdminProvider extends ChangeNotifier {
     try {
       _isLoading = true;
       notifyListeners();
+
+      try {
+        await _adminRepository.grantBusinessSubscription(
+          businessId: businessId,
+          businessName: businessName,
+          tier: tier,
+          durationDays: durationDays,
+          source: source,
+        );
+
+        final normalizedTier = tier.toLowerCase();
+        final now = DateTime.now();
+        final endDate = now.add(Duration(days: durationDays));
+        final idx = _allBusinesses.indexWhere((b) => b['id'] == businessId);
+        if (idx >= 0) {
+          _allBusinesses[idx] = {
+            ..._allBusinesses[idx],
+            'subscriptionTier': normalizedTier,
+            'subscriptionPlan': '${normalizedTier}_${durationDays}d',
+            'isSubscriptionActive': true,
+            'subscriptionStatus': 'approved',
+            'subscriptionReviewStatus': 'approved',
+            'subscriptionEndDate': endDate.toIso8601String(),
+            'subscriptionStartDate': now.toIso8601String(),
+          };
+        }
+        _refreshDerivedStatsFromCache();
+
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend grantBusinessSubscription fallback: $backendError');
+      }
 
       final now = DateTime.now();
       final endDate = now.add(Duration(days: durationDays));
@@ -837,17 +938,30 @@ class AdminProvider extends ChangeNotifier {
         return false;
       }
 
-      // Store email record in Firestore
-      final emailId = _firestore.collection('emails').doc().id;
+      // Store email record - backend admin_email_logs table first, else
+      // legacy Firestore emails collection.
+      String? backendEmailLogId;
+      try {
+        backendEmailLogId = await _adminRepository.createEmailLog(
+          subject: subject,
+          body: body,
+          recipients: normalizedRecipients,
+        );
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend createEmailLog fallback: $backendError');
+      }
 
-      await _firestore.collection('emails').doc(emailId).set({
-        'subject': subject,
-        'body': body,
-        'recipients': normalizedRecipients,
-        'createdAt': FieldValue.serverTimestamp(),
-        'sentBy': _auth.currentUser?.email,
-        'status': 'processing',
-      });
+      final emailId = backendEmailLogId ?? _firestore.collection('emails').doc().id;
+      if (backendEmailLogId == null) {
+        await _firestore.collection('emails').doc(emailId).set({
+          'subject': subject,
+          'body': body,
+          'recipients': normalizedRecipients,
+          'createdAt': FieldValue.serverTimestamp(),
+          'sentBy': _auth.currentUser?.email,
+          'status': 'processing',
+        });
+      }
 
       final failedRecipients = <String>[];
       int sentCount = 0;
@@ -894,13 +1008,27 @@ class AdminProvider extends ChangeNotifier {
           ? null
           : 'Some emails failed to send (${failedRecipients.length}/${normalizedRecipients.length}).';
 
-      await _firestore.collection('emails').doc(emailId).set({
-        'status': status,
-        'sentCount': sentCount,
-        'failedCount': failedRecipients.length,
-        'failedRecipients': failedRecipients,
-        'completedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      if (backendEmailLogId != null) {
+        try {
+          await _adminRepository.completeEmailLog(
+            backendEmailLogId,
+            status: status,
+            sentCount: sentCount,
+            failedCount: failedRecipients.length,
+            failedRecipients: failedRecipients,
+          );
+        } catch (backendError) {
+          debugPrint('[AdminProvider] Backend completeEmailLog fallback: $backendError');
+        }
+      } else {
+        await _firestore.collection('emails').doc(emailId).set({
+          'status': status,
+          'sentCount': sentCount,
+          'failedCount': failedRecipients.length,
+          'failedRecipients': failedRecipients,
+          'completedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
 
       _isLoading = false;
       notifyListeners();
@@ -913,107 +1041,22 @@ class AdminProvider extends ChangeNotifier {
     }
   }
 
-  /// Activate a yearly subscription for all workers of a business.
+  /// Grants informational "admin yearly access" subscription metadata to
+  /// every worker of a business.
   ///
-  /// This sets a subscription flag on each worker's user document and
-  /// annotates common business records that reference the worker so that
-  /// workers are not restricted from accessing the app due to subscription checks.
+  /// Note: worker access is gated at the business subscription level (see
+  /// SubscriptionService.isSubscriptionActive - workers always have access
+  /// whenever their business subscription is active, regardless of any
+  /// per-worker flag), so this has no effect on actual access. It exists
+  /// purely as an audit/display action; the previous implementation also
+  /// fanned this flag out across every sales/booking/order record a worker
+  /// had ever touched, but that field had no read site anywhere in the app.
   Future<bool> activateYearlySubscriptionForWorkers(String businessId) async {
     try {
       _isLoading = true;
       notifyListeners();
 
-      final expiry = DateTime.now().add(const Duration(days: 365));
-
-      // Find worker users for this business
-      final usersQuery = await _firestore
-          .collection('users')
-          .where('businessId', isEqualTo: businessId)
-          .where('role', isEqualTo: 'worker')
-          .get();
-
-      // Collections under the business to annotate (workerId or createdBy)
-      final workerCollections = [
-        'sales',
-        'serviceOrders',
-        'bookings',
-        'invoices',
-        'payments',
-        'payment_transactions',
-        'orders',
-      ];
-
-      final batch = _firestore.batch();
-      final updatedUids = <String>[];
-
-      for (final u in usersQuery.docs) {
-        final uid = u.id;
-        updatedUids.add(uid);
-
-        // Queue user doc update in batch (merge)
-        batch.set(
-          u.reference,
-          {
-            'hasActiveSubscription': true,
-            'subscriptionPlan': 'admin_yearly',
-            'subscriptionStartDate': DateTime.now().toIso8601String(),
-            'subscriptionEndDate': expiry.toIso8601String(),
-            'subscriptionPaymentRequired': false,
-            'subscriptionSource': 'admin-grant',
-            'subscriptionActivatedBy': 'admin',
-          },
-          SetOptions(merge: true),
-        );
-
-        // For each business subcollection, annotate records referencing this worker
-        for (final coll in workerCollections) {
-          final colRef = _firestore.collection('businesses').doc(businessId).collection(coll);
-          // Query by workerId
-          try {
-            final byWorker = await colRef.where('workerId', isEqualTo: uid).get();
-            for (final d in byWorker.docs) {
-              try {
-                // update directly (not batching business documents to avoid hitting large write limits)
-                await d.reference.update({'workerSubscriptionActive': true});
-              } catch (_) {}
-            }
-          } catch (_) {}
-
-          // Query by createdBy
-          try {
-            final byCreator = await colRef.where('createdBy', isEqualTo: uid).get();
-            for (final d in byCreator.docs) {
-              try {
-                await d.reference.update({'workerSubscriptionActive': true});
-              } catch (_) {}
-            }
-          } catch (_) {}
-        }
-      }
-
-      // Commit batched user updates
-      if (updatedUids.isNotEmpty) {
-        await batch.commit();
-
-        // Update local cache for immediate UI feedback
-        for (var i = 0; i < _allUsers.length; i++) {
-          final u = _allUsers[i];
-          final id = (u['id'] ?? u['uid'] ?? '').toString();
-          if (updatedUids.contains(id)) {
-            _allUsers[i] = {
-              ...u,
-              'hasActiveSubscription': true,
-              'subscriptionPlan': 'admin_yearly',
-              'subscriptionStartDate': DateTime.now().toIso8601String(),
-              'subscriptionEndDate': expiry.toIso8601String(),
-              'subscriptionPaymentRequired': false,
-              'subscriptionSource': 'admin-grant',
-              'subscriptionActivatedBy': 'admin',
-            };
-          }
-        }
-        notifyListeners();
-      }
+      await _adminRepository.grantWorkersSubscription(businessId);
 
       _isLoading = false;
       notifyListeners();
@@ -1026,71 +1069,15 @@ class AdminProvider extends ChangeNotifier {
     }
   }
 
-  /// Grant yearly subscription to a single worker and annotate their records.
+  /// Grants informational "admin yearly access" subscription metadata to a
+  /// single worker. See [activateYearlySubscriptionForWorkers] for why this
+  /// has no effect on actual access.
   Future<bool> activateYearlySubscriptionForWorker(String userId, String businessId) async {
     try {
       _isLoading = true;
       notifyListeners();
 
-      final expiry = DateTime.now().add(const Duration(days: 365));
-      final userRef = _firestore.collection('users').doc(userId);
-
-      await userRef.set({
-        'hasActiveSubscription': true,
-        'subscriptionPlan': 'admin_yearly',
-        'subscriptionStartDate': DateTime.now().toIso8601String(),
-        'subscriptionEndDate': expiry.toIso8601String(),
-        'subscriptionPaymentRequired': false,
-        'subscriptionSource': 'admin-grant',
-        'subscriptionActivatedBy': 'admin',
-      }, SetOptions(merge: true));
-
-      // Update local cache immediately
-      for (var i = 0; i < _allUsers.length; i++) {
-        final u = _allUsers[i];
-        final id = (u['id'] ?? u['uid'] ?? '').toString();
-        if (id == userId) {
-          _allUsers[i] = {
-            ...u,
-            'hasActiveSubscription': true,
-            'subscriptionPlan': 'admin_yearly',
-            'subscriptionStartDate': DateTime.now().toIso8601String(),
-            'subscriptionEndDate': expiry.toIso8601String(),
-            'subscriptionPaymentRequired': false,
-            'subscriptionSource': 'admin-grant',
-            'subscriptionActivatedBy': 'admin',
-          };
-          break;
-        }
-      }
-      notifyListeners();
-
-      // annotate related business records
-      final workerCollections = [
-        'sales',
-        'serviceOrders',
-        'bookings',
-        'invoices',
-        'payments',
-        'payment_transactions',
-        'orders',
-      ];
-
-      for (final coll in workerCollections) {
-        final colRef = _firestore.collection('businesses').doc(businessId).collection(coll);
-        try {
-          final byWorker = await colRef.where('workerId', isEqualTo: userId).get();
-          for (final d in byWorker.docs) {
-            try { await d.reference.update({'workerSubscriptionActive': true}); } catch (_) {}
-          }
-        } catch (_) {}
-        try {
-          final byCreator = await colRef.where('createdBy', isEqualTo: userId).get();
-          for (final d in byCreator.docs) {
-            try { await d.reference.update({'workerSubscriptionActive': true}); } catch (_) {}
-          }
-        } catch (_) {}
-      }
+      await _adminRepository.grantWorkerSubscription(userId);
 
       _isLoading = false;
       notifyListeners();
@@ -1158,6 +1145,11 @@ class AdminProvider extends ChangeNotifier {
   /// Get user details
   Future<Map<String, dynamic>?> getUserDetails(String userId) async {
     try {
+      return await _adminRepository.getUser(userId);
+    } catch (backendError) {
+      debugPrint('[AdminProvider] Backend getUserDetails fallback: $backendError');
+    }
+    try {
       final userDoc = await _firestore.collection('users').doc(userId).get();
       final workerDoc = await _firestore.collection('workers').doc(userId).get();
 
@@ -1192,52 +1184,22 @@ class AdminProvider extends ChangeNotifier {
     }
   }
 
-  // ---------------------- Installation requests listener ------------------
-  void _startInstallationRequestsListener() {
-    // Avoid multiple subscriptions
-    if (_installationSub != null) return;
-
-    try {
-      // Count requests that are awaiting processing/evaluation/payment
-      final statuses = ['pending', 'scheduled', 'evaluated'];
-      _installationSub = _firestore
-          .collection('product_installation_requests')
-          .where('status', whereIn: statuses)
-          .snapshots()
-          .listen((snap) {
-        _pendingInstallationRequests = snap.docs.length;
-        notifyListeners();
-      });
-    } catch (e) {
-      // Some Firestore servers may not support whereIn on certain indexes during dev,
-      // gracefully fallback to a broad listener and compute client-side.
-      _installationSub = _firestore
-          .collection('product_installation_requests')
-          .snapshots()
-          .listen((snap) {
-        _pendingInstallationRequests = snap.docs.where((d) {
-          final data = d.data();
-          final status = (data['status'] ?? '').toString();
-          return status != 'rejected' && status != 'approved' && status != 'closed';
-        }).length;
-        notifyListeners();
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _installationSub?.cancel();
-    super.dispose();
-  }
-
   /// Update user document fields
   Future<bool> updateUser(String userId, Map<String, dynamic> updates) async {
     try {
       _isLoading = true;
       notifyListeners();
 
-      await _firestore.collection('users').doc(userId).update(updates);
+      var backendSaved = false;
+      try {
+        await _adminRepository.updateUser(userId, updates);
+        backendSaved = true;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend updateUser fallback: $backendError');
+      }
+      if (!backendSaved) {
+        await _firestore.collection('users').doc(userId).update(updates);
+      }
 
       // Update local cache if present
       final idx = _allUsers.indexWhere((u) => u['id'] == userId);
@@ -1261,6 +1223,15 @@ class AdminProvider extends ChangeNotifier {
     try {
       _isLoading = true;
       notifyListeners();
+
+      try {
+        await _adminRepository.removeMemberFromBusiness(
+          userId: userId,
+          businessId: businessId,
+        );
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend removeWorkerFromBusiness fallback: $backendError');
+      }
 
       await _firestore.collection('users').doc(userId).set({
         'businessId': null,
@@ -1311,6 +1282,11 @@ class AdminProvider extends ChangeNotifier {
   /// Get business details
   Future<Map<String, dynamic>?> getBusinessDetails(String businessId) async {
     try {
+      return await _adminRepository.getBusiness(businessId);
+    } catch (backendError) {
+      debugPrint('[AdminProvider] Backend getBusinessDetails fallback: $backendError');
+    }
+    try {
       final doc =
           await _firestore.collection('businesses').doc(businessId).get();
       if (doc.exists) {
@@ -1328,6 +1304,11 @@ class AdminProvider extends ChangeNotifier {
   /// Returns a map with totalSales, transactionCount and items aggregation
   Future<Map<String, dynamic>> getDailySalesSummary(
       String businessId, DateTime date) async {
+    try {
+      return await _adminRepository.getDailySalesSummary(businessId, date);
+    } catch (backendError) {
+      debugPrint('[AdminProvider] Backend getDailySalesSummary fallback: $backendError');
+    }
     try {
       final start = DateTime(date.year, date.month, date.day);
       final end = start.add(const Duration(days: 1));
@@ -1526,7 +1507,23 @@ class AdminProvider extends ChangeNotifier {
       _isLoading = true;
       notifyListeners();
 
-      await _firestore.collection('businesses').doc(businessId).update(updates);
+      var backendSaved = false;
+      try {
+        await _adminRepository.updateBusiness(businessId, updates);
+        backendSaved = true;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend business update failed: $backendError');
+      }
+
+      if (!backendSaved) {
+        await _firestore.collection('businesses').doc(businessId).update(updates);
+      } else {
+        try {
+          await _firestore.collection('businesses').doc(businessId).update(updates);
+        } catch (firestoreError) {
+          debugPrint('[AdminProvider] Legacy Firestore business mirror skipped: $firestoreError');
+        }
+      }
 
       // Update local cache if present
       final idx = _allBusinesses.indexWhere((b) => b['id'] == businessId);
@@ -1552,6 +1549,19 @@ class AdminProvider extends ChangeNotifier {
     try {
       _isLoading = true;
       notifyListeners();
+
+      try {
+        await _adminRepository.softDeleteBusiness(
+          businessId,
+          reason: 'Deleted by admin. Recoverable only by admin for 30 days.',
+        );
+        await fetchAdminStats(force: true);
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend deleteBusinessCompletely fallback: $backendError');
+      }
 
       final businessRef = _firestore.collection('businesses').doc(businessId);
       final businessSnap = await businessRef.get();
@@ -1604,6 +1614,16 @@ class AdminProvider extends ChangeNotifier {
     try {
       _isLoading = true;
       notifyListeners();
+
+      try {
+        await _adminRepository.restoreBusiness(businessId);
+        await fetchAdminStats(force: true);
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend restoreDeletedBusiness fallback: $backendError');
+      }
 
       final businessRef = _firestore.collection('businesses').doc(businessId);
       final businessSnap = await businessRef.get();
@@ -1659,6 +1679,19 @@ class AdminProvider extends ChangeNotifier {
 
       _isLoading = true;
       notifyListeners();
+
+      try {
+        await _adminRepository.softDeleteUser(
+          userId,
+          reason: 'Deleted by admin. Recoverable for 30 days.',
+        );
+        await fetchAdminStats(force: true);
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend deleteUserWithRecovery fallback: $backendError');
+      }
 
       final userRef = _firestore.collection('users').doc(userId);
       final workerRef = _firestore.collection('workers').doc(userId);
@@ -1718,6 +1751,16 @@ class AdminProvider extends ChangeNotifier {
       _isLoading = true;
       notifyListeners();
 
+      try {
+        await _adminRepository.restoreUser(userId);
+        await fetchAdminStats(force: true);
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend restoreDeletedUserAccount fallback: $backendError');
+      }
+
       final userRef = _firestore.collection('users').doc(userId);
       final userSnap = await userRef.get();
       if (!userSnap.exists) {
@@ -1770,28 +1813,6 @@ class AdminProvider extends ChangeNotifier {
     }
   }
 
-  /// Stream real-time stats updates
-  Stream<AdminStats> streamAdminStats() {
-    return _firestore.collection('system').doc('stats').snapshots().map((doc) {
-      if (doc.exists) {
-        final data = doc.data() ?? {};
-        return AdminStats(
-          totalBusinesses: data['totalBusinesses'] ?? 0,
-          activeUsers: data['activeUsers'] ?? 0,
-          totalRevenue: data['totalRevenue'] ?? 0,
-          pendingPayments: data['pendingPayments'] ?? 0,
-          totalTransactions: data['totalTransactions'] ?? 0,
-          pendingSubscriptionApprovals:
-              data['pendingSubscriptionApprovals'] ?? 0,
-          activeSubscriptions: data['activeSubscriptions'] ?? 0,
-          restrictedBusinesses: data['restrictedBusinesses'] ?? 0,
-          totalMarketers: data['totalMarketers'] ?? 0,
-        );
-      }
-      return AdminStats();
-    });
-  }
-
   /// Approve one-year subscription for a user or business
   Future<bool> approveOneYearSubscription(
       {required String businessId,
@@ -1818,6 +1839,33 @@ class AdminProvider extends ChangeNotifier {
       final declineReason = (reason?.trim().isNotEmpty ?? false)
           ? reason!.trim()
           : 'Declined by admin review.';
+
+      try {
+        await _adminRepository.declineBusinessSubscription(
+          businessId: businessId,
+          reason: declineReason,
+        );
+
+        final businessIndex =
+            _allBusinesses.indexWhere((b) => b['id'] == businessId);
+        if (businessIndex != -1) {
+          _allBusinesses[businessIndex] = {
+            ..._allBusinesses[businessIndex],
+            'isSubscriptionActive': false,
+            'subscriptionStatus': 'declined',
+            'subscriptionReviewStatus': 'declined',
+            'subscriptionDeclineReason': declineReason,
+          };
+        }
+        _refreshDerivedStatsFromCache();
+
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend declineOneYearSubscription fallback: $backendError');
+      }
+
       final businessRef = _firestore.collection('businesses').doc(businessId);
 
       await businessRef.set({
@@ -1918,43 +1966,108 @@ class AdminProvider extends ChangeNotifier {
           : restricted
               ? 'Access restricted by admin.'
               : null;
-      final businessRef = _firestore.collection('businesses').doc(businessId);
-      final businessSnap = await businessRef.get();
-      final adminSettings =
-          await _firestore.collection('system').doc('admin_settings').get();
-      final adminSettingsData = adminSettings.data() ?? const <String, dynamic>{};
-      final customerCareWhatsapp = _readString(
-        adminSettingsData['customerCareWhatsapp'] ??
-            adminSettingsData['supportWhatsapp'] ??
-            adminSettingsData['customerCarePhone'],
-      );
-      final businessName =
-          (businessSnap.data() ?? const {})['name']?.toString() ?? businessId;
-      final userNotificationMessage = restricted
-          ? [
-              '$businessName has been restricted by admin.',
-              if (trimmedReason != null && trimmedReason.isNotEmpty)
-                'Reason: $trimmedReason',
-              if (customerCareWhatsapp.isNotEmpty)
-                'Contact customer care on WhatsApp: $customerCareWhatsapp',
-            ].join('\n')
-          : '$businessName access has been restored. You can continue using the app.';
 
-      await businessRef.set({
-        'isRestricted': restricted,
-        'restrictionStatus': restricted ? 'restricted' : 'active',
-        'restrictionReason':
-            restricted ? trimmedReason : FieldValue.delete(),
-        'restrictedAt':
-            restricted ? FieldValue.serverTimestamp() : FieldValue.delete(),
-        'restrictedBy': restricted
-            ? (_auth.currentUser?.uid ?? 'system')
-            : FieldValue.delete(),
-        'restrictionLiftedAt':
-            restricted ? FieldValue.delete() : FieldValue.serverTimestamp(),
-        'isActive': restricted ? false : true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      var backendSaved = false;
+      try {
+        await _adminRepository.setBusinessRestriction(
+          businessId: businessId,
+          restricted: restricted,
+          reason: trimmedReason,
+        );
+        backendSaved = true;
+      } catch (backendError) {
+        debugPrint('[AdminProvider] Backend restriction fallback: $backendError');
+      }
+
+      try {
+        final businessRef = _firestore.collection('businesses').doc(businessId);
+        final businessSnap = await businessRef.get();
+        final adminSettings =
+            await _firestore.collection('system').doc('admin_settings').get();
+        final adminSettingsData =
+            adminSettings.data() ?? const <String, dynamic>{};
+        final customerCareWhatsapp = _readString(
+          adminSettingsData['customerCareWhatsapp'] ??
+              adminSettingsData['supportWhatsapp'] ??
+              adminSettingsData['customerCarePhone'],
+        );
+        final businessName =
+            (businessSnap.data() ?? const {})['name']?.toString() ?? businessId;
+        final userNotificationMessage = restricted
+            ? [
+                '$businessName has been restricted by admin.',
+                if (trimmedReason != null && trimmedReason.isNotEmpty)
+                  'Reason: $trimmedReason',
+                if (customerCareWhatsapp.isNotEmpty)
+                  'Contact customer care on WhatsApp: $customerCareWhatsapp',
+              ].join('\n')
+            : '$businessName access has been restored. You can continue using the app.';
+
+        await businessRef.set({
+          'isRestricted': restricted,
+          'restrictionStatus': restricted ? 'restricted' : 'active',
+          'restrictionReason':
+              restricted ? trimmedReason : FieldValue.delete(),
+          'restrictedAt':
+              restricted ? FieldValue.serverTimestamp() : FieldValue.delete(),
+          'restrictedBy': restricted
+              ? (_auth.currentUser?.uid ?? 'system')
+              : FieldValue.delete(),
+          'restrictionLiftedAt':
+              restricted ? FieldValue.delete() : FieldValue.serverTimestamp(),
+          'isActive': restricted ? false : true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        final affectedUsers = await _firestore
+            .collection('users')
+            .where('businessId', isEqualTo: businessId)
+            .get();
+        final affectedUserIds =
+            affectedUsers.docs.map((doc) => doc.id).toList(growable: false);
+
+        await _firestore.collection('admin_notifications').add({
+          'type': 'business_restriction',
+          'title': restricted ? 'Business Restricted' : 'Business Restored',
+          'message': restricted
+              ? '$businessName was restricted by admin.'
+              : '$businessName access was restored by admin.',
+          'data': {
+            'businessId': businessId,
+            'businessName': businessName,
+            'restricted': restricted,
+            'reason': trimmedReason,
+          },
+          'isRead': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        await _firestore.collection('notifications').add({
+          'title': restricted ? 'Business Restricted' : 'Business Restored',
+          'body': userNotificationMessage,
+          'type': 'business_restriction',
+          'targetUsers': affectedUserIds,
+          'businessId': businessId,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        for (final userDoc in affectedUsers.docs) {
+          await userDoc.reference.collection('notifications').add({
+            'title': restricted ? 'Business Restricted' : 'Business Restored',
+            'body': userNotificationMessage,
+            'read': false,
+            'type': 'business_restriction',
+            'businessId': businessId,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+        }
+
+      } catch (firestoreError) {
+        if (!backendSaved) {
+          rethrow;
+        }
+        debugPrint('[AdminProvider] Legacy Firestore restriction mirror skipped: $firestoreError');
+      }
 
       final businessIndex =
           _allBusinesses.indexWhere((b) => b['id'] == businessId);
@@ -1978,49 +2091,6 @@ class AdminProvider extends ChangeNotifier {
             'businessRestrictionReason': restricted ? trimmedReason : null,
           };
         }
-      }
-
-      final affectedUsers = await _firestore
-          .collection('users')
-          .where('businessId', isEqualTo: businessId)
-          .get();
-      final affectedUserIds =
-          affectedUsers.docs.map((doc) => doc.id).toList(growable: false);
-
-      await _firestore.collection('admin_notifications').add({
-        'type': 'business_restriction',
-        'title': restricted ? 'Business Restricted' : 'Business Restored',
-        'message': restricted
-            ? '$businessName was restricted by admin.'
-            : '$businessName access was restored by admin.',
-        'data': {
-          'businessId': businessId,
-          'businessName': businessName,
-          'restricted': restricted,
-          'reason': trimmedReason,
-        },
-        'isRead': false,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      await _firestore.collection('notifications').add({
-        'title': restricted ? 'Business Restricted' : 'Business Restored',
-        'body': userNotificationMessage,
-        'type': 'business_restriction',
-        'targetUsers': affectedUserIds,
-        'businessId': businessId,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      for (final userDoc in affectedUsers.docs) {
-        await userDoc.reference.collection('notifications').add({
-          'title': restricted ? 'Business Restricted' : 'Business Restored',
-          'body': userNotificationMessage,
-          'read': false,
-          'type': 'business_restriction',
-          'businessId': businessId,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
       }
 
       _refreshDerivedStatsFromCache();

@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -11,8 +10,10 @@ import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
 import '../../../../core/utils/amount_formatter.dart';
 import '../../../../services/email_service.dart';
+import '../../../../services/managecare_api_client.dart';
 import '../utils/pump_config_cache.dart';
 import '../utils/pump_daily_upload_validation.dart';
+import '../utils/pump_row_mapper.dart';
 
 class PumpDailyUploadScreen extends StatefulWidget {
   const PumpDailyUploadScreen({super.key});
@@ -50,6 +51,11 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   String? _shiftOpeningCashPhotoPath;
   String? _shiftOpeningCashPhotoUrl;
 
+  // The custom backend doesn't support Firestore-style realtime snapshots,
+  // so pump configuration is polled - same pattern used across every other
+  // migrated screen this session.
+  static const _pollInterval = Duration(seconds: 15);
+
   @override
   void dispose() {
     _openingController.dispose();
@@ -69,13 +75,18 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadCachedPumps());
   }
 
-  CollectionReference<Map<String, dynamic>>? _collection(String name) {
-    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-    if (businessId == null || businessId.isEmpty) return null;
-    return FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(businessId)
-        .collection(name);
+  Stream<List<Map<String, dynamic>>> _pumpsStream(String businessId) async* {
+    while (true) {
+      try {
+        final response = await ManagecareApiClient.instance
+            .get('/api/pumps/$businessId/pumps', query: {'isActive': 'true'});
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        yield rows.map(pumpRowToJson).toList();
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_pollInterval);
+    }
   }
 
   Map<String, dynamic>? _getPumpById(
@@ -102,13 +113,8 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     });
   }
 
-  void _syncCacheFromSnapshot(
-    String businessId,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final remotePumps = PumpConfigCache.sort(
-      docs.map(PumpConfigCache.fromDoc).toList(),
-    );
+  void _syncCacheFromRows(String businessId, List<Map<String, dynamic>> rows) {
+    final remotePumps = PumpConfigCache.sort(rows);
     if (remotePumps.isEmpty || PumpConfigCache.same(remotePumps, _cachedPumps)) {
       return;
     }
@@ -123,77 +129,21 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     });
   }
 
-  Future<QueryDocumentSnapshot<Map<String, dynamic>>?> _findLatestUpload(
-    CollectionReference<Map<String, dynamic>> uploads,
-    String pumpId, {
-    String? pumpNumber,
-  }) async {
-    QuerySnapshot<Map<String, dynamic>>? snapshot;
-
-    Future<QuerySnapshot<Map<String, dynamic>>?> runQuery(
-      Query<Map<String, dynamic>> query,
-    ) async {
-      try {
-        return await query.limit(1).get();
-      } catch (error) {
-        debugPrint('Pump upload query failed: $error');
-        return null;
-      }
-    }
-
-    snapshot = await runQuery(
-      uploads
-          .where('pumpId', isEqualTo: pumpId)
-          .orderBy('uploadedAt', descending: true),
-    );
-    if (snapshot != null && snapshot.docs.isNotEmpty) {
-      return snapshot.docs.first;
-    }
-
-    if (pumpNumber != null && pumpNumber.isNotEmpty) {
-      snapshot = await runQuery(
-        uploads
-            .where('pumpNumber', isEqualTo: pumpNumber)
-            .orderBy('uploadedAt', descending: true),
-      );
-      if (snapshot != null && snapshot.docs.isNotEmpty) {
-        return snapshot.docs.first;
-      }
-
-      final numericPumpNumber = num.tryParse(pumpNumber);
-      if (numericPumpNumber != null) {
-        snapshot = await runQuery(
-          uploads
-              .where('pumpNumber', isEqualTo: numericPumpNumber)
-              .orderBy('uploadedAt', descending: true),
-        );
-        if (snapshot != null && snapshot.docs.isNotEmpty) {
-          return snapshot.docs.first;
-        }
-      }
-    }
-
-    // Last-resort fallback: inspect recent uploads for a matching pump ID or number.
+  Future<Map<String, dynamic>?> _fetchLatestUpload(
+    String businessId,
+    String pumpId,
+  ) async {
     try {
-      snapshot = await uploads.orderBy('uploadedAt', descending: true).limit(100).get();
+      final response = await ManagecareApiClient.instance.get(
+        '/api/pumps/$businessId/uploads/latest',
+        query: {'pumpId': pumpId},
+      );
+      if (response == null) return null;
+      return pumpUploadRowToJson(Map<String, dynamic>.from(response as Map));
     } catch (error) {
-      debugPrint('Pump upload fallback scan failed: $error');
+      debugPrint('Pump upload query failed: $error');
       return null;
     }
-
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
-      if (data['pumpId']?.toString() == pumpId) return doc;
-      if (pumpNumber != null && pumpNumber.isNotEmpty) {
-        if (data['pumpNumber']?.toString() == pumpNumber) return doc;
-        final numericPumpNumber = num.tryParse(pumpNumber);
-        if (numericPumpNumber != null && data['pumpNumber'] == numericPumpNumber) {
-          return doc;
-        }
-      }
-    }
-
-    return null;
   }
 
   double? _parseNumber(dynamic value) {
@@ -212,8 +162,8 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     String pumpId, {
     String? pumpNumber,
   }) async {
-    final uploads = _collection('pump_daily_uploads');
-    if (uploads == null) return;
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return;
     if (_isLoadingPreviousClosing && _loadingPumpId == pumpId) return;
 
     setState(() {
@@ -222,18 +172,13 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       _previousClosingVolume = null;
     });
 
+    Map<String, dynamic>? latest;
     try {
-      final latest = await _findLatestUpload(
-        uploads,
-        pumpId,
-        pumpNumber: pumpNumber,
-      );
-      final value = latest == null
-          ? null
-          : _parseNumber(latest.data()['closingVolume']);
-      final previousShiftCash = latest == null
-          ? null
-          : _parseNumber(latest.data()['shiftCloseCash']);
+      latest = await _fetchLatestUpload(businessId, pumpId);
+      final value =
+          latest == null ? null : _parseNumber(latest['closingVolume']);
+      final previousShiftCash =
+          latest == null ? null : _parseNumber(latest['shiftCloseCash']);
       if (!mounted) return;
       setState(() {
         _previousClosingVolume = value;
@@ -256,12 +201,12 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       }
     }
 
-    await _loadPreviousAnalogClosing(pumpId, pumpNumber: pumpNumber);
+    await _loadPreviousAnalogClosing(pumpId, latestUpload: latest);
   }
 
   Future<void> _loadPreviousAnalogClosing(
     String pumpId, {
-    String? pumpNumber,
+    Map<String, dynamic>? latestUpload,
   }) async {
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     if (businessId == null || businessId.isEmpty) return;
@@ -269,18 +214,11 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     final cachedValue = await PumpAnalogClosingCache.load(businessId, pumpId);
     double? value = cachedValue;
 
-    final uploads = _collection('pump_daily_uploads');
-    if (uploads != null) {
-      final latest = await _findLatestUpload(
-        uploads,
-        pumpId,
-        pumpNumber: pumpNumber,
-      );
-      if (latest != null) {
-        final remoteValue = _parseNumber(latest.data()['analogClosingVolume']);
-        if (remoteValue != null) {
-          value = remoteValue;
-        }
+    final latest = latestUpload ?? await _fetchLatestUpload(businessId, pumpId);
+    if (latest != null) {
+      final remoteValue = _parseNumber(latest['analogClosingVolume']);
+      if (remoteValue != null) {
+        value = remoteValue;
       }
     }
 
@@ -488,32 +426,36 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       return {'price': fallbackPrice};
     }
 
-    final productDoc = await FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(businessId)
-        .collection('inventory')
-        .doc(productId)
-        .get();
+    Map<String, dynamic>? productData;
+    try {
+      final response = await ManagecareApiClient.instance
+          .get('/api/inventory/$businessId/$productId');
+      productData = response == null
+          ? null
+          : Map<String, dynamic>.from(response as Map);
+    } catch (_) {
+      productData = null;
+    }
 
-    final productData = productDoc.data();
     final currentPrice =
         (productData?['price'] as num?)?.toDouble() ?? fallbackPrice;
 
-    if (currentPrice > 0) {
-      if ((currentPrice - fallbackPrice).abs() > 0.0001) {
-        final pumpId = pump['id']?.toString();
-        if (pumpId != null && pumpId.isNotEmpty) {
-          await FirebaseFirestore.instance
-              .collection('businesses')
-              .doc(businessId)
-              .collection('pump_configurations')
-              .doc(pumpId)
-              .set({'productPrice': currentPrice}, SetOptions(merge: true));
-          await PumpConfigCache.upsert(businessId, pumpId, {
-            ...pump,
-            'productPrice': currentPrice,
-          });
+    if (currentPrice > 0 && (currentPrice - fallbackPrice).abs() > 0.0001) {
+      final pumpId = pump['id']?.toString();
+      if (pumpId != null && pumpId.isNotEmpty) {
+        try {
+          await ManagecareApiClient.instance.put(
+            '/api/pumps/$businessId/pumps/$pumpId',
+            body: {'product_price': currentPrice},
+          );
+        } catch (_) {
+          // Non-fatal - the sale still proceeds at the resolved price even
+          // if persisting the refreshed price back onto the pump fails.
         }
+        await PumpConfigCache.upsert(businessId, pumpId, {
+          ...pump,
+          'productPrice': currentPrice,
+        });
       }
     }
 
@@ -545,15 +487,6 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         : (pump['productPrice'] as num?)?.toDouble() ?? 0.0;
   }
 
-  double _computeCalculatedSalesVolume(double opening, double closing, double price) {
-    if (price <= 0) return 0.0;
-    final rawVolume = (closing - opening).clamp(0.0, 999999999.0);
-    if (rawVolume <= 0) return 0.0;
-    final roundedVolume = double.parse(rawVolume.toStringAsFixed(3));
-    if (roundedVolume <= 0) return 0.001;
-    return roundedVolume < 0.001 ? 0.001 : roundedVolume;
-  }
-
   double _computeCashBasedSalesVolume(
     double shiftOpeningCash,
     double shiftCloseCash,
@@ -568,6 +501,54 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     return roundedVolume < 0.001 ? 0.001 : roundedVolume;
   }
 
+  String _uploadFingerprint({
+    required String pumpId,
+    required String productId,
+    required double opening,
+    required double closing,
+    required double analogOpening,
+    required double analogClosing,
+    required double shiftOpeningCash,
+    required double shiftCloseCash,
+    required double cash,
+    required double pos,
+  }) {
+    String fixed(double value, int decimals) => value.toStringAsFixed(decimals);
+    return [
+      pumpId,
+      productId,
+      fixed(opening, 3),
+      fixed(closing, 3),
+      fixed(analogOpening, 3),
+      fixed(analogClosing, 3),
+      fixed(shiftOpeningCash, 2),
+      fixed(shiftCloseCash, 2),
+      fixed(cash, 2),
+      fixed(pos, 2),
+    ].join('|');
+  }
+
+  Future<bool> _hasDuplicateUpload({
+    required String businessId,
+    required String fingerprint,
+    required String pumpId,
+  }) async {
+    try {
+      final response = await ManagecareApiClient.instance.get(
+        '/api/pumps/$businessId/uploads',
+        query: {'pumpId': pumpId, 'limit': '50'},
+      );
+      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      return rows.any((row) => row['upload_fingerprint']?.toString() == fingerprint);
+    } catch (error) {
+      debugPrint('Duplicate upload check failed: $error');
+      // The server-side unique constraint on (business_id, pump_id,
+      // upload_fingerprint) is the authoritative backstop if this
+      // pre-check can't run.
+      return false;
+    }
+  }
+
   bool _allImagesSelected() {
     return _openingPhotoPath != null &&
         _closingPhotoPath != null &&
@@ -576,9 +557,8 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   }
 
   Future<void> _saveUpload(Map<String, dynamic> pump) async {
-    final uploads = _collection('pump_daily_uploads');
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-    if (uploads == null || businessId == null || _selectedPumpId == null) return;
+    if (businessId == null || businessId.isEmpty || _selectedPumpId == null) return;
 
     if (!_allImagesSelected()) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -603,6 +583,32 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     final cash = _parseControllerValue(_cashController);
     final pos = _parseControllerValue(_posController);
     final productId = pump['productId']?.toString() ?? '';
+    final uploadFingerprint = _uploadFingerprint(
+      pumpId: _selectedPumpId!,
+      productId: productId,
+      opening: opening,
+      closing: closing,
+      analogOpening: analogOpening,
+      analogClosing: analogClosing,
+      shiftOpeningCash: shiftOpeningCash,
+      shiftCloseCash: shiftCloseCash,
+      cash: cash,
+      pos: pos,
+    );
+
+    if (await _hasDuplicateUpload(
+      businessId: businessId,
+      fingerprint: uploadFingerprint,
+      pumpId: _selectedPumpId!,
+    )) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This exact pump upload has already been submitted.'),
+        ),
+      );
+      return;
+    }
 
     final retail = context.read<RetailProvider>();
     await retail.loadProducts(forceRefresh: true);
@@ -697,84 +703,96 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
 
       // Use the cash-derived sales volume for the sale
       final saleData = await retail.fuelSale(
-      productId: productId,
-      quantity: calculatedSalesVolume,
-      amountPaid: totalPaid > 0 ? totalPaid : null,
-      paymentMethod: paymentMethod,
-      workerId: auth?.id,
-      workerName: auth?.fullName ?? auth?.email,
-      pumpId: _selectedPumpId,
-      pumpNumber: pump['pumpNumber']?.toString(),
-      pumpName: pump['productName']?.toString(),
-    );
+        productId: productId,
+        quantity: calculatedSalesVolume,
+        amountPaid: totalPaid > 0 ? totalPaid : null,
+        paymentMethod: paymentMethod,
+        workerId: auth?.id,
+        workerName: auth?.fullName ?? auth?.email,
+        pumpId: _selectedPumpId,
+        pumpNumber: pump['pumpNumber']?.toString(),
+        pumpName: pump['productName']?.toString(),
+      );
 
-    final discrepancyNotes = buildDiscrepancyNotes(
-      opening: opening,
-      closing: closing,
-      analogClosing: analogClosing,
-      shiftOpeningCash: shiftOpeningCash,
-      shiftCloseCash: shiftCloseCash,
-      cash: cash,
-      pos: pos,
-      digitalVolume: digitalVolume,
-      shiftCashDifference: shiftCashDifference,
-      price: price,
-      expectedAmount: expectedAmount,
-      totalPaid: totalPaid,
-      hasShiftCashEntry: hasShiftCashEntry,
-      hasAnalogEntry: hasAnalogEntry,
-      previousClosingVolume: _previousClosingVolume,
-      previousAnalogClosingVolume: _previousAnalogClosingVolume,
-      productId: productId,
-      shiftOpeningCashPhotoUrl: shiftOpeningCashPhotoUrl,
-      shiftCloseCashPhotoUrl: shiftCloseCashPhotoUrl,
-      openingPhotoUrl: openingPhotoUrl,
-      closingPhotoUrl: closingPhotoUrl,
-    );
-    final discrepancySummary = formatDiscrepancySummary(discrepancyNotes);
+      final discrepancyNotes = buildDiscrepancyNotes(
+        opening: opening,
+        closing: closing,
+        analogClosing: analogClosing,
+        shiftOpeningCash: shiftOpeningCash,
+        shiftCloseCash: shiftCloseCash,
+        cash: cash,
+        pos: pos,
+        digitalVolume: digitalVolume,
+        shiftCashDifference: shiftCashDifference,
+        price: price,
+        expectedAmount: expectedAmount,
+        totalPaid: totalPaid,
+        hasShiftCashEntry: hasShiftCashEntry,
+        hasAnalogEntry: hasAnalogEntry,
+        previousClosingVolume: _previousClosingVolume,
+        previousAnalogClosingVolume: _previousAnalogClosingVolume,
+        productId: productId,
+        shiftOpeningCashPhotoUrl: shiftOpeningCashPhotoUrl,
+        shiftCloseCashPhotoUrl: shiftCloseCashPhotoUrl,
+        openingPhotoUrl: openingPhotoUrl,
+        closingPhotoUrl: closingPhotoUrl,
+      );
+      final discrepancySummary = formatDiscrepancySummary(discrepancyNotes);
 
-    final uploadRef = uploads.doc();
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      transaction.set(uploadRef, {
-        'pumpId': _selectedPumpId,
-        'pumpNumber': pump['pumpNumber'],
-        'productId': productId,
-        'productName': pump['productName'],
-        'productUnit': pump['productUnit'],
-        'productPrice': price,
-        'openingVolume': opening,
-        'closingVolume': closing,
-        'digitalVolume': digitalVolume,
-        'volumeDifference': digitalVolume,
-        'analogOpeningVolume': analogOpening,
-        'soldVolume': calculatedSalesVolume,
-        'cashDerivedVolume': calculatedSalesVolume,
-        'analogClosingVolume': analogClosing,
-        'previousAnalogClosingVolume': _previousAnalogClosingVolume,
-        'previousShiftClosingCash': _previousShiftClosingCash,
-        'expectedAmount': expectedAmount,
-        'discrepancyNotes': discrepancyNotes,
-        'discrepancySummary': discrepancySummary,
-        'shiftOpeningCash': shiftOpeningCash,
-        'shiftCloseCash': shiftCloseCash,
-        'shiftCashDifference': shiftCashDifference,
-        'previousClosingVolume': _previousClosingVolume,
-        'todayPumpCash': cash,
-        'cashAmount': cash,
-        'posAmount': pos,
-        'totalPaid': totalPaid,
-        'saleId': saleData['id'] ?? saleData['orderId'],
-        'shiftOpeningCashPhotoUrl': shiftOpeningCashPhotoUrl,
-        'shiftCloseCashPhotoUrl': shiftCloseCashPhotoUrl,
-        'openingPhotoUrl': openingPhotoUrl,
-        'closingPhotoUrl': closingPhotoUrl,
-        'workerId': auth?.id,
-        'workerName': auth?.fullName ?? auth?.email,
-        'uploadedAt': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
-        'category': 'pump_daily_upload',
-      });
-    });
+      try {
+        await ManagecareApiClient.instance.post(
+          '/api/pumps/$businessId/uploads',
+          body: {
+            'pump_id': _selectedPumpId,
+            'pump_number': pump['pumpNumber'],
+            'product_id': productId,
+            'product_name': pump['productName'],
+            'product_unit': pump['productUnit'],
+            'product_price': price,
+            'opening_volume': opening,
+            'closing_volume': closing,
+            'digital_volume': digitalVolume,
+            'volume_difference': digitalVolume,
+            'analog_opening_volume': analogOpening,
+            'sold_volume': calculatedSalesVolume,
+            'cash_derived_volume': calculatedSalesVolume,
+            'analog_closing_volume': analogClosing,
+            'previous_analog_closing_volume': _previousAnalogClosingVolume,
+            'previous_shift_closing_cash': _previousShiftClosingCash,
+            'previous_closing_volume': _previousClosingVolume,
+            'expected_amount': expectedAmount,
+            'discrepancy_notes': discrepancyNotes,
+            'discrepancy_summary': discrepancySummary,
+            'shift_opening_cash': shiftOpeningCash,
+            'shift_close_cash': shiftCloseCash,
+            'shift_cash_difference': shiftCashDifference,
+            'today_pump_cash': cash,
+            'cash_amount': cash,
+            'pos_amount': pos,
+            'total_paid': totalPaid,
+            'upload_fingerprint': uploadFingerprint,
+            'sale_id': saleData['id'] ?? saleData['orderId'],
+            'shift_opening_cash_photo_url': shiftOpeningCashPhotoUrl,
+            'shift_close_cash_photo_url': shiftCloseCashPhotoUrl,
+            'opening_photo_url': openingPhotoUrl,
+            'closing_photo_url': closingPhotoUrl,
+            'worker_id': auth?.id,
+            'worker_name': auth?.fullName ?? auth?.email,
+          },
+        );
+      } on ManagecareApiException catch (error) {
+        if (error.statusCode == 409) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('This exact pump upload has already been submitted.'),
+            ),
+          );
+          return;
+        }
+        rethrow;
+      }
+
       await PumpAnalogClosingCache.save(businessId, _selectedPumpId!, analogClosing);
       await PumpUploadDraftCache.clear(businessId, _selectedPumpId!);
 
@@ -790,7 +808,6 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pumps = _collection('pump_configurations');
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     final currentOpeningCash = parseAmountInput(_shiftOpeningCashController.text) ?? 0.0;
     final openingCashDiff = _previousShiftClosingCash != null
@@ -798,20 +815,16 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         : null;
     return Scaffold(
       appBar: AppBar(title: const Text('Pump Volume Upload')),
-      body: pumps == null
+      body: businessId == null || businessId.isEmpty
           ? const Center(child: Text('No business selected'))
-          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: pumps
-                  .where('isActive', isEqualTo: true)
-                  .snapshots(includeMetadataChanges: true),
+          : StreamBuilder<List<Map<String, dynamic>>>(
+              stream: _pumpsStream(businessId),
               builder: (context, snapshot) {
-                final pumpDocs = snapshot.data?.docs ?? [];
-                if (businessId != null && businessId.isNotEmpty) {
-                  _syncCacheFromSnapshot(businessId, pumpDocs);
+                final pumpRows = snapshot.data ?? [];
+                if (pumpRows.isNotEmpty) {
+                  _syncCacheFromRows(businessId, pumpRows);
                 }
-                final remotePumps = PumpConfigCache.sort(
-                  pumpDocs.map(PumpConfigCache.fromDoc).toList(),
-                );
+                final remotePumps = PumpConfigCache.sort(pumpRows);
                 final availablePumps =
                     remotePumps.isNotEmpty ? remotePumps : _cachedPumps;
                 final selectedPump = _getPumpById(availablePumps, _selectedPumpId);
@@ -1122,7 +1135,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                       inputFormatters: const [AmountInputFormatter()],
                       decoration: const InputDecoration(
                         labelText: 'Today analog entry',
-                        border: const OutlineInputBorder(),
+                        border: OutlineInputBorder(),
                       ),
                       onChanged: (_) {
                         setState(() {});
@@ -1146,7 +1159,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                           ' = (shift close cash - shift opening cash) ÷ ${formatAmount(price, decimalDigits: 2)}',
                         ),
                         trailing: Text(
-                          '${formatAmount(expectedAmount, decimalDigits: 2)}',
+                          formatAmount(expectedAmount, decimalDigits: 2),
                         ),
                       ),
                     ),

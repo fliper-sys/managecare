@@ -1,5 +1,4 @@
 import 'package:business_manager/presentation/industry_specific/gas/utils/pump_opening_cash_utils.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -8,8 +7,9 @@ import '../../../../core/utils/amount_formatter.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../services/managecare_api_client.dart';
 import '../utils/pump_config_cache.dart';
-import '../utils/pump_upload_dispute_utils.dart';
+import '../utils/pump_row_mapper.dart';
 import 'disputed_pump_uploads_screen.dart';
 
 class PumpUploadHistoryScreen extends StatefulWidget {
@@ -28,19 +28,12 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
   bool _showMismatchBadge = true;
   List<Map<String, dynamic>> _cachedPumps = [];
 
+  static const _pollInterval = Duration(seconds: 15);
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadCachedPumps());
-  }
-
-  CollectionReference<Map<String, dynamic>>? _collection(String name) {
-    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-    if (businessId == null || businessId.isEmpty) return null;
-    return FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(businessId)
-        .collection(name);
   }
 
   Future<void> _loadCachedPumps() async {
@@ -53,13 +46,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     });
   }
 
-  void _syncCacheFromSnapshot(
-    String businessId,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final remotePumps = PumpConfigCache.sort(
-      docs.map(PumpConfigCache.fromDoc).toList(),
-    );
+  void _syncCacheFromRows(String businessId, List<Map<String, dynamic>> rows) {
+    final remotePumps = PumpConfigCache.sort(rows);
     if (remotePumps.isEmpty || PumpConfigCache.same(remotePumps, _cachedPumps)) {
       return;
     }
@@ -73,9 +61,40 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     });
   }
 
+  Stream<List<Map<String, dynamic>>> _pumpsStream(String businessId) async* {
+    while (true) {
+      try {
+        final response = await ManagecareApiClient.instance
+            .get('/api/pumps/$businessId/pumps', query: {'isActive': 'true'});
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        yield rows.map(pumpRowToJson).toList();
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_pollInterval);
+    }
+  }
+
+  Stream<List<Map<String, dynamic>>> _uploadsStream(String businessId) async* {
+    while (true) {
+      try {
+        final query = <String, dynamic>{'limit': '200', 'isDisputed': 'false'};
+        if (_startDate != null) query['from'] = _startDate!.toIso8601String();
+        if (_endDate != null) query['to'] = _endDate!.toIso8601String();
+        final response = await ManagecareApiClient.instance
+            .get('/api/pumps/$businessId/uploads', query: query);
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        yield rows.map(pumpUploadRowToJson).toList();
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_pollInterval);
+    }
+  }
+
   List<Map<String, String>> _pumpFilterOptions({
     required List<Map<String, dynamic>> pumpEntries,
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> uploadDocs,
+    required List<Map<String, dynamic>> uploadRows,
   }) {
     final options = <Map<String, String>>[];
     final seen = <String>{};
@@ -108,12 +127,11 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
       );
     }
 
-    for (final doc in uploadDocs) {
-      final data = doc.data();
+    for (final row in uploadRows) {
       addOption(
-        pumpId: data['pumpId']?.toString() ?? '',
-        pumpNumber: data['pumpNumber']?.toString() ?? '',
-        productName: data['productName']?.toString() ?? 'Fuel',
+        pumpId: row['pumpId']?.toString() ?? '',
+        pumpNumber: row['pumpNumber']?.toString() ?? '',
+        productName: row['productName']?.toString() ?? 'Fuel',
       );
     }
 
@@ -140,6 +158,18 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
       return value;
     }
     return '0.00';
+  }
+
+  double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value == null) return 0.0;
+    return double.tryParse(value.toString().replaceAll(',', '').trim()) ?? 0.0;
+  }
+
+  DateTime? _readDate(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value.toString());
   }
 
   Future<void> _showImageDialog(String imageUrl, String label) async {
@@ -389,7 +419,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     return false;
   }
 
-  Future<void> _deleteUpload(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+  Future<void> _deleteUpload(String businessId, Map<String, dynamic> row) async {
     final isOwner = context.read<AuthProvider>().currentUser?.isOwner == true;
     if (!isOwner) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -419,7 +449,9 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     if (!confirmed) return;
 
     try {
-      await doc.reference.delete();
+      final id = row['id']?.toString();
+      if (id == null || id.isEmpty) return;
+      await ManagecareApiClient.instance.delete('/api/pumps/$businessId/uploads/$id');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Pump upload deleted')),
@@ -433,7 +465,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
   }
 
   Future<void> _markAsDisputed(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    String businessId,
+    Map<String, dynamic> row,
   ) async {
     final reasonController = TextEditingController();
     bool confirmed;
@@ -477,27 +510,17 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
 
       final auth = context.read<AuthProvider>().currentUser;
       final reason = reasonController.text.trim();
+      final id = row['id']?.toString();
+      if (id == null || id.isEmpty) return;
       try {
-        await doc.reference.update({
-          'isDisputed': true,
-          'disputedAt': FieldValue.serverTimestamp(),
-          'disputedBy': auth?.id,
-          'disputedByName': auth?.fullName ?? auth?.email,
-          if (reason.isNotEmpty) 'disputeReason': reason,
-        });
-
-        final adjustments = _collection('pump_upload_adjustments');
-        if (adjustments != null) {
-          await logPumpUploadDisputeEvent(
-            adjustments: adjustments,
-            uploadId: doc.id,
-            uploadData: doc.data(),
-            action: 'disputed',
-            note: reason,
-            adjustedBy: auth?.id,
-            adjustedByName: auth?.fullName ?? auth?.email,
-          );
-        }
+        await ManagecareApiClient.instance.patch(
+          '/api/pumps/$businessId/uploads/$id/dispute',
+          body: {
+            'disputed_by': auth?.id,
+            'disputed_by_name': auth?.fullName ?? auth?.email,
+            if (reason.isNotEmpty) 'dispute_reason': reason,
+          },
+        );
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -516,8 +539,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pumps = _collection('pump_configurations');
-    final uploads = _collection('pump_daily_uploads');
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     final role = WorkerPermissions.normalizeRole(
       context.watch<AuthProvider>().currentUser?.role ?? '',
     );
@@ -544,7 +566,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
             ),
         ],
       ),
-      body: pumps == null || uploads == null
+      body: businessId == null || businessId.isEmpty
           ? const Center(child: Text('No business selected'))
           : Column(
               children: [
@@ -552,35 +574,24 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        stream: pumps
-                            .where('isActive', isEqualTo: true)
-                            .orderBy('pumpNumber')
-                            .snapshots(includeMetadataChanges: true),
+                      StreamBuilder<List<Map<String, dynamic>>>(
+                        stream: _pumpsStream(businessId),
                         builder: (context, snapshot) {
-                          final pumpDocs = snapshot.data?.docs ?? [];
-                          final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-                          if (businessId != null && businessId.isNotEmpty) {
-                            _syncCacheFromSnapshot(businessId, pumpDocs);
+                          final pumpRows = snapshot.data ?? [];
+                          if (pumpRows.isNotEmpty) {
+                            _syncCacheFromRows(businessId, pumpRows);
                           }
-                          final remotePumps = PumpConfigCache.sort(
-                            pumpDocs.map(PumpConfigCache.fromDoc).toList(),
-                          );
+                          final remotePumps = PumpConfigCache.sort(pumpRows);
                           final availablePumps = remotePumps.isNotEmpty
                               ? remotePumps
                               : _cachedPumps;
-                          return StreamBuilder<
-                              QuerySnapshot<Map<String, dynamic>>>(
-                            stream: uploads
-                                .orderBy('uploadedAt', descending: true)
-                                .limit(200)
-                                .snapshots(includeMetadataChanges: true),
+                          return StreamBuilder<List<Map<String, dynamic>>>(
+                            stream: _uploadsStream(businessId),
                             builder: (context, uploadSnapshot) {
-                              final uploadDocs =
-                                  uploadSnapshot.data?.docs ?? [];
+                              final uploadRows = uploadSnapshot.data ?? [];
                               final pumpOptions = _pumpFilterOptions(
                                 pumpEntries: availablePumps,
-                                uploadDocs: uploadDocs,
+                                uploadRows: uploadRows,
                               );
                               final selectedValue = pumpOptions.any(
                                 (pump) => pump['id'] == _selectedPumpId,
@@ -690,14 +701,13 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                 Expanded(
                   child: Builder(
                     builder: (context) {
-                      final uploadStream = _uploadStream(uploads);
-                      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      return StreamBuilder<List<Map<String, dynamic>>>(
                         key: ValueKey(
                           '${_selectedPumpId ?? ''}|'
                           '${_startDate?.millisecondsSinceEpoch ?? ''}|'
                           '${_endDate?.millisecondsSinceEpoch ?? ''}',
                         ),
-                        stream: uploadStream,
+                        stream: _uploadsStream(businessId),
                         builder: (context, snapshot) {
                           if (mustFilterOnePump &&
                               (_selectedPumpId == null ||
@@ -706,47 +716,59 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                               child: Text('Select one pump to view uploads'),
                             );
                           }
-                          final docs = (snapshot.data?.docs ?? [])
-                              .where((doc) =>
-                                  _matchesSelectedPump(doc.data()) &&
-                                  doc.data()['isDisputed'] != true)
+                          final rows = (snapshot.data ?? [])
+                              .where((data) =>
+                                  _matchesSelectedPump(data) &&
+                                  data['isDisputed'] != true)
                               .toList();
                           if (snapshot.connectionState == ConnectionState.waiting &&
-                              docs.isEmpty) {
+                              rows.isEmpty) {
                             return const Center(child: CircularProgressIndicator());
                           }
-                          if (docs.isEmpty) {
+                          if (rows.isEmpty) {
                             return const Center(child: Text('No pump uploads yet'));
                           }
                           return ListView.separated(
                             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                            itemCount: docs.length,
+                            itemCount: rows.length,
                             separatorBuilder: (_, __) => const SizedBox(height: 8),
                             itemBuilder: (context, index) {
-                              final data = docs[index].data();
-                              final uploadedAt = data['uploadedAt'] is Timestamp
-                                  ? (data['uploadedAt'] as Timestamp).toDate()
-                                  : null;
+                              final data = rows[index];
+                              final uploadedAt = _readDate(data['uploadedAt']);
                               final openingUrl = data['openingPhotoUrl'] as String?;
                               final closingUrl = data['closingPhotoUrl'] as String?;
                               final shiftOpeningCashUrl = data['shiftOpeningCashPhotoUrl'] as String?;
                               final shiftCloseCashUrl = data['shiftCloseCashPhotoUrl'] as String?;
                               final shiftOpeningCash = data['shiftOpeningCash'];
                               final shiftCloseCash = data['shiftCloseCash'];
-                              final todayPumpCash = (data['todayPumpCash'] as num?)?.toDouble() ??
-                                  (data['cashAmount'] as num?)?.toDouble() ??
-                                  0.0;
-                              final posAmount = (data['posAmount'] as num?)?.toDouble() ?? 0.0;
-                              final totalPaid = (data['totalPaid'] as num?)?.toDouble() ??
-                                  (todayPumpCash + posAmount);
+                              final digitalOpeningVolume =
+                                  _readDouble(data['openingVolume']);
+                              final digitalClosingVolume =
+                                  _readDouble(data['closingVolume']);
+                              final analogOpeningVolume =
+                                  _readDouble(data['analogOpeningVolume']);
+                              final analogClosingVolume =
+                                  _readDouble(data['analogClosingVolume']);
+                              final todayPumpCash =
+                                  _readDouble(data['todayPumpCash']) > 0
+                                      ? _readDouble(data['todayPumpCash'])
+                                      : _readDouble(data['cashAmount']);
+                              final posAmount = _readDouble(data['posAmount']);
+                              final recordedTotalPaid =
+                                  _readDouble(data['totalPaid']);
+                              final totalPaid = recordedTotalPaid > 0
+                                  ? recordedTotalPaid
+                                  : todayPumpCash + posAmount;
                               final saleId = data['saleId']?.toString() ?? '';
-                              final soldVolume = (data['soldVolume'] as num?)?.toDouble() ??
-                                  (data['cashDerivedVolume'] as num?)?.toDouble() ??
-                                  (((data['closingVolume'] as num?)?.toDouble() ?? 0) -
-                                      ((data['openingVolume'] as num?)?.toDouble() ?? 0));
+                              final soldVolume =
+                                  _readDouble(data['soldVolume']) > 0
+                                      ? _readDouble(data['soldVolume'])
+                                      : _readDouble(data['cashDerivedVolume']) > 0
+                                          ? _readDouble(data['cashDerivedVolume'])
+                                          : digitalClosingVolume -
+                                              digitalOpeningVolume;
                               final volumeDifference =
-                                  (((data['closingVolume'] as num?)?.toDouble() ?? 0) -
-                                      ((data['openingVolume'] as num?)?.toDouble() ?? 0));
+                                  digitalClosingVolume - digitalOpeningVolume;
                               final discrepancyNotes =
                                   (data['discrepancyNotes'] as List?)
                                       ?.whereType<String>()
@@ -838,11 +860,11 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            'Opening volume: ${formatAmount(((data['openingVolume'] as num?)?.toDouble() ?? 0), decimalDigits: 3)}',
+                                            'Digital opening volume: ${formatAmount(digitalOpeningVolume, decimalDigits: 3)}',
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
-                                            'Closing volume: ${formatAmount(((data['closingVolume'] as num?)?.toDouble() ?? 0), decimalDigits: 3)}',
+                                            'Digital closing volume: ${formatAmount(digitalClosingVolume, decimalDigits: 3)}',
                                           ),
                                           const SizedBox(height: 4),
                                           if (shiftOpeningCash != null)
@@ -854,18 +876,13 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                               'Shift closing cash: ${_readCurrencyValue(shiftCloseCash)}',
                                             ),
                                           const SizedBox(height: 4),
-                                          if (data.containsKey('analogOpeningVolume') &&
-                                              data['analogOpeningVolume'] != null &&
-                                              data['analogOpeningVolume'].toString().trim().isNotEmpty)
-                                            Text(
-                                              'Analog opening: ${formatAmount(double.tryParse(data['analogOpeningVolume'].toString().replaceAll(',', '').trim()) ?? 0, decimalDigits: 3)}',
-                                            ),
-                                          if (data.containsKey('analogClosingVolume') &&
-                                              data['analogClosingVolume'] != null &&
-                                              data['analogClosingVolume'].toString().trim().isNotEmpty)
-                                            Text(
-                                              'Analog closing: ${formatAmount(double.tryParse(data['analogClosingVolume'].toString().replaceAll(',', '').trim()) ?? 0, decimalDigits: 3)}',
-                                            ),
+                                          Text(
+                                            'Analog opening volume: ${formatAmount(analogOpeningVolume, decimalDigits: 3)}',
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Analog closing volume: ${formatAmount(analogClosingVolume, decimalDigits: 3)}',
+                                          ),
                                           const SizedBox(height: 4),
                                           Text(
                                             'Sold volume: ${formatAmount(soldVolume, decimalDigits: 3)}',
@@ -1101,7 +1118,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                 TextButton.icon(
                                                   onPressed: () =>
                                                       _markAsDisputed(
-                                                          docs[index]),
+                                                          businessId, rows[index]),
                                                   icon: const Icon(
                                                       Icons.flag_outlined),
                                                   label: const Text(
@@ -1115,7 +1132,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                     ),
                                                     onPressed: () =>
                                                         _deleteUpload(
-                                                            docs[index]),
+                                                            businessId, rows[index]),
                                                     icon: const Icon(
                                                         Icons.delete),
                                                     label: const Text('Delete'),
@@ -1138,27 +1155,5 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
               ],
             ),
     );
-  }
-
-  Stream<QuerySnapshot<Map<String, dynamic>>> _uploadStream(
-    CollectionReference<Map<String, dynamic>> uploads,
-  ) {
-    Query<Map<String, dynamic>> query = uploads;
-    if (_startDate != null) {
-      query = query.where(
-        'uploadedAt',
-        isGreaterThanOrEqualTo: Timestamp.fromDate(_startDate!),
-      );
-    }
-    if (_endDate != null) {
-      query = query.where(
-        'uploadedAt',
-        isLessThanOrEqualTo: Timestamp.fromDate(_endDate!),
-      );
-    }
-    return query
-        .orderBy('uploadedAt', descending: true)
-        .limit(200)
-        .snapshots(includeMetadataChanges: true);
   }
 }

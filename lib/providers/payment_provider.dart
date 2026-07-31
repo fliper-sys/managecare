@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../data/models/booking_model.dart';
@@ -6,9 +5,9 @@ import '../data/repositories/booking_repository_impl.dart';
 import '../services/flutterwave_payment_service.dart';
 import '../services/enhanced_pdf_builder.dart';
 import '../services/email_service.dart';
+import '../services/managecare_api_client.dart';
 
 class PaymentProvider with ChangeNotifier {
-  final FirebaseFirestore _firestore;
   final BookingRepositoryImpl _bookingRepo;
   final FlutterwavePaymentService _flutterwave;
   final EmailService _emailService;
@@ -19,9 +18,8 @@ class PaymentProvider with ChangeNotifier {
   bool get isProcessing => _isProcessing;
   String? get error => _error;
 
-  PaymentProvider({FirebaseFirestore? firestore, BookingRepositoryImpl? bookingRepo, FlutterwavePaymentService? flutterwave, EmailService? emailService})
-      : _firestore = firestore ?? FirebaseFirestore.instance,
-        _bookingRepo = bookingRepo ?? BookingRepositoryImpl(firestore: firestore),
+  PaymentProvider({BookingRepositoryImpl? bookingRepo, FlutterwavePaymentService? flutterwave, EmailService? emailService})
+      : _bookingRepo = bookingRepo ?? BookingRepositoryImpl(),
         _flutterwave = flutterwave ?? FlutterwavePaymentService(),
         _emailService = emailService ?? EmailService();
 
@@ -65,25 +63,18 @@ class PaymentProvider with ChangeNotifier {
         return false;
       }
 
-      // Write payment record into bookings/{bookingId}/payments
-      final paymentsRef = _firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('bookings')
-          .doc(booking.id)
-          .collection('payments');
-
-      final paymentData = {
-        'amount': amount,
-        'currency': booking.currency,
-        'provider': 'flutterwave',
-        'transactionId': result.transactionId,
-        'processorResponse': result.processorResponse ?? {},
-        'status': 'completed',
-        'createdAt': FieldValue.serverTimestamp(),
-      };
-
-      await paymentsRef.add(paymentData);
+      // Record the payment in the apartment booking payment ledger.
+      await ManagecareApiClient.instance.post(
+        '/api/apartments/$businessId/bookings/${booking.id}/payments',
+        body: {
+          'amount': amount,
+          'currency': booking.currency,
+          'provider': 'flutterwave',
+          'transactionId': result.transactionId,
+          'processorResponse': result.processorResponse ?? {},
+          'status': 'completed',
+        },
+      );
 
       // Generate receipt PDF
       try {
@@ -120,7 +111,7 @@ class PaymentProvider with ChangeNotifier {
         final updates = {
           'paymentStatus': 'paid',
           'providerTransactionId': result.transactionId,
-          'paidAt': FieldValue.serverTimestamp(),
+          'paidAt': DateTime.now().toUtc().toIso8601String(),
           'receiptPdfPath': uploadedUrl,
         };
 
@@ -160,7 +151,7 @@ class PaymentProvider with ChangeNotifier {
         final updates = {
           'paymentStatus': 'paid',
           'providerTransactionId': result.transactionId,
-          'paidAt': FieldValue.serverTimestamp(),
+          'paidAt': DateTime.now().toUtc().toIso8601String(),
         };
         await _bookingRepo.updateBookingStatus(
           businessId: businessId,

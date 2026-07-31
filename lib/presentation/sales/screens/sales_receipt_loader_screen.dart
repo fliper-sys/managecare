@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../core/theme/colors.dart';
+import '../../../services/managecare_api_client.dart';
 import 'receipt_screen.dart';
 
 /// Loader screen that fetches sale data by ID and displays the receipt
@@ -35,39 +35,14 @@ class _SalesReceiptLoaderScreenState extends State<SalesReceiptLoaderScreen> {
 
       final businessId =
           context.read<BusinessProvider>().currentBusiness?.id;
-      final firestore = FirebaseFirestore.instance;
-
-      if (businessId != null && businessId.isNotEmpty) {
-        final nestedSaleDoc = await firestore
-            .collection('businesses')
-            .doc(businessId)
-            .collection('sales')
-            .doc(saleId)
-            .get();
-
-        if (nestedSaleDoc.exists) {
-          final saleData = nestedSaleDoc.data() ?? {};
-          return {
-            'id': nestedSaleDoc.id,
-            ...saleData,
-          };
-        }
+      if (businessId == null || businessId.isEmpty) {
+        debugPrint('Error loading sale data: no current business');
+        return null;
       }
 
-      final rootSaleDoc = await firestore
-          .collection('sales')
-          .doc(saleId)
-          .get();
-
-      if (rootSaleDoc.exists) {
-        final saleData = rootSaleDoc.data() ?? {};
-        return {
-          'id': rootSaleDoc.id,
-          ...saleData,
-        };
-      }
-
-      return null;
+      final response = await ManagecareApiClient.instance
+          .get('/api/sales/$businessId/$saleId');
+      return Map<String, dynamic>.from(response as Map);
     } catch (e) {
       debugPrint('Error loading sale data: $e');
       return null;

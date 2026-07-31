@@ -422,9 +422,7 @@ class _AppState extends State<App> {
       return;
     }
 
-    final valid = await SubscriptionService(
-      firestore: FirebaseFirestore.instance,
-    ).validateAndUpdateBusinessSubscriptionStatus(
+    final valid = await SubscriptionService().validateAndUpdateBusinessSubscriptionStatus(
       businessId,
       userId: userId,
     );

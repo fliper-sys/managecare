@@ -171,11 +171,11 @@ class _GuestManagementScreenState extends State<GuestManagementScreen> {
                 const SizedBox(height: 20),
 
                 // --- SALES/ORDERS SECTION ---
-                const Text('Sales / Orders', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const Text('Attached Revenue / Orders', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 if (guestSales.isEmpty && roomSales.isEmpty)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Text('No sales or orders attached.', style: TextStyle(color: Colors.grey)),
+                    child: Text('No attached revenue or orders.', style: TextStyle(color: Colors.grey)),
                   ),
                 if (guestSales.isNotEmpty)
                   Column(

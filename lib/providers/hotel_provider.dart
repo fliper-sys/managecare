@@ -1,11 +1,11 @@
 import 'package:business_manager/data/models/sale_model.dart';
 import 'package:flutter/foundation.dart';
-import 'package:cloud_firestore/cloud_firestore.dart' as fs;
 import '../data/repositories/industry_specific/hotel_repository.dart';
 import '../services/business_reminder_service.dart';
 import '../services/business_notification_manager.dart';
 import '../services/hospitality_folio_service.dart';
 import '../services/notification_and_email_service.dart';
+import '../services/managecare_api_client.dart';
 
 // Room Models
 class Room {
@@ -14,6 +14,7 @@ class Room {
   final String type; // single, double, suite, deluxe
   final int capacity;
   final double pricePerNight;
+  final double halfDayPrice;
   final String status; // available, occupied, maintenance, reserved
   final String? emoji;
   final List<String> amenities; // WiFi, AC, TV, Kitchenette, etc.
@@ -22,6 +23,11 @@ class Room {
       priceIntervals; // Optional time-interval pricing
   final int floor;
   final double rating;
+  final String size;
+  final String bedSize;
+  final Map<String, dynamic> extraDetails;
+  final int halfDayHours;
+  final String fullDayCheckoutTime;
 
   Room({
     required this.id,
@@ -29,6 +35,7 @@ class Room {
     required this.type,
     required this.capacity,
     required this.pricePerNight,
+    this.halfDayPrice = 0,
     required this.status,
     this.emoji,
     required this.amenities,
@@ -36,6 +43,11 @@ class Room {
     this.priceIntervals,
     required this.floor,
     this.rating = 4.5,
+    this.size = '',
+    this.bedSize = '',
+    this.extraDetails = const {},
+    this.halfDayHours = 12,
+    this.fullDayCheckoutTime = '12:00',
   });
 
   Room copyWith({
@@ -49,6 +61,7 @@ class Room {
       type: type,
       capacity: capacity,
       pricePerNight: pricePerNight,
+      halfDayPrice: halfDayPrice,
       status: status ?? this.status,
       emoji: emoji,
       amenities: amenities,
@@ -56,6 +69,11 @@ class Room {
       priceIntervals: priceIntervals ?? this.priceIntervals,
       floor: floor,
       rating: rating ?? this.rating,
+      size: size,
+      bedSize: bedSize,
+      extraDetails: extraDetails,
+      halfDayHours: halfDayHours,
+      fullDayCheckoutTime: fullDayCheckoutTime,
     );
   }
 }
@@ -70,6 +88,8 @@ class Reservation {
   final String guestName;
   final String guestEmail;
   final String guestPhone;
+  final String guestSex;
+  final int occupantCount;
   final String guestAddress;
   final String guestNationality;
   final String guestIdType;
@@ -82,7 +102,12 @@ class Reservation {
   final String vehiclePlateNumber;
   final String vehicleMake;
   final String vehicleModel;
+  final String vehicleYear;
   final String vehicleColor;
+  final String paymentMethod;
+  final String mixedPaymentNote;
+  final String stayDurationType;
+  final DateTime? estimatedArrivalAt;
   final DateTime checkIn;
   final DateTime checkOut;
   final int adults;
@@ -99,6 +124,8 @@ class Reservation {
     required this.guestName,
     required this.guestEmail,
     required this.guestPhone,
+    this.guestSex = '',
+    this.occupantCount = 1,
     this.guestAddress = '',
     this.guestNationality = '',
     this.guestIdType = '',
@@ -111,7 +138,12 @@ class Reservation {
     this.vehiclePlateNumber = '',
     this.vehicleMake = '',
     this.vehicleModel = '',
+    this.vehicleYear = '',
     this.vehicleColor = '',
+    this.paymentMethod = 'cash',
+    this.mixedPaymentNote = '',
+    this.stayDurationType = 'full_day',
+    this.estimatedArrivalAt,
     required this.checkIn,
     required this.checkOut,
     required this.adults,
@@ -129,6 +161,8 @@ class Reservation {
     String? guestName,
     String? guestEmail,
     String? guestPhone,
+    String? guestSex,
+    int? occupantCount,
     String? guestAddress,
     String? guestNationality,
     String? guestIdType,
@@ -141,7 +175,12 @@ class Reservation {
     String? vehiclePlateNumber,
     String? vehicleMake,
     String? vehicleModel,
+    String? vehicleYear,
     String? vehicleColor,
+    String? paymentMethod,
+    String? mixedPaymentNote,
+    String? stayDurationType,
+    DateTime? estimatedArrivalAt,
     DateTime? checkIn,
     DateTime? checkOut,
     int? adults,
@@ -158,6 +197,8 @@ class Reservation {
       guestName: guestName ?? this.guestName,
       guestEmail: guestEmail ?? this.guestEmail,
       guestPhone: guestPhone ?? this.guestPhone,
+      guestSex: guestSex ?? this.guestSex,
+      occupantCount: occupantCount ?? this.occupantCount,
       guestAddress: guestAddress ?? this.guestAddress,
       guestNationality: guestNationality ?? this.guestNationality,
       guestIdType: guestIdType ?? this.guestIdType,
@@ -171,7 +212,12 @@ class Reservation {
       vehiclePlateNumber: vehiclePlateNumber ?? this.vehiclePlateNumber,
       vehicleMake: vehicleMake ?? this.vehicleMake,
       vehicleModel: vehicleModel ?? this.vehicleModel,
+      vehicleYear: vehicleYear ?? this.vehicleYear,
       vehicleColor: vehicleColor ?? this.vehicleColor,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
+      mixedPaymentNote: mixedPaymentNote ?? this.mixedPaymentNote,
+      stayDurationType: stayDurationType ?? this.stayDurationType,
+      estimatedArrivalAt: estimatedArrivalAt ?? this.estimatedArrivalAt,
       checkIn: checkIn ?? this.checkIn,
       checkOut: checkOut ?? this.checkOut,
       adults: adults ?? this.adults,
@@ -185,6 +231,8 @@ class Reservation {
   }
 
   int get nights => checkOut.difference(checkIn).inDays;
+
+  int get billableDays => nights <= 0 ? 1 : nights;
 }
 
 // Service Orders
@@ -219,7 +267,6 @@ class ServiceOrder {
     DateTime? parseDate(dynamic value) {
       if (value == null) return null;
       if (value is DateTime) return value;
-      if (value is fs.Timestamp) return value.toDate();
       if (value is String) return DateTime.tryParse(value);
       if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
       return null;
@@ -637,7 +684,6 @@ class HotelProvider extends ChangeNotifier {
   DateTime? _parseDynamicDate(dynamic value) {
     if (value == null) return null;
     if (value is DateTime) return value;
-    if (value is fs.Timestamp) return value.toDate();
     if (value is String) return DateTime.tryParse(value);
     if (value is int) {
       return DateTime.fromMillisecondsSinceEpoch(value);
@@ -728,45 +774,40 @@ class HotelProvider extends ChangeNotifier {
           .where((item) => item.status == 'checked-in')
           .length;
 
-      await fs.FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(_businessId!)
-          .collection('guests')
-          .doc(_buildGuestDocumentId(reservation))
-          .set({
-        'guestName': reservation.guestName,
-        'guestEmail': reservation.guestEmail,
-        'guestPhone': reservation.guestPhone,
-        'guestAddress': reservation.guestAddress,
-        'guestNationality': reservation.guestNationality,
-        'guestIdType': reservation.guestIdType,
-        'guestIdNumber': reservation.guestIdNumber,
-        'nextOfKinName': reservation.nextOfKinName,
-        'nextOfKinPhone': reservation.nextOfKinPhone,
-        'nextOfKinRelationship': reservation.nextOfKinRelationship,
-        'bookingSource': reservation.bookingSource,
-        'companyName': reservation.companyName,
-        'vehiclePlateNumber': reservation.vehiclePlateNumber,
-        'reservationCount': relatedReservations.length,
-        'checkedInCount': checkedInCount,
-        'totalSpend': totalSpend,
-        'guestTier': getGuestTier(
+      await ManagecareApiClient.instance.post('/api/hotel/$_businessId/guests', body: {
+        'guest_key': _buildGuestDocumentId(reservation),
+        'guest_name': reservation.guestName,
+        'guest_email': reservation.guestEmail,
+        'guest_phone': reservation.guestPhone,
+        'guest_address': reservation.guestAddress,
+        'guest_nationality': reservation.guestNationality,
+        'guest_id_type': reservation.guestIdType,
+        'guest_id_number': reservation.guestIdNumber,
+        'next_of_kin_name': reservation.nextOfKinName,
+        'next_of_kin_phone': reservation.nextOfKinPhone,
+        'next_of_kin_relationship': reservation.nextOfKinRelationship,
+        'booking_source': reservation.bookingSource,
+        'company_name': reservation.companyName,
+        'vehicle_plate_number': reservation.vehiclePlateNumber,
+        'reservation_count': relatedReservations.length,
+        'checked_in_count': checkedInCount,
+        'total_spend': totalSpend,
+        'guest_tier': getGuestTier(
           guestName: reservation.guestName,
           guestEmail: reservation.guestEmail,
           guestPhone: reservation.guestPhone,
         ),
-        'tierDiscountRate': getGuestTierDiscountRate(
+        'tier_discount_rate': getGuestTierDiscountRate(
           guestName: reservation.guestName,
           guestEmail: reservation.guestEmail,
           guestPhone: reservation.guestPhone,
         ),
-        'activeReservationId': reservation.id,
-        'currentRoomId': reservation.roomId,
-        'currentRoomNumber': room?.number,
-        'lastCheckIn': reservation.checkIn.toIso8601String(),
-        'lastCheckOut': reservation.checkOut.toIso8601String(),
-        'lastUpdatedAt': fs.FieldValue.serverTimestamp(),
-      }, fs.SetOptions(merge: true));
+        'active_reservation_id': reservation.id,
+        'current_room_id': reservation.roomId,
+        'current_room_number': room?.number,
+        'last_check_in': reservation.checkIn.toIso8601String(),
+        'last_check_out': reservation.checkOut.toIso8601String(),
+      });
     } catch (e) {
       debugPrint('[HotelProvider] syncGuestProfile error: $e');
     }
@@ -868,7 +909,10 @@ class HotelProvider extends ChangeNotifier {
       orElse: () => throw Exception('Reservation not found'),
     );
 
-    final saleId = 'hotel_${reservation.id}';
+    // Reuse the reservation's own (real, backend-issued) UUID as the sale id
+    // so a second call for the same reservation (e.g. payment then checkout)
+    // upserts the same row instead of needing a separate linkage field.
+    final saleId = reservation.id;
     final saleMap = buildReservationSalePayload(
       reservation,
       saleId: saleId,
@@ -879,17 +923,33 @@ class HotelProvider extends ChangeNotifier {
       return saleMap;
     }
 
-    final firestorePayload = Map<String, dynamic>.from(saleMap)
-      ..['createdAt'] = fs.FieldValue.serverTimestamp()
-      ..['updatedAt'] = fs.FieldValue.serverTimestamp()
-      ..['timestamp'] = fs.FieldValue.serverTimestamp();
-
-    await fs.FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(_businessId!)
-        .collection('sales')
-        .doc(saleId)
-        .set(firestorePayload, fs.SetOptions(merge: true));
+    await ManagecareApiClient.instance.post('/api/sales/$_businessId', body: {
+      'id': saleId,
+      'customer_id': null,
+      'store_id': null,
+      'worker_id': null,
+      'worker_name': null,
+      'total_amount': saleMap['subtotal'],
+      'discount_amount': saleMap['discount'],
+      'tax_amount': saleMap['tax'],
+      'final_amount': saleMap['finalAmount'],
+      'payment_method': saleMap['paymentMethod'],
+      'status': saleMap['status'],
+      'notes': 'Hotel reservation ${reservation.id} (room ${saleMap['roomNumber']})',
+      'created_by': null,
+      'sale_type': 'hotel',
+      'items': (saleMap['items'] as List<dynamic>).map((raw) {
+        final item = Map<String, dynamic>.from(raw as Map);
+        return {
+          'product_id': null,
+          'product_name': item['productName'] ?? item['name'],
+          'quantity': item['quantity'],
+          'unit_price': item['unitPrice'],
+          'discount': 0,
+          'total': item['total'],
+        };
+      }).toList(),
+    });
 
     if (sendNotifications) {
       try {
@@ -1142,10 +1202,16 @@ class HotelProvider extends ChangeNotifier {
     required String type,
     required int capacity,
     required double pricePerNight,
+    double halfDayPrice = 0,
     int floor = 1,
     List<String>? amenities,
     String? emoji,
     List<Map<String, dynamic>>? priceIntervals,
+    String size = '',
+    String bedSize = '',
+    Map<String, dynamic> extraDetails = const {},
+    int halfDayHours = 12,
+    String fullDayCheckoutTime = '12:00',
   }) async {
     final localId = 'R${_rooms.length + 1}';
     String id = localId;
@@ -1158,12 +1224,18 @@ class HotelProvider extends ChangeNotifier {
           'type': type,
           'capacity': capacity,
           'pricePerNight': pricePerNight,
+          'halfDayPrice': halfDayPrice,
           'status': 'available',
           'emoji': emoji,
           'amenities': amenities ?? [],
           'images': [],
           'floor': floor,
           'priceIntervals': priceIntervals ?? [],
+          'size': size,
+          'bedSize': bedSize,
+          'extraDetails': extraDetails,
+          'halfDayHours': halfDayHours,
+          'fullDayCheckoutTime': fullDayCheckoutTime,
           'createdAt': DateTime.now().toIso8601String(),
         });
         id = res['id']?.toString() ?? id;
@@ -1178,12 +1250,18 @@ class HotelProvider extends ChangeNotifier {
       type: type,
       capacity: capacity,
       pricePerNight: pricePerNight,
+      halfDayPrice: halfDayPrice,
       status: 'available',
       emoji: emoji,
       amenities: amenities ?? [],
       images: [],
       priceIntervals: priceIntervals,
       floor: floor,
+      size: size,
+      bedSize: bedSize,
+      extraDetails: extraDetails,
+      halfDayHours: halfDayHours,
+      fullDayCheckoutTime: fullDayCheckoutTime,
     );
 
     _rooms.add(room);
@@ -1226,6 +1304,8 @@ class HotelProvider extends ChangeNotifier {
     required String guestName,
     required String guestEmail,
     required String guestPhone,
+    String guestSex = '',
+    int occupantCount = 1,
     String guestAddress = '',
     String guestNationality = '',
     String guestIdType = '',
@@ -1238,7 +1318,13 @@ class HotelProvider extends ChangeNotifier {
     String vehiclePlateNumber = '',
     String vehicleMake = '',
     String vehicleModel = '',
+    String vehicleYear = '',
     String vehicleColor = '',
+    String paymentMethod = 'cash',
+    String mixedPaymentNote = '',
+    String stayDurationType = 'full_day',
+    DateTime? estimatedArrivalAt,
+    String status = 'confirmed',
     required DateTime checkIn,
     required DateTime checkOut,
     required int adults,
@@ -1252,19 +1338,28 @@ class HotelProvider extends ChangeNotifier {
     final room = _rooms.firstWhere((r) => r.id == roomId,
         orElse: () => throw Exception('Selected room not found.'));
 
+    final normalizedCheckOut = _resolveHospitalityCheckOut(
+      room: room,
+      checkIn: checkIn,
+      requestedCheckOut: checkOut,
+      stayDurationType: stayDurationType,
+    );
+
     final conflict = _reservations.any((existing) {
       if (existing.roomId != roomId || existing.status == 'cancelled')
         return false;
       return existing.checkOut.isAfter(checkIn) &&
-          existing.checkIn.isBefore(checkOut);
+          existing.checkIn.isBefore(normalizedCheckOut);
     });
 
     if (conflict) {
       throw Exception('Selected room is already booked for the chosen dates.');
     }
 
-    final nights = checkOut.difference(checkIn).inDays;
-    final totalPrice = room.pricePerNight * nights;
+    final nights = normalizedCheckOut.difference(checkIn).inDays;
+    final isHalfDay = stayDurationType == 'half_day';
+    final totalPrice =
+        isHalfDay ? (room.halfDayPrice > 0 ? room.halfDayPrice : room.pricePerNight / 2) : room.pricePerNight * (nights <= 0 ? 1 : nights);
     String reservationId = 'B${_reservations.length + 1}';
 
     var reservation = Reservation(
@@ -1273,6 +1368,8 @@ class HotelProvider extends ChangeNotifier {
       guestName: guestName,
       guestEmail: guestEmail,
       guestPhone: guestPhone,
+      guestSex: guestSex,
+      occupantCount: occupantCount,
       guestAddress: guestAddress,
       guestNationality: guestNationality,
       guestIdType: guestIdType,
@@ -1285,12 +1382,17 @@ class HotelProvider extends ChangeNotifier {
       vehiclePlateNumber: vehiclePlateNumber,
       vehicleMake: vehicleMake,
       vehicleModel: vehicleModel,
+      vehicleYear: vehicleYear,
       vehicleColor: vehicleColor,
+      paymentMethod: paymentMethod,
+      mixedPaymentNote: mixedPaymentNote,
+      stayDurationType: stayDurationType,
+      estimatedArrivalAt: estimatedArrivalAt,
       checkIn: checkIn,
-      checkOut: checkOut,
+      checkOut: normalizedCheckOut,
       adults: adults,
       children: children,
-      status: 'confirmed',
+      status: status,
       totalPrice: totalPrice,
       specialRequests: specialRequests,
       paymentStatus: 'unpaid',
@@ -1306,6 +1408,8 @@ class HotelProvider extends ChangeNotifier {
         'guestName': reservation.guestName,
         'guestEmail': reservation.guestEmail,
         'guestPhone': reservation.guestPhone,
+        'guestSex': reservation.guestSex,
+        'occupantCount': reservation.occupantCount,
         'guestAddress': reservation.guestAddress,
         'guestNationality': reservation.guestNationality,
         'guestIdType': reservation.guestIdType,
@@ -1316,6 +1420,14 @@ class HotelProvider extends ChangeNotifier {
         'bookingSource': reservation.bookingSource,
         'companyName': reservation.companyName,
         'vehiclePlateNumber': reservation.vehiclePlateNumber,
+        'vehicleMake': reservation.vehicleMake,
+        'vehicleModel': reservation.vehicleModel,
+        'vehicleYear': reservation.vehicleYear,
+        'vehicleColor': reservation.vehicleColor,
+        'paymentMethod': reservation.paymentMethod,
+        'mixedPaymentNote': reservation.mixedPaymentNote,
+        'stayDurationType': reservation.stayDurationType,
+        'estimatedArrivalAt': reservation.estimatedArrivalAt?.toIso8601String(),
         'checkIn': reservation.checkIn.toIso8601String(),
         'checkOut': reservation.checkOut.toIso8601String(),
         'adults': reservation.adults,
@@ -1335,6 +1447,9 @@ class HotelProvider extends ChangeNotifier {
     }
 
     final persistedReservation = _reservations.last;
+    if (persistedReservation.status == 'checked-in') {
+      updateRoomStatus(persistedReservation.roomId, 'occupied');
+    }
     await _syncGuestProfile(persistedReservation);
 
     if (_businessId != null && _businessId!.isNotEmpty) {
@@ -1366,7 +1481,7 @@ class HotelProvider extends ChangeNotifier {
           guestName: guestName,
           roomLabel: room.number,
           checkIn: checkIn,
-          checkOut: checkOut,
+          checkOut: normalizedCheckOut,
         );
       } catch (e) {
         debugPrint('[HotelProvider] reminder scheduling failed: $e');
@@ -1374,6 +1489,38 @@ class HotelProvider extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  DateTime _resolveHospitalityCheckOut({
+    required Room room,
+    required DateTime checkIn,
+    required DateTime requestedCheckOut,
+    required String stayDurationType,
+  }) {
+    if (stayDurationType == 'half_day') {
+      return checkIn.add(Duration(hours: room.halfDayHours <= 0 ? 12 : room.halfDayHours));
+    }
+
+    final parts = room.fullDayCheckoutTime.split(':');
+    final hour = parts.isNotEmpty ? int.tryParse(parts[0]) ?? 12 : 12;
+    final minute = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+    final checkoutHour = hour.clamp(0, 23).toInt();
+    final checkoutMinute = minute.clamp(0, 59).toInt();
+    final requestedDate = DateTime(
+      requestedCheckOut.year,
+      requestedCheckOut.month,
+      requestedCheckOut.day,
+      checkoutHour,
+      checkoutMinute,
+    );
+    if (requestedDate.isAfter(checkIn)) return requestedDate;
+    return DateTime(
+      checkIn.year,
+      checkIn.month,
+      checkIn.day + 1,
+      checkoutHour,
+      checkoutMinute,
+    );
   }
 
   Future<void> updateReservationStatus(
@@ -1610,7 +1757,7 @@ class HotelProvider extends ChangeNotifier {
     double? chargeAmount,
     String source = 'hotel_service',
   }) async {
-    final order = ServiceOrder(
+    var order = ServiceOrder(
       id: 'service_${DateTime.now().microsecondsSinceEpoch}',
       roomId: roomId,
       reservationId: reservationId ?? getActiveReservationForRoom(roomId)?.id,
@@ -1623,15 +1770,40 @@ class HotelProvider extends ChangeNotifier {
       source: source,
     );
 
-    _serviceOrders.add(order);
     if (_businessId != null && _businessId!.isNotEmpty) {
-      await fs.FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(_businessId!)
-          .collection('hotel_service_orders')
-          .doc(order.id)
-          .set(order.toJson(), fs.SetOptions(merge: true));
+      try {
+        final response = await ManagecareApiClient.instance.post('/api/hotel/$_businessId/service-orders', body: {
+          'room_id': order.roomId,
+          'reservation_id': order.reservationId,
+          'service_name': order.serviceName,
+          'description': order.description,
+          'status': order.status,
+          'priority': order.priority,
+          'charge_amount': order.chargeAmount,
+          'source': order.source,
+          'requested_at': order.requestedAt.toIso8601String(),
+        });
+        final row = Map<String, dynamic>.from(response as Map);
+        // Replace the local temp id with the backend-issued one so later
+        // updateServiceOrderStatus(id) calls target the real row.
+        order = ServiceOrder(
+          id: (row['id'] ?? order.id).toString(),
+          roomId: order.roomId,
+          reservationId: order.reservationId,
+          serviceName: order.serviceName,
+          description: order.description,
+          requestedAt: order.requestedAt,
+          status: order.status,
+          priority: order.priority,
+          chargeAmount: order.chargeAmount,
+          source: order.source,
+        );
+      } catch (e) {
+        debugPrint('[HotelProvider] createServiceOrder error: $e');
+      }
     }
+
+    _serviceOrders.add(order);
     notifyListeners();
   }
 
@@ -1657,15 +1829,14 @@ class HotelProvider extends ChangeNotifier {
         source: _serviceOrders[index].source,
       );
       if (_businessId != null && _businessId!.isNotEmpty) {
-        await fs.FirebaseFirestore.instance
-            .collection('businesses')
-            .doc(_businessId!)
-            .collection('hotel_service_orders')
-            .doc(serviceOrderId)
-            .set(
-              _serviceOrders[index].toJson(),
-              fs.SetOptions(merge: true),
-            );
+        try {
+          await ManagecareApiClient.instance.put('/api/hotel/$_businessId/service-orders/$serviceOrderId', body: {
+            'status': newStatus,
+            'completed_at': _serviceOrders[index].completedAt?.toIso8601String(),
+          });
+        } catch (e) {
+          debugPrint('[HotelProvider] updateServiceOrderStatus error: $e');
+        }
       }
       notifyListeners();
     }
@@ -1710,6 +1881,10 @@ class HotelProvider extends ChangeNotifier {
                   ? (m['pricePerNight'] as num).toDouble()
                   : double.tryParse(m['pricePerNight']?.toString() ?? '0') ??
                       0.0,
+              halfDayPrice: (m['halfDayPrice'] is num)
+                  ? (m['halfDayPrice'] as num).toDouble()
+                  : double.tryParse(m['halfDayPrice']?.toString() ?? '0') ??
+                      0.0,
               status: m['status']?.toString() ?? 'available',
               emoji: m['emoji']?.toString(),
               amenities: List<String>.from(m['amenities'] ?? []),
@@ -1720,6 +1895,16 @@ class HotelProvider extends ChangeNotifier {
               floor: (m['floor'] is int)
                   ? m['floor'] as int
                   : int.tryParse(m['floor']?.toString() ?? '1') ?? 1,
+              size: m['size']?.toString() ?? '',
+              bedSize: m['bedSize']?.toString() ?? '',
+              extraDetails: (m['extraDetails'] is Map)
+                  ? Map<String, dynamic>.from(m['extraDetails'] as Map)
+                  : const {},
+              halfDayHours: (m['halfDayHours'] is int)
+                  ? m['halfDayHours'] as int
+                  : int.tryParse(m['halfDayHours']?.toString() ?? '12') ?? 12,
+              fullDayCheckoutTime:
+                  m['fullDayCheckoutTime']?.toString() ?? '12:00',
             );
           }).toList();
           _updateOccupancy();
@@ -1743,6 +1928,10 @@ class HotelProvider extends ChangeNotifier {
               guestName: m['guestName']?.toString() ?? '',
               guestEmail: m['guestEmail']?.toString() ?? '',
               guestPhone: m['guestPhone']?.toString() ?? '',
+              guestSex: m['guestSex']?.toString() ?? '',
+              occupantCount: (m['occupantCount'] is int)
+                  ? m['occupantCount'] as int
+                  : int.tryParse(m['occupantCount']?.toString() ?? '1') ?? 1,
               guestAddress: m['guestAddress']?.toString() ?? '',
               guestNationality: m['guestNationality']?.toString() ?? '',
               guestIdType: m['guestIdType']?.toString() ?? '',
@@ -1754,6 +1943,14 @@ class HotelProvider extends ChangeNotifier {
               bookingSource: m['bookingSource']?.toString() ?? 'walk-in',
               companyName: m['companyName']?.toString() ?? '',
               vehiclePlateNumber: m['vehiclePlateNumber']?.toString() ?? '',
+              vehicleMake: m['vehicleMake']?.toString() ?? '',
+              vehicleModel: m['vehicleModel']?.toString() ?? '',
+              vehicleYear: m['vehicleYear']?.toString() ?? '',
+              vehicleColor: m['vehicleColor']?.toString() ?? '',
+              paymentMethod: m['paymentMethod']?.toString() ?? 'cash',
+              mixedPaymentNote: m['mixedPaymentNote']?.toString() ?? '',
+              stayDurationType: m['stayDurationType']?.toString() ?? 'full_day',
+              estimatedArrivalAt: _parseDynamicDate(m['estimatedArrivalAt']),
               checkIn: _parseDynamicDate(m['checkIn']) ?? DateTime.now(),
               checkOut: _parseDynamicDate(m['checkOut']) ?? DateTime.now(),
               adults: (m['adults'] is int)
@@ -1779,31 +1976,34 @@ class HotelProvider extends ChangeNotifier {
     }
   }
 
-  /// Get today's sales total from Firestore sales collection
+  /// Get today's sales total from the backend's sales list, filtered to
+  /// this vertical's sale_type (a hotel business's sales route may still
+  /// carry other sale_types from mixed-use bookings/room-service).
   Future<double> getTodaysSalesTotal() async {
     try {
       final today = DateTime.now();
 
       if (_businessId != null && _businessId!.isNotEmpty) {
-        final snap = await fs.FirebaseFirestore.instance
-            .collection('businesses')
-            .doc(_businessId!)
-            .collection('sales')
-            .where('category', isEqualTo: 'Hotel')
-            .get();
+        final startOfDay = DateTime(today.year, today.month, today.day);
+        final endOfDay = startOfDay.add(const Duration(days: 1));
+        final response = await ManagecareApiClient.instance.get(
+          '/api/sales/$_businessId',
+          query: {
+            'startDate': startOfDay.toIso8601String(),
+            'endDate': endOfDay.toIso8601String(),
+            'limit': 500,
+          },
+        );
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
 
         double total = 0.0;
-        for (final doc in snap.docs) {
-          final data = doc.data();
-          final createdAt =
-              _parseDynamicDate(data['createdAt'] ?? data['timestamp']);
-          if (createdAt != null && _sameCalendarDay(createdAt, today)) {
-            total += ((data['finalAmount'] ??
-                    data['totalAmount'] ??
-                    data['total'] ??
-                    0) as num)
-                .toDouble();
-          }
+        for (final data in rows) {
+          if (data['sale_type'] != 'hotel') continue;
+          if (data['status'] != 'completed') continue;
+          total += ((data['final_amount'] ??
+                  data['total_amount'] ??
+                  0) as num)
+              .toDouble();
         }
 
         return total;
@@ -1833,16 +2033,22 @@ class HotelProvider extends ChangeNotifier {
     if (_businessId == null || _businessId!.isEmpty) return;
 
     try {
-      final snapshot = await fs.FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(_businessId!)
-          .collection('hotel_service_orders')
-          .get();
+      final response = await ManagecareApiClient.instance.get('/api/hotel/$_businessId/service-orders');
+      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
 
-      _serviceOrders = snapshot.docs
-          .map((doc) => ServiceOrder.fromJson({
-                ...doc.data(),
-                'id': doc.id,
+      _serviceOrders = rows
+          .map((row) => ServiceOrder.fromJson({
+                'id': row['id'],
+                'roomId': row['room_id'],
+                'reservationId': row['reservation_id'],
+                'serviceName': row['service_name'],
+                'description': row['description'],
+                'requestedAt': row['requested_at'],
+                'completedAt': row['completed_at'],
+                'status': row['status'],
+                'priority': row['priority'],
+                'chargeAmount': row['charge_amount'],
+                'source': row['source'],
               }))
           .toList()
         ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt));

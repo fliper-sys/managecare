@@ -1,24 +1,28 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/managecare_api_client.dart';
 import 'apartment_repository.dart';
 import '../models/apartment_model.dart';
 import '../models/unit_model.dart';
 
 class ApartmentRepositoryImpl implements ApartmentRepository {
-  final FirebaseFirestore _firestore;
-  ApartmentRepositoryImpl({FirebaseFirestore? firestore}) : _firestore = firestore ?? FirebaseFirestore.instance;
-
-  CollectionReference _apartmentsRef(String businessId) => _firestore.collection('businesses').doc(businessId).collection('apartments');
+  final ManagecareApiClient _api;
+  ApartmentRepositoryImpl({ManagecareApiClient? api})
+      : _api = api ?? ManagecareApiClient.instance;
 
   @override
   Future<List<Apartment>> fetchApartments({required String businessId}) async {
-    final snap = await _apartmentsRef(businessId).orderBy('createdAt', descending: true).get();
-    return snap.docs.map((d) => Apartment.fromFirestore(d)).toList();
+    final response = await _api.get('/api/apartments/$businessId');
+    return ((response['data'] as List?) ?? [])
+        .map((row) => Apartment.fromMap(Map<String, dynamic>.from(row as Map)))
+        .toList();
   }
 
   @override
   Future<String> createApartment({required String businessId, required Apartment apartment}) async {
-    final ref = await _apartmentsRef(businessId).add(apartment.toFirestore());
-    return ref.id;
+    final response = await _api.post(
+      '/api/apartments/$businessId',
+      body: apartment.toApi(),
+    );
+    return response['id'].toString();
   }
 
   @override
@@ -27,10 +31,10 @@ class ApartmentRepositoryImpl implements ApartmentRepository {
     required String apartmentId,
     required Map<String, dynamic> update,
   }) async {
-    await _apartmentsRef(businessId).doc(apartmentId).update({
-      ...update,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    await _api.patch(
+      '/api/apartments/$businessId/$apartmentId',
+      body: update,
+    );
   }
 
   @override
@@ -38,37 +42,37 @@ class ApartmentRepositoryImpl implements ApartmentRepository {
     required String businessId,
     required String apartmentId,
   }) async {
-    final apartmentRef = _apartmentsRef(businessId).doc(apartmentId);
-    final unitsSnapshot = await apartmentRef.collection('units').get();
-    final batch = _firestore.batch();
-
-    for (final doc in unitsSnapshot.docs) {
-      batch.delete(doc.reference);
-    }
-    batch.delete(apartmentRef);
-
-    await batch.commit();
+    await _api.delete('/api/apartments/$businessId/$apartmentId');
   }
 
   @override
   Future<List<Unit>> fetchUnits({required String businessId, required String apartmentId}) async {
-    final snap = await _apartmentsRef(businessId).doc(apartmentId).collection('units').orderBy('name').get();
-    return snap.docs.map((d) => Unit.fromFirestore(d)).toList();
+    final response =
+        await _api.get('/api/apartments/$businessId/$apartmentId/units');
+    return ((response['data'] as List?) ?? [])
+        .map((row) => Unit.fromMap(Map<String, dynamic>.from(row as Map)))
+        .toList();
   }
 
   @override
   Future<String> createUnit({required String businessId, required String apartmentId, required Unit unit}) async {
-    final ref = await _apartmentsRef(businessId).doc(apartmentId).collection('units').add(unit.toFirestore());
-    return ref.id;
+    final response = await _api.post(
+      '/api/apartments/$businessId/$apartmentId/units',
+      body: unit.toApi(),
+    );
+    return response['id'].toString();
   }
 
   @override
   Future<void> updateUnit({required String businessId, required String apartmentId, required String unitId, required Map<String, dynamic> update}) async {
-    await _apartmentsRef(businessId).doc(apartmentId).collection('units').doc(unitId).update(update);
+    await _api.patch(
+      '/api/apartments/$businessId/$apartmentId/units/$unitId',
+      body: update,
+    );
   }
 
   @override
   Future<void> deleteUnit({required String businessId, required String apartmentId, required String unitId}) async {
-    await _apartmentsRef(businessId).doc(apartmentId).collection('units').doc(unitId).delete();
+    await _api.delete('/api/apartments/$businessId/$apartmentId/units/$unitId');
   }
 }

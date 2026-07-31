@@ -673,8 +673,11 @@ class BusinessDetailPage extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // Features (if available)
-            if (business['features'] != null)
+            // Features (if available) - defaults to an empty JSONB object
+            // ('{}') on the backend when unset, not an array, so guard the
+            // cast rather than assuming list shape whenever it's non-null.
+            if (business['features'] is List &&
+                (business['features'] as List).isNotEmpty)
               _buildSection(
                 context,
                 'Enabled Features',
@@ -1029,16 +1032,20 @@ class BusinessDetailPage extends StatelessWidget {
                           final messenger = ScaffoldMessenger.of(context);
                           
                           try {
-                            await FirebaseFirestore.instance
-                                .collection('businesses')
-                                .doc(businessId)
-                                .update({
+                            final admin = Provider.of<AdminProvider>(
+                              context,
+                              listen: false,
+                            );
+                            final ok = await admin.updateBusiness(businessId, {
                               'businessClass': selectedClass,
                               'isActive': selectedActive,
                               'maxWorkers': selectedMaxWorkers,
                               'features': selectedFeatures,
-                              'updatedAt': FieldValue.serverTimestamp(),
                             });
+                            if (!ok) {
+                              throw Exception(admin.errorMessage ??
+                                  'Unable to update business');
+                            }
                             
                             messenger.showSnackBar(
                               const SnackBar(
@@ -2223,17 +2230,24 @@ void _editBusiness(BuildContext context, Map<String, dynamic> business) {
               onPressed: () async {
                 try {
                   final businessId = business['id'] ?? business['businessId'];
-                  await FirebaseFirestore.instance
-                      .collection('businesses')
-                      .doc(businessId)
-                      .update({
-                    'name': nameController.text,
-                    'ownerName': ownerNameController.text,
-                    'email': emailController.text,
-                    'phone': phoneController.text,
-                    'businessClass': selectedClass,
-                    'updatedAt': FieldValue.serverTimestamp(),
-                  });
+                  final admin = Provider.of<AdminProvider>(
+                    context,
+                    listen: false,
+                  );
+                  final ok = await admin.updateBusiness(
+                    businessId.toString(),
+                    {
+                      'name': nameController.text,
+                      'ownerName': ownerNameController.text,
+                      'email': emailController.text,
+                      'phone': phoneController.text,
+                      'businessClass': selectedClass,
+                    },
+                  );
+                  if (!ok) {
+                    throw Exception(
+                        admin.errorMessage ?? 'Unable to update business');
+                  }
 
                   if (context.mounted) {
                     Navigator.pop(ctx);
@@ -2285,13 +2299,18 @@ void _toggleStatus(BuildContext context, dynamic business) {
           onPressed: () async {
             try {
               final businessId = business['id'] ?? business['businessId'];
-              await FirebaseFirestore.instance
-                  .collection('businesses')
-                  .doc(businessId)
-                  .update({
-                'isActive': newStatus,
-                'updatedAt': FieldValue.serverTimestamp(),
-              });
+              final admin = Provider.of<AdminProvider>(
+                context,
+                listen: false,
+              );
+              final ok = await admin.updateBusiness(
+                businessId.toString(),
+                {'isActive': newStatus},
+              );
+              if (!ok) {
+                throw Exception(
+                    admin.errorMessage ?? 'Unable to update business status');
+              }
 
               if (context.mounted) {
                 Navigator.pop(ctx);

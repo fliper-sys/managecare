@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'managecare_api_client.dart';
 
 class HospitalityFolioCharge {
   final String id;
@@ -36,9 +36,7 @@ class HospitalityFolioCharge {
   factory HospitalityFolioCharge.fromJson(Map<String, dynamic> json) {
     DateTime createdAt;
     final rawCreatedAt = json['createdAt'];
-    if (rawCreatedAt is Timestamp) {
-      createdAt = rawCreatedAt.toDate();
-    } else if (rawCreatedAt is DateTime) {
+    if (rawCreatedAt is DateTime) {
       createdAt = rawCreatedAt;
     } else if (rawCreatedAt is String) {
       createdAt = DateTime.tryParse(rawCreatedAt) ?? DateTime.now();
@@ -87,28 +85,33 @@ class HospitalityFolioCharge {
 }
 
 class HospitalityFolioService {
-  HospitalityFolioService({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  HospitalityFolioService({ManagecareApiClient? api}) : _api = api ?? ManagecareApiClient.instance;
 
-  final FirebaseFirestore _firestore;
+  final ManagecareApiClient _api;
 
-  CollectionReference<Map<String, dynamic>> _chargesRef(String businessId) {
-    return _firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('hotel_folio_charges');
-  }
+  Map<String, dynamic> _rowToJson(Map<String, dynamic> row) => {
+        'id': row['id'],
+        'businessId': row['business_id'],
+        'reservationId': row['reservation_id'],
+        'roomId': row['room_id'],
+        'roomNumber': row['room_number'],
+        'description': row['description'],
+        'category': row['category'],
+        'amount': row['amount'],
+        'source': row['source'],
+        'sourceOrderId': row['source_order_id'],
+        'createdById': row['created_by_id'],
+        'createdByName': row['created_by_name'],
+        'createdAt': row['created_at'],
+        'metadata': row['metadata'],
+      };
 
   Future<List<HospitalityFolioCharge>> fetchCharges(String businessId) async {
     if (businessId.isEmpty) return const [];
 
-    final snapshot = await _chargesRef(businessId).get();
-    final charges = snapshot.docs
-        .map((doc) => HospitalityFolioCharge.fromJson({
-              ...doc.data(),
-              'id': doc.id,
-            }))
-        .toList();
+    final response = await _api.get('/api/hotel/$businessId/folio-charges');
+    final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+    final charges = rows.map((r) => HospitalityFolioCharge.fromJson(_rowToJson(r))).toList();
     charges.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return charges;
   }
@@ -127,29 +130,19 @@ class HospitalityFolioService {
     String? createdByName,
     Map<String, dynamic> metadata = const {},
   }) async {
-    final docRef = _chargesRef(businessId).doc();
-    final charge = HospitalityFolioCharge(
-      id: docRef.id,
-      businessId: businessId,
-      reservationId: reservationId,
-      roomId: roomId,
-      roomNumber: roomNumber,
-      description: description,
-      category: category,
-      amount: amount,
-      source: source,
-      sourceOrderId: sourceOrderId,
-      createdById: createdById,
-      createdByName: createdByName,
-      createdAt: DateTime.now(),
-      metadata: metadata,
-    );
-
-    await docRef.set({
-      ...charge.toJson(),
-      'createdAt': FieldValue.serverTimestamp(),
+    final response = await _api.post('/api/hotel/$businessId/folio-charges', body: {
+      'reservation_id': reservationId,
+      'room_id': roomId,
+      'room_number': roomNumber,
+      'description': description,
+      'amount': amount,
+      'category': category,
+      'source': source,
+      'source_order_id': sourceOrderId,
+      'created_by_id': createdById,
+      'created_by_name': createdByName,
+      'metadata': metadata,
     });
-
-    return charge;
+    return HospitalityFolioCharge.fromJson(_rowToJson(Map<String, dynamic>.from(response as Map)));
   }
 }

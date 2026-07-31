@@ -155,11 +155,11 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
           auth.currentUser?.businessId ??
           '';
       if (businessId.isNotEmpty) {
-        // Ensure drink provider queries Firestore for the right business
+        // Ensure drink provider queries the right business
         drinkProv.setBusinessId(businessId);
 
-        // Trigger some reads to ensure UI data refreshes from Firestore
-        await drinkProv.getTotalSalesFromFirestore();
+        // Trigger some reads to ensure UI data refreshes from the backend
+        await drinkProv.getTotalSalesFromRemote();
         await drinkProv.getTodaysSalesTotal();
       }
 

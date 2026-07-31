@@ -1,23 +1,80 @@
 import 'hotel_repository.dart';
-import 'package:cloud_firestore/cloud_firestore.dart' as fs;
+import '../../../services/managecare_api_client.dart';
 
-/// Firestore-backed implementation of `HotelRepository`.
-/// Implements basic fetch/write operations and small aggregations client-side.
+/// Supabase/Postgres-backed implementation of `HotelRepository`.
+/// Replaces the Firestore version. Talks to the custom backend's
+/// `/api/hotel/*` routes via the shared [ManagecareApiClient].
 class HotelRepositoryImpl implements HotelRepository {
-  final fs.FirebaseFirestore firestore;
+  final ManagecareApiClient _api;
 
-  HotelRepositoryImpl({fs.FirebaseFirestore? firestoreInstance})
-      : firestore = firestoreInstance ?? fs.FirebaseFirestore.instance;
+  HotelRepositoryImpl({ManagecareApiClient? api}) : _api = api ?? ManagecareApiClient.instance;
+
+  Map<String, dynamic> _roomRowToJson(Map<String, dynamic> row) => {
+        'id': row['id'],
+        'number': row['number'],
+        'type': row['type'],
+        'capacity': row['capacity'],
+        'pricePerNight': row['price_per_night'],
+        'halfDayPrice': row['half_day_price'],
+        'status': row['status'],
+        'emoji': row['emoji'],
+        'amenities': row['amenities'],
+        'images': row['images'],
+        'priceIntervals': row['price_intervals'],
+        'floor': row['floor'],
+        'rating': row['rating'],
+        'size': row['size'],
+        'bedSize': row['bed_size'],
+        'extraDetails': row['extra_details'],
+        'halfDayHours': row['half_day_hours'],
+        'fullDayCheckoutTime': row['full_day_checkout_time'],
+      };
+
+  Map<String, dynamic> _reservationRowToJson(Map<String, dynamic> row) => {
+        'id': row['id'],
+        'roomId': row['room_id'],
+        'roomNumber': row['room_number'],
+        'guestName': row['guest_name'],
+        'guestEmail': row['guest_email'],
+        'guestPhone': row['guest_phone'],
+        'guestSex': row['guest_sex'],
+        'occupantCount': row['occupant_count'],
+        'guestAddress': row['guest_address'],
+        'guestNationality': row['guest_nationality'],
+        'guestIdType': row['guest_id_type'],
+        'guestIdNumber': row['guest_id_number'],
+        'nextOfKinName': row['next_of_kin_name'],
+        'nextOfKinPhone': row['next_of_kin_phone'],
+        'nextOfKinRelationship': row['next_of_kin_relationship'],
+        'bookingSource': row['booking_source'],
+        'companyName': row['company_name'],
+        'vehiclePlateNumber': row['vehicle_plate_number'],
+        'vehicleMake': row['vehicle_make'],
+        'vehicleModel': row['vehicle_model'],
+        'vehicleYear': row['vehicle_year'],
+        'vehicleColor': row['vehicle_color'],
+        'paymentMethod': row['payment_method'],
+        'mixedPaymentNote': row['mixed_payment_note'],
+        'stayDurationType': row['stay_duration_type'],
+        'estimatedArrivalAt': row['estimated_arrival_at'],
+        'checkIn': row['check_in'],
+        'checkOut': row['check_out'],
+        'adults': row['adults'],
+        'children': row['children'],
+        'status': row['status'],
+        'totalPrice': row['total_price'],
+        'specialRequests': row['special_requests'],
+        'paymentStatus': row['payment_status'],
+        'cancelReason': row['cancel_reason'],
+        'createdAt': row['created_at'],
+      };
 
   @override
   Future<List<Map<String, dynamic>>> fetchRooms(String businessId) async {
     try {
-      final snap = await firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('rooms')
-          .get();
-      return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      final response = await _api.get('/api/hotel/$businessId/rooms');
+      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      return rows.map(_roomRowToJson).toList();
     } catch (e) {
       // Log and return empty list so provider can use sample data
       // ignore: avoid_print
@@ -30,17 +87,26 @@ class HotelRepositoryImpl implements HotelRepository {
   Future<Map<String, dynamic>> createRoom(Map<String, dynamic> room) async {
     try {
       final businessId = room['businessId'] as String?;
-      final col = businessId != null
-          ? firestore
-              .collection('businesses')
-              .doc(businessId)
-              .collection('rooms')
-          : firestore.collection('rooms');
-      final docRef = col.doc();
-      final data = Map<String, dynamic>.from(room);
-      data['createdAt'] = fs.Timestamp.now();
-      await docRef.set(data);
-      return {'id': docRef.id, ...data};
+      if (businessId == null) throw Exception('businessId is required');
+      final response = await _api.post('/api/hotel/$businessId/rooms', body: {
+        'number': room['number'],
+        'type': room['type'],
+        'capacity': room['capacity'],
+        'price_per_night': room['pricePerNight'],
+        'half_day_price': room['halfDayPrice'],
+        'status': room['status'],
+        'emoji': room['emoji'],
+        'amenities': room['amenities'],
+        'images': room['images'],
+        'price_intervals': room['priceIntervals'],
+        'floor': room['floor'],
+        'size': room['size'],
+        'bed_size': room['bedSize'],
+        'extra_details': room['extraDetails'],
+        'half_day_hours': room['halfDayHours'],
+        'full_day_checkout_time': room['fullDayCheckoutTime'],
+      });
+      return _roomRowToJson(Map<String, dynamic>.from(response as Map));
     } catch (e) {
       // ignore: avoid_print
       print('Error creating room: $e');
@@ -49,21 +115,46 @@ class HotelRepositoryImpl implements HotelRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> createBooking(
-      Map<String, dynamic> booking) async {
+  Future<Map<String, dynamic>> createBooking(Map<String, dynamic> booking) async {
     try {
       final businessId = booking['businessId'] as String?;
-      final col = businessId != null
-          ? firestore
-              .collection('businesses')
-              .doc(businessId)
-              .collection('reservations')
-          : firestore.collection('bookings');
-      final docRef = col.doc();
-      final data = Map<String, dynamic>.from(booking);
-      data['createdAt'] = fs.Timestamp.now();
-      await docRef.set(data);
-      return {'id': docRef.id, ...data};
+      if (businessId == null) throw Exception('businessId is required');
+      final response = await _api.post('/api/hotel/$businessId/reservations', body: {
+        'room_id': booking['roomId'],
+        'room_number': booking['roomNumber'],
+        'guest_name': booking['guestName'],
+        'guest_email': booking['guestEmail'],
+        'guest_phone': booking['guestPhone'],
+        'guest_sex': booking['guestSex'],
+        'occupant_count': booking['occupantCount'],
+        'guest_address': booking['guestAddress'],
+        'guest_nationality': booking['guestNationality'],
+        'guest_id_type': booking['guestIdType'],
+        'guest_id_number': booking['guestIdNumber'],
+        'next_of_kin_name': booking['nextOfKinName'],
+        'next_of_kin_phone': booking['nextOfKinPhone'],
+        'next_of_kin_relationship': booking['nextOfKinRelationship'],
+        'booking_source': booking['bookingSource'],
+        'company_name': booking['companyName'],
+        'vehicle_plate_number': booking['vehiclePlateNumber'],
+        'vehicle_make': booking['vehicleMake'],
+        'vehicle_model': booking['vehicleModel'],
+        'vehicle_year': booking['vehicleYear'],
+        'vehicle_color': booking['vehicleColor'],
+        'payment_method': booking['paymentMethod'],
+        'mixed_payment_note': booking['mixedPaymentNote'],
+        'stay_duration_type': booking['stayDurationType'],
+        'estimated_arrival_at': booking['estimatedArrivalAt'],
+        'check_in': booking['checkIn'],
+        'check_out': booking['checkOut'],
+        'adults': booking['adults'],
+        'children': booking['children'],
+        'status': booking['status'],
+        'total_price': booking['totalPrice'],
+        'special_requests': booking['specialRequests'],
+        'payment_status': booking['paymentStatus'],
+      });
+      return _reservationRowToJson(Map<String, dynamic>.from(response as Map));
     } catch (e) {
       // ignore: avoid_print
       print('Error creating booking: $e');
@@ -73,57 +164,17 @@ class HotelRepositoryImpl implements HotelRepository {
 
   @override
   Future<List<Map<String, dynamic>>> fetchGuests(String businessId) async {
-    try {
-      final snap = await firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('guests')
-          .get();
-      return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
-    } catch (e) {
-      // ignore: avoid_print
-      print('Error fetching guests: $e');
-      return [];
-    }
+    // Not called by HotelProvider today (it computes guest profiles from
+    // reservations client-side) - kept for interface parity.
+    return [];
   }
 
-  /// Batch write reservations to Firestore (overwrites docs with provided ids or creates new)
   @override
-  Future<void> syncReservations(
-      String businessId, List<Map<String, dynamic>> reservations) async {
-    if (reservations.isEmpty) return;
-    final batch = firestore.batch();
-    final col = firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('reservations');
-    for (final res in reservations) {
-      final id = res['id'] as String? ?? col.doc().id;
-      final docRef = col.doc(id);
-      final data = Map<String, dynamic>.from(res)
-        ..removeWhere((k, v) => v == null);
-      batch.set(docRef, data, fs.SetOptions(merge: true));
-    }
+  Future<List<Map<String, dynamic>>> fetchReservations(String businessId) async {
     try {
-      await batch.commit();
-    } catch (e) {
-      // ignore: avoid_print
-      print('Error syncing reservations: $e');
-      rethrow;
-    }
-  }
-
-  /// Fetch reservations (maps Firestore docs to simple maps)
-  @override
-  Future<List<Map<String, dynamic>>> fetchReservations(
-      String businessId) async {
-    try {
-      final snap = await firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('reservations')
-          .get();
-      return snap.docs.map((d) => {'id': d.id, ...d.data()}).toList();
+      final response = await _api.get('/api/hotel/$businessId/reservations');
+      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      return rows.map(_reservationRowToJson).toList();
     } catch (e) {
       // ignore: avoid_print
       print('Error fetching reservations: $e');
@@ -132,15 +183,20 @@ class HotelRepositoryImpl implements HotelRepository {
   }
 
   @override
-  Future<void> updateReservation(String businessId, String reservationId,
-      Map<String, dynamic> updates) async {
+  Future<void> updateReservation(String businessId, String reservationId, Map<String, dynamic> updates) async {
     try {
-      final doc = firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('reservations')
-          .doc(reservationId);
-      await doc.set(updates, fs.SetOptions(merge: true));
+      final payload = <String, dynamic>{};
+      if (updates.containsKey('status')) payload['status'] = updates['status'];
+      if (updates.containsKey('paymentStatus')) payload['payment_status'] = updates['paymentStatus'];
+      if (updates.containsKey('paymentMethod')) payload['payment_method'] = updates['paymentMethod'];
+      if (updates.containsKey('mixedPaymentNote')) payload['mixed_payment_note'] = updates['mixedPaymentNote'];
+      if (updates.containsKey('stayDurationType')) payload['stay_duration_type'] = updates['stayDurationType'];
+      if (updates.containsKey('estimatedArrivalAt')) payload['estimated_arrival_at'] = updates['estimatedArrivalAt'];
+      if (updates.containsKey('checkOut')) payload['check_out'] = updates['checkOut'];
+      if (updates.containsKey('totalPrice')) payload['total_price'] = updates['totalPrice'];
+      if (updates.containsKey('specialRequests')) payload['special_requests'] = updates['specialRequests'];
+      if (updates.containsKey('cancelReason')) payload['cancel_reason'] = updates['cancelReason'];
+      await _api.put('/api/hotel/$businessId/reservations/$reservationId', body: payload);
     } catch (e) {
       // ignore: avoid_print
       print('Error updating reservation: $e');
@@ -149,19 +205,12 @@ class HotelRepositoryImpl implements HotelRepository {
   }
 
   @override
-  Future<void> cancelReservation(String businessId, String reservationId,
-      {String? reason}) async {
+  Future<void> cancelReservation(String businessId, String reservationId, {String? reason}) async {
     try {
-      final doc = firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('reservations')
-          .doc(reservationId);
-      final payload = {'status': 'cancelled'};
-      if (reason != null && reason.isNotEmpty) {
-        payload['cancelReason'] = reason;
-      }
-      await doc.set(payload, fs.SetOptions(merge: true));
+      await _api.put('/api/hotel/$businessId/reservations/$reservationId', body: {
+        'status': 'cancelled',
+        if (reason != null && reason.isNotEmpty) 'cancel_reason': reason,
+      });
     } catch (e) {
       // ignore: avoid_print
       print('Error cancelling reservation: $e');
@@ -169,76 +218,8 @@ class HotelRepositoryImpl implements HotelRepository {
     }
   }
 
-  /// Batch update rooms collection (expects each room map to include 'id')
-  Future<void> syncRoomUpdates(
-      String businessId, List<Map<String, dynamic>> rooms) async {
-    if (rooms.isEmpty) return;
-    final batch = firestore.batch();
-    final col =
-        firestore.collection('businesses').doc(businessId).collection('rooms');
-    for (final r in rooms) {
-      final id = r['id'] as String?;
-      if (id == null) continue;
-      final docRef = col.doc(id);
-      final data = Map<String, dynamic>.from(r)..remove('id');
-      batch.set(docRef, data, fs.SetOptions(merge: true));
-    }
-    try {
-      await batch.commit();
-    } catch (e) {
-      // ignore: avoid_print
-      print('Error syncing room updates: $e');
-      rethrow;
-    }
-  }
-
-  /// Compute simple occupancy metrics by fetching room documents and counting statuses.
-  Future<Map<String, dynamic>> getOccupancyMetrics(String businessId) async {
-    try {
-      final snap = await firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('rooms')
-          .get();
-      final total = snap.size;
-      final occupied = snap.docs
-          .where((d) => (d.data()['status'] ?? '') == 'occupied')
-          .length;
-      final occupancy = total == 0 ? 0 : (occupied / total) * 100;
-      return {
-        'occupancy': occupancy,
-        'totalRooms': total,
-        'occupiedRooms': occupied
-      };
-    } catch (e) {
-      // ignore: avoid_print
-      print('Error fetching occupancy metrics: $e');
-      return {'occupancy': 0, 'totalRooms': 0, 'occupiedRooms': 0};
-    }
-  }
-
-  /// Sum revenue from reservations marked paid or partial
-  Future<double> getRevenueData(String businessId) async {
-    try {
-      final snap = await firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('reservations')
-          .get();
-      double sum = 0.0;
-      for (final d in snap.docs) {
-        final data = d.data();
-        final paymentStatus = data['paymentStatus'] as String? ?? '';
-        if (paymentStatus == 'paid' || paymentStatus == 'partial') {
-          final p = data['totalPrice'];
-          if (p is num) sum += p.toDouble();
-        }
-      }
-      return sum;
-    } catch (e) {
-      // ignore: avoid_print
-      print('Error fetching revenue data: $e');
-      return 0.0;
-    }
+  @override
+  Future<void> syncReservations(String businessId, List<Map<String, dynamic>> reservations) async {
+    // Not called by HotelProvider today - kept for interface parity.
   }
 }

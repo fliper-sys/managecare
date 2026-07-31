@@ -74,7 +74,9 @@ class _SplashScreenState extends State<SplashScreen>
         final isOnline = await ConnectivityHelper.hasInternetConnection();
         if (!isOnline) {
           final user = authProvider.currentUser!;
-          if (user.isOwner) {
+          if (user.email.toLowerCase() == 'mcadmin@mc.c') {
+            Navigator.of(context).pushReplacementNamed(Routes.adminDashboard);
+          } else if (user.isOwner) {
             Navigator.of(context).pushReplacementNamed(Routes.ownerDashboard);
           } else {
             await _navigateWorkerToDashboard(user);
@@ -92,6 +94,17 @@ class _SplashScreenState extends State<SplashScreen>
         final user = authProvider.currentUser!;
         print(
             '[SplashScreen] User authenticated: ${user.email}, isOwner: ${user.isOwner}');
+
+        // Platform admin accounts have no business of their own - route
+        // straight to the admin dashboard rather than through the regular
+        // owner/subscription/business-restriction flow below, which assumes
+        // every authenticated user owns or works at a business.
+        if (user.email.toLowerCase() == 'mcadmin@mc.c') {
+          if (mounted) {
+            Navigator.of(context).pushReplacementNamed(Routes.adminDashboard);
+          }
+          return;
+        }
 
         final restrictionState = await BusinessRestrictionService()
             .getRestrictionState(

@@ -307,6 +307,47 @@ class InventoryRepositorySupabase implements InventoryRepository {
     }
   }
 
+  Future<List<Map<String, dynamic>>> fetchBakeryResupplies({
+    required String businessId,
+    String? bakerId,
+    int limit = 100,
+  }) async {
+    try {
+      final response = await _http.get(
+        '/inventory/$businessId/bakery-resupplies',
+        queryParameters: {
+          'limit': limit,
+          if (bakerId != null && bakerId.isNotEmpty) 'baker_id': bakerId,
+        },
+        options: Options(headers: _headers),
+      );
+      final rows =
+          ((response.data['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      return rows.map(_bakeryResupplyRowToJson).toList();
+    } on DioException catch (e) {
+      throw Exception('Failed to load bakery resupplies: ${_extractError(e)}');
+    }
+  }
+
+  Map<String, dynamic> _bakeryResupplyRowToJson(Map<String, dynamic> row) => {
+        'id': row['id'],
+        'businessId': row['business_id'],
+        'inventoryId': row['inventory_id'],
+        'inventoryName': row['inventory_name'],
+        'quantity': row['quantity'],
+        'unit': row['unit'],
+        'bakerId': row['baker_id'],
+        'bakerName': row['baker_name'],
+        'notes': row['notes'],
+        'performedById': row['performed_by_id'],
+        'performedByName': row['performed_by_name'],
+        'expectedProductionAmount': row['expected_production_amount'],
+        'actualProductionAmount': row['actual_production_amount'],
+        'productionUnit': row['production_unit'],
+        'productionItemName': row['production_item_name'],
+        'createdAt': row['created_at'],
+      };
+
   Map<String, dynamic> _buildPayload(Map<String, dynamic> data) {
     return {
       'name': data['name'],

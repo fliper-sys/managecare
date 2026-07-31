@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
 import '../services/managecare_api_client.dart';
 import '../data/models/business_model.dart';
@@ -467,7 +466,6 @@ class BusinessProvider with ChangeNotifier {
             description: 'Main apartment for ${business.name}',
             ownerId: business.ownerId,
             address: business.address ?? '',
-            createdAt: Timestamp.now(),
           );
           final aptId = await aptRepo.createApartment(businessId: business.id, apartment: apt);
           print('[BusinessProvider] Default apartment created: $aptId');

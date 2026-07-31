@@ -64,6 +64,29 @@ module.exports = function(pool) {
     });
   }));
 
+  // GET /api/inventory/:businessId/bakery-resupplies - List bakery
+  // production assignments issued to bakers.
+  router.get('/:businessId/bakery-resupplies', pagination, asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const { baker_id } = req.query;
+    const { limit, offset } = req.pagination;
+
+    let query = 'SELECT * FROM bakery_resupplies WHERE business_id = $1';
+    const params = [businessId];
+    let paramIndex = 2;
+
+    if (baker_id) {
+      query += ` AND baker_id = $${paramIndex++}`;
+      params.push(baker_id);
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
+    params.push(limit, offset);
+
+    const result = await pool.query(query, params);
+    res.json({ data: result.rows });
+  }));
+
   // GET /api/inventory/:businessId/:id - Get single inventory item
   router.get('/:businessId/:id', asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
@@ -77,12 +100,15 @@ module.exports = function(pool) {
     res.json(result.rows[0]);
   }));
 
-  // POST /api/inventory/:businessId - Create inventory item
+  // POST /api/inventory/:businessId - Create inventory item.
+  // Accepts an optional client-supplied `id` so callers (e.g. the pharmacy
+  // drug sync, which mirrors Firestore's "set with merge" upsert semantics)
+  // can create-or-update in one call.
   router.post('/:businessId', requireFields('name', 'unit_price'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const {
-      name, sku, barcode, category, description, unit_price, cost_price,
-      quantity, min_stock_level, unit, expiry_date, store_id,
+      id, name, sku, barcode, category, description, unit_price, cost_price,
+      quantity, min_stock_level, unit, expiry_date, store_id, metadata,
     } = req.body;
 
     // Auto-generate SKU if not provided
@@ -97,12 +123,19 @@ module.exports = function(pool) {
     }
 
     const result = await pool.query(
-      `INSERT INTO inventory (business_id, name, sku, barcode, category, description, unit_price, cost_price, quantity, min_stock_level, unit, expiry_date, store_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      `INSERT INTO inventory (id, business_id, name, sku, barcode, category, description, unit_price, cost_price, quantity, min_stock_level, unit, expiry_date, store_id, metadata)
+       VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, COALESCE($15::jsonb, '{}'::jsonb))
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name, sku = EXCLUDED.sku, barcode = EXCLUDED.barcode, category = EXCLUDED.category,
+         description = EXCLUDED.description, unit_price = EXCLUDED.unit_price, cost_price = EXCLUDED.cost_price,
+         quantity = EXCLUDED.quantity, min_stock_level = EXCLUDED.min_stock_level, unit = EXCLUDED.unit,
+         expiry_date = EXCLUDED.expiry_date, store_id = EXCLUDED.store_id,
+         metadata = inventory.metadata || EXCLUDED.metadata,
+         updated_at = NOW()
        RETURNING *`,
-      [businessId, name, finalSku, barcode || null, category || null, description || null,
+      [id || null, businessId, name, finalSku, barcode || null, category || null, description || null,
        unit_price, cost_price || 0, quantity || 0, min_stock_level || 0, unit || 'pcs',
-       expiry_date || null, store_id || null]
+       expiry_date || null, store_id || null, metadata ? JSON.stringify(metadata) : null]
     );
 
     res.status(201).json(result.rows[0]);
@@ -113,7 +146,7 @@ module.exports = function(pool) {
     const { businessId, id } = req.params;
     const {
       name, sku, barcode, category, description, unit_price, cost_price,
-      quantity, min_stock_level, unit, expiry_date, store_id, is_active,
+      quantity, min_stock_level, unit, expiry_date, store_id, is_active, metadata,
     } = req.body;
 
     // Build dynamic update
@@ -134,6 +167,7 @@ module.exports = function(pool) {
     if (expiry_date !== undefined) { fields.push(`expiry_date = $${paramIndex++}`); params.push(expiry_date); }
     if (store_id !== undefined) { fields.push(`store_id = $${paramIndex++}`); params.push(store_id); }
     if (is_active !== undefined) { fields.push(`is_active = $${paramIndex++}`); params.push(is_active); }
+    if (metadata !== undefined) { fields.push(`metadata = metadata || $${paramIndex++}::jsonb`); params.push(JSON.stringify(metadata)); }
 
     if (fields.length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
@@ -231,7 +265,8 @@ module.exports = function(pool) {
   }));
 
   // POST /api/inventory/:businessId/:id/resupply - Record a bakery-style
-  // resupply: increments quantity and logs a history entry atomically.
+  // production assignment: decreases ingredient stock, records an assignment,
+  // and logs an inventory history entry atomically.
   router.post('/:businessId/:id/resupply', requireFields('quantity'), asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
     const {
@@ -243,7 +278,7 @@ module.exports = function(pool) {
     try {
       await client.query('BEGIN');
       const updated = await client.query(
-        `UPDATE inventory SET quantity = quantity + $1, updated_at = NOW()
+        `UPDATE inventory SET quantity = quantity - $1, updated_at = NOW()
          WHERE id = $2 AND business_id = $3 RETURNING *`,
         [quantity, id, businessId]
       );
@@ -255,10 +290,10 @@ module.exports = function(pool) {
       const historyEntry = await client.query(
         `INSERT INTO inventory_history
            (business_id, inventory_id, change_type, quantity_change, quantity_after, notes, performed_by_id, performed_by_name, metadata)
-         VALUES ($1, $2, 'resupply', $3, $4, $5, $6, $7, $8)
+         VALUES ($1, $2, 'bakery_resupply', $3, $4, $5, $6, $7, $8)
          RETURNING *`,
         [
-          businessId, id, quantity, updated.rows[0].quantity, notes || null,
+          businessId, id, -Math.abs(Number(quantity)), updated.rows[0].quantity, notes || null,
           performed_by_id || null, performed_by_name || null,
           JSON.stringify({
             baker_id, baker_name, expected_production_amount,
@@ -267,8 +302,27 @@ module.exports = function(pool) {
         ]
       );
 
+      const resupplyEntry = await client.query(
+        `INSERT INTO bakery_resupplies (
+           business_id, inventory_id, inventory_name, quantity, unit, baker_id, baker_name, notes,
+           performed_by_id, performed_by_name, expected_production_amount, actual_production_amount,
+           production_unit, production_item_name
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         RETURNING *`,
+        [
+          businessId, id, updated.rows[0].name || null, quantity, updated.rows[0].unit || null,
+          baker_id || null, baker_name || null, notes || null, performed_by_id || null,
+          performed_by_name || null, expected_production_amount || 0, actual_production_amount || 0,
+          production_unit || updated.rows[0].unit || null, production_item_name || updated.rows[0].name || null,
+        ]
+      );
+
       await client.query('COMMIT');
-      res.status(201).json({ inventory: updated.rows[0], history: historyEntry.rows[0] });
+      res.status(201).json({
+        inventory: updated.rows[0],
+        history: historyEntry.rows[0],
+        resupply: resupplyEntry.rows[0],
+      });
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;

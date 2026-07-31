@@ -1,8 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../core/utils/datetime_utils.dart';
 import '../data/repositories/procurement_repository.dart';
-import '../data/repositories/sales_repository_impl.dart';
+import '../services/managecare_api_client.dart';
 
 class ProductHistoryProvider extends ChangeNotifier {
   DateTime start;
@@ -10,21 +9,21 @@ class ProductHistoryProvider extends ChangeNotifier {
   bool loading = false;
   String? error;
   List<Map<String, dynamic>> sales = [];
-  
+
   // Caching for performance
   String? _cachedBusinessId;
   String? _cachedProductId;
   DateTime? _cachedStart;
   DateTime? _cachedEnd;
 
-  final SalesRepositoryImpl _salesRepo;
+  final ManagecareApiClient _api;
   final ProcurementRepository _procRepo;
 
-  ProductHistoryProvider({SalesRepositoryImpl? salesRepo, ProcurementRepository? procRepo})
+  ProductHistoryProvider({ManagecareApiClient? api, ProcurementRepository? procRepo})
       : start = DateTime.now().subtract(const Duration(days: 30)),
         end = DateTime.now(),
-        _salesRepo = salesRepo ?? SalesRepositoryImpl(firestore: FirebaseFirestore.instance),
-        _procRepo = procRepo ?? ProcurementRepository(firestore: FirebaseFirestore.instance);
+        _api = api ?? ManagecareApiClient.instance,
+        _procRepo = procRepo ?? ProcurementRepository();
 
   void setRange(DateTime s, DateTime e) {
     start = s;
@@ -35,7 +34,7 @@ class ProductHistoryProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Stream<QuerySnapshot> procurementsStream({required String businessId, required String productId}) {
+  Stream<List<Map<String, dynamic>>> procurementsStream({required String businessId, required String productId}) {
     return _procRepo.productProcurementsStream(businessId: businessId, productId: productId);
   }
 
@@ -69,48 +68,27 @@ class ProductHistoryProvider extends ChangeNotifier {
       final normalizedProductId = productId.toLowerCase();
       final salesList = <Map<String, dynamic>>[];
 
-      Future<void> addDocs(QuerySnapshot snapshot) async {
-        for (final doc in snapshot.docs) {
-          final data = doc.data();
-          if (data is! Map<String, dynamic>) continue;
-          salesList.add({'id': doc.id, ...data});
-        }
-      }
-
-      final firestore = FirebaseFirestore.instance;
-
       try {
-        await addDocs(await firestore
-            .collection('businesses')
-            .doc(businessId)
-            .collection('sales')
-            .get());
+        final response = await _api.get('/api/sales/$businessId', query: {'limit': 1000});
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        salesList.addAll(rows);
       } catch (e) {
-        debugPrint('ProductHistoryProvider nested load failed: $e');
-      }
-
-      try {
-        await addDocs(await firestore
-            .collection('sales')
-            .where('businessId', isEqualTo: businessId)
-            .get());
-      } catch (e) {
-        debugPrint('ProductHistoryProvider root load failed: $e');
+        debugPrint('ProductHistoryProvider sales load failed: $e');
       }
 
       // Filter to only matched products - do minimal processing
       final matched = <Map<String, dynamic>>[];
-      
+
       for (final s in salesList) {
         try {
           final items = (s['items'] as List<dynamic>?) ?? [];
-          
+
           for (final it in items) {
             if (it is! Map) continue;
-            
-            // Match product ID
-            final pid = (it['productId'] ?? it['id'] ?? it['product_id'] ?? it['productIdStr'] ?? '').toString();
-            final pname = (it['productName'] ?? it['name'] ?? '').toString();
+
+            // Match product ID (backend returns snake_case item fields)
+            final pid = (it['product_id'] ?? it['productId'] ?? it['id'] ?? '').toString();
+            final pname = (it['product_name'] ?? it['productName'] ?? it['name'] ?? '').toString();
             final normalizedPid = pid.toLowerCase();
             final normalizedName = pname.toLowerCase();
             if (normalizedPid != normalizedProductId &&
@@ -122,16 +100,16 @@ class ProductHistoryProvider extends ChangeNotifier {
             }
 
             // Extract quantity
-            double qty = _parseQuantity(it['quantity'] ?? it['qty'] ?? it['quantitySold'] ?? it['qtySold'] ?? it['soldQty']);
+            double qty = _parseQuantity(it['quantity'] ?? it['qty']);
 
             // Extract price
-            double price = _parsePrice(it['price'] ?? it['sellingPrice'] ?? it['amount'] ?? it['unitPrice']);
+            double price = _parsePrice(it['unit_price'] ?? it['unitPrice'] ?? it['price']);
 
             // Extract sale ID
-            final saleId = (s['id'] ?? s['saleId'] ?? s['transactionId'] ?? s['sale_id'] ?? '')?.toString() ?? '';
+            final saleId = (s['id'] ?? '').toString();
 
             // Apply the selected date range locally so the full history can be queried safely
-            final createdRaw = s['createdAt'] ?? s['created_at'] ?? s['timestamp'];
+            final createdRaw = s['created_at'] ?? s['createdAt'];
             final created = parseTimestamp(createdRaw);
             if (created.isBefore(start) || created.isAfter(end)) continue;
 
@@ -141,7 +119,7 @@ class ProductHistoryProvider extends ChangeNotifier {
               'quantity': qty,
               'price': price,
               'total': (qty * price),
-              'paymentMethod': s['paymentMethod'] ?? s['method'] ?? s['payment_method'] ?? '',
+              'paymentMethod': s['payment_method'] ?? s['paymentMethod'] ?? '',
             });
           }
         } catch (e) {
@@ -154,13 +132,13 @@ class ProductHistoryProvider extends ChangeNotifier {
       matched.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
 
       sales = matched;
-      
+
       // Update cache
       _cachedBusinessId = businessId;
       _cachedProductId = productId;
       _cachedStart = start;
       _cachedEnd = end;
-      
+
       loading = false;
       notifyListeners();
     } catch (e) {
@@ -175,7 +153,7 @@ class ProductHistoryProvider extends ChangeNotifier {
   double _parseQuantity(dynamic rawQty) {
     if (rawQty is num) return rawQty.toDouble();
     if (rawQty == null) return 0.0;
-    
+
     try {
       final cleaned = rawQty.toString().replaceAll(RegExp(r'[^0-9.\\-]'), '');
       return double.tryParse(cleaned) ?? 0.0;
@@ -188,7 +166,7 @@ class ProductHistoryProvider extends ChangeNotifier {
   double _parsePrice(dynamic rawPrice) {
     if (rawPrice is num) return rawPrice.toDouble();
     if (rawPrice == null) return 0.0;
-    
+
     try {
       return double.tryParse(rawPrice.toString()) ?? 0.0;
     } catch (_) {

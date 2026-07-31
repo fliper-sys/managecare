@@ -1,10 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/constants/routes.dart';
-import '../../../data/repositories/inventory_repository_impl.dart';
+import '../../../data/repositories/inventory_repository_supabase.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/workers_provider.dart';
@@ -77,7 +76,7 @@ class _BakeryResupplyScreenState extends State<BakeryResupplyScreen> {
 
       final authProvider = context.read<AuthProvider>();
       final userStoreId = authProvider.currentUser?.storeId;
-      final repository = InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
+      final repository = InventoryRepositorySupabase();
       final inventoryData = await repository.getInventory(businessId, storeId: userStoreId);
 
       final ingredients = inventoryData
@@ -200,19 +199,12 @@ class _BakeryResupplyScreenState extends State<BakeryResupplyScreen> {
     });
 
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('bakery_resupplies')
-          .where('bakerId', isEqualTo: bakerId)
-          .orderBy('createdAt', descending: true)
-          .limit(6)
-          .get();
-
-      final history = snapshot.docs.map((doc) {
-        final data = doc.data();
-        return {'id': doc.id, ...data};
-      }).toList();
+      final repository = InventoryRepositorySupabase();
+      final history = await repository.fetchBakeryResupplies(
+        businessId: businessId,
+        bakerId: bakerId,
+        limit: 6,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -248,7 +240,7 @@ class _BakeryResupplyScreenState extends State<BakeryResupplyScreen> {
     final authProvider = context.read<AuthProvider>();
     final performedById = authProvider.currentUser?.id;
     final performedByName = authProvider.currentUser?.fullName ?? authProvider.currentUser?.email;
-    final repository = InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
+    final repository = InventoryRepositorySupabase();
     final expectedProductionAmount = double.tryParse(_expectedProductionController.text.trim()) ?? 0.0;
     final actualProductionAmount = double.tryParse(_actualProductionController.text.trim()) ?? 0.0;
     setState(() => _isLoading = true);
@@ -471,11 +463,13 @@ class _BakeryResupplyScreenState extends State<BakeryResupplyScreen> {
                                           final actual = ((assignment['actualProductionAmount'] as num?) ?? 0).toDouble();
                                           final createdAt = assignment['createdAt'];
                                           String dateLabel = 'Unknown';
-                                          if (createdAt is Timestamp) {
-                                            final date = createdAt.toDate();
-                                            dateLabel = '${date.day}/${date.month}/${date.year}';
-                                          } else if (createdAt is DateTime) {
+                                          if (createdAt is DateTime) {
                                             dateLabel = '${createdAt.day}/${createdAt.month}/${createdAt.year}';
+                                          } else if (createdAt is String) {
+                                            final parsed = DateTime.tryParse(createdAt);
+                                            if (parsed != null) {
+                                              dateLabel = '${parsed.day}/${parsed.month}/${parsed.year}';
+                                            }
                                           }
 
                                           return Padding(

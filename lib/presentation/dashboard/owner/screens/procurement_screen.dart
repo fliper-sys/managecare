@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -20,6 +20,7 @@ import '../../../../services/notification_and_email_service.dart';
 import 'procurement_history_screen.dart';
 import 'product_procurements_screen.dart';
 import '../../../../data/repositories/procurement_repository.dart';
+import '../../../../services/managecare_api_client.dart';
 import '../../../../data/local/shared_prefs_helper.dart';
 import '../utils/procurement_filter_utils.dart';
 
@@ -35,7 +36,6 @@ class ProcurementScreen extends StatefulWidget {
 class _ProcurementScreenState extends State<ProcurementScreen> {
   late TextEditingController _searchController;
   late TextEditingController _barcodeController;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   List<Map<String, dynamic>> _products = [];
   List<Map<String, dynamic>> _filteredProducts = [];
   List<String> _categories = [];
@@ -94,74 +94,26 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       }
 
       // Load products from inventory
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('inventory')
-          .get();
+      final response = await ManagecareApiClient.instance.get('/api/inventory/$businessId', query: {'limit': 500});
+      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
 
-      final products = snapshot.docs.map((doc) {
-        final data = doc.data();
+      final products = rows.map((row) {
         return {
-          ...data,
-          'id': doc.id,
+          ...row,
+          'id': row['id'],
+          'name': row['name'],
+          'price': row['unit_price'],
+          'quantity': row['quantity'],
+          'category': row['category'],
+          'sku': row['sku'],
+          'barcode': row['barcode'],
         };
       }).toList();
 
-      // Also load inventory-like items from business documents (e.g., uploaded inventory sheets)
-      final docsSnapshot = await _firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('documents')
-          .get();
-
+      // The old Firestore "documents" collection (uploaded inventory
+      // sheets merged in as extra procurable items) has no Postgres
+      // equivalent yet - inventory itself is now the single source.
       final documentItems = <Map<String, dynamic>>[];
-      for (final d in docsSnapshot.docs) {
-        final ddata = d.data();
-        // Consider documents that explicitly include inventory lists or items
-        if (ddata.containsKey('items') && ddata['items'] is List) {
-          final items = (ddata['items'] as List).cast<dynamic>();
-          for (var i = 0; i < items.length; i++) {
-            final it = items[i];
-            if (it is Map<String, dynamic>) {
-              documentItems.add({
-                'id': '${d.id}_$i',
-                ...it,
-              });
-            }
-          }
-        } else if (ddata.containsKey('inventory') &&
-            ddata['inventory'] is List) {
-          final items = (ddata['inventory'] as List).cast<dynamic>();
-          for (var i = 0; i < items.length; i++) {
-            final it = items[i];
-            if (it is Map<String, dynamic>) {
-              documentItems.add({
-                'id': '${d.id}_$i',
-                ...it,
-              });
-            }
-          }
-        }
-        // If document name suggests inventory (e.g., "inventory.csv"), and contains raw data fields
-        else if ((ddata['name'] ?? '')
-                .toString()
-                .toLowerCase()
-                .contains('inventory') &&
-            ddata.containsKey('data') &&
-            ddata['data'] is List) {
-          final items = (ddata['data'] as List).cast<dynamic>();
-          for (var i = 0; i < items.length; i++) {
-            final it = items[i];
-            if (it is Map<String, dynamic>) {
-              documentItems.add({
-                'id': '${d.id}_$i',
-                ...it,
-              });
-            }
-          }
-        }
-      }
 
       // Merge and deduplicate using helper: prefer explicit inventory collection items over document-sourced ones
       var allProducts = mergeInventoryMaps(products, documentItems);
@@ -341,12 +293,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       final productId = product['id'] as String?;
       if (productId == null) return;
 
-      await _firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('inventory')
-          .doc(productId)
-          .update({'quantity': newQuantity});
+      await ManagecareApiClient.instance.patch('/api/inventory/$businessId/$productId/quantity', body: {'quantity': newQuantity});
 
       // Update local state
       final index = _products.indexWhere((p) => p['id'] == productId);
@@ -740,7 +687,6 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
 
   DateTime? _coerceExpiryDate(dynamic value) {
     if (value == null) return null;
-    if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
     if (value is String && value.trim().isNotEmpty) {
       return DateTime.tryParse(value.trim());
@@ -955,15 +901,14 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     final businessId = context.read<BusinessProvider>().currentBusiness?.id ?? '';
     if (businessId.isEmpty) return [];
 
-    final snapshot = await FirebaseFirestore.instance
-        .collection('workers')
-        .where('businessId', isEqualTo: businessId)
-        .get();
-
-    return snapshot.docs
-        .map((doc) => {'id': doc.id, ...doc.data()})
-        .cast<Map<String, dynamic>>()
-        .toList();
+    try {
+      final response = await ManagecareApiClient.instance.get('/api/workers/$businessId', query: {'limit': 100});
+      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      return rows;
+    } catch (e) {
+      debugPrint('[ProcurementScreen] _loadBakeryWorkers error: $e');
+      return [];
+    }
   }
 
   bool _isBakeryRole(Map<String, dynamic> worker) {
@@ -1322,16 +1267,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       String? storeName;
       if ((currentUser?.storeId ?? '').isNotEmpty) {
         try {
-          final storeDoc = await FirebaseFirestore.instance
-              .collection('businesses')
-              .doc(businessId)
-              .collection('stores')
-              .doc(currentUser!.storeId)
-              .get();
-          storeName =
-              ((storeDoc.data() ?? const <String, dynamic>{})['name']
-                      as String?)
-                  ?.trim();
+          final stores = await ManagecareApiClient.instance.get('/api/stores/$businessId') as List;
+          final match = stores.cast<Map<String, dynamic>>().firstWhere(
+                (s) => s['id'] == currentUser!.storeId,
+                orElse: () => const {},
+              );
+          storeName = (match['name'] as String?)?.trim();
         } catch (e) {
           debugPrint(
               '[ProcurementScreen] Failed to resolve store name: $e');
@@ -1407,15 +1348,13 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       String ownerEmail = '';
       if ((business?.ownerId ?? '').isNotEmpty) {
         try {
-          final ownerDoc = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(business!.ownerId)
-              .get();
-          ownerEmail =
-              ((ownerDoc.data() ?? const <String, dynamic>{})['email']
-                          as String? ??
-                      '')
-                  .trim();
+          final ownerProfile = await Supabase.instance.client
+                  .from('profiles')
+                  .select('email')
+                  .eq('id', business!.ownerId as Object)
+                  .maybeSingle() ??
+              <String, dynamic>{};
+          ownerEmail = ((ownerProfile['email'] as String?) ?? '').trim();
         } catch (e) {
           debugPrint(
               '[ProcurementScreen] Failed to resolve owner email: $e');

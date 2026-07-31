@@ -2,8 +2,15 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
 const { Server } = require('socket.io');
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+// node-postgres returns NUMERIC/DECIMAL columns (OID 1700) as strings by
+// default, to avoid precision loss on values bigger than a JS double can
+// hold exactly. Every price/quantity/amount column in this schema is
+// NUMERIC, and the Flutter client casts them straight to `num`/`double` -
+// parse them as floats here so the API always returns real numbers.
+types.setTypeParser(1700, (value) => (value === null ? null : parseFloat(value)));
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const cors = require('cors');
@@ -18,7 +25,19 @@ const reordersRoutes = require('./routes/reorders');
 const salesRoutes = require('./routes/sales');
 const customersRoutes = require('./routes/customers');
 const workersRoutes = require('./routes/workers');
+const adminRoutes = require('./routes/admin');
 const expensesRoutes = require('./routes/expenses');
+const apartmentsRoutes = require('./routes/apartments');
+const pharmacyRoutes = require('./routes/pharmacy');
+const drinkRoutes = require('./routes/drink');
+const restaurantRoutes = require('./routes/restaurant');
+const hotelRoutes = require('./routes/hotel');
+const procurementRoutes = require('./routes/procurement');
+const pumpsRoutes = require('./routes/pumps');
+const subscriptionsRoutes = require('./routes/subscriptions');
+const paymentsRoutes = require('./routes/payments');
+const distributorsRoutes = require('./routes/distributors');
+const invoicesRoutes = require('./routes/invoices');
 const uploadRoutes = require('./routes/upload');
 const pushRoutes = require('./routes/push');
 
@@ -26,6 +45,7 @@ const pushRoutes = require('./routes/push');
 const { authMiddleware, requireAuth } = require('./middleware/auth');
 const { errorHandler } = require('./middleware/validation');
 const crypto = require('crypto');
+const os = require('os');
 const nodemailer = require('nodemailer');
 
 const PUBLIC_URL = process.env.PUBLIC_URL || 'https://backend.managecare.info';
@@ -185,6 +205,7 @@ if (process.env.MINIO_ENDPOINT) {
 }
 
 // ── Middleware ──────────────────────────────────────────────
+app.set('trust proxy', 1); // behind nginx — use X-Forwarded-For for req.ip
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -297,7 +318,15 @@ function buildRestWhere(query, values) {
     } else if (op === 'is') {
       conditions.push(value === 'null' ? `${column} IS NULL` : `${column} IS NOT NULL`);
     } else if (op === 'in') {
-      const items = value.replace(/^\(|\)$/g, '').split(',').filter(Boolean);
+      // postgrest-dart quotes each list item defensively (e.g. in.("id1","id2")),
+      // which older/simpler clients don't - strip one layer of surrounding
+      // quotes per item so both forms parse to the same bare values.
+      const items = value.replace(/^\(|\)$/g, '').split(',').filter(Boolean).map((item) => {
+        const trimmed = item.trim();
+        return trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')
+          ? trimmed.slice(1, -1)
+          : trimmed;
+      });
       if (items.length > 0) {
         const placeholders = items.map((item) => {
           values.push(item);
@@ -1002,6 +1031,615 @@ app.delete('/rest/v1/:table', restAuthorize, async (req, res) => {
   }
 });
 
+// ── Status dashboard auth (password-gated) ──────────────────
+const STATUS_COOKIE_NAME = 'mc_status_auth';
+const STATUS_COOKIE_SECRET = process.env.JWT_SECRET || 'managecare-status-fallback-secret';
+
+function signStatusToken() {
+  return crypto.createHmac('sha256', STATUS_COOKIE_SECRET).update('status-dashboard-access-v1').digest('hex');
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  const out = {};
+  if (!header) return out;
+  header.split(';').forEach((part) => {
+    const idx = part.indexOf('=');
+    if (idx === -1) return;
+    const key = part.slice(0, idx).trim();
+    const val = decodeURIComponent(part.slice(idx + 1).trim());
+    out[key] = val;
+  });
+  return out;
+}
+
+function hasStatusAccess(req) {
+  const cookies = parseCookies(req);
+  return Boolean(cookies[STATUS_COOKIE_NAME]) && cookies[STATUS_COOKIE_NAME] === signStatusToken();
+}
+
+// Lightweight in-memory brute-force guard (5 attempts / 15 min per IP)
+const statusLoginAttempts = new Map();
+function isStatusLoginRateLimited(ip) {
+  const entry = statusLoginAttempts.get(ip);
+  if (!entry) return false;
+  if (Date.now() > entry.resetAt) {
+    statusLoginAttempts.delete(ip);
+    return false;
+  }
+  return entry.count >= 5;
+}
+function recordFailedStatusLogin(ip) {
+  const entry = statusLoginAttempts.get(ip) || { count: 0, resetAt: Date.now() + 15 * 60 * 1000 };
+  entry.count += 1;
+  statusLoginAttempts.set(ip, entry);
+}
+
+app.post('/api/status-auth', (req, res) => {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  if (isStatusLoginRateLimited(ip)) {
+    return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+  }
+  const password = req.body?.password;
+  const expected = process.env.STATUS_PAGE_PASSWORD;
+  if (!expected) {
+    return res.status(503).json({ error: 'Status dashboard password is not configured on the server.' });
+  }
+  if (password !== expected) {
+    recordFailedStatusLogin(ip);
+    return res.status(401).json({ error: 'Incorrect password' });
+  }
+  statusLoginAttempts.delete(ip);
+  res.cookie(STATUS_COOKIE_NAME, signStatusToken(), {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    maxAge: 12 * 60 * 60 * 1000,
+  });
+  res.json({ ok: true });
+});
+
+app.get('/api/status-logout', (req, res) => {
+  res.clearCookie(STATUS_COOKIE_NAME);
+  res.redirect('/');
+});
+
+// ── Status dashboard data ────────────────────────────────────
+const STATUS_TABLE_GROUPS = {
+  Core: [['businesses', 'Businesses'], ['profiles', 'Users'], ['business_members', 'Business memberships'], ['workers', 'Workers'], ['managecare_workers', 'Managecare workers']],
+  Commerce: [['sales', 'Sales'], ['sale_items', 'Sale items'], ['inventory', 'Inventory items'], ['procurements', 'Procurements'], ['customers', 'Customers'], ['stores', 'Stores'], ['returns', 'Returns'], ['reorders', 'Reorders']],
+  Verticals: [['apartments', 'Apartments'], ['apartment_bookings', 'Apartment bookings'], ['pumps', 'Pumps'], ['pump_daily_uploads', 'Pump uploads'], ['restaurant_orders', 'Restaurant orders'], ['hotel_reservations', 'Hotel reservations'], ['pharmacy_prescriptions', 'Pharmacy prescriptions'], ['bakery_resupplies', 'Bakery resupplies'], ['distributor_sales', 'Distributor sales'], ['drink_orders', 'Drink orders']],
+  Finance: [['payment_transactions', 'Payment transactions'], ['subscription_requests', 'Subscription requests'], ['subscription_events', 'Subscription events'], ['invoices', 'Invoices'], ['expenses', 'Expenses'], ['company_expenses', 'Company expenses']],
+  System: [['notifications', 'Notifications'], ['admin_notifications', 'Admin notifications'], ['device_tokens', 'Device tokens'], ['refresh_tokens', 'Refresh tokens']],
+};
+
+const STATUS_MODULES = [
+  'Inventory', 'Stores', 'Sales', 'Returns', 'Reorders', 'Customers', 'Workers',
+  'Admin', 'Expenses', 'Apartments', 'Pharmacy', 'Drink', 'Restaurant', 'Hotel',
+  'Procurement', 'Pumps', 'Subscriptions', 'Payments', 'Distributors', 'Invoices', 'Upload',
+];
+
+async function gatherStatusData() {
+  const startedAt = Date.now();
+  let dbStatus = 'connected';
+  let dbLatencyMs = null;
+  let dbSize = null;
+
+  try {
+    const t0 = Date.now();
+    await pool.query('SELECT 1');
+    dbLatencyMs = Date.now() - t0;
+    const sizeResult = await pool.query('SELECT pg_size_pretty(pg_database_size(current_database())) AS size');
+    dbSize = sizeResult.rows[0].size;
+  } catch (err) {
+    dbStatus = 'disconnected';
+  }
+
+  const counts = {};
+  const countJobs = [];
+  Object.values(STATUS_TABLE_GROUPS).flat().forEach(([table, label]) => {
+    countJobs.push(
+      pool.query(`SELECT COUNT(*)::int AS n FROM ${table}`)
+        .then((r) => { counts[label] = r.rows[0].n; })
+        .catch(() => { counts[label] = null; })
+    );
+  });
+  await Promise.all(countJobs);
+
+  let businessTypes = [];
+  try {
+    const r = await pool.query(`
+      SELECT COALESCE(NULLIF(TRIM(business_type), ''), 'unspecified') AS type, COUNT(*)::int AS n
+      FROM businesses GROUP BY 1 ORDER BY n DESC LIMIT 14
+    `);
+    businessTypes = r.rows;
+  } catch (err) { /* businesses table unreachable */ }
+
+  let recentSignups7d = null;
+  try {
+    const r = await pool.query(`SELECT COUNT(*)::int AS n FROM profiles WHERE created_at >= NOW() - INTERVAL '7 days'`);
+    recentSignups7d = r.rows[0].n;
+  } catch (err) { /* profiles.created_at unavailable */ }
+
+  let buckets = [];
+  if (minioClient) {
+    try {
+      const list = await minioClient.listBuckets();
+      buckets = list.map((b) => ({ name: b.name, createdAt: b.creationDate }));
+    } catch (err) { /* minio unreachable */ }
+  }
+
+  const mem = process.memoryUsage();
+  const cpus = os.cpus();
+
+  return {
+    generatedAt: new Date().toISOString(),
+    renderTimeMs: Date.now() - startedAt,
+    overallOk: dbStatus === 'connected',
+    db: {
+      status: dbStatus,
+      latencyMs: dbLatencyMs,
+      size: dbSize,
+      pool: { total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount, max: pool.options?.max ?? null },
+    },
+    minio: { configured: Boolean(minioClient), buckets },
+    process: {
+      uptimeSeconds: process.uptime(),
+      pid: process.pid,
+      nodeVersion: process.version,
+      env: process.env.NODE_ENV || 'production',
+      memory: { rss: mem.rss, heapTotal: mem.heapTotal, heapUsed: mem.heapUsed, external: mem.external },
+    },
+    system: {
+      hostname: os.hostname(),
+      platform: os.platform(),
+      release: os.release(),
+      arch: os.arch(),
+      cpuModel: cpus[0] ? cpus[0].model : 'unknown',
+      cpuCores: cpus.length,
+      loadAvg: os.loadavg(),
+      totalMemGB: (os.totalmem() / 1024 / 1024 / 1024).toFixed(1),
+      freeMemGB: (os.freemem() / 1024 / 1024 / 1024).toFixed(1),
+      uptimeSeconds: os.uptime(),
+    },
+    counts,
+    groups: Object.fromEntries(Object.entries(STATUS_TABLE_GROUPS).map(([k, arr]) => [k, arr.map(([, label]) => label)])),
+    businessTypes,
+    recentSignups7d,
+    modules: STATUS_MODULES,
+  };
+}
+
+function formatDuration(totalSeconds) {
+  const s = Math.floor(totalSeconds);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const parts = [];
+  if (d) parts.push(`${d}d`);
+  if (h) parts.push(`${h}h`);
+  parts.push(`${m}m`);
+  return parts.join(' ');
+}
+
+const STATUS_MB = (n) => (n / 1024 / 1024).toFixed(1);
+
+function renderStatusLockScreen(errorMsg) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ManageCare Backend — Locked</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  @keyframes drift { 0% { background-position: 0% 0%; } 100% { background-position: 100% 100%; } }
+  @keyframes floatGlow { 0%,100% { transform: translateY(0) scale(1); opacity: 0.85; } 50% { transform: translateY(-6px) scale(1.05); opacity: 1; } }
+  @keyframes shake { 10%,90% { transform: translateX(-1px); } 20%,80% { transform: translateX(2px); } 30%,50%,70% { transform: translateX(-4px); } 40%,60% { transform: translateX(4px); } }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: linear-gradient(120deg, #0b1120, #171033, #0b1120, #0d1a33);
+    background-size: 300% 300%;
+    animation: drift 18s ease infinite;
+    color: #e6ebf5;
+    padding: 20px;
+  }
+  .card {
+    width: 100%; max-width: 380px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 20px; padding: 40px 32px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    animation: fadeUp 0.6s ease;
+    text-align: center;
+  }
+  .card.shake { animation: shake 0.5s; }
+  .lock-icon {
+    width: 56px; height: 56px; margin: 0 auto 20px; border-radius: 16px;
+    background: linear-gradient(135deg, #6366f1, #22d3ee);
+    display: flex; align-items: center; justify-content: center;
+    animation: floatGlow 3s ease-in-out infinite;
+    box-shadow: 0 0 30px rgba(99,102,241,0.5);
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 650; letter-spacing: -0.01em; }
+  .sub { color: #8b95ab; font-size: 13px; margin-bottom: 28px; }
+  input {
+    width: 100%; padding: 13px 14px; border-radius: 10px; margin-bottom: 14px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+    color: #e6ebf5; font-size: 14px; outline: none; transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.2); }
+  button {
+    width: 100%; padding: 13px; border-radius: 10px; border: none; cursor: pointer;
+    background: linear-gradient(135deg, #6366f1, #22d3ee); color: #05070d;
+    font-weight: 650; font-size: 14px; transition: opacity 0.2s, transform 0.15s;
+  }
+  button:hover { opacity: 0.92; transform: translateY(-1px); }
+  button:disabled { opacity: 0.6; cursor: default; transform: none; }
+  .error { color: #f87171; font-size: 13px; margin-top: 14px; min-height: 16px; }
+</style>
+</head>
+<body>
+  <div class="card" id="lock-card">
+    <div class="lock-icon">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#05070d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="11" width="16" height="10" rx="2"></rect>
+        <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
+      </svg>
+    </div>
+    <h1>ManageCare Backend</h1>
+    <div class="sub">Enter the access password to view the status dashboard</div>
+    <form id="lock-form">
+      <input type="password" id="lock-password" placeholder="Password" autocomplete="current-password" autofocus required />
+      <button type="submit">Unlock</button>
+      <div class="error" id="lock-error">${errorMsg ? errorMsg : ''}</div>
+    </form>
+  </div>
+  <script>
+    (function () {
+      const form = document.getElementById('lock-form');
+      const input = document.getElementById('lock-password');
+      const card = document.getElementById('lock-card');
+      const errorEl = document.getElementById('lock-error');
+      form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        errorEl.textContent = '';
+        const btn = form.querySelector('button');
+        btn.disabled = true; btn.textContent = 'Verifying…';
+        try {
+          const res = await fetch('/api/status-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: input.value }),
+          });
+          if (res.ok) {
+            window.location.reload();
+            return;
+          }
+          const data = await res.json().catch(function () { return {}; });
+          errorEl.textContent = data.error || 'Incorrect password';
+          card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
+          btn.disabled = false; btn.textContent = 'Unlock';
+          input.select();
+        } catch (err) {
+          errorEl.textContent = 'Network error — try again';
+          btn.disabled = false; btn.textContent = 'Unlock';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+function renderStatusDashboard(data) {
+  const overallOk = data.overallOk;
+  const groupLabels = { Core: 'Core', Commerce: 'Commerce', Verticals: 'Verticals', Finance: 'Finance', System: 'System' };
+  const maxBusinessType = Math.max(1, ...data.businessTypes.map((r) => r.n));
+
+  const countCardsForGroup = (groupName) => (data.groups[groupName] || []).map((label) => `
+        <div class="card fade-in">
+          <div class="label">${label}</div>
+          <div class="value" data-count="${data.counts[label] ?? 0}">0</div>
+        </div>`).join('');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ManageCare Backend — Status</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  @keyframes drift { 0% { background-position: 0% 0%; } 100% { background-position: 100% 100%; } }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(74,222,128,0.4); } 50% { box-shadow: 0 0 0 6px rgba(74,222,128,0); } }
+  @keyframes pulseBad { 0%,100% { box-shadow: 0 0 0 0 rgba(248,113,113,0.4); } 50% { box-shadow: 0 0 0 6px rgba(248,113,113,0); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  body {
+    margin: 0; min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: linear-gradient(120deg, #0b1120, #151233, #0b1120, #0d1a33);
+    background-size: 300% 300%;
+    animation: drift 25s ease infinite;
+    color: #e6ebf5;
+    padding: 40px 20px 64px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 24px; }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand .logo {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: linear-gradient(135deg, #6366f1, #22d3ee);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 20px; color: #05070d;
+  }
+  .brand h1 { font-size: 21px; margin: 0; font-weight: 650; letter-spacing: -0.02em; }
+  .brand .sub { color: #8b95ab; font-size: 12.5px; margin-top: 2px; }
+  .top-actions { display: flex; align-items: center; gap: 12px; }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    background: ${overallOk ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)'};
+    color: ${overallOk ? '#4ade80' : '#f87171'};
+    border: 1px solid ${overallOk ? 'rgba(74,222,128,0.3)' : 'rgba(248,113,113,0.3)'};
+  }
+  .status-pill .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: ${overallOk ? '#4ade80' : '#f87171'};
+    animation: ${overallOk ? 'pulse' : 'pulseBad'} 2s infinite;
+  }
+  .logout-link { color: #8b95ab; font-size: 12.5px; text-decoration: none; border: 1px solid rgba(255,255,255,0.12); padding: 7px 12px; border-radius: 999px; transition: color 0.2s, border-color 0.2s; }
+  .logout-link:hover { color: #e6ebf5; border-color: rgba(255,255,255,0.3); }
+  .tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 28px; }
+  .tab-btn {
+    background: none; border: none; color: #8b95ab; font-size: 13.5px; font-weight: 600;
+    padding: 12px 16px; cursor: pointer; white-space: nowrap; position: relative; transition: color 0.2s;
+  }
+  .tab-btn:hover { color: #c7cede; }
+  .tab-btn.active { color: #e6ebf5; }
+  .tab-btn.active::after {
+    content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px;
+    background: linear-gradient(90deg, #6366f1, #22d3ee); border-radius: 2px;
+  }
+  .tab-panel { display: none; animation: fadeIn 0.4s ease; }
+  .tab-panel.active { display: block; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 28px; }
+  .card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px; padding: 16px 18px;
+    backdrop-filter: blur(10px);
+    transition: transform 0.2s, border-color 0.2s, background 0.2s;
+    animation: fadeIn 0.5s ease backwards;
+  }
+  .card:hover { transform: translateY(-3px); border-color: rgba(99,102,241,0.35); background: rgba(255,255,255,0.06); }
+  .card .label { font-size: 11.5px; color: #8b95ab; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .card .value { font-size: 22px; font-weight: 650; }
+  .card .value.small { font-size: 14.5px; font-weight: 550; }
+  .card .value.ok { color: #4ade80; }
+  .card .value.bad { color: #f87171; }
+  section.block { margin-bottom: 30px; }
+  section.block h2 {
+    font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: #8b95ab; font-weight: 650; margin: 0 0 14px;
+  }
+  .modules { display: flex; flex-wrap: wrap; gap: 8px; }
+  .modules span {
+    padding: 6px 12px; border-radius: 8px; font-size: 13px;
+    background: rgba(99,102,241,0.12); color: #a5b4fc;
+    border: 1px solid rgba(99,102,241,0.25);
+  }
+  .meta-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .meta-table td { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .meta-table td:first-child { color: #8b95ab; width: 240px; }
+  code { background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  .bar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .bar-row .bar-label { width: 150px; font-size: 12.5px; color: #c7cede; text-transform: capitalize; flex-shrink: 0; }
+  .bar-row .bar-track { flex: 1; height: 10px; border-radius: 6px; background: rgba(255,255,255,0.06); overflow: hidden; }
+  .bar-row .bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #6366f1, #22d3ee); animation: fadeIn 0.6s ease; }
+  .bar-row .bar-n { width: 44px; text-align: right; font-size: 12.5px; color: #8b95ab; flex-shrink: 0; }
+  .bucket-list { display: flex; flex-direction: column; gap: 8px; }
+  .bucket-list .bucket { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; font-size: 13px; }
+  .spinner-dot { width: 6px; height: 6px; border-radius: 50%; background: #22d3ee; animation: pulse 2s infinite; }
+  footer { color: #5b6480; font-size: 12px; margin-top: 40px; text-align: center; }
+  footer #last-updated { color: #8b95ab; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <div class="logo">MC</div>
+        <div>
+          <h1>ManageCare Backend</h1>
+          <div class="sub">Self-hosted API — Express + PostgreSQL + MinIO</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="status-pill"><span class="dot"></span>${overallOk ? 'All systems operational' : 'Degraded — database unreachable'}</div>
+        <a class="logout-link" href="/docs">Blueprint</a>
+        <a class="logout-link" href="/api/status-logout">Lock</a>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="overview">Overview</button>
+      <button class="tab-btn" data-tab="database">Database</button>
+      <button class="tab-btn" data-tab="business-types">Business Types</button>
+      <button class="tab-btn" data-tab="system">System</button>
+      <button class="tab-btn" data-tab="modules">Modules & Storage</button>
+    </div>
+
+    <div class="tab-panel active" id="panel-overview">
+      <section class="block">
+        <h2>Live status</h2>
+        <div class="grid">
+          <div class="card"><div class="label">Database</div><div class="value ${data.db.status === 'connected' ? 'ok' : 'bad'} small" id="live-db-status">${data.db.status === 'connected' ? `Connected · ${data.db.latencyMs}ms` : 'Disconnected'}</div></div>
+          <div class="card"><div class="label">Database size</div><div class="value small">${data.db.size || '—'}</div></div>
+          <div class="card"><div class="label">Storage (MinIO)</div><div class="value ${data.minio.configured ? 'ok' : 'bad'} small">${data.minio.configured ? 'Configured' : 'Not configured'}</div></div>
+          <div class="card"><div class="label">Process uptime</div><div class="value small">${formatDuration(data.process.uptimeSeconds)}</div></div>
+        </div>
+      </section>
+      <section class="block">
+        <h2>Key metrics</h2>
+        <div class="grid">
+          <div class="card"><div class="label">Businesses</div><div class="value" data-count="${data.counts['Businesses'] ?? 0}">0</div></div>
+          <div class="card"><div class="label">Users</div><div class="value" data-count="${data.counts['Users'] ?? 0}">0</div></div>
+          <div class="card"><div class="label">Sales</div><div class="value" data-count="${data.counts['Sales'] ?? 0}">0</div></div>
+          <div class="card"><div class="label">Inventory items</div><div class="value" data-count="${data.counts['Inventory items'] ?? 0}">0</div></div>
+          <div class="card"><div class="label">New users (7d)</div><div class="value" data-count="${data.recentSignups7d ?? 0}">0</div></div>
+          <div class="card"><div class="label">DB pool (active/idle)</div><div class="value small">${data.db.pool.total - data.db.pool.idle} / ${data.db.pool.idle}</div></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="tab-panel" id="panel-database">
+      ${Object.keys(data.groups).map((groupName) => `
+      <section class="block">
+        <h2>${groupLabels[groupName] || groupName}</h2>
+        <div class="grid">${countCardsForGroup(groupName)}</div>
+      </section>`).join('')}
+    </div>
+
+    <div class="tab-panel" id="panel-business-types">
+      <section class="block">
+        <h2>Businesses by vertical</h2>
+        ${data.businessTypes.length === 0 ? '<div style="color:#8b95ab;font-size:13px;">No business data available.</div>' : data.businessTypes.map((row) => `
+        <div class="bar-row">
+          <div class="bar-label">${row.type}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:${Math.max(4, (row.n / maxBusinessType) * 100)}%"></div></div>
+          <div class="bar-n">${row.n}</div>
+        </div>`).join('')}
+      </section>
+    </div>
+
+    <div class="tab-panel" id="panel-system">
+      <section class="block">
+        <h2>Runtime</h2>
+        <table class="meta-table">
+          <tr><td>Server time (UTC)</td><td>${data.generatedAt}</td></tr>
+          <tr><td>Node.js</td><td>${data.process.nodeVersion}</td></tr>
+          <tr><td>Environment</td><td>${data.process.env}</td></tr>
+          <tr><td>Process ID</td><td>${data.process.pid}</td></tr>
+          <tr><td>Process memory (RSS)</td><td>${STATUS_MB(data.process.memory.rss)} MB</td></tr>
+          <tr><td>Heap used / total</td><td>${STATUS_MB(data.process.memory.heapUsed)} MB / ${STATUS_MB(data.process.memory.heapTotal)} MB</td></tr>
+          <tr><td>Response time</td><td>${data.renderTimeMs}ms</td></tr>
+          <tr><td>Health endpoint</td><td><code>GET /api/health</code></td></tr>
+        </table>
+      </section>
+      <section class="block">
+        <h2>Host</h2>
+        <table class="meta-table">
+          <tr><td>Hostname</td><td>${data.system.hostname}</td></tr>
+          <tr><td>Platform</td><td>${data.system.platform} / ${data.system.arch}</td></tr>
+          <tr><td>OS release</td><td>${data.system.release}</td></tr>
+          <tr><td>CPU</td><td>${data.system.cpuModel} (${data.system.cpuCores} cores)</td></tr>
+          <tr><td>Load average (1m/5m/15m)</td><td>${data.system.loadAvg.map((n) => n.toFixed(2)).join(' / ')}</td></tr>
+          <tr><td>System memory</td><td>${data.system.freeMemGB} GB free / ${data.system.totalMemGB} GB total</td></tr>
+          <tr><td>Host uptime</td><td>${formatDuration(data.system.uptimeSeconds)}</td></tr>
+        </table>
+      </section>
+    </div>
+
+    <div class="tab-panel" id="panel-modules">
+      <section class="block">
+        <h2>API Modules (${data.modules.length})</h2>
+        <div class="modules">${data.modules.map((m) => `<span>${m}</span>`).join('')}</div>
+      </section>
+      <section class="block">
+        <h2>MinIO buckets</h2>
+        ${data.minio.buckets.length === 0 ? '<div style="color:#8b95ab;font-size:13px;">No buckets found or MinIO not reachable.</div>' : `
+        <div class="bucket-list">${data.minio.buckets.map((b) => `<div class="bucket"><span class="spinner-dot"></span>${b.name}</div>`).join('')}</div>`}
+      </section>
+    </div>
+
+    <footer>ManageCare · backend.managecare.info · last updated <span id="last-updated">${new Date(data.generatedAt).toLocaleTimeString()}</span></footer>
+  </div>
+  <script>
+    (function () {
+      const tabs = document.querySelectorAll('.tab-btn');
+      const panels = document.querySelectorAll('.tab-panel');
+      tabs.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          tabs.forEach(function (b) { b.classList.remove('active'); });
+          panels.forEach(function (p) { p.classList.remove('active'); });
+          btn.classList.add('active');
+          document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+        });
+      });
+
+      function animateCount(el) {
+        const target = parseFloat(el.dataset.count);
+        if (isNaN(target)) return;
+        const duration = 900;
+        const start = performance.now();
+        function step(now) {
+          const progress = Math.min((now - start) / duration, 1);
+          const eased = 1 - Math.pow(1 - progress, 3);
+          const value = Math.round(target * eased);
+          el.textContent = value.toLocaleString();
+          if (progress < 1) requestAnimationFrame(step);
+          else el.textContent = target.toLocaleString();
+        }
+        requestAnimationFrame(step);
+      }
+      document.querySelectorAll('[data-count]').forEach(animateCount);
+
+      async function refresh() {
+        try {
+          const res = await fetch('/api/status-data', { credentials: 'same-origin' });
+          if (res.status === 401) { window.location.reload(); return; }
+          const data = await res.json();
+          document.getElementById('last-updated').textContent = new Date(data.generatedAt).toLocaleTimeString();
+          const dbEl = document.getElementById('live-db-status');
+          if (dbEl) dbEl.textContent = data.db.status === 'connected' ? ('Connected · ' + data.db.latencyMs + 'ms') : 'Disconnected';
+        } catch (e) { /* ignore transient poll failures */ }
+      }
+      setInterval(refresh, 30000);
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+// ── Landing / status dashboard (password-gated) ──────────────
+app.get('/', async (req, res) => {
+  if (!hasStatusAccess(req)) {
+    return res.set('Content-Type', 'text/html; charset=utf-8').send(renderStatusLockScreen());
+  }
+  const data = await gatherStatusData();
+  res.set('Content-Type', 'text/html; charset=utf-8').send(renderStatusDashboard(data));
+});
+
+// Static reference doc (schema/auth/storage/API/timeline) — same session
+// cookie as the dashboard, so unlocking once covers both pages.
+const BLUEPRINT_PATH = path.join(__dirname, 'static', 'blueprint.html');
+app.get('/docs', (req, res) => {
+  if (!hasStatusAccess(req)) {
+    return res.set('Content-Type', 'text/html; charset=utf-8').send(renderStatusLockScreen());
+  }
+  fs.readFile(BLUEPRINT_PATH, 'utf8', (err, html) => {
+    if (err) {
+      return res.status(404).send('Blueprint not deployed yet.');
+    }
+    res.set('Content-Type', 'text/html; charset=utf-8').send(html);
+  });
+});
+
+app.get('/api/status-data', async (req, res) => {
+  if (!hasStatusAccess(req)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const data = await gatherStatusData();
+  res.json(data);
+});
+
 // ── Health check (no auth required) ─────────────────────────
 app.get('/api/health', async (req, res) => {
   try {
@@ -1193,7 +1831,19 @@ app.use('/api/inventory-alerts', authMiddleware, inventoryAlertsRoutes(pool));
 app.use('/api/reorders', authMiddleware, reordersRoutes(pool));
 app.use('/api/customers', authMiddleware, customersRoutes(pool));
 app.use('/api/workers', authMiddleware, workersRoutes(pool));
+app.use('/api/admin', authMiddleware, adminRoutes(pool));
 app.use('/api/expenses', authMiddleware, expensesRoutes(pool));
+app.use('/api/apartments', authMiddleware, apartmentsRoutes(pool));
+app.use('/api/pharmacy', authMiddleware, pharmacyRoutes(pool));
+app.use('/api/drink', authMiddleware, drinkRoutes(pool));
+app.use('/api/restaurant', authMiddleware, restaurantRoutes(pool));
+app.use('/api/hotel', authMiddleware, hotelRoutes(pool));
+app.use('/api/procurement', authMiddleware, procurementRoutes(pool));
+app.use('/api/pumps', authMiddleware, pumpsRoutes(pool));
+app.use('/api/subscriptions', authMiddleware, subscriptionsRoutes(pool));
+app.use('/api/payments', authMiddleware, paymentsRoutes());
+app.use('/api/distributors', authMiddleware, distributorsRoutes(pool));
+app.use('/api/invoices', authMiddleware, invoicesRoutes(pool));
 app.use('/api/upload', authMiddleware, uploadRoutes(pool, minioClient));
 // Separate routers for push and notifications
 const pushRouter = pushRoutes(pool);

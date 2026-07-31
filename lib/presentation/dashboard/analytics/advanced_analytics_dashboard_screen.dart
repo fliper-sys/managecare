@@ -1,5 +1,4 @@
 import 'package:fl_chart/fl_chart.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -12,13 +11,15 @@ import '../../../core/utils/worker_permissions.dart';
 import '../../../providers/analytics_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
+import '../../../providers/reports_provider.dart';
+import '../../../services/managecare_api_client.dart';
 import '../../../widgets/custom_app_bar.dart';
 import '../../../widgets/date_range_selector.dart';
+import '../../industry_specific/gas/utils/pump_row_mapper.dart';
 
 DateTime? _parseChartDate(dynamic value) {
   if (value == null) return null;
   if (value is DateTime) return value;
-  if (value is Timestamp) return value.toDate();
   if (value is String) {
     return DateTime.tryParse(value);
   }
@@ -115,7 +116,64 @@ class _AdvancedAnalyticsDashboardScreenState
     super.dispose();
   }
 
+  static const _fuelPollInterval = Duration(seconds: 15);
+  // "Most Profitable Periods" aggregates all-time sales, so it's polled far
+  // less often than the other live cards to avoid re-paginating the whole
+  // sales history every 15 seconds.
+  static const _profitPollInterval = Duration(minutes: 5);
+
+  Stream<List<Map<String, dynamic>>> _fuelUploadsStream(String businessId) async* {
+    while (true) {
+      try {
+        final response = await ManagecareApiClient.instance.get(
+          '/api/pumps/$businessId/uploads',
+          query: {
+            'from': _selectedDateRange.start.toIso8601String(),
+            'to': _selectedDateRange.end.toIso8601String(),
+            'limit': '500',
+          },
+        );
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        yield rows.map(pumpUploadRowToJson).toList();
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_fuelPollInterval);
+    }
+  }
+
+  Stream<List<Map<String, dynamic>>> _allSalesStream(String businessId) async* {
+    while (true) {
+      try {
+        final sales = <Map<String, dynamic>>[];
+        var page = 1;
+        // Bounds the all-time aggregate to ~3000 most recent sales so this
+        // card can't trigger unbounded pagination for long-running businesses.
+        const maxPages = 30;
+        while (page <= maxPages) {
+          final response = await ManagecareApiClient.instance.get(
+            '/api/sales/$businessId',
+            query: {'page': page.toString(), 'limit': '100'},
+          );
+          final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+          sales.addAll(rows);
+          final pagination = response['pagination'] is Map
+              ? Map<String, dynamic>.from(response['pagination'] as Map)
+              : null;
+          final totalPages = (pagination?['totalPages'] as num?)?.toInt() ?? page;
+          if (rows.isEmpty || page >= totalPages) break;
+          page++;
+        }
+        yield sales;
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_profitPollInterval);
+    }
+  }
+
   Future<void> _loadAnalytics() async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     await analyticsProvider.calculateAnalytics(
       _selectedDateRange.start,
       _selectedDateRange.end,
@@ -129,6 +187,11 @@ class _AdvancedAnalyticsDashboardScreenState
       _selectedDateRange.end,
       period: _selectedPeriod,
     );
+    if (businessId != null && businessId.isNotEmpty) {
+      await context.read<ReportsProvider>().generateExpenseReport(
+            businessId: businessId,
+          );
+    }
     if (mounted) {
       setState(() {});
     }
@@ -241,7 +304,15 @@ class _AdvancedAnalyticsDashboardScreenState
                     _buildFuelStationAnalyticsCard(business.id)
                         .animate()
                         .fadeIn(duration: 500.ms, delay: 450.ms),
+                    const SizedBox(height: 28),
+                    _buildAllTimeProfitPeriodsCard(business.id)
+                        .animate()
+                        .fadeIn(duration: 500.ms, delay: 480.ms),
                   ],
+                  const SizedBox(height: 28),
+                  _buildExpenseAnalyticsCard()
+                      .animate()
+                      .fadeIn(duration: 500.ms, delay: 490.ms),
                   const SizedBox(height: 28),
                   _buildCustomerAnalyticsCard(analytics)
                       .animate()
@@ -672,38 +743,33 @@ class _AdvancedAnalyticsDashboardScreenState
         border: Border.all(color: _softBorder),
         boxShadow: _cardShadow,
       ),
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('businesses')
-            .doc(businessId)
-            .collection('sales')
-            .snapshots(includeMetadataChanges: true),
+      child: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: _fuelUploadsStream(businessId),
         builder: (context, snapshot) {
-          final docs = snapshot.data?.docs ?? [];
-          final pumpRevenue = <String, double>{};
-          final operatorRevenue = <String, double>{};
-          for (final doc in docs) {
-            final data = doc.data();
-            final pumpId = data['pumpId']?.toString() ?? '';
-            if (pumpId.isEmpty) continue;
-            final amount = (data['totalAmount'] as num?)?.toDouble() ??
-                (data['total'] as num?)?.toDouble() ??
-                (data['expectedAmount'] as num?)?.toDouble() ??
-                0.0;
-            final pump = (data['pumpName'] ??
-                    'Pump ${data['pumpNumber'] ?? data['pumpId'] ?? ''}')
-                .toString();
+          final rows = snapshot.data ?? [];
+          final pumps = <String, _FuelMetric>{};
+          final operators = <String, _FuelMetric>{};
+          final products = <String, _FuelMetric>{};
+          for (final data in rows) {
+            final amount = _readDouble(
+              data['expectedAmount'] ?? data['totalPaid'] ?? data['cashAmount'],
+            );
+            final volume = _readDouble(
+              data['soldVolume'] ?? data['cashDerivedVolume'],
+            );
+            final pump = 'Pump ${data['pumpNumber'] ?? data['pumpId'] ?? ''}';
             final operator =
-                (data['workerName'] ?? data['workerId'] ?? 'Unknown')
+                (data['workerName'] ?? data['workerId'] ?? 'Unknown Operator')
                     .toString();
-            pumpRevenue[pump] = (pumpRevenue[pump] ?? 0) + amount;
-            operatorRevenue[operator] =
-                (operatorRevenue[operator] ?? 0) + amount;
+            final product = (data['productName'] ?? 'Fuel').toString();
+            _addFuelMetric(pumps, pump, amount, volume);
+            _addFuelMetric(operators, operator, amount, volume,
+                pump: pump, product: product);
+            _addFuelMetric(products, product, amount, volume);
           }
-          final topPump = pumpRevenue.entries.toList()
-            ..sort((a, b) => b.value.compareTo(a.value));
-          final topOperator = operatorRevenue.entries.toList()
-            ..sort((a, b) => b.value.compareTo(a.value));
+          final pumpList = _sortedFuelMetrics(pumps);
+          final operatorList = _sortedFuelMetrics(operators);
+          final productList = _sortedFuelMetrics(products);
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -722,27 +788,173 @@ class _AdvancedAnalyticsDashboardScreenState
                   Expanded(
                     child: _buildFuelInsightTile(
                       'Top Pump',
-                      topPump.isEmpty ? 'No data' : topPump.first.key,
-                      topPump.isEmpty
+                      pumpList.isEmpty ? 'No data' : pumpList.first.label,
+                      pumpList.isEmpty
                           ? ''
-                          : formatCurrency(topPump.first.value),
+                          : '${formatCurrency(pumpList.first.revenue)} - ${formatNumber(pumpList.first.volume, decimalDigits: 3)} vol',
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: _buildFuelInsightTile(
+                    child: GestureDetector(
+                      onTap: operatorList.isEmpty
+                          ? null
+                          : () => _showOperatorPumpBreakdown(
+                                operatorList.first,
+                              ),
+                      child: _buildFuelInsightTile(
                       'Top Operator',
-                      topOperator.isEmpty ? 'No data' : topOperator.first.key,
-                      topOperator.isEmpty
+                        operatorList.isEmpty
+                            ? 'No data'
+                            : operatorList.first.label,
+                        operatorList.isEmpty
                           ? ''
-                          : formatCurrency(topOperator.first.value),
+                            : '${formatCurrency(operatorList.first.revenue)} - ${formatNumber(operatorList.first.volume, decimalDigits: 3)} vol',
+                      ),
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 16),
+              Text(
+                'Pump Breakdown',
+                style: GoogleFonts.poppins(
+                  color: _textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (pumpList.isEmpty)
+                Text('No pump uploads in this period.',
+                    style: GoogleFonts.poppins(color: _textMuted))
+              else
+                ...pumpList.map(
+                  (metric) => _buildFuelMetricRow(
+                    metric.label,
+                    metric.revenue,
+                    metric.volume,
+                  ),
+                ),
+              const SizedBox(height: 16),
+              Text(
+                'Most Profitable Product',
+                style: GoogleFonts.poppins(
+                  color: _textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (productList.isEmpty)
+                Text('No product data in this period.',
+                    style: GoogleFonts.poppins(color: _textMuted))
+              else
+                _buildFuelMetricRow(
+                  productList.first.label,
+                  productList.first.revenue,
+                  productList.first.volume,
+                ),
             ],
           );
         },
+      ),
+    );
+  }
+
+  void _addFuelMetric(
+    Map<String, _FuelMetric> target,
+    String label,
+    double revenue,
+    double volume, {
+    String? pump,
+    String? product,
+  }) {
+    final key = label.trim().isEmpty ? 'Unknown' : label.trim();
+    final current = target[key] ?? _FuelMetric(label: key);
+    target[key] = current.add(
+      revenue: revenue,
+      volume: volume,
+      pump: pump,
+      product: product,
+    );
+  }
+
+  List<_FuelMetric> _sortedFuelMetrics(Map<String, _FuelMetric> metrics) {
+    return metrics.values.toList()
+      ..sort((a, b) => b.revenue.compareTo(a.revenue));
+  }
+
+  Widget _buildFuelMetricRow(String label, double revenue, double volume) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: GoogleFonts.poppins(color: _textPrimary),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            '${formatCurrency(revenue)} - ${formatNumber(volume, decimalDigits: 3)} vol',
+            style: GoogleFonts.poppins(
+              color: AppColors.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showOperatorPumpBreakdown(_FuelMetric operator) {
+    final pumpRows = operator.pumpRevenue.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: _cardSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: ListView(
+          children: [
+            Text(
+              operator.label,
+              style: GoogleFonts.poppins(
+                color: _textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${formatCurrency(operator.revenue)} - ${formatNumber(operator.volume, decimalDigits: 3)} volume',
+              style: GoogleFonts.poppins(color: _textMuted),
+            ),
+            const SizedBox(height: 16),
+            ...pumpRows.map((entry) {
+              final volume = operator.pumpVolume[entry.key] ?? 0;
+              return _buildFuelMetricRow(entry.key, entry.value, volume);
+            }),
+            if (operator.productRevenue.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Product Breakdown',
+                style: GoogleFonts.poppins(
+                  color: _textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              ...operator.productRevenue.entries.map((entry) {
+                final volume = operator.productVolume[entry.key] ?? 0;
+                return _buildFuelMetricRow(entry.key, entry.value, volume);
+              }),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -773,6 +985,243 @@ class _AdvancedAnalyticsDashboardScreenState
         ],
       ),
     );
+  }
+
+  Widget _buildAllTimeProfitPeriodsCard(String businessId) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _cardSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _softBorder),
+        boxShadow: _cardShadow,
+      ),
+      child: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: _allSalesStream(businessId),
+        builder: (context, snapshot) {
+          final rows = snapshot.data ?? [];
+          final days = <String, double>{};
+          final weeks = <String, double>{};
+          final months = <String, double>{};
+          final years = <String, double>{};
+
+          for (final data in rows) {
+            final date = _readDate(
+              data['created_at'] ?? data['createdAt'] ?? data['timestamp'] ?? data['date'],
+            );
+            if (date == null) continue;
+            final revenue = _readDouble(
+              data['final_amount'] ??
+                  data['finalAmount'] ??
+                  data['total_amount'] ??
+                  data['totalAmount'] ??
+                  data['total'] ??
+                  data['expectedAmount'],
+            );
+            final cogs = _readDouble(
+              data['total_cost'] ??
+                  data['totalCost'] ??
+                  data['cost_of_goods_sold'] ??
+                  data['costOfGoodsSold'] ??
+                  data['cogs'],
+            );
+            final profit = revenue - cogs;
+            final dayKey = DateFormat('dd MMM yyyy').format(date);
+            final weekStart = date.subtract(Duration(days: date.weekday - 1));
+            final weekKey =
+                'Week of ${DateFormat('dd MMM yyyy').format(weekStart)}';
+            final monthKey = DateFormat('MMM yyyy').format(date);
+            final yearKey = DateFormat('yyyy').format(date);
+            days[dayKey] = (days[dayKey] ?? 0) + profit;
+            weeks[weekKey] = (weeks[weekKey] ?? 0) + profit;
+            months[monthKey] = (months[monthKey] ?? 0) + profit;
+            years[yearKey] = (years[yearKey] ?? 0) + profit;
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Most Profitable Periods',
+                style: GoogleFonts.poppins(
+                  color: _textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildRankingSection('Top 15 Days', days, 15),
+              _buildRankingSection('Top 15 Weeks', weeks, 15),
+              _buildRankingSection('Top 10 Months', months, 10),
+              _buildRankingSection('Top 10 Years', years, 10),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildExpenseAnalyticsCard() {
+    return Consumer<ReportsProvider>(
+      builder: (context, reports, _) {
+        final expenses = reports.expenses.where((expense) {
+          final date = _readDate(expense['date'] ?? expense['createdAt']);
+          if (date == null) return true;
+          return !date.isBefore(_selectedDateRange.start) &&
+              !date.isAfter(_selectedDateRange.end);
+        }).toList();
+        final totals = <String, double>{};
+        for (final expense in expenses) {
+          final category = (expense['category'] ?? 'Other').toString();
+          totals[category] =
+              (totals[category] ?? 0) + _readDouble(expense['amount']);
+        }
+        final total = totals.values.fold<double>(0, (sum, value) => sum + value);
+        final sorted = totals.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+
+        return Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: _cardSurface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _softBorder),
+            boxShadow: _cardShadow,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Expense Analysis',
+                style: GoogleFonts.poppins(
+                  color: _textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (sorted.isEmpty)
+                Text(
+                  'No expenses available for this period.',
+                  style: GoogleFonts.poppins(color: _textMuted),
+                )
+              else
+                ...sorted.map((entry) {
+                  final percent = total <= 0 ? 0.0 : entry.value / total;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                entry.key,
+                                style:
+                                    GoogleFonts.poppins(color: _textPrimary),
+                              ),
+                            ),
+                            Text(
+                              '${formatCurrency(entry.value)} (${(percent * 100).toStringAsFixed(1)}%)',
+                              style: GoogleFonts.poppins(
+                                color: const Color(0xFFEF4444),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        LinearProgressIndicator(
+                          value: percent.clamp(0, 1).toDouble(),
+                          backgroundColor: _softBorder,
+                          color: const Color(0xFFEF4444),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRankingSection(
+    String title,
+    Map<String, double> values,
+    int limit,
+  ) {
+    final rows = values.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final visible = rows.take(limit).toList();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: GoogleFonts.poppins(
+              color: _textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (visible.isEmpty)
+            Text('No records yet.', style: GoogleFonts.poppins(color: _textMuted))
+          else
+            ...visible.asMap().entries.map((entry) {
+              final rank = entry.key + 1;
+              final row = entry.value;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 28,
+                      child: Text(
+                        '$rank.',
+                        style: GoogleFonts.poppins(color: _textMuted),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        row.key,
+                        style: GoogleFonts.poppins(color: _textPrimary),
+                      ),
+                    ),
+                    Text(
+                      formatCurrency(row.value),
+                      style: GoogleFonts.poppins(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value == null) return 0.0;
+    return double.tryParse(value.toString().replaceAll(',', '').trim()) ?? 0.0;
+  }
+
+  DateTime? _readDate(dynamic value) {
+    if (value is DateTime) return value;
+    if (value is num) {
+      final millis = value > 1000000000000 ? value.toInt() : value.toInt() * 1000;
+      return DateTime.fromMillisecondsSinceEpoch(millis);
+    }
+    if (value is String) return DateTime.tryParse(value);
+    return null;
   }
 
   Widget _buildLineChart(List<Map<String, dynamic>> trendData) {
@@ -989,6 +1438,59 @@ class _AdvancedAnalyticsDashboardScreenState
           side: BorderSide(color: _softBorder),
         ),
       ),
+    );
+  }
+}
+
+class _FuelMetric {
+  final String label;
+  final double revenue;
+  final double volume;
+  final Map<String, double> pumpRevenue;
+  final Map<String, double> pumpVolume;
+  final Map<String, double> productRevenue;
+  final Map<String, double> productVolume;
+
+  const _FuelMetric({
+    required this.label,
+    this.revenue = 0,
+    this.volume = 0,
+    this.pumpRevenue = const {},
+    this.pumpVolume = const {},
+    this.productRevenue = const {},
+    this.productVolume = const {},
+  });
+
+  _FuelMetric add({
+    required double revenue,
+    required double volume,
+    String? pump,
+    String? product,
+  }) {
+    final nextPumpRevenue = Map<String, double>.from(pumpRevenue);
+    final nextPumpVolume = Map<String, double>.from(pumpVolume);
+    final nextProductRevenue = Map<String, double>.from(productRevenue);
+    final nextProductVolume = Map<String, double>.from(productVolume);
+
+    if (pump != null && pump.trim().isNotEmpty) {
+      final key = pump.trim();
+      nextPumpRevenue[key] = (nextPumpRevenue[key] ?? 0) + revenue;
+      nextPumpVolume[key] = (nextPumpVolume[key] ?? 0) + volume;
+    }
+    if (product != null && product.trim().isNotEmpty) {
+      final key = product.trim();
+      nextProductRevenue[key] = (nextProductRevenue[key] ?? 0) + revenue;
+      nextProductVolume[key] = (nextProductVolume[key] ?? 0) + volume;
+    }
+
+    return _FuelMetric(
+      label: label,
+      revenue: this.revenue + revenue,
+      volume: this.volume + volume,
+      pumpRevenue: nextPumpRevenue,
+      pumpVolume: nextPumpVolume,
+      productRevenue: nextProductRevenue,
+      productVolume: nextProductVolume,
     );
   }
 }

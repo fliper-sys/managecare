@@ -1,13 +1,23 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/utils/amount_formatter.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../services/managecare_api_client.dart';
+import '../utils/pump_row_mapper.dart';
 
-class PumpUploadAdjustmentHistoryScreen extends StatelessWidget {
+class PumpUploadAdjustmentHistoryScreen extends StatefulWidget {
   const PumpUploadAdjustmentHistoryScreen({super.key});
+
+  @override
+  State<PumpUploadAdjustmentHistoryScreen> createState() =>
+      _PumpUploadAdjustmentHistoryScreenState();
+}
+
+class _PumpUploadAdjustmentHistoryScreenState
+    extends State<PumpUploadAdjustmentHistoryScreen> {
+  static const _pollInterval = Duration(seconds: 15);
 
   String _formatValue(dynamic value) {
     if (value is num) return formatAmount(value.toDouble(), decimalDigits: 2);
@@ -16,6 +26,16 @@ class PumpUploadAdjustmentHistoryScreen extends StatelessWidget {
 
   String _fieldLabel(String field) {
     const labels = {
+      'shift_opening_cash': 'Shift opening cash',
+      'shift_close_cash': 'Shift closing cash',
+      'opening_volume': 'Opening volume (digital)',
+      'closing_volume': 'Closing volume (digital)',
+      'analog_opening_volume': 'Analog opening volume',
+      'analog_closing_volume': 'Analog closing volume',
+      'sold_volume': 'Calculated sales volume (L)',
+      'cash_amount': 'Total cash amount',
+      'pos_amount': 'Transfer / POS amount',
+      // Legacy camelCase labels, kept for any older audit rows.
       'shiftOpeningCash': 'Shift opening cash',
       'shiftCloseCash': 'Shift closing cash',
       'openingVolume': 'Opening volume (digital)',
@@ -42,6 +62,28 @@ class PumpUploadAdjustmentHistoryScreen extends StatelessWidget {
     }
   }
 
+  DateTime? _readDate(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value.toString());
+  }
+
+  Stream<List<Map<String, dynamic>>> _adjustmentsStream(String businessId) async* {
+    while (true) {
+      try {
+        final response = await ManagecareApiClient.instance.get(
+          '/api/pumps/$businessId/upload-adjustments',
+          query: {'limit': '200'},
+        );
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        yield rows.map(pumpUploadAdjustmentRowToJson).toList();
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_pollInterval);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final businessId = context.watch<BusinessProvider>().currentBusiness?.id;
@@ -51,34 +93,26 @@ class PumpUploadAdjustmentHistoryScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Upload Adjustment History')),
       body: businessId == null || businessId.isEmpty
           ? const Center(child: Text('No business selected'))
-          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('businesses')
-                  .doc(businessId)
-                  .collection('pump_upload_adjustments')
-                  .orderBy('adjustedAt', descending: true)
-                  .limit(200)
-                  .snapshots(),
+          : StreamBuilder<List<Map<String, dynamic>>>(
+              stream: _adjustmentsStream(businessId),
               builder: (context, snapshot) {
-                final docs = snapshot.data?.docs ?? [];
+                final rows = snapshot.data ?? [];
                 if (snapshot.connectionState == ConnectionState.waiting &&
-                    docs.isEmpty) {
+                    rows.isEmpty) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                if (docs.isEmpty) {
+                if (rows.isEmpty) {
                   return const Center(
                     child: Text('No adjustments recorded yet'),
                   );
                 }
                 return ListView.separated(
                   padding: const EdgeInsets.all(16),
-                  itemCount: docs.length,
+                  itemCount: rows.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
-                    final data = docs[index].data();
-                    final adjustedAt = data['adjustedAt'] is Timestamp
-                        ? (data['adjustedAt'] as Timestamp).toDate()
-                        : null;
+                    final data = rows[index];
+                    final adjustedAt = _readDate(data['adjustedAt']);
                     final action = (data['action'] as String?) ?? '';
                     final changes = (data['changes'] as List?)
                             ?.whereType<Map<String, dynamic>>()

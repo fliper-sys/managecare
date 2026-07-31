@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data/models/business_model.dart';
 import '../services/background_subscription_checker.dart';
 import '../services/subscription_feature_guard.dart';
@@ -10,7 +9,6 @@ import '../services/local_business_storage.dart';
 class EnhancedSubscriptionProvider extends ChangeNotifier {
   BackgroundSubscriptionChecker? _subscriptionChecker;
   SubscriptionFeatureGuard? _featureGuard;
-  late final FirebaseFirestore _firestore;
 
   // State
   final Map<String, SubscriptionStatus> _subscriptionStatuses = {};
@@ -26,13 +24,11 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
       _subscriptionStatuses;
 
   EnhancedSubscriptionProvider({
-    FirebaseFirestore? firestore,
     LocalBusinessStorage? localBusinessStorage,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance {
+  }) {
     // Initialize services if localBusinessStorage is provided
     if (localBusinessStorage != null) {
       _subscriptionChecker = BackgroundSubscriptionChecker(
-        firestore: _firestore,
         localBusinessStorage: localBusinessStorage,
         onSubscriptionStatusChanged: _onSubscriptionStatusChanged,
         onFeatureAccessDenied: _onFeatureAccessDenied,
@@ -54,7 +50,6 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
     if (_isInitialized) return;
 
     _subscriptionChecker = BackgroundSubscriptionChecker(
-      firestore: _firestore,
       localBusinessStorage: localBusinessStorage,
       onSubscriptionStatusChanged: _onSubscriptionStatusChanged,
       onFeatureAccessDenied: _onFeatureAccessDenied,
@@ -279,9 +274,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
           '[EnhancedSubscriptionProvider] Plan: $planId | Amount: $amount');
 
       // Create a subscription service instance
-      final subscriptionService = SubscriptionService(
-        firestore: FirebaseFirestore.instance,
-      );
+      final subscriptionService = SubscriptionService();
 
       // Activate immediately
       final success = await subscriptionService.activateOrRenewSubscription(
@@ -326,7 +319,7 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
     try {
       debugPrint('[EnhancedSubscriptionProvider] Admin ($adminId) activating subscription for user: $targetUserId');
 
-      final subscriptionService = SubscriptionService(firestore: FirebaseFirestore.instance);
+      final subscriptionService = SubscriptionService();
       final success = await subscriptionService.activateOrRenewSubscription(
         userId: targetUserId,
         planId: planId,
@@ -341,20 +334,9 @@ class EnhancedSubscriptionProvider extends ChangeNotifier {
         return false;
       }
 
-      // Log admin action to subscription_events for audit
-      try {
-        await FirebaseFirestore.instance.collection('subscription_events').add({
-          'adminId': adminId,
-          'userId': targetUserId,
-          'action': 'admin_activated',
-          'planId': planId,
-          'amount': amount,
-          'receiptUrl': receiptUrl,
-          'createdAt': DateTime.now().toIso8601String(),
-        });
-      } catch (e) {
-        debugPrint('[EnhancedSubscriptionProvider] Warning: failed to log admin activation: $e');
-      }
+      // Note: activateOrRenewSubscription (above) already logs a
+      // subscription_events row server-side as part of /api/subscriptions/activate,
+      // so no separate admin-audit write is needed here.
 
       // Refresh subscription statuses for UI
       await Future.delayed(const Duration(milliseconds: 500));

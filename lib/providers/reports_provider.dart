@@ -166,6 +166,7 @@ class ReportsProvider extends ChangeNotifier {
 
     final productId =
         (item['productId'] ??
+                item['product_id'] ??
                 item['inventoryProductId'] ??
                 item['id'] ??
                 (nestedProduct is Map<String, dynamic>
@@ -194,6 +195,7 @@ class ReportsProvider extends ChangeNotifier {
           raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
       final name = _extractStringValue(
             item['productName'] ??
+                item['product_name'] ??
                 item['name'] ??
                 item['title'] ??
                 item['product'],
@@ -217,7 +219,7 @@ class ReportsProvider extends ChangeNotifier {
           ) ??
           1.0;
       return {
-        'id': (item['productId'] ?? item['id'] ?? '').toString(),
+        'id': (item['productId'] ?? item['product_id'] ?? item['id'] ?? '').toString(),
         'name': name,
         'quantity': quantity,
         'unitPrice': unitPrice,
@@ -425,7 +427,7 @@ class ReportsProvider extends ChangeNotifier {
     }
 
     // Map store ids to human-friendly names
-    final storesData = await _api.get('/stores/$bid');
+    final storesData = await _api.get('/api/stores/$bid');
     final Map<String, String> storeNames = {};
     for (final raw in (storesData as List? ?? [])) {
       final data = raw as Map<String, dynamic>;
@@ -704,7 +706,7 @@ class ReportsProvider extends ChangeNotifier {
     DateTime? start,
     DateTime? end,
   }) async {
-    final response = await _api.get('/expenses/$bid', query: {
+    final response = await _api.get('/api/expenses/$bid', query: {
       'limit': 100,
       if (start != null) 'startDate': start.toIso8601String(),
       if (end != null) 'endDate': end.toIso8601String(),
@@ -1023,7 +1025,7 @@ class ReportsProvider extends ChangeNotifier {
         throw Exception('No business ID available');
       }
 
-      final created = await _api.post('/expenses/$bid', body: {
+      final created = await _api.post('/api/expenses/$bid', body: {
         'description': description,
         'amount': amount,
         'category': category,
@@ -1072,7 +1074,7 @@ class ReportsProvider extends ChangeNotifier {
           _authProvider?.currentUser?.preferredBusinessId ??
           _authProvider?.currentUser?.businessId;
       if (bid != null && bid.isNotEmpty) {
-        await _api.delete('/expenses/$bid/$expenseId');
+        await _api.delete('/api/expenses/$bid/$expenseId');
       }
 
       notifyListeners();

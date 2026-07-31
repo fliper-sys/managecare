@@ -989,7 +989,7 @@ class AppRouter {
 
       case Routes.petroleumDashboard:
         return _buildRoute(
-          const GasDashboardScreen(mode: FuelStationMode.petroleum),
+          const GasDashboardScreen(mode: FuelStationMode.gas),
         );
 
       case Routes.petroleumPump:

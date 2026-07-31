@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -38,6 +38,7 @@ import '../../../core/utils/inventory_utils.dart';
 import '../../../core/utils/worker_permissions.dart';
 import '../../../data/models/customer_model.dart';
 import '../../../data/repositories/distributor_repository.dart';
+import '../../../services/managecare_api_client.dart';
 import '../../../core/utils/distributor_sale_utils.dart';
 import '../../widgets/product_view_switcher.dart';
 import 'customer_tracking_screen.dart';
@@ -170,7 +171,7 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
     final notesController = TextEditingController();
     final newDistributorController = TextEditingController();
 
-    final repository = DistributorRepository(firestore: FirebaseFirestore.instance);
+    final repository = DistributorRepository();
     final distributors = await repository.getDistributors(businessId);
     String? selectedDistributorId;
     String? selectedDistributorName;
@@ -550,15 +551,12 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
                 String ownerEmail = '';
                 if (business.ownerId.isNotEmpty) {
                   try {
-                    final ownerDoc = await FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(business.ownerId)
-                        .get();
-                    ownerEmail =
-                        ((ownerDoc.data() ?? const <String, dynamic>{})['email']
-                                    as String? ??
-                                '')
-                            .trim();
+                    final ownerRow = await Supabase.instance.client
+                        .from('profiles')
+                        .select('email')
+                        .eq('id', business.ownerId)
+                        .maybeSingle();
+                    ownerEmail = (ownerRow?['email'] as String? ?? '').trim();
                   } catch (e) {
                     debugPrint(
                         '[SalesScreen] Failed to resolve owner email: $e');
@@ -806,30 +804,26 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
             : null,
       );
 
-      await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(business.id)
-          .collection('invoices')
-          .add({
-        'invoiceNumber': invoiceNumber,
-        'businessId': business.id,
-        'businessName': business.name,
-        'status': 'draft',
-        'source': 'sales_screen',
-        'customerId': selectedCustomer?.id,
-        'customerName': selectedCustomer?.name ?? 'Walk-in Customer',
-        'customerEmail': selectedCustomer?.email,
-        'customerPhone': selectedCustomer?.phone,
-        'items': cartItems,
-        'subtotal': subtotal,
-        'tax': tax,
-        'discount': discount,
-        'total': total,
-        'createdAt': Timestamp.fromDate(createdAt),
-        'updatedAt': Timestamp.fromDate(createdAt),
-        'createdBy': auth.currentUser?.id,
-        'createdByName': auth.currentUser?.fullName,
-      });
+      try {
+        await ManagecareApiClient.instance.post('/api/invoices/${business.id}', body: {
+          'invoiceNumber': invoiceNumber,
+          'status': 'draft',
+          'source': 'sales_screen',
+          'customerId': selectedCustomer?.id,
+          'customerName': selectedCustomer?.name ?? 'Walk-in Customer',
+          'customerEmail': selectedCustomer?.email,
+          'customerPhone': selectedCustomer?.phone,
+          'items': cartItems,
+          'subtotal': subtotal,
+          'tax': tax,
+          'discount': discount,
+          'total': total,
+          'createdBy': auth.currentUser?.id,
+          'createdByName': auth.currentUser?.fullName,
+        });
+      } catch (e) {
+        debugPrint('[BakerySales] Failed to log invoice record: $e');
+      }
 
       final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
       if (!mounted) return;
@@ -1963,10 +1957,14 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
                       }
 
                       final sale = filtered[index];
-                      final createdAt = sale['createdAt'] as Timestamp?;
+                      final rawCreatedAt = sale['createdAt'];
+                      final createdAt = rawCreatedAt is DateTime
+                          ? rawCreatedAt
+                          : (rawCreatedAt is String
+                              ? DateTime.tryParse(rawCreatedAt)
+                              : null);
                       final formattedTime = createdAt != null
-                          ? DateFormat('dd/MM/yyyy HH:mm')
-                              .format(createdAt.toDate())
+                          ? DateFormat('dd/MM/yyyy HH:mm').format(createdAt)
                           : 'Unknown time';
                       final amount = sale['totalAmount'] as num? ?? 0;
                       final worker = sale['workerName'] ?? 'Unknown';

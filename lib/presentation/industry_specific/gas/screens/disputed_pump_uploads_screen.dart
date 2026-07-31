@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -6,7 +5,8 @@ import 'package:provider/provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
-import '../utils/pump_upload_dispute_utils.dart';
+import '../../../../services/managecare_api_client.dart';
+import '../utils/pump_row_mapper.dart';
 import 'pump_upload_adjustment_history_screen.dart';
 
 class DisputedPumpUploadsScreen extends StatefulWidget {
@@ -43,23 +43,55 @@ class _DisputedPumpUploadsScreenState
     'posAmount': 'Transfer / POS amount',
   };
 
-  CollectionReference<Map<String, dynamic>>? _collection(String name) {
-    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-    if (businessId == null || businessId.isEmpty) return null;
-    return FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(businessId)
-        .collection(name);
+  // Maps the camelCase field names this screen edits to the snake_case
+  // columns the /adjust endpoint accepts.
+  static const Map<String, String> _fieldToColumn = {
+    'shiftOpeningCash': 'shift_opening_cash',
+    'shiftCloseCash': 'shift_close_cash',
+    'openingVolume': 'opening_volume',
+    'closingVolume': 'closing_volume',
+    'analogOpeningVolume': 'analog_opening_volume',
+    'analogClosingVolume': 'analog_closing_volume',
+    'soldVolume': 'sold_volume',
+    'cashAmount': 'cash_amount',
+    'posAmount': 'pos_amount',
+  };
+
+  static const _pollInterval = Duration(seconds: 15);
+
+  double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value == null) return 0.0;
+    return double.tryParse(value.toString().replaceAll(',', '').trim()) ?? 0.0;
   }
 
-  Future<void> _openReviewDialog(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) async {
-    final data = doc.data();
+  DateTime? _readDate(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value.toString());
+  }
+
+  Stream<List<Map<String, dynamic>>> _disputedUploadsStream(String businessId) async* {
+    while (true) {
+      try {
+        final response = await ManagecareApiClient.instance.get(
+          '/api/pumps/$businessId/uploads',
+          query: {'isDisputed': 'true', 'limit': '200'},
+        );
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        yield rows.map(pumpUploadRowToJson).toList();
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_pollInterval);
+    }
+  }
+
+  Future<void> _openReviewDialog(String businessId, Map<String, dynamic> data) async {
     final controllers = {
       for (final field in _editableFields)
         field: TextEditingController(
-          text: readPumpUploadDouble(data[field]).toString(),
+          text: _readDouble(data[field]).toString(),
         ),
     };
     final noteController = TextEditingController();
@@ -115,7 +147,7 @@ class _DisputedPumpUploadsScreenState
 
       if (action == null) return;
       await _applyReview(
-        doc: doc,
+        businessId: businessId,
         data: data,
         controllers: controllers,
         note: noteController.text,
@@ -130,108 +162,73 @@ class _DisputedPumpUploadsScreenState
   }
 
   Future<void> _applyReview({
-    required QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    required String businessId,
     required Map<String, dynamic> data,
     required Map<String, TextEditingController> controllers,
     required String note,
     required bool resolve,
   }) async {
     final auth = context.read<AuthProvider>().currentUser;
-    final adjustments = _collection('pump_upload_adjustments');
+    final id = data['id']?.toString();
+    if (id == null || id.isEmpty) return;
 
     final updates = <String, dynamic>{};
-    final changes = <Map<String, dynamic>>[];
     for (final field in _editableFields) {
-      final oldValue = readPumpUploadDouble(data[field]);
+      final oldValue = _readDouble(data[field]);
       final newValue =
           double.tryParse(controllers[field]!.text.trim()) ?? oldValue;
       if (newValue != oldValue) {
-        updates[field] = newValue;
-        changes.add({
-          'field': field,
-          'oldValue': oldValue,
-          'newValue': newValue,
-        });
+        updates[_fieldToColumn[field]!] = newValue;
       }
     }
 
-    if (updates.isNotEmpty) {
-      final openingVolume =
-          (updates['openingVolume'] as double?) ?? readPumpUploadDouble(data['openingVolume']);
-      final closingVolume =
-          (updates['closingVolume'] as double?) ?? readPumpUploadDouble(data['closingVolume']);
-      final shiftOpeningCash = (updates['shiftOpeningCash'] as double?) ??
-          readPumpUploadDouble(data['shiftOpeningCash']);
-      final shiftCloseCash = (updates['shiftCloseCash'] as double?) ??
-          readPumpUploadDouble(data['shiftCloseCash']);
-      final soldVolume =
-          (updates['soldVolume'] as double?) ?? readPumpUploadDouble(data['soldVolume']);
-      final cashAmount =
-          (updates['cashAmount'] as double?) ?? readPumpUploadDouble(data['cashAmount']);
-      final posAmount =
-          (updates['posAmount'] as double?) ?? readPumpUploadDouble(data['posAmount']);
-      final productPrice = readPumpUploadDouble(data['productPrice']);
-
-      updates['digitalVolume'] = closingVolume - openingVolume;
-      updates['volumeDifference'] = closingVolume - openingVolume;
-      updates['shiftCashDifference'] = shiftCloseCash - shiftOpeningCash;
-      updates['expectedAmount'] = soldVolume * productPrice;
-      updates['cashDerivedVolume'] = soldVolume;
-      updates['todayPumpCash'] = cashAmount;
-      updates['totalPaid'] = cashAmount + posAmount;
-
-      await doc.reference.update(updates);
-      if (adjustments != null) {
-        await logPumpUploadDisputeEvent(
-          adjustments: adjustments,
-          uploadId: doc.id,
-          uploadData: data,
-          action: 'adjusted',
-          changes: changes,
-          note: note,
-          adjustedBy: auth?.id,
-          adjustedByName: auth?.fullName ?? auth?.email,
+    try {
+      if (updates.isNotEmpty) {
+        await ManagecareApiClient.instance.patch(
+          '/api/pumps/$businessId/uploads/$id/adjust',
+          body: {
+            'updates': updates,
+            'note': note,
+            'adjusted_by': auth?.id,
+            'adjusted_by_name': auth?.fullName ?? auth?.email,
+          },
         );
       }
-    }
 
-    if (resolve) {
-      await doc.reference.update({
-        'isDisputed': false,
-        'disputeResolvedAt': FieldValue.serverTimestamp(),
-        'disputeResolvedBy': auth?.id,
-        'disputeResolvedByName': auth?.fullName ?? auth?.email,
-      });
-      if (adjustments != null) {
-        await logPumpUploadDisputeEvent(
-          adjustments: adjustments,
-          uploadId: doc.id,
-          uploadData: data,
-          action: 'resolved',
-          note: note,
-          adjustedBy: auth?.id,
-          adjustedByName: auth?.fullName ?? auth?.email,
+      if (resolve) {
+        await ManagecareApiClient.instance.patch(
+          '/api/pumps/$businessId/uploads/$id/resolve',
+          body: {
+            'note': note,
+            'resolved_by': auth?.id,
+            'resolved_by_name': auth?.fullName ?? auth?.email,
+          },
         );
       }
-    }
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          resolve
-              ? 'Dispute resolved — upload returned to history'
-              : updates.isEmpty
-                  ? 'No changes made'
-                  : 'Adjustment saved',
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            resolve
+                ? 'Dispute resolved — upload returned to history'
+                : updates.isEmpty
+                    ? 'No changes made'
+                    : 'Adjustment saved',
+          ),
         ),
-      ),
-    );
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save review: $error')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final uploads = _collection('pump_daily_uploads');
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     final role = WorkerPermissions.normalizeRole(
       context.watch<AuthProvider>().currentUser?.role ?? '',
     );
@@ -259,39 +256,29 @@ class _DisputedPumpUploadsScreenState
           ? const Center(
               child: Text('You do not have access to this page'),
             )
-          : uploads == null
+          : businessId == null || businessId.isEmpty
               ? const Center(child: Text('No business selected'))
-              : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: uploads
-                      .orderBy('uploadedAt', descending: true)
-                      .limit(200)
-                      .snapshots(includeMetadataChanges: true),
+              : StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: _disputedUploadsStream(businessId),
                   builder: (context, snapshot) {
-                    final docs = (snapshot.data?.docs ?? [])
-                        .where((doc) => doc.data()['isDisputed'] == true)
-                        .toList();
+                    final rows = snapshot.data ?? [];
                     if (snapshot.connectionState == ConnectionState.waiting &&
-                        docs.isEmpty) {
+                        rows.isEmpty) {
                       return const Center(child: CircularProgressIndicator());
                     }
-                    if (docs.isEmpty) {
+                    if (rows.isEmpty) {
                       return const Center(
                         child: Text('No disputed uploads'),
                       );
                     }
                     return ListView.separated(
                       padding: const EdgeInsets.all(16),
-                      itemCount: docs.length,
+                      itemCount: rows.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
-                        final doc = docs[index];
-                        final data = doc.data();
-                        final uploadedAt = data['uploadedAt'] is Timestamp
-                            ? (data['uploadedAt'] as Timestamp).toDate()
-                            : null;
-                        final disputedAt = data['disputedAt'] is Timestamp
-                            ? (data['disputedAt'] as Timestamp).toDate()
-                            : null;
+                        final data = rows[index];
+                        final uploadedAt = _readDate(data['uploadedAt']);
+                        final disputedAt = _readDate(data['disputedAt']);
                         final reason =
                             (data['disputeReason'] as String?) ?? '';
                         final subtitleLines = <String>[
@@ -314,7 +301,7 @@ class _DisputedPumpUploadsScreenState
                             subtitle: Text(subtitleLines.join('\n')),
                             isThreeLine: true,
                             trailing: ElevatedButton(
-                              onPressed: () => _openReviewDialog(doc),
+                              onPressed: () => _openReviewDialog(businessId, data),
                               child: const Text('Review'),
                             ),
                           ),
