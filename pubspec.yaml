@@ -1,7 +1,7 @@
 name: business_manager
 description: A comprehensive business management app for multiple industries
 publish_to: 'none'
-version: 2.0.1+1
+version: 2.0.60+60
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -57,8 +57,8 @@ dependencies:
   intl: ^0.20.2
   timeago: ^3.7.1
   table_calendar: ^3.2.0
-  flutter_local_notifications: ^19.5.0
-  timezone: ^0.10.1
+  flutter_local_notifications: ^22.2.0
+  timezone: ^0.11.1
 
   # Payments
   flutterwave_standard: ^1.1.0

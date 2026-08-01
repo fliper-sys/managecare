@@ -1214,6 +1214,7 @@ async function gatherStatusData() {
     },
     counts,
     groups: Object.fromEntries(Object.entries(STATUS_TABLE_GROUPS).map(([k, arr]) => [k, arr.map(([, label]) => label)])),
+    tableGroups: Object.fromEntries(Object.entries(STATUS_TABLE_GROUPS).map(([k, arr]) => [k, arr.map(([table, label]) => ({ table, label }))])),
     businessTypes,
     recentSignups7d,
     modules: STATUS_MODULES,
@@ -1457,6 +1458,26 @@ function renderStatusDashboard(data) {
   .bucket-list { display: flex; flex-direction: column; gap: 8px; }
   .bucket-list .bucket { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; font-size: 13px; }
   .spinner-dot { width: 6px; height: 6px; border-radius: 50%; background: #22d3ee; animation: pulse 2s infinite; }
+  .browser-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+  .browser-toolbar select, .browser-toolbar input {
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14); color: #e6ebf5;
+    padding: 9px 12px; border-radius: 8px; font-size: 13px; outline: none;
+  }
+  .browser-toolbar select:focus, .browser-toolbar input:focus { border-color: #6366f1; }
+  .browser-toolbar input { flex: 1; min-width: 180px; }
+  .browser-btn {
+    background: linear-gradient(135deg, #6366f1, #22d3ee); color: #05070d; border: none;
+    padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 650; cursor: pointer;
+    transition: opacity 0.2s, transform 0.15s;
+  }
+  .browser-btn:hover { opacity: 0.9; transform: translateY(-1px); }
+  .browser-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
+  .browser-count { color: #8b95ab; font-size: 12.5px; margin-left: auto; }
+  .browser-results { overflow-x: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; }
+  .browser-results table { width: 100%; border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+  .browser-results th { text-align: left; padding: 10px 14px; background: rgba(255,255,255,0.05); color: #8b95ab; font-weight: 600; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.05em; position: sticky; top: 0; }
+  .browser-results td { padding: 9px 14px; border-top: 1px solid rgba(255,255,255,0.06); color: #c7cede; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+  .browser-results tr:hover td { background: rgba(255,255,255,0.03); }
   footer { color: #5b6480; font-size: 12px; margin-top: 40px; text-align: center; }
   footer #last-updated { color: #8b95ab; }
 </style>
@@ -1482,6 +1503,7 @@ function renderStatusDashboard(data) {
       <button class="tab-btn active" data-tab="overview">Overview</button>
       <button class="tab-btn" data-tab="database">Database</button>
       <button class="tab-btn" data-tab="business-types">Business Types</button>
+      <button class="tab-btn" data-tab="browser">Data Browser</button>
       <button class="tab-btn" data-tab="system">System</button>
       <button class="tab-btn" data-tab="modules">Modules & Storage</button>
     </div>
@@ -1526,6 +1548,28 @@ function renderStatusDashboard(data) {
           <div class="bar-track"><div class="bar-fill" style="width:${Math.max(4, (row.n / maxBusinessType) * 100)}%"></div></div>
           <div class="bar-n">${row.n}</div>
         </div>`).join('')}
+      </section>
+    </div>
+
+    <div class="tab-panel" id="panel-browser">
+      <section class="block">
+        <h2>Browse stored data</h2>
+        <p style="color:#8b95ab;font-size:13px;margin:0 0 14px;">Look at real rows from any tracked table — businesses, users, sales, and everything else the counts above are drawn from.</p>
+        <div class="browser-toolbar">
+          <select id="browser-table"></select>
+          <input type="text" id="browser-search" placeholder="Filter by name (if this table has one)…" autocomplete="off" />
+          <select id="browser-limit">
+            <option value="25">25 rows</option>
+            <option value="50" selected>50 rows</option>
+            <option value="100">100 rows</option>
+            <option value="200">200 rows</option>
+          </select>
+          <button id="browser-load" class="browser-btn">Load</button>
+          <span id="browser-count" class="browser-count"></span>
+        </div>
+        <div id="browser-results" class="browser-results">
+          <div style="color:#8b95ab;font-size:13px;">Pick a table above and click Load.</div>
+        </div>
       </section>
     </div>
 
@@ -1612,6 +1656,75 @@ function renderStatusDashboard(data) {
         } catch (e) { /* ignore transient poll failures */ }
       }
       setInterval(refresh, 30000);
+
+      // ── Data Browser ────────────────────────────────────────
+      const TABLE_GROUPS = ${JSON.stringify(data.tableGroups)};
+      const tableSelect = document.getElementById('browser-table');
+      Object.entries(TABLE_GROUPS).forEach(function ([groupName, tables]) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = groupName;
+        tables.forEach(function (t) {
+          const opt = document.createElement('option');
+          opt.value = t.table;
+          opt.textContent = t.label;
+          optgroup.appendChild(opt);
+        });
+        tableSelect.appendChild(optgroup);
+      });
+
+      function escapeHtml(str) {
+        return String(str).replace(/[&<>"']/g, function (c) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+      }
+
+      function formatCell(value) {
+        if (value === null || value === undefined) return '<span style="color:#4b5568;">—</span>';
+        if (typeof value === 'object') return escapeHtml(JSON.stringify(value));
+        return escapeHtml(String(value));
+      }
+
+      async function loadBrowserTable() {
+        const table = tableSelect.value;
+        const search = document.getElementById('browser-search').value.trim();
+        const limit = document.getElementById('browser-limit').value;
+        const btn = document.getElementById('browser-load');
+        const countEl = document.getElementById('browser-count');
+        const resultsEl = document.getElementById('browser-results');
+        btn.disabled = true;
+        btn.textContent = 'Loading…';
+        resultsEl.innerHTML = '<div style="color:#8b95ab;font-size:13px;">Loading…</div>';
+        try {
+          const params = new URLSearchParams({ limit: limit });
+          if (search) params.set('search', search);
+          const res = await fetch('/api/status-table/' + encodeURIComponent(table) + '?' + params.toString(), { credentials: 'same-origin' });
+          if (res.status === 401) { window.location.reload(); return; }
+          const data = await res.json();
+          if (!res.ok) {
+            resultsEl.innerHTML = '<div style="color:#f87171;font-size:13px;">' + escapeHtml(data.error || 'Failed to load table') + '</div>';
+            countEl.textContent = '';
+            return;
+          }
+          countEl.textContent = data.count + ' row' + (data.count === 1 ? '' : 's');
+          if (data.rows.length === 0) {
+            resultsEl.innerHTML = '<div style="color:#8b95ab;font-size:13px;padding:16px;">No rows found.</div>';
+            return;
+          }
+          const cols = data.columns.filter(function (c) { return data.rows.some(function (r) { return r[c] !== null && r[c] !== undefined; }); });
+          const head = '<tr>' + cols.map(function (c) { return '<th>' + escapeHtml(c) + '</th>'; }).join('') + '</tr>';
+          const body = data.rows.map(function (row) {
+            return '<tr>' + cols.map(function (c) { return '<td title="' + escapeHtml(row[c]) + '">' + formatCell(row[c]) + '</td>'; }).join('') + '</tr>';
+          }).join('');
+          resultsEl.innerHTML = '<table><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+        } catch (e) {
+          resultsEl.innerHTML = '<div style="color:#f87171;font-size:13px;">Request failed: ' + escapeHtml(e.message) + '</div>';
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Load';
+        }
+      }
+      document.getElementById('browser-load').addEventListener('click', loadBrowserTable);
+      document.getElementById('browser-search').addEventListener('keydown', function (e) { if (e.key === 'Enter') loadBrowserTable(); });
     })();
   </script>
 </body>
@@ -1648,6 +1761,51 @@ app.get('/api/status-data', async (req, res) => {
   }
   const data = await gatherStatusData();
   res.json(data);
+});
+
+// ── Status dashboard data browser ───────────────────────────
+// Lets a logged-in dashboard viewer inspect actual rows for any tracked
+// table (businesses, profiles, sales, ...) without opening a psql session.
+// :table is validated against the same allowlist the dashboard's own counts
+// come from, so this can never be used to query an arbitrary table name.
+const STATUS_BROWSABLE_TABLES = new Set(
+  Object.values(STATUS_TABLE_GROUPS).flat().map(([table]) => table)
+);
+
+app.get('/api/status-table/:table', async (req, res) => {
+  if (!hasStatusAccess(req)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const { table } = req.params;
+  if (!STATUS_BROWSABLE_TABLES.has(table)) {
+    return res.status(400).json({ error: 'Unknown or unlisted table' });
+  }
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+  const search = (req.query.search || '').trim();
+
+  try {
+    const colsResult = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1`,
+      [table]
+    );
+    const columns = colsResult.rows.map((r) => r.column_name);
+    const orderCol = ['created_at', 'updated_at'].find((c) => columns.includes(c));
+
+    let query = `SELECT * FROM ${table}`;
+    const params = [];
+    if (search && columns.includes('name')) {
+      params.push(`%${search}%`);
+      query += ` WHERE name ILIKE $${params.length}`;
+    }
+    if (orderCol) query += ` ORDER BY ${orderCol} DESC`;
+    params.push(limit);
+    query += ` LIMIT $${params.length}`;
+
+    const result = await pool.query(query, params);
+    res.json({ table, columns, rows: result.rows, count: result.rows.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Health check (no auth required) ─────────────────────────

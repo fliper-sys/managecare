@@ -52,7 +52,7 @@ class NotificationService implements INotificationService {
       linux: LinuxInitializationSettings(defaultActionName: 'Manage Care'),
     );
 
-    await _plugin.initialize(settings);
+    await _plugin.initialize(settings: settings);
     await _configureAndroidChannel();
     await _requestPermissions();
 
@@ -109,7 +109,12 @@ class NotificationService implements INotificationService {
     const ios = DarwinNotificationDetails();
     const details = NotificationDetails(android: android, iOS: ios);
 
-    await _plugin.show(id, title, body, details);
+    await _plugin.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: details,
+    );
   }
 
   @override
@@ -133,11 +138,11 @@ class NotificationService implements INotificationService {
     const details = NotificationDetails(android: android, iOS: ios);
 
     await _plugin.zonedSchedule(
-      id,
-      title,
-      body,
-      tzDate,
-      details,
+      id: id,
+      title: title,
+      body: body,
+      scheduledDate: tzDate,
+      notificationDetails: details,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
   }
@@ -198,7 +203,7 @@ class NotificationService implements INotificationService {
 
   @override
   Future<void> cancelNotification(int id) async {
-    await _plugin.cancel(id);
+    await _plugin.cancel(id: id);
     await _removeScheduledAlertMetadata(id);
   }
 

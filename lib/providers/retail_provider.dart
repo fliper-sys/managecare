@@ -1560,53 +1560,84 @@ class RetailProvider extends ChangeNotifier {
           };
         }).toList();
 
-        final created = await _salesRepo.createSale({
-          'id': saleId,
-          'businessId': _businessId,
-          'customer_id': customerId,
-          'store_id': storeId,
-          'worker_id': workerId,
-          'worker_name': workerName,
-          'total_amount': subtotal,
-          'discount_amount': discount,
-          'tax_amount': taxAmount,
-          'final_amount': totalAmount,
-          'payment_method': paymentMethod,
-          'status': 'completed',
-          'created_by': createdBy,
-          'sale_type': 'retail',
-          'items': apiItems,
-        });
-        final orderId = (created is Map ? created['id']?.toString() : null) ??
-            saleId;
+        Map<String, dynamic> created;
+        try {
+          created = await _salesRepo.createSale({
+            'id': saleId,
+            'businessId': _businessId,
+            'customer_id': customerId,
+            'store_id': storeId,
+            'worker_id': workerId,
+            'worker_name': workerName,
+            'total_amount': subtotal,
+            'discount_amount': discount,
+            'tax_amount': taxAmount,
+            'final_amount': totalAmount,
+            'payment_method': paymentMethod,
+            'status': 'completed',
+            'created_by': createdBy,
+            'sale_type': 'retail',
+            'items': apiItems,
+          }) as Map<String, dynamic>;
+        } catch (e) {
+          // createSale itself failed — nothing was written server-side, so
+          // this is the only failure that should fall back to saving the
+          // sale offline.
+          debugPrint('[Checkout] Backend write failed, saving locally: $e');
+          return await _saveSaleOffline(
+            activeCartEntries: activeCartEntries,
+            totalAmount: totalAmount,
+            taxAmount: taxAmount,
+            discount: discount,
+            paymentMethod: paymentMethod,
+            customerId: customerId,
+            workerId: workerId,
+            workerName: workerName,
+            storeId: storeId,
+            priceOverrides: priceOverrides,
+          );
+        }
 
-        // The backend's sale-creation route already decrements inventory
-        // atomically server-side (routes/sales.js), so only mirror the
-        // reduction into the in-memory product list here for immediate POS
-        // UI feedback — writing it again client-side would double-decrement.
-        for (final entry in activeCartEntries.entries) {
-          final product = _findProductForCart(entry.key);
+        // The sale (and its server-side inventory deduction) is already
+        // committed at this point. Everything below is best-effort
+        // UI/side-effect work — a failure here must NEVER fall through to
+        // _saveSaleOffline, which would create a duplicate sale and
+        // double-apply the stock deduction (once server-side just now, once
+        // again locally). Every step below is its own try/catch instead of
+        // one that rethrows.
+        final orderId = created['id']?.toString() ?? saleId;
 
-          final stockReduction =
-              getEffectiveSaleUnitMultiplierForCartItem(entry.key) *
-                  entry.value;
-          final newQuantity =
-              (product.stock - stockReduction).clamp(0.0, 999999.0);
+        try {
+          // The backend's sale-creation route already decrements inventory
+          // atomically server-side (routes/sales.js), so only mirror the
+          // reduction into the in-memory product list here for immediate POS
+          // UI feedback — writing it again client-side would double-decrement.
+          for (final entry in activeCartEntries.entries) {
+            final product = _findProductForCart(entry.key);
 
-          final idx = _products.indexWhere((p) => p.id == product.id);
-          if (idx != -1) {
-            _products[idx].stock = newQuantity;
+            final stockReduction =
+                getEffectiveSaleUnitMultiplierForCartItem(entry.key) *
+                    entry.value;
+            final newQuantity =
+                (product.stock - stockReduction).clamp(0.0, 999999.0);
+
+            final idx = _products.indexWhere((p) => p.id == product.id);
+            if (idx != -1) {
+              _products[idx].stock = newQuantity;
+            }
+
+            // Notify if stock is low (use integer for notifications)
+            if (newQuantity < 10) {
+              await BusinessNotificationManager.instance.notifyLowStock(
+                businessId: _businessId!,
+                itemName: product.name,
+                currentStock: newQuantity.toInt(),
+                reorderPoint: 10,
+              );
+            }
           }
-
-          // Notify if stock is low (use integer for notifications)
-          if (newQuantity < 10) {
-            await BusinessNotificationManager.instance.notifyLowStock(
-              businessId: _businessId!,
-              itemName: product.name,
-              currentStock: newQuantity.toInt(),
-              reorderPoint: 10,
-            );
-          }
+        } catch (e) {
+          debugPrint('[Checkout] Post-sale UI stock mirror failed: $e');
         }
 
         if (customerId != null && customerId.isNotEmpty) {
@@ -1632,33 +1663,31 @@ class RetailProvider extends ChangeNotifier {
           }
         }
 
-        _resetActiveCartState();
-        _queueCartCacheSave();
-        await loadProducts(); // Refresh products
-        notifyListeners();
+        try {
+          _resetActiveCartState();
+          _queueCartCacheSave();
+          await loadProducts(); // Refresh products
+          notifyListeners();
 
-        // Send sale completed notification
-        await BusinessNotificationManager.instance.notifySaleCompleted(
-          businessId: _businessId!,
-          customerName: 'Customer',
-          amount: totalAmount,
-          paymentMethod: paymentMethod,
-        );
-
-        // Send notification for large sales
-        if (totalAmount > 100) {
-          await BusinessNotificationManager.instance.notifyLargeSale(
+          // Send sale completed notification
+          await BusinessNotificationManager.instance.notifySaleCompleted(
             businessId: _businessId!,
             customerName: 'Customer',
             amount: totalAmount,
+            paymentMethod: paymentMethod,
           );
-        }
 
-        // Clear cart and refresh
-        _resetActiveCartState();
-        _queueCartCacheSave();
-        await loadProducts();
-        notifyListeners();
+          // Send notification for large sales
+          if (totalAmount > 100) {
+            await BusinessNotificationManager.instance.notifyLargeSale(
+              businessId: _businessId!,
+              customerName: 'Customer',
+              amount: totalAmount,
+            );
+          }
+        } catch (e) {
+          debugPrint('[Checkout] Post-sale refresh/notify failed: $e');
+        }
 
         return false; // uploaded successfully
       } catch (e) {
