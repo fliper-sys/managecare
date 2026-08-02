@@ -494,7 +494,7 @@ class _ExportSalesHistoryScreenState extends State<ExportSalesHistoryScreen> {
     try {
       final reports = context.read<ReportsProvider>();
       final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-      final raw = await reports.fetchSalesList(businessId: businessId, start: _startDate, end: _endDate, search: _searchQuery, limit: 5000);
+      final raw = await reports.fetchSalesList(businessId: businessId, start: _startDate, end: _endDate, search: _searchQuery, limit: 100);
 
       String filename = ExportService.getExportFilename(_selectedFormat);
       final dir = await getTemporaryDirectory();
@@ -553,7 +553,7 @@ class _ExportSalesHistoryScreenState extends State<ExportSalesHistoryScreen> {
     try {
       final reports = context.read<ReportsProvider>();
       final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-      final raw = await reports.fetchSalesList(businessId: businessId, start: _startDate, end: _endDate, search: _searchQuery, limit: 5000);
+      final raw = await reports.fetchSalesList(businessId: businessId, start: _startDate, end: _endDate, search: _searchQuery, limit: 100);
 
       String filename = ExportService.getExportFilename(_selectedFormat);
       final dir = await getTemporaryDirectory();
@@ -602,7 +602,7 @@ class _ExportSalesHistoryScreenState extends State<ExportSalesHistoryScreen> {
     try {
       final reports = context.read<ReportsProvider>();
       final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-      final raw = await reports.fetchSalesList(businessId: businessId, start: _startDate, end: _endDate, search: _searchQuery, limit: 5000);
+      final raw = await reports.fetchSalesList(businessId: businessId, start: _startDate, end: _endDate, search: _searchQuery, limit: 100);
 
       final summary = await ExportService.generateSummaryFromRaw(raw);
 
@@ -640,7 +640,7 @@ class _ExportSalesHistoryScreenState extends State<ExportSalesHistoryScreen> {
     try {
       final reports = context.read<ReportsProvider>();
       final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-      final list = await reports.fetchSalesList(businessId: businessId, start: _startDate, end: _endDate, search: _searchQuery, limit: 2000);
+      final list = await reports.fetchSalesList(businessId: businessId, start: _startDate, end: _endDate, search: _searchQuery, limit: 100);
       setState(() {
         _salesList = list;
         _isLoadingSales = false;

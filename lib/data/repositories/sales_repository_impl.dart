@@ -312,7 +312,8 @@ class SalesRepositoryImpl implements SalesRepository {
       {String? businessId,
       String? storeId,
       DateTime? start,
-      DateTime? end}) async {
+      DateTime? end,
+      int? limit}) async {
     try {
       // Start with base query - businessId is critical for filtering
       if (businessId == null || businessId.isEmpty) {
@@ -341,7 +342,7 @@ class SalesRepositoryImpl implements SalesRepository {
       query = query.orderBy('createdAt', descending: true);
 
       // Limit to prevent loading massive datasets - can be paginated if needed
-      query = query.limit(500);
+      query = query.limit(limit ?? 500);
 
       final snapshot = await query.get();
       return snapshot.docs
@@ -736,6 +737,9 @@ class SalesRepositoryImpl implements SalesRepository {
                 0)
             .toString(),
         'paymentMethod': paymentMethod,
+        'saleType': saleData['saleType']?.toString() ??
+            saleData['sale_type']?.toString() ??
+            'retail',
         'status': status,
         'notes': notes,
         'createdBy': createdBy,

@@ -16,6 +16,14 @@ const { requireBusinessMembership } = require('../middleware/auth');
 module.exports = function(pool) {
   router.use('/:businessId', requireBusinessMembership(pool));
 
+  // Client-side items can carry a stale/non-uuid product reference (an old
+  // Firestore-era slug like "petrol", a placeholder id from before a
+  // product synced) - feeding that straight into a uuid column throws
+  // "invalid input syntax for type uuid". Treat anything that isn't a real
+  // uuid as absent instead.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const asUuidOrNull = (v) => (v && UUID_RE.test(v) ? v : null);
+
   // GET /api/procurement/:businessId - List procurements (optionally by sourceType)
   router.get('/:businessId', asyncHandler(async (req, res) => {
     const { businessId } = req.params;
@@ -36,9 +44,13 @@ module.exports = function(pool) {
   // GET /api/procurement/:businessId/product/:productId - Batches for one product
   router.get('/:businessId/product/:productId', asyncHandler(async (req, res) => {
     const { businessId, productId } = req.params;
+    const inventoryId = asUuidOrNull(productId);
+    if (!inventoryId) {
+      return res.json({ data: [] });
+    }
     const result = await pool.query(
       'SELECT * FROM inventory_batches WHERE business_id = $1 AND inventory_id = $2 ORDER BY created_at DESC',
-      [businessId, productId]
+      [businessId, inventoryId]
     );
     res.json({ data: result.rows });
   }));
@@ -55,15 +67,6 @@ module.exports = function(pool) {
     }
     res.json(result.rows[0]);
   }));
-
-  // Client-side items can carry a stale/non-uuid product reference (an old
-  // Firestore-era slug like "petrol", a placeholder id from before a
-  // product synced) - feeding that straight into a uuid column throws
-  // "invalid input syntax for type uuid" and rolls back the *entire*
-  // procurement, not just that one line item. Treat anything that isn't a
-  // real uuid as absent instead, same pattern already used in pumps.js.
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  const asUuidOrNull = (v) => (v && UUID_RE.test(v) ? v : null);
 
   // POST /api/procurement/:businessId - Create a batch procurement
   router.post('/:businessId', asyncHandler(async (req, res) => {

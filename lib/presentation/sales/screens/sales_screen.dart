@@ -2691,6 +2691,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   // Per-item price overrides (keyed by product id)
   final Map<String, double> _priceOverrides = {};
   final Map<String, TextEditingController> _priceControllers = {};
+  final Set<String> _manualPriceOverrideProductIds = {};
 
   ScrollController get _effectiveScrollController =>
       widget.scrollController ?? _internalScrollController!;
@@ -3043,13 +3044,21 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return entries.fold(0.0, (s, e) => s + _lineTotal(retail, e.key, e.value));
   }
 
-  String _pricingModeFor(Product product) {
-    final currentPrice = _priceOverrides[product.id] ?? product.price;
+  bool _isManualCustomPrice(Product product) {
+    if (!_manualPriceOverrideProductIds.contains(product.id)) return false;
+    final currentPrice = _priceOverrides[product.id];
+    if (currentPrice == null) return false;
+    if ((currentPrice - product.price).abs() < 0.0001) return false;
     if (product.wholesalePrice != null &&
         (currentPrice - product.wholesalePrice!).abs() < 0.0001) {
-      return 'wholesale';
+      return false;
     }
-    return 'retail';
+    return true;
+  }
+
+  String _pricingModeFor(RetailProvider retail, Product product) {
+    if (_isManualCustomPrice(product)) return 'custom';
+    return retail.getPricingModeForCartItem(product.id);
   }
 
   String _saleUnitSummary(Product product) {
@@ -3092,6 +3101,17 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     );
   }
 
+  void _applyModePrice(RetailProvider retail, Product product, String mode) {
+    retail.setPricingModeForCartItem(product.id, mode);
+    _manualPriceOverrideProductIds.remove(product.id);
+    _setPriceOverrideValue(
+      product.id,
+      mode == 'wholesale' && product.wholesalePrice != null
+          ? product.wholesalePrice!
+          : product.price,
+    );
+  }
+
   @override
   void dispose() {
     _internalScrollController?.dispose();
@@ -3119,6 +3139,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     _priceOverrides.removeWhere(
       (productId, _) => !currentProductIds.contains(productId),
     );
+    _manualPriceOverrideProductIds.removeWhere(
+      (productId) => !currentProductIds.contains(productId),
+    );
     final removedControllerIds = _priceControllers.keys
         .where((productId) => !currentProductIds.contains(productId))
         .toList();
@@ -3126,14 +3149,13 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
       _priceControllers.remove(productId)?.dispose();
     }
     for (final entry in entries) {
-      _priceOverrides.putIfAbsent(
-        entry.key.id,
-        () => retail.getEffectivePriceForCartItem(entry.key.id),
-      );
-      _getPriceController(
-        entry.key.id,
-        _priceOverrides[entry.key.id] ?? entry.key.price,
-      );
+      final effectivePrice = retail.getEffectivePriceForCartItem(entry.key.id);
+      if (!_manualPriceOverrideProductIds.contains(entry.key.id)) {
+        _setPriceOverrideValue(entry.key.id, effectivePrice);
+      } else {
+        _priceOverrides.putIfAbsent(entry.key.id, () => effectivePrice);
+        _getPriceController(entry.key.id, _priceOverrides[entry.key.id]!);
+      }
     }
     final customerProvider = context.watch<CustomerProvider>();
     final theme = Theme.of(context);
@@ -3265,6 +3287,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                             item.id,
                                             'retail',
                                           );
+                                          _manualPriceOverrideProductIds
+                                              .remove(item.id);
                                         } else if (item.hasWholesalePricing &&
                                             item.wholesalePrice != null &&
                                             (parsed - item.wholesalePrice!)
@@ -3274,6 +3298,11 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                             item.id,
                                             'wholesale',
                                           );
+                                          _manualPriceOverrideProductIds
+                                              .remove(item.id);
+                                        } else {
+                                          _manualPriceOverrideProductIds
+                                              .add(item.id);
                                         }
                                         setState(() {
                                           _setPriceOverrideValue(
@@ -3306,17 +3335,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                       label: Text(
                                           'Retail ₦${item.price.toStringAsFixed(2)}'),
                                       selected:
-                                          _pricingModeFor(item) == 'retail',
+                                          _pricingModeFor(retail, item) ==
+                                              'retail',
                                       onSelected: (_) {
-                                        retail.setPricingModeForCartItem(
-                                          item.id,
-                                          'retail',
-                                        );
                                         setState(() {
-                                          _setPriceOverrideValue(
-                                            item.id,
-                                            item.price,
-                                          );
+                                          _applyModePrice(
+                                              retail, item, 'retail');
                                         });
                                       },
                                     ),
@@ -3325,17 +3349,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                         'Wholesale ₦${item.wholesalePrice!.toStringAsFixed(2)}',
                                       ),
                                       selected:
-                                          _pricingModeFor(item) == 'wholesale',
+                                          _pricingModeFor(retail, item) ==
+                                              'wholesale',
                                       onSelected: (_) {
-                                        retail.setPricingModeForCartItem(
-                                          item.id,
-                                          'wholesale',
-                                        );
                                         setState(() {
-                                          _setPriceOverrideValue(
-                                            item.id,
-                                            item.wholesalePrice!,
-                                          );
+                                          _applyModePrice(
+                                              retail, item, 'wholesale');
                                         });
                                       },
                                     ),
@@ -3373,7 +3392,11 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             IconButton(
                               icon: const Icon(Icons.add_circle_outline),
                               onPressed: () {
-                                retail.addToCart(item.id);
+                                retail.addToCart(
+                                  item.id,
+                                  pricingMode:
+                                      retail.getPricingModeForCartItem(item.id),
+                                );
                                 setState(() {});
                               },
                               tooltip: 'Increase quantity',

@@ -219,15 +219,77 @@ class ReportsProvider extends ChangeNotifier {
           ) ??
           1.0;
       return {
-        'id': (item['productId'] ?? item['product_id'] ?? item['id'] ?? '').toString(),
+        'id':
+            (item['productId'] ?? item['product_id'] ?? item['id'] ?? '')
+                .toString(),
+        'productId':
+            (item['productId'] ?? item['product_id'] ?? item['id'] ?? '')
+                .toString(),
+        'productName': name,
         'name': name,
         'quantity': quantity,
         'unitPrice': unitPrice,
-        'unit': item['unit'] ?? item['uom'] ?? item['saleUnit'],
+        'price': unitPrice,
+        'unit': item['unit'] ?? item['uom'] ?? item['saleUnit'] ?? item['sale_unit'],
+        'pricingMode': item['pricingMode'] ?? item['pricing_mode'],
+        'inventoryUnit': item['inventoryUnit'] ?? item['inventory_unit'],
+        'saleUnit': item['saleUnit'] ?? item['sale_unit'],
+        'saleUnitMultiplier':
+            _toDouble(item['saleUnitMultiplier'] ?? item['sale_unit_multiplier']) ??
+                1.0,
         'total': _toDouble(item['total'] ?? item['lineTotal'] ?? item['amount']) ??
             (quantity * unitPrice),
       };
     }).toList();
+  }
+
+  Map<String, dynamic> _normalizeSaleForClient(Map<String, dynamic> raw) {
+    final data = Map<String, dynamic>.from(raw);
+    final items = _normalizeSaleProducts(data['items']);
+    final finalAmount = _toDouble(
+          data['finalAmount'] ?? data['final_amount'] ?? data['total'],
+        ) ??
+        0.0;
+    final totalAmount = _toDouble(
+          data['totalAmount'] ?? data['total_amount'] ?? data['subtotal'],
+        ) ??
+        finalAmount;
+
+    data
+      ..['businessId'] = (data['businessId'] ?? data['business_id'] ?? '')
+          .toString()
+      ..['customerId'] = data['customerId'] ?? data['customer_id']
+      ..['customerName'] = _extractStringValue(
+            data['customerName'] ?? data['customer_name'],
+          ) ??
+          ''
+      ..['workerId'] = data['workerId'] ?? data['worker_id']
+      ..['workerName'] = _extractStringValue(
+            data['workerName'] ?? data['worker_name'],
+          ) ??
+          ''
+      ..['storeId'] = data['storeId'] ?? data['store_id']
+      ..['totalAmount'] = totalAmount
+      ..['discountAmount'] = _toDouble(
+            data['discountAmount'] ?? data['discount_amount'] ?? data['discount'],
+          ) ??
+          0.0
+      ..['taxAmount'] = _toDouble(data['taxAmount'] ?? data['tax_amount']) ?? 0.0
+      ..['finalAmount'] = finalAmount
+      ..['paymentMethod'] = (data['paymentMethod'] ??
+              data['payment_method'] ??
+              data['payment'] ??
+              '')
+          .toString()
+      ..['saleType'] = (data['saleType'] ?? data['sale_type'] ?? 'retail')
+          .toString()
+      ..['createdBy'] = (data['createdBy'] ?? data['created_by'] ?? '')
+          .toString()
+      ..['createdAt'] = data['createdAt'] ?? data['created_at']
+      ..['updatedAt'] = data['updatedAt'] ?? data['updated_at']
+      ..['items'] = items;
+
+    return data;
   }
 
   /// Helper to extract error message from wrapped or unwrapped exceptions
@@ -542,11 +604,15 @@ class ReportsProvider extends ChangeNotifier {
       businessId: bid,
       start: startDate,
       end: endDate,
+      limit: limit,
     );
 
-    List<Map<String, dynamic>> list = sales
-        .map((data) => {'id': data['id'], 'data': Map<String, dynamic>.from(data)..remove('id')})
-        .toList();
+    List<Map<String, dynamic>> list = sales.map((data) {
+      final normalized = _normalizeSaleForClient(data);
+      final id = (normalized['id'] ?? data['id'] ?? '').toString();
+      normalized.remove('id');
+      return {'id': id, 'data': normalized};
+    }).toList();
 
     if (list.length > limit) list = list.sublist(0, limit);
 
@@ -601,13 +667,17 @@ class ReportsProvider extends ChangeNotifier {
     if (bid == null || bid.isEmpty) throw Exception('No business ID found');
 
     try {
-      await _salesRepo.deleteSaleForBusiness(bid, saleId);
+      final response = await _salesRepo.deleteSaleForBusiness(bid, saleId);
 
       if (_salesSubscription != null) {
         subscribeToSalesReports(businessId: bid);
       }
 
-      return {'businessId': bid, 'success': true};
+      return {
+        'businessId': bid,
+        'success': true,
+        if (response != null) ...response,
+      };
     } catch (e, st) {
       final errMsg = extractErrorMessage(e);
       debugPrint('[ReportsProvider.deleteSale] Error: $errMsg');

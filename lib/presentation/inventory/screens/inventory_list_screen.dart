@@ -99,7 +99,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
         if (item is Map<String, dynamic>) {
           items.add(item);
           final quantity = item['quantity'] ?? 0;
-          final minStock = item['minStock'] ?? 10;
+          final minStock = item['min_stock_level'] ?? 10;
 
           if (quantity == 0) {
             outOfStock++;
@@ -131,7 +131,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   void _sortInventory(List<Map<String, dynamic>> items) {
     switch (_sortBy) {
       case 'price':
-        items.sort((a, b) => (b['price'] ?? 0).compareTo(a['price'] ?? 0));
+        items.sort((a, b) => (b['unit_price'] ?? 0).compareTo(a['unit_price'] ?? 0));
         break;
       case 'stock':
         items
@@ -158,7 +158,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       final sku = (item['sku'] ?? '').toString();
       final category = (item['category'] ?? 'All').toString();
       final quantity = item['quantity'] ?? 0;
-      final minStock = item['minStock'] ?? 10;
+      final minStock = item['min_stock_level'] ?? 10;
       final isIngredient = _isIngredientItem(item);
 
       if (hideIngredientsInBakeryMode && isIngredient) {
@@ -957,8 +957,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                     name: item['name'] ?? 'Unnamed',
                     sku: item['sku'] ?? 'N/A',
                     quantity: (item['quantity'] as num?)?.toInt() ?? 0,
-                    minStock: (item['minStock'] as num?)?.toInt() ?? 10,
-                    price: (item['price'] as num?)?.toDouble() ?? 0.0,
+                    minStock: (item['min_stock_level'] as num?)?.toInt() ?? 10,
+                    price: (item['unit_price'] as num?)?.toDouble() ?? 0.0,
                     category: item['category'] ?? 'All',
                     emoji: item['emoji'] ?? '📦',
                     onTap: () {

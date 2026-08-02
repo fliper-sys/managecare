@@ -88,14 +88,16 @@ class SalesRepositorySupabase implements SalesRepository {
 
   /// Delete a sale with businessId context. The backend restores inventory
   /// and writes a `sale_deletions` audit row atomically as part of this call.
-  Future<void> deleteSaleForBusiness(String businessId, String saleId,
+  Future<Map<String, dynamic>?> deleteSaleForBusiness(String businessId, String saleId,
       {String? reason}) async {
     try {
-      await _http.delete(
+      final response = await _http.delete(
         '/sales/$businessId/$saleId',
         data: reason != null ? {'reason': reason} : null,
         options: Options(headers: _headers),
       );
+      final data = response.data;
+      return data is Map ? Map<String, dynamic>.from(data) : null;
     } on DioException catch (e) {
       throw Exception('Failed to delete sale: ${_extractError(e)}');
     }
@@ -130,6 +132,9 @@ class SalesRepositorySupabase implements SalesRepository {
             filters['customerId'] != null) {
           queryParams['customerId'] = filters['customerId'];
         }
+        if (filters.containsKey('limit') && filters['limit'] != null) {
+          queryParams['limit'] = filters['limit'];
+        }
       }
 
       return await _fetchAllSalesPages(businessId, queryParams);
@@ -144,13 +149,20 @@ class SalesRepositorySupabase implements SalesRepository {
   // rather than only ever seeing the first 50-100 rows.
   Future<List<dynamic>> _fetchAllSalesPages(
       String businessId, Map<String, dynamic> queryParams) async {
-    final params = {...queryParams, 'limit': 100};
+    final requestedLimit = (queryParams['limit'] as num?)?.toInt();
+    final pageLimit = requestedLimit != null && requestedLimit > 0
+        ? requestedLimit.clamp(1, 100)
+        : 100;
+    final params = {...queryParams, 'limit': pageLimit};
     final first = await _http.get(
       '/sales/$businessId',
       queryParameters: {...params, 'page': 1},
       options: Options(headers: _headers),
     );
     final items = <dynamic>[...(first.data['data'] as List? ?? [])];
+    if (requestedLimit != null && requestedLimit > 0 && items.length >= requestedLimit) {
+      return items.take(requestedLimit).toList();
+    }
     final totalPages = first.data['pagination']?['totalPages'] as int? ?? 1;
     if (totalPages > 1) {
       // Firing every remaining page at once (unbounded Future.wait) is fine
@@ -172,6 +184,9 @@ class SalesRepositorySupabase implements SalesRepository {
         ]);
         for (final response in batch) {
           items.addAll(response.data['data'] as List? ?? []);
+        }
+        if (requestedLimit != null && requestedLimit > 0 && items.length >= requestedLimit) {
+          return items.take(requestedLimit).toList();
         }
       }
     }
@@ -210,6 +225,7 @@ class SalesRepositorySupabase implements SalesRepository {
     String? storeId,
     DateTime? start,
     DateTime? end,
+    int? limit,
   }) async {
     if (businessId == null || businessId.isEmpty) {
       throw Exception('Business ID is required to fetch sales');
@@ -225,6 +241,9 @@ class SalesRepositorySupabase implements SalesRepository {
       }
       if (end != null) {
         queryParams['endDate'] = end.toIso8601String();
+      }
+      if (limit != null && limit > 0) {
+        queryParams['limit'] = limit;
       }
 
       final data = await _fetchAllSalesPages(businessId, queryParams);
@@ -381,6 +400,9 @@ class SalesRepositorySupabase implements SalesRepository {
         'taxAmount': (saleData['taxAmount'] ?? saleData['tax'] ?? 0).toString(),
         'finalAmount': (saleData['finalAmount'] ?? saleData['total'] ?? 0).toString(),
         'paymentMethod': paymentMethod,
+        'saleType': saleData['saleType']?.toString() ??
+            saleData['sale_type']?.toString() ??
+            'retail',
         'status': status,
         'notes': notes,
         'createdBy': createdBy,

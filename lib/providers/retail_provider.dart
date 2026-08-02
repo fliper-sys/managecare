@@ -1458,6 +1458,11 @@ class RetailProvider extends ChangeNotifier {
                 : getEffectivePriceForCartItem(entry.key);
         subtotal += unitPrice * entry.value;
       }
+      final saleType = activeCartEntries.keys.any(
+        (productId) => getPricingModeForCartItem(productId) == 'wholesale',
+      )
+          ? 'wholesale'
+          : 'retail';
 
       final taxAmount = subtotal * (tax / 100);
       double totalAmount = subtotal + taxAmount - discount;
@@ -1500,6 +1505,7 @@ class RetailProvider extends ChangeNotifier {
         'totalAmount': totalAmount,
         'finalAmount': totalAmount,
         'paymentMethod': paymentMethod,
+        'saleType': saleType,
         'category': 'General',
         'createdAt': DateTime.now().toIso8601String(),
         if (customerId != null && customerId.isNotEmpty)
@@ -1533,6 +1539,7 @@ class RetailProvider extends ChangeNotifier {
           workerId: workerId,
           workerName: workerName,
           storeId: storeId,
+          saleType: saleType,
           priceOverrides: priceOverrides,
         );
       }
@@ -1576,7 +1583,7 @@ class RetailProvider extends ChangeNotifier {
             'payment_method': paymentMethod,
             'status': 'completed',
             'created_by': createdBy,
-            'sale_type': 'retail',
+            'sale_type': saleType,
             'items': apiItems,
           }) as Map<String, dynamic>;
         } catch (e) {
@@ -1594,6 +1601,7 @@ class RetailProvider extends ChangeNotifier {
             workerId: workerId,
             workerName: workerName,
             storeId: storeId,
+            saleType: saleType,
             priceOverrides: priceOverrides,
           );
         }
@@ -1703,6 +1711,7 @@ class RetailProvider extends ChangeNotifier {
           workerId: workerId,
           workerName: workerName,
           storeId: storeId,
+          saleType: saleType,
           priceOverrides: priceOverrides,
         );
       }
@@ -1725,6 +1734,7 @@ class RetailProvider extends ChangeNotifier {
     String? workerId,
     String? workerName,
     String? storeId,
+    String saleType = 'retail',
     Map<String, double>? priceOverrides,
   }) async {
     final dbHelper = DatabaseHelper.instance;
@@ -1739,6 +1749,7 @@ class RetailProvider extends ChangeNotifier {
       'taxAmount': taxAmount,
       'finalAmount': totalAmount,
       'paymentMethod': paymentMethod,
+      'saleType': saleType,
       'status': 'completed',
       'notes': null,
       'createdBy': workerId ?? '',
@@ -2473,6 +2484,7 @@ class RetailProvider extends ChangeNotifier {
 
     try {
       final sales = await _salesRepo.getSales(_businessId!, filters: {
+        'limit': limit,
         if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
         if (status != null && status.isNotEmpty && status != 'all')
           'status': status,
@@ -2506,6 +2518,21 @@ class RetailProvider extends ChangeNotifier {
       debugPrint('[RetailProvider] Error fetching sale $saleId: $e');
       return null;
     }
+  }
+
+  Future<void> deleteSale(String saleId, {String? reason}) async {
+    if (_businessId == null || _businessId!.isEmpty) {
+      throw Exception('Business ID is required to delete a sale');
+    }
+    if (saleId.trim().isEmpty) {
+      throw Exception('Sale ID is required');
+    }
+
+    await _salesRepo.deleteSaleForBusiness(
+      _businessId!,
+      saleId,
+      reason: reason,
+    );
   }
 
   /// Sales that only exist locally (queued while offline, or stuck after a

@@ -31,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -66,7 +66,8 @@ class DatabaseHelper {
         lastSyncError TEXT,
         lastSyncAttemptAt TEXT,
         workerId TEXT,
-        workerName TEXT
+        workerName TEXT,
+        saleType TEXT
       )
     ''');
 
@@ -229,6 +230,11 @@ class DatabaseHelper {
       await _addColumnsIfMissing(db, 'sales', {
         'workerId': 'TEXT',
         'workerName': 'TEXT',
+      });
+    }
+    if (oldVersion < 6) {
+      await _addColumnsIfMissing(db, 'sales', {
+        'saleType': 'TEXT',
       });
     }
   }

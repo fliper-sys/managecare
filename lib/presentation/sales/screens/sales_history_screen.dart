@@ -566,6 +566,60 @@ class _SalesListState extends State<_SalesList> {
     }
   }
 
+  Future<void> _deleteSale(Map<String, dynamic> sale) async {
+    final saleId = sale['id']?.toString() ?? '';
+    if (saleId.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete sale?'),
+        content: const Text(
+          'This will remove the sale from history and restore the sold stock.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await context.read<RetailProvider>().deleteSale(
+            saleId,
+            reason: 'Deleted from sales history',
+          );
+      if (!mounted) return;
+      setState(() {
+        _sales.removeWhere((item) => item['id']?.toString() == saleId);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sale deleted')),
+      );
+      try {
+        final parentState =
+            context.findAncestorStateOfType<_SalesHistoryScreenState>();
+        parentState?._loadQuickStats();
+      } catch (_) {}
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not delete sale: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -650,6 +704,7 @@ class _SalesListState extends State<_SalesList> {
           onRefund: (sale['status'] == 'refunded' || sale['pendingSync'] == true)
               ? null
               : () => _openRefund(sale),
+          onDelete: sale['pendingSync'] == true ? null : () => _deleteSale(sale),
         );
       },
     );
@@ -725,6 +780,7 @@ class _SaleCard extends StatelessWidget {
   final String time;
   final Map<String, dynamic> saleData;
   final VoidCallback? onRefund;
+  final VoidCallback? onDelete;
 
   const _SaleCard({
     required this.orderId,
@@ -736,6 +792,7 @@ class _SaleCard extends StatelessWidget {
     required this.time,
     required this.saleData,
     this.onRefund,
+    this.onDelete,
   });
 
   Color get _statusColor {
@@ -1016,19 +1073,39 @@ class _SaleCard extends StatelessWidget {
                 );
               }),
             ],
-            if (onRefund != null) ...[
+            if (onRefund != null || onDelete != null) ...[
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: onRefund,
-                  icon: const Icon(Icons.assignment_return_outlined, size: 16),
-                  label: const Text('Refund'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.error,
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    visualDensity: VisualDensity.compact,
-                  ),
+                child: Wrap(
+                  spacing: 8,
+                  children: [
+                    if (onRefund != null)
+                      TextButton.icon(
+                        onPressed: onRefund,
+                        icon: const Icon(
+                          Icons.assignment_return_outlined,
+                          size: 16,
+                        ),
+                        label: const Text('Refund'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.error,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    if (onDelete != null)
+                      TextButton.icon(
+                        onPressed: onDelete,
+                        icon: const Icon(Icons.delete_outline, size: 16),
+                        label: const Text('Delete'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.error,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],

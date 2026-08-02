@@ -1,20 +1,18 @@
-# TODO - Fix Supabase Realtime unhandled exceptions
+# Task: Limit Export Sales History retrieval to last 100 sales (per selected date range)
 
-## Problem
-`RealtimeSubscribeException(status: channelError, details: RealtimeCloseEvent(code: 1006))` and
-`JwtSignatureError: Failed to validate JWT signature` unhandled exceptions come from the genuine
-Supabase Realtime `.stream()` subscription on the `profiles` table in
-`lib/providers/auth_provider_supabase.dart` (`_subscribeToProfile`). The self-hosted backend
-(`backend.managecare.info`) does not implement the Supabase Realtime protocol correctly.
-
-## Plan
-Replace the realtime profile subscription with a polling Timer (15s), matching the pattern already
-used by `ReportsProvider` and `InventoryRepositorySupabase`.
+## Context
+The Export Sales History screen (Settings) fetches all 2000+ sales (via `ReportsProvider.fetchSalesList` with
+`limit: 5000`/`2000`), but the limit is only applied client-side AFTER fetching every page, causing severe lag.
+Sales Report and Sales History screens must remain unlimited/paginated as they are.
 
 ## Steps
-- [x] 1. Create TODO.md
-- [x] 2. Replace `StreamSubscription? _profileSubscription` field with `Timer? _profilePollTimer` + poll interval constant
-- [x] 3. Rewrite `_subscribeToProfile()` to poll `resolveUserAccess()` on a 15s timer (preserving changed-logic, wrapped in try/catch)
-- [x] 4. Update cleanup call sites to cancel the timer: `logout()`, `_rejectWorkerFromOwnerLogin()`, `_rejectWorkerDueToBusinessSubscription()`, `_rejectWorkerDueToOwnerRestriction()`, `dispose()`
-- [x] 5. Verified: no remaining `_profileSubscription` references (all replaced with `_profilePollTimer`)
+- [x] 1. Understand the delete-sale flow and confirm it works (user confirmed)
+- [x] 2. Read all relevant files (sales_repository_supabase, sales_repository_impl, domain/sales_repository,
+         reports_provider, export_sales_history_screen, startup_notifications)
+- [ ] 3. Add optional `int? limit` to abstract `SalesRepository.fetchSales` (domain)
+- [ ] 4. Add `int? limit` param to `SalesRepositorySupabase.fetchSales` and pass into query params (repo)
+- [ ] 5. Add `int? limit` param to `SalesRepositoryImpl.fetchSales` (Firebase impl)
+- [ ] 6. Pass `limit` through in `ReportsProvider.fetchSalesList` to `_salesRepo.fetchSales`
+- [ ] 7. Change all `fetchSalesList` calls in export_sales_history_screen.dart to `limit: 100`
+- [ ] 8. Run `flutter analyze` to verify no type errors
 

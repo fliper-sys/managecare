@@ -479,8 +479,44 @@ class InventoryRepositorySupabase implements InventoryRepository {
         'createdAt': row['created_at'],
       };
 
+  // Keys already handled by a dedicated column above (both the camelCase
+  // and snake_case spellings a caller might use for each), plus a couple of
+  // routing-only keys that never belong in the payload body at all.
+  static const _knownPayloadKeys = {
+    'name', 'sku', 'barcode', 'category', 'description',
+    'unitPrice', 'unit_price', 'price',
+    'costPrice', 'cost_price', 'cost',
+    'quantity', 'stock',
+    'minStockLevel', 'min_stock_level',
+    'unit',
+    'expiryDate', 'expiry_date',
+    'storeId', 'store_id',
+    'isActive', 'is_active',
+    'metadata',
+    'businessId', 'business_id', 'id',
+  };
+
   Map<String, dynamic> _buildPayload(Map<String, dynamic> data) {
     final isActive = data['isActive'] ?? data['is_active'];
+    // Product.toJson() (the shape RetailProvider.updateProduct/addProduct
+    // actually send) puts fields with no dedicated inventory column -
+    // wholesale_price, emoji, image_url, sale_unit, sale_unit_multiplier,
+    // track_expiry, batch_label, shelf_life_days,
+    // distributor_discount_percent - as bare top-level keys, not nested
+    // under 'metadata'. Every one of those was silently dropped on every
+    // save (never reaching the backend, so e.g. a saved wholesale price
+    // could never round-trip back, permanently hiding the wholesale/retail
+    // toggle on checkout) since nothing here ever collected them. Any key
+    // that isn't one of the dedicated-column fields above now folds into
+    // metadata automatically, matching the backend's merge-not-overwrite
+    // handling of that column (`metadata = metadata || $X::jsonb`).
+    final extraMetadata = <String, dynamic>{
+      if (data['metadata'] is Map)
+        ...Map<String, dynamic>.from(data['metadata'] as Map),
+      for (final entry in data.entries)
+        if (!_knownPayloadKeys.contains(entry.key) && entry.value != null)
+          entry.key: entry.value,
+    };
     return {
       'name': data['name'],
       'sku': data['sku'],
@@ -507,12 +543,7 @@ class InventoryRepositorySupabase implements InventoryRepository {
       // an absent field as "leave it alone" (`if (is_active !== undefined)`),
       // so omitting the key here is what makes that behavior actually work.
       if (isActive != null) 'is_active': isActive,
-      // Fields with no dedicated column (wholesalePrice, saleUnit, emoji,
-      // etc.) belong in this catch-all jsonb column - the backend merges it
-      // in rather than overwriting (`metadata = metadata || $X::jsonb`), so
-      // passing only the keys that changed here never wipes out unrelated
-      // metadata some other write already set.
-      if (data['metadata'] != null) 'metadata': data['metadata'],
+      if (extraMetadata.isNotEmpty) 'metadata': extraMetadata,
     };
   }
 }

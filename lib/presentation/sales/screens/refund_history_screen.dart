@@ -18,8 +18,8 @@ class RefundHistoryScreen extends StatefulWidget {
 
 class _RefundHistoryScreenState extends State<RefundHistoryScreen> {
   final _currencyFormat =
-      NumberFormat.currency(locale: 'en_NG', symbol: '₦', decimalDigits: 0);
-  final _dateFormat = DateFormat('MMM d, yyyy • h:mm a');
+      NumberFormat.currency(locale: 'en_NG', symbol: 'NGN ', decimalDigits: 0);
+  final _dateFormat = DateFormat('MMM d, yyyy, h:mm a');
   DateTimeRange? _dateRange;
   String _selectedWorker = 'all';
 
@@ -77,7 +77,9 @@ class _RefundHistoryScreenState extends State<RefundHistoryScreen> {
   DateTime _toDate(dynamic value) {
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
-    if (value is String) return DateTime.tryParse(value) ?? DateTime.fromMillisecondsSinceEpoch(0);
+    if (value is String) {
+      return DateTime.tryParse(value) ?? DateTime.fromMillisecondsSinceEpoch(0);
+    }
     return DateTime.fromMillisecondsSinceEpoch(0);
   }
 
@@ -95,21 +97,21 @@ class _RefundHistoryScreenState extends State<RefundHistoryScreen> {
     return _text(
       refund['enteredById'] ??
           refund['processedById'] ??
-          refund['soldById'] ??
-          refund['soldByName'] ??
           refund['enteredByName'] ??
-          refund['processedBy'],
+          refund['processedBy'] ??
+          refund['soldById'] ??
+          refund['soldByName'],
       fallback: 'Unknown',
     );
   }
 
   String _workerLabel(Map<String, dynamic> refund) {
     return _text(
-      refund['soldByName'] ??
-          refund['workerName'] ??
-          refund['cashierName'] ??
-          refund['enteredByName'] ??
+      refund['enteredByName'] ??
           refund['processedBy'] ??
+          refund['enteredByEmail'] ??
+          refund['soldByName'] ??
+          refund['workerName'] ??
           refund['soldBy'],
       fallback: 'Unknown',
     );
@@ -156,7 +158,9 @@ class _RefundHistoryScreenState extends State<RefundHistoryScreen> {
           }
 
           if (snapshot.hasError) {
-            return Center(child: Text('Could not load refund history: ${snapshot.error}'));
+            return Center(
+              child: Text('Could not load refund history: ${snapshot.error}'),
+            );
           }
 
           final allDateRefunds = snapshot.data ?? const <Map<String, dynamic>>[];
@@ -175,7 +179,8 @@ class _RefundHistoryScreenState extends State<RefundHistoryScreen> {
                 selectedWorker: _selectedWorker,
                 workerOptions: workerOptions,
                 onPickDate: _pickDateRange,
-                onClearDate: _dateRange == null ? null : () => setState(() => _dateRange = null),
+                onClearDate:
+                    _dateRange == null ? null : () => setState(() => _dateRange = null),
                 onWorkerChanged: (value) {
                   if (value != null) setState(() => _selectedWorker = value);
                 },
@@ -188,7 +193,8 @@ class _RefundHistoryScreenState extends State<RefundHistoryScreen> {
                         child: ListView.separated(
                           padding: const EdgeInsets.all(16),
                           itemCount: refunds.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 12),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
                           itemBuilder: (context, index) => _RefundCard(
                             refund: refunds[index],
                             currencyFormat: _currencyFormat,
@@ -239,8 +245,16 @@ class _FilterBar extends StatelessWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             ActionChip(
-              avatar: Icon(Icons.date_range_rounded, size: 18, color: colorScheme.onPrimary),
-              label: Text(dateLabel, style: theme.textTheme.bodyLarge?.copyWith(color: colorScheme.onPrimary)),
+              avatar: Icon(
+                Icons.date_range_rounded,
+                size: 18,
+                color: colorScheme.onPrimary,
+              ),
+              label: Text(
+                dateLabel,
+                style: theme.textTheme.bodyLarge
+                    ?.copyWith(color: colorScheme.onPrimary),
+              ),
               backgroundColor: colorScheme.primary,
               onPressed: onPickDate,
             ),
@@ -253,12 +267,16 @@ class _FilterBar extends StatelessWidget {
             SizedBox(
               width: 260,
               child: DropdownButtonFormField<String>(
-                value: workerOptions.containsKey(selectedWorker) ? selectedWorker : 'all',
+                value:
+                    workerOptions.containsKey(selectedWorker) ? selectedWorker : 'all',
                 decoration: InputDecoration(
                   filled: true,
                   fillColor: colorScheme.surfaceVariant,
                   labelText: 'Worker',
-                  prefixIcon: Icon(Icons.badge_rounded, color: colorScheme.onSurfaceVariant),
+                  prefixIcon: Icon(
+                    Icons.badge_rounded,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: BorderSide(color: colorScheme.outline),
@@ -267,7 +285,10 @@ class _FilterBar extends StatelessWidget {
                 items: workerOptions.entries
                     .map((entry) => DropdownMenuItem(
                           value: entry.key,
-                          child: Text(entry.value, overflow: TextOverflow.ellipsis),
+                          child: Text(
+                            entry.value,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ))
                     .toList(),
                 onChanged: onWorkerChanged,
@@ -374,12 +395,16 @@ class _RefundCard extends StatelessWidget {
                     children: [
                       Text(
                         currencyFormat.format(amount),
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        dateFormat.format(toDate(refund['createdAt'] ?? refund['processedAt'])),
-                        style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+                        dateFormat.format(
+                          toDate(refund['createdAt'] ?? refund['processedAt']),
+                        ),
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: colorScheme.onSurfaceVariant),
                       ),
                     ],
                   ),
@@ -387,25 +412,35 @@ class _RefundCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 14),
-            _InfoLine(label: 'Reason', value: text(refund['reason'], fallback: 'No reason recorded')),
-            _InfoLine(label: 'Entered by', value: text(refund['enteredByName'] ?? refund['processedBy'])),
+            _InfoLine(
+              label: 'Reason',
+              value: text(refund['reason'], fallback: 'No reason recorded'),
+            ),
+            _InfoLine(
+              label: 'Entered by',
+              value: text(refund['enteredByName'] ?? refund['processedBy']),
+            ),
             _InfoLine(label: 'Sold by', value: _soldByLabel()),
             _InfoLine(label: 'Sale', value: text(refund['saleReference'] ?? refund['saleId'])),
             _InfoLine(label: 'Method', value: text(refund['refundMethod'])),
             if (returnedItems.isNotEmpty) ...[
               const SizedBox(height: 6),
-              Text('Products returned', style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+              Text(
+                'Products returned',
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 4),
               ...returnedItems.map((item) {
                 final name = text(item['productName'] ?? item['productId']);
                 final quantity = item['quantity'] ?? 0;
                 final itemAmount = item['amount'];
                 final amountLabel = itemAmount is num
-                    ? ' • ${currencyFormat.format(itemAmount.toDouble())}'
+                    ? ' - ${currencyFormat.format(itemAmount.toDouble())}'
                     : '';
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 2),
-                  child: Text('• $name x$quantity$amountLabel'),
+                  child: Text('- $name x$quantity$amountLabel'),
                 );
               }),
             ],
@@ -442,7 +477,10 @@ class _InfoLine extends StatelessWidget {
         children: [
           SizedBox(
             width: 86,
-            child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
           ),
           Expanded(child: Text(value)),
         ],
@@ -460,7 +498,11 @@ class _EmptyRefundHistory extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.history_toggle_off_rounded, size: 64, color: AppColors.textSecondary),
+          Icon(
+            Icons.history_toggle_off_rounded,
+            size: 64,
+            color: AppColors.textSecondary,
+          ),
           const SizedBox(height: 12),
           const Text('No refunds found'),
           const SizedBox(height: 4),

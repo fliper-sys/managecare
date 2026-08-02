@@ -103,6 +103,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           'id': row['id'],
           'name': row['name'],
           'price': row['unit_price'],
+          'cost': row['cost_price'],
           'quantity': row['quantity'],
           'category': row['category'],
           'sku': row['sku'],

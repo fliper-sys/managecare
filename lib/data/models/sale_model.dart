@@ -1,5 +1,21 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+double _readDouble(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value is String) {
+    return double.tryParse(value.replaceAll(RegExp(r'[^0-9.\-]'), '')) ?? 0.0;
+  }
+  return 0.0;
+}
+
+DateTime _readDate(dynamic value) {
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  if (value is String) return DateTime.tryParse(value) ?? DateTime.now();
+  if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+  return DateTime.now();
+}
+
 class SaleModel {
 
       // For compatibility with UI code expecting 'amount'
@@ -58,26 +74,34 @@ class SaleModel {
     final data = doc.data() as Map<String, dynamic>;
     return SaleModel(
       id: doc.id,
-      businessId: data['businessId'] ?? '',
-      customerId: data['customerId'],
-      customerName: data['customerName'],
+      businessId: (data['businessId'] ?? data['business_id'] ?? '').toString(),
+      customerId: (data['customerId'] ?? data['customer_id'])?.toString(),
+      customerName: (data['customerName'] ?? data['customer_name'])?.toString(),
       roomId: data['roomId'],
       guestId: data['guestId'],
-      items: (data['items'] as List<dynamic>)
-          .map((item) => SaleItem.fromJson(item))
+      items: ((data['items'] as List<dynamic>?) ?? const [])
+          .whereType<Map>()
+          .map((item) => SaleItem.fromJson(Map<String, dynamic>.from(item)))
           .toList(),
-      totalAmount: (data['totalAmount'] ?? 0).toDouble(),
-      discountAmount: (data['discountAmount'] ?? 0).toDouble(),
-      taxAmount: (data['taxAmount'] ?? 0).toDouble(),
-      finalAmount: (data['finalAmount'] ?? 0).toDouble(),
-      paymentMethod: data['paymentMethod'] ?? 'cash',
+      totalAmount:
+          _readDouble(data['totalAmount'] ?? data['total_amount'] ?? data['total']),
+      discountAmount: _readDouble(
+          data['discountAmount'] ?? data['discount_amount'] ?? data['discount']),
+      taxAmount: _readDouble(data['taxAmount'] ?? data['tax_amount'] ?? data['tax']),
+      finalAmount: _readDouble(data['finalAmount'] ??
+          data['final_amount'] ??
+          data['totalAmount'] ??
+          data['total_amount'] ??
+          data['total']),
+      paymentMethod:
+          (data['paymentMethod'] ?? data['payment_method'] ?? 'cash').toString(),
       status: data['status'] ?? 'completed',
-      receiptNumber: data['receiptNumber'],
+      receiptNumber: (data['receiptNumber'] ?? data['receipt_number'])?.toString(),
       notes: data['notes'],
-      createdBy: data['createdBy'] ?? '',
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
-      updatedAt: data['updatedAt'] != null
-          ? (data['updatedAt'] as Timestamp).toDate()
+      createdBy: (data['createdBy'] ?? data['created_by'] ?? '').toString(),
+      createdAt: _readDate(data['createdAt'] ?? data['created_at']),
+      updatedAt: data['updatedAt'] != null || data['updated_at'] != null
+          ? _readDate(data['updatedAt'] ?? data['updated_at'])
           : null,
     );
   }
@@ -194,13 +218,15 @@ class SaleItem {
   factory SaleItem.fromJson(Map<String, dynamic> json) {
     return SaleItem(
       id: json['id'] ?? '',
-      productId: json['productId'] ?? '',
-      productName: json['productName'] ?? '',
-      quantity: (json['quantity'] ?? 0).toDouble(),
-      unitPrice: (json['unitPrice'] ?? 0).toDouble(),
-      discount: (json['discount'] ?? 0).toDouble(),
-      total: (json['total'] ?? 0).toDouble(),
-      unit: json['unit'],
+      productId: (json['productId'] ?? json['product_id'] ?? '').toString(),
+      productName:
+          (json['productName'] ?? json['product_name'] ?? json['name'] ?? '')
+              .toString(),
+      quantity: _readDouble(json['quantity'] ?? json['qty']),
+      unitPrice: _readDouble(json['unitPrice'] ?? json['unit_price'] ?? json['price']),
+      discount: _readDouble(json['discount']),
+      total: _readDouble(json['total']),
+      unit: (json['unit'] ?? json['saleUnit'] ?? json['sale_unit'])?.toString(),
     );
   }
 
