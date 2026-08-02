@@ -14,6 +14,7 @@ class BackgroundSubscriptionChecker {
 
   Timer? _checkTimer;
   final Duration _checkInterval;
+  String? _activeUserId;
 
   // Callbacks for subscription status changes
   Function(String businessId, bool isValid)? onSubscriptionStatusChanged;
@@ -43,6 +44,18 @@ class BackgroundSubscriptionChecker {
 
   /// Start background subscription checking
   void startBackgroundChecking(String userId, {String? userRole}) {
+    // This is called from app.dart's AuthProvider listener, which fires on
+    // *every* notifyListeners() call - not just login/logout - so this could
+    // otherwise run every few seconds instead of respecting _checkInterval.
+    // Each restart also does an immediate full re-check of every business,
+    // which was flooding the user with duplicate "subscription renewal
+    // reminder" notifications and hammering the backend with redundant
+    // requests. If checking is already active for this same user, this is
+    // a no-op - only a genuine user change (or an explicit stop) restarts it.
+    if (_checkTimer != null && _activeUserId == userId) {
+      return;
+    }
+
     _log.info('Starting background subscription checking for user: $userId');
 
     // If user is a worker, do not start background checks
@@ -54,7 +67,8 @@ class BackgroundSubscriptionChecker {
     // Cancel existing timer
     stopBackgroundChecking();
 
-    // Store active role for periodic checks (defensive guard)
+    // Store active user/role for periodic checks (defensive guard)
+    _activeUserId = userId;
     _activeUserRole = userRole;
 
     // Check immediately
@@ -71,6 +85,7 @@ class BackgroundSubscriptionChecker {
     _log.info('Stopping background subscription checking');
     _checkTimer?.cancel();
     _checkTimer = null;
+    _activeUserId = null;
     _activeUserRole = null;
   }
 

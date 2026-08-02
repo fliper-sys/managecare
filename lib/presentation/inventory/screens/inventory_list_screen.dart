@@ -471,6 +471,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
             action: SnackBarAction(
               label: 'Undo',
               onPressed: () async {
+                // The user can tap Undo up to 5s after this snackbar shows -
+                // if they've already navigated away by then, `context` here
+                // belongs to an unmounted State and using it throws
+                // "This widget has been unmounted". Bail out before touching
+                // it at all in that case.
+                if (!mounted) return;
                 // show small progress while undoing
                 showDialog<void>(
                   context: context,
@@ -496,11 +502,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                     await _loadInventory();
                   }
                 } catch (e) {
+                  if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                       content: Text('Restore failed: $e'),
                       backgroundColor: Colors.red));
                 } finally {
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 }
               },
             ),
@@ -541,6 +548,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
             action: SnackBarAction(
               label: 'Undo',
               onPressed: () async {
+                // The user can tap Undo up to 5s after this snackbar shows -
+                // if they've already navigated away by then, `context` here
+                // belongs to an unmounted State and using it throws
+                // "This widget has been unmounted". Bail out before touching
+                // it at all in that case.
+                if (!mounted) return;
                 // show small progress while restoring
                 showDialog<void>(
                   context: context,
@@ -563,11 +576,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   await repo.syncInventoryToFirestore(original);
                   await _loadInventory();
                 } catch (e) {
+                  if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                       content: Text('Restore failed: $e'),
                       backgroundColor: Colors.red));
                 } finally {
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 }
               },
             ),

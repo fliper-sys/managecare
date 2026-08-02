@@ -68,6 +68,21 @@ class _PumpConfigurationScreenState extends State<PumpConfigurationScreen> {
   }
 
   Future<void> _showPumpDialog({Map<String, dynamic>? existingPump}) async {
+    // The dropdown below reads RetailProvider.products via context.read (a
+    // one-time snapshot, not reactive) at dialog-build time. If products
+    // hadn't finished loading yet - e.g. this screen was opened right after
+    // login, before RetailProvider.initialize()'s async loadProducts()
+    // resolved - the dropdown would show no options, selectedProductId
+    // would stay null, and saving fell through to a placeholder product
+    // with an empty id. That's how every pump in production ended up with
+    // product_id = '' and its uploads silently unable to resolve a price.
+    // Make sure products are actually loaded before the dialog opens.
+    final retailForLoad = context.read<RetailProvider>();
+    if (retailForLoad.products.where(_isFuelProduct).isEmpty) {
+      await retailForLoad.loadProducts(forceRefresh: true);
+    }
+    if (!mounted) return;
+
     final data = existingPump ?? {};
     final pumpId = data['id']?.toString();
     final pumpNumberController =
@@ -176,17 +191,39 @@ class _PumpConfigurationScreenState extends State<PumpConfigurationScreen> {
     if (!confirmed) return;
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     if (businessId == null || businessId.isEmpty) return;
+
+    if (selectedProductId == null || selectedProductId!.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'No dispensing product selected. Add a Fuel-category inventory item first, then try again.'),
+        ),
+      );
+      return;
+    }
+
     final retail = context.read<RetailProvider>();
     final product = retail.products.firstWhere(
       (item) => item.id == selectedProductId,
       orElse: () => Product(
-        id: selectedProductId ?? '',
+        id: '',
         name: '',
         price: 0,
         stock: 0,
         category: 'Fuel',
       ),
     );
+
+    if (product.id.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selected product could not be found. Please try again.'),
+        ),
+      );
+      return;
+    }
 
     final payload = {
       'id': pumpId,

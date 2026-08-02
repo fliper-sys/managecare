@@ -2161,20 +2161,34 @@ class _ProductsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final allProducts = context.watch<RetailProvider>().products;
+    // PharmacyRepositoryImpl.fetchDrugs() reads from the generic
+    // /inventory/:businessId endpoint with no pharmacy-specific filter, so
+    // PharmacyProvider ends up holding *every* business's full inventory
+    // relabeled as "drugs" - merging it in unconditionally meant a bakery's
+    // own products got shadowed by a "Pharmacy"-badged copy of themselves
+    // here. Only businesses that are actually a pharmacy should see
+    // pharmacy drugs folded into the sale screen's product list.
+    final businessType = context
+        .watch<BusinessProvider>()
+        .currentBusiness
+        ?.businessType
+        .toLowerCase();
     final pharmacyProvider = context.watch<PharmacyProvider>();
 
     // Convert pharmacy drugs to Product-like model and merge
-    final pharmacyProducts = pharmacyProvider.drugs.map((d) => Product(
-          id: 'pharmacy:${d.id}',
-          name: d.name,
-          price: d.price,
-          cost: 0.0,
-          stock: d.stock.toDouble(),
-          category: 'Pharmacy',
-          imageUrl: null,
-          barcode: null,
-          emoji: '💊',
-        ));
+    final pharmacyProducts = businessType == 'pharmacy'
+        ? pharmacyProvider.drugs.map((d) => Product(
+              id: 'pharmacy:${d.id}',
+              name: d.name,
+              price: d.price,
+              cost: 0.0,
+              stock: d.stock.toDouble(),
+              category: 'Pharmacy',
+              imageUrl: null,
+              barcode: null,
+              emoji: '💊',
+            ))
+        : const Iterable<Product>.empty();
 
     // Merge by name (case-insensitive), prefer inventory (allProducts)
     final merged = <String, Product>{};

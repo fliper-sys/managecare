@@ -65,7 +65,7 @@ class Product {
       id: (data['id'] ?? '').toString(),
       name: data['name'] ?? '',
       price: (data['price'] ?? data['unit_price'] ?? 0.0).toDouble(),
-      cost: (data['cost'] ?? 0.0).toDouble(),
+      cost: (data['cost'] ?? data['cost_price'] ?? 0.0).toDouble(),
       wholesalePrice:
           (data['wholesalePrice'] ?? data['wholesale_price'] as num?)
               ?.toDouble(),
@@ -2199,7 +2199,7 @@ class RetailProvider extends ChangeNotifier {
       // The backend decrements inventory atomically as part of creating the
       // sale (routes/sales.js), so no separate _writeInventoryStock call is
       // needed here.
-      await _salesRepo.createSale({
+      final createdSale = await _salesRepo.createSale({
         'id': orderId,
         'businessId': _businessId,
         'store_id': storeId,
@@ -2226,6 +2226,16 @@ class RetailProvider extends ChangeNotifier {
         ],
       });
       saleWrittenOnline = true;
+      // The client-generated `orderId` ('SALE-<timestamp>') is only a local
+      // bookkeeping placeholder - the backend rejects it as a real uuid and
+      // assigns its own, returned here. Callers (e.g. the pump upload
+      // screen, which posts this as a uuid `sale_id` column) need the real
+      // one, not the placeholder still sitting in saleData.
+      final realSaleId = (createdSale is Map ? createdSale['id'] : null)?.toString();
+      if (realSaleId != null && realSaleId.isNotEmpty) {
+        saleData['id'] = realSaleId;
+        saleData['orderId'] = realSaleId;
+      }
       final productIndex = _products.indexWhere((p) => p.id == product.id);
       if (productIndex != -1) {
         _products[productIndex].stock = newQty;

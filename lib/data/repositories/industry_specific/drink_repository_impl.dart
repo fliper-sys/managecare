@@ -95,12 +95,45 @@ class DrinkRepositoryImpl implements DrinkRepository {
   @override
   Future<List<DrinkItem>> fetchDrinks() async {
     try {
-      final response = await _http.get('/inventory/$businessId', options: Options(headers: _headers));
-      final rows = (response.data['data'] as List?) ?? [];
+      final rows = await _fetchAllInventoryPages();
       return rows.map((r) => _drinkFromRow(Map<String, dynamic>.from(r as Map))).toList();
     } on DioException catch (e) {
       throw Exception('Failed to fetch drinks: ${_extractError(e)}');
     }
+  }
+
+  // The backend paginates /inventory (default 50/page, 100 max), so a
+  // single request silently truncates any business with a larger catalog -
+  // page through every result rather than only ever seeing page 1.
+  Future<List<dynamic>> _fetchAllInventoryPages() async {
+    final first = await _http.get(
+      '/inventory/$businessId',
+      queryParameters: {'limit': 100, 'page': 1},
+      options: Options(headers: _headers),
+    );
+    final items = <dynamic>[...(first.data['data'] as List? ?? [])];
+    final totalPages = first.data['pagination']?['totalPages'] as int? ?? 1;
+    if (totalPages > 1) {
+      // Batched, not one unbounded Future.wait - a large catalog blasting
+      // dozens of simultaneous requests can exhaust the backend's DB
+      // connection pool and stall unrelated requests app-wide.
+      const batchSize = 5;
+      for (var batchStart = 2; batchStart <= totalPages; batchStart += batchSize) {
+        final batchEnd = (batchStart + batchSize - 1).clamp(batchStart, totalPages);
+        final batch = await Future.wait([
+          for (var page = batchStart; page <= batchEnd; page++)
+            _http.get(
+              '/inventory/$businessId',
+              queryParameters: {'limit': 100, 'page': page},
+              options: Options(headers: _headers),
+            ),
+        ]);
+        for (final response in batch) {
+          items.addAll(response.data['data'] as List? ?? []);
+        }
+      }
+    }
+    return items;
   }
 
   @override
@@ -127,8 +160,7 @@ class DrinkRepositoryImpl implements DrinkRepository {
   @override
   Future<List<StockItem>> fetchInventory() async {
     try {
-      final response = await _http.get('/inventory/$businessId', options: Options(headers: _headers));
-      final rows = (response.data['data'] as List?) ?? [];
+      final rows = await _fetchAllInventoryPages();
       return rows.map((r) => _stockFromRow(Map<String, dynamic>.from(r as Map))).toList();
     } on DioException catch (e) {
       throw Exception('Failed to fetch inventory: ${_extractError(e)}');

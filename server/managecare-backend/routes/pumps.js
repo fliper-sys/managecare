@@ -108,6 +108,14 @@ module.exports = function(pool) {
     res.json(result.rows[0] || null);
   }));
 
+  // Client bookkeeping ids like "SALE-<timestamp>" (used for an offline
+  // sale queued locally, before a real server id exists) are not valid
+  // uuids - inserting one straight into a uuid column crashes the whole
+  // upload with a 500. Treat anything that isn't a real uuid as absent
+  // instead, same pattern sales.js already uses for its own id column.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const asUuidOrNull = (v) => (v && UUID_RE.test(v) ? v : null);
+
   router.post('/:businessId/uploads', requireFields('pump_id'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const b = req.body;
@@ -135,8 +143,8 @@ module.exports = function(pool) {
          )
          RETURNING *`,
         [
-          businessId, b.pump_id, b.pump_number || null, b.product_id || null, b.product_name || null, b.product_unit || null, b.product_price || 0,
-          b.worker_id || null, b.worker_name || null, b.upload_fingerprint || null, b.sale_id || null,
+          businessId, b.pump_id, b.pump_number || null, asUuidOrNull(b.product_id), b.product_name || null, b.product_unit || null, b.product_price || 0,
+          asUuidOrNull(b.worker_id), b.worker_name || null, b.upload_fingerprint || null, asUuidOrNull(b.sale_id),
           b.opening_volume || 0, b.closing_volume || 0, b.digital_volume || 0, b.volume_difference || 0, b.analog_opening_volume || 0,
           b.analog_closing_volume || 0, b.sold_volume || 0, b.cash_derived_volume || 0, b.previous_analog_closing_volume ?? null,
           b.previous_shift_closing_cash ?? null, b.previous_closing_volume ?? null, b.expected_amount || 0, b.shift_opening_cash || 0,

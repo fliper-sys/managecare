@@ -56,6 +56,15 @@ module.exports = function(pool) {
     res.json(result.rows[0]);
   }));
 
+  // Client-side items can carry a stale/non-uuid product reference (an old
+  // Firestore-era slug like "petrol", a placeholder id from before a
+  // product synced) - feeding that straight into a uuid column throws
+  // "invalid input syntax for type uuid" and rolls back the *entire*
+  // procurement, not just that one line item. Treat anything that isn't a
+  // real uuid as absent instead, same pattern already used in pumps.js.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const asUuidOrNull = (v) => (v && UUID_RE.test(v) ? v : null);
+
   // POST /api/procurement/:businessId - Create a batch procurement
   router.post('/:businessId', asyncHandler(async (req, res) => {
     const { businessId } = req.params;
@@ -80,7 +89,7 @@ module.exports = function(pool) {
       const itemsSnapshot = [];
 
       for (const item of items) {
-        const productId = item.product_id || item.productId;
+        const productId = asUuidOrNull(item.product_id || item.productId);
         const name = item.name || '';
         const quantity = parseFloat(item.quantity) || 0;
         const cost = parseFloat(item.cost) || 0;

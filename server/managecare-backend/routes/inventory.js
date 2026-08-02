@@ -14,12 +14,20 @@ module.exports = function(pool) {
   router.get('/:businessId', pagination, asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { limit, offset } = req.pagination;
-    const { category, storeId, search, lowStock, isActive } = req.query;
+    const { category, storeId, search, lowStock, includeInactive } = req.query;
 
     let query = 'SELECT * FROM inventory WHERE business_id = $1';
     const params = [businessId];
     let paramIndex = 2;
 
+    // Deactivated/duplicate items are excluded by default - previously this
+    // was opt-in (?isActive=true), which nothing ever actually passed, so
+    // every caller always got inactive rows mixed in right alongside active
+    // ones. Pass ?includeInactive=true for the rare case that genuinely
+    // needs to see deactivated items too (e.g. an admin restore view).
+    if (includeInactive !== 'true') {
+      query += ' AND is_active = true';
+    }
     if (category) {
       query += ` AND category = $${paramIndex++}`;
       params.push(category);
@@ -35,9 +43,6 @@ module.exports = function(pool) {
     }
     if (lowStock === 'true') {
       query += ' AND quantity <= min_stock_level AND min_stock_level > 0';
-    }
-    if (isActive === 'true') {
-      query += ' AND is_active = true';
     }
 
     // Count total

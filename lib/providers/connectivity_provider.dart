@@ -9,6 +9,7 @@ class ConnectivityProvider with ChangeNotifier {
 
   bool _isConnected = true;
   bool _wasOffline = false;
+  int _consecutiveFailures = 0;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   Timer? _pollTimer;
   SyncProvider? _syncProvider;
@@ -44,7 +45,24 @@ class ConnectivityProvider with ChangeNotifier {
 
   Future<bool> checkConnection() async {
     final previousState = _isConnected;
-    _isConnected = await ConnectivityHelper.hasInternetConnection();
+    final reachable = await ConnectivityHelper.hasInternetConnection();
+
+    if (reachable) {
+      // Recover instantly - there's no downside to believing "online" a
+      // moment early once a request actually succeeds.
+      _consecutiveFailures = 0;
+      _isConnected = true;
+    } else {
+      // A lone failed health check is often just one slow/dropped request
+      // against a VPS under concurrent polling load from every 15s-interval
+      // stream in the app, not a real outage. Only declare offline once
+      // two checks in a row fail, so a single blip doesn't flash the
+      // "working offline" banner on an otherwise-stable connection.
+      _consecutiveFailures++;
+      if (_consecutiveFailures >= 2) {
+        _isConnected = false;
+      }
+    }
 
     if (!_isConnected) {
       _wasOffline = true;

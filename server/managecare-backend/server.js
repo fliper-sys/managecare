@@ -173,6 +173,83 @@ function renderResetPasswordPage({ token, error, success }) {
 </html>`;
 }
 
+// ── Worker self-service password change ──────────────────────
+// A plain web page (no app deep-linking needed) so any worker - business
+// staff in `workers`, or account holders in `profiles` - can set a new
+// password by email alone, no current password required. Unlike
+// /auth/v1/recover (which only looks up `profiles` by email and silently
+// no-ops for workers-only accounts), this checks the same email lookup
+// order the login route itself uses: profiles, then workers, then
+// managecare_workers.
+//
+// Deliberately NOT gated on the current password: the Firebase->Postgres
+// migration left plenty of accounts with a password the worker never
+// actually chose (auto-generated, imported, or simply forgotten), so
+// requiring it here would just lock people out. This trades verification
+// for access during the migration - anyone who knows a worker's email can
+// reset that worker's password. Revisit once accounts are fully settled.
+const ACCOUNT_TYPE_TABLES = {
+  owner: 'profiles',
+  worker: 'workers',
+  internal: 'managecare_workers',
+};
+
+function renderChangePasswordPage({ email, accountType, error, success }) {
+  const body = success
+    ? `
+      <h1>Password updated</h1>
+      <p>Your password has been changed. You can now sign in with your new password in the ManageCare app.</p>
+    `
+    : `
+      <h1>Change your password</h1>
+      ${error ? `<p class="error">${escapeHtml(error)}</p>` : ''}
+      <form method="POST" action="/change-password">
+        <label>Account type
+          <select name="account_type" required>
+            <option value="">Select one...</option>
+            <option value="worker" ${accountType === 'worker' ? 'selected' : ''}>Staff / Worker</option>
+            <option value="owner" ${accountType === 'owner' ? 'selected' : ''}>Business owner</option>
+            <option value="internal" ${accountType === 'internal' ? 'selected' : ''}>ManageCare internal team</option>
+          </select>
+        </label>
+        <p style="margin: -8px 0 0; font-size: 13px; color: #6b7280;">The same email can belong to a separate owner account and a separate staff account - pick which one you're resetting so the right one actually changes.</p>
+        <label>Email<input type="email" name="email" value="${escapeHtml(email || '')}" required autofocus /></label>
+        <label>New password<input type="password" name="new_password" minlength="8" required /></label>
+        <label>Confirm new password<input type="password" name="confirm_password" minlength="8" required /></label>
+        <button type="submit">Change password</button>
+      </form>
+    `;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ManageCare - Change Password</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1b2a; color: #1a2438; margin: 0; padding: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .card { background: #fff; border-radius: 16px; padding: 32px; max-width: 400px; width: calc(100% - 48px); box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+  .brand .mark { width: 34px; height: 34px; border-radius: 8px; background: #1a56db; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+  .brand .name { font-weight: 700; font-size: 15px; letter-spacing: 0.01em; color: #1a2438; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  p { line-height: 1.5; color: #4a5568; }
+  .error { color: #c0392b; background: #fdecea; padding: 10px 14px; border-radius: 8px; }
+  label { display: block; margin: 16px 0 6px; font-size: 14px; font-weight: 600; }
+  input { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #d0d7de; border-radius: 8px; font-size: 15px; }
+  button { margin-top: 20px; width: 100%; padding: 12px; background: #1a56db; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  button:hover { background: #1543ab; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><div class="mark">MC</div><div class="name">ManageCare</div></div>
+    ${body}
+  </div>
+</body>
+</html>`;
+}
+
 // ── App setup ───────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
@@ -440,32 +517,41 @@ app.post('/auth/v1/token', async (req, res) => {
       return res.json(buildAuthResponse(user, token, newRefreshToken));
     }
 
-    // Standard login
+    // Standard login. The same email can be a completely separate account
+    // in more than one of these tables (an owner's profiles row and a
+    // workers row created for them by a business, for instance) - stopping
+    // at the first table with a matching email meant the account you
+    // actually meant to log into could be unreachable whenever a collision
+    // existed, no matter what password you typed. So instead of returning
+    // on the first email match, check every matching candidate and let the
+    // password itself pick which account is meant.
     const normalizedEmail = normalizeEmail(email);
-    let result = await pool.query(
-      'SELECT * FROM profiles WHERE lower(email) = $1 AND COALESCE(is_active, true) = true',
-      [normalizedEmail]
-    );
-    if (result.rows.length === 0) {
-      result = await pool.query(
+    const candidates = [
+      ...(await pool.query(
+        'SELECT * FROM profiles WHERE lower(email) = $1 AND COALESCE(is_active, true) = true',
+        [normalizedEmail]
+      )).rows,
+      ...(await pool.query(
         'SELECT * FROM workers WHERE lower(email) = $1 AND is_active = true',
         [normalizedEmail]
-      );
-    }
-    if (result.rows.length === 0) {
+      )).rows,
       // Internal ManageCare staff (programmers/testers/etc.) - column
       // aliases match what buildAuthResponse() below reads from `user`.
-      result = await pool.query(
+      ...(await pool.query(
         `SELECT *, name AS full_name, phone AS phone_number
          FROM managecare_workers WHERE lower(email) = $1 AND is_active = true`,
         [normalizedEmail]
-      );
+      )).rows,
+    ];
+
+    let user = null;
+    for (const candidate of candidates) {
+      if (candidate.password_hash && await bcrypt.compare(password || '', candidate.password_hash)) {
+        user = candidate;
+        break;
+      }
     }
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-    const user = result.rows[0];
-    if (!user.password_hash || !(await bcrypt.compare(password || '', user.password_hash))) {
+    if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -652,6 +738,60 @@ app.post('/reset-password', express.urlencoded({ extended: true }), async (req, 
     res.send(renderResetPasswordPage({ token: '', success: true }));
   } catch (err) {
     res.status(500).send(renderResetPasswordPage({ token, error: 'Something went wrong. Please try again.' }));
+  }
+});
+
+app.get('/change-password', (req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(renderChangePasswordPage({}));
+});
+
+app.post('/change-password', express.urlencoded({ extended: true }), async (req, res) => {
+  const { email, account_type, new_password, confirm_password } = req.body || {};
+  res.set('Content-Type', 'text/html; charset=utf-8');
+
+  const normalizedEmail = normalizeEmail(email);
+  const table = ACCOUNT_TYPE_TABLES[account_type];
+  if (!table) {
+    return res.status(400).send(renderChangePasswordPage({ email, error: 'Select an account type.' }));
+  }
+  if (!normalizedEmail) {
+    return res.status(400).send(renderChangePasswordPage({ email, accountType: account_type, error: 'Email is required.' }));
+  }
+  if (!new_password || new_password.length < 8) {
+    return res.status(400).send(renderChangePasswordPage({ email, accountType: account_type, error: 'New password must be at least 8 characters.' }));
+  }
+  if (new_password !== confirm_password) {
+    return res.status(400).send(renderChangePasswordPage({ email, accountType: account_type, error: 'New passwords do not match.' }));
+  }
+
+  try {
+    // Scoped to exactly the selected table - the same email can be a
+    // completely separate account in profiles vs. workers (different id,
+    // different password_hash). Searching all three in priority order (the
+    // way /auth/v1/token itself resolves a login) meant this endpoint could
+    // silently change the wrong one - e.g. a worker's email that also
+    // happens to match a profiles/owner account got the *owner's* password
+    // changed, and logging in with it then authenticated as the owner.
+    const result = await pool.query(
+      `SELECT * FROM ${table} WHERE lower(email) = $1 AND COALESCE(is_active, true) = true`,
+      [normalizedEmail]
+    );
+    const user = result.rows[0];
+
+    if (!user) {
+      // Deliberately generic - don't reveal whether the email exists.
+      return res.status(400).send(renderChangePasswordPage({ email, accountType: account_type, error: 'No matching account found for that email and account type.' }));
+    }
+
+    const hash = await bcrypt.hash(new_password, 10);
+    await pool.query(`UPDATE ${table} SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [hash, user.id]);
+    // A leaked old refresh token shouldn't survive a password change.
+    await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [user.id]);
+
+    res.send(renderChangePasswordPage({ success: true }));
+  } catch (err) {
+    res.status(500).send(renderChangePasswordPage({ email, accountType: account_type, error: 'Something went wrong. Please try again.' }));
   }
 });
 

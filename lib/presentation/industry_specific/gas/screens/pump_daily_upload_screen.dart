@@ -550,10 +550,15 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   }
 
   bool _allImagesSelected() {
-    return _openingPhotoPath != null &&
-        _closingPhotoPath != null &&
-        _shiftOpeningCashPhotoPath != null &&
-        _shiftCloseCashPhotoPath != null;
+    // On web, _pickAndUploadPhoto never sets the *PhotoPath fields (there's
+    // no local file path on web - the picker's path isn't a usable file),
+    // only the *PhotoUrl fields once the upload finishes. Checking path
+    // alone left this permanently false on web even after every photo had
+    // genuinely uploaded, which kept the submit button disabled forever.
+    return (_openingPhotoPath != null || _openingPhotoUrl != null) &&
+        (_closingPhotoPath != null || _closingPhotoUrl != null) &&
+        (_shiftOpeningCashPhotoPath != null || _shiftOpeningCashPhotoUrl != null) &&
+        (_shiftCloseCashPhotoPath != null || _shiftCloseCashPhotoUrl != null);
   }
 
   Future<void> _saveUpload(Map<String, dynamic> pump) async {
@@ -801,6 +806,16 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         const SnackBar(content: Text('Pump upload saved')),
       );
       Navigator.pop(context);
+    } catch (error) {
+      // Without this, an exception here (e.g. fuelSale() failing because the
+      // pump isn't linked to a real inventory product) propagated uncaught
+      // past the finally below - _isSaving still got reset, but no message
+      // ever reached the user, so the submit button just silently did
+      // nothing from their point of view.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save pump upload: $error')),
+      );
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }

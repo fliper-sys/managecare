@@ -3,6 +3,7 @@
  */
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcrypt');
 const { requireFields, pagination, asyncHandler } = require('../middleware/validation');
 const { requireBusinessMembership, requireBusinessOwner } = require('../middleware/auth');
 
@@ -37,6 +38,7 @@ module.exports = function(pool) {
     params.push(limit, offset);
 
     const result = await pool.query(query, params);
+    result.rows.forEach((row) => delete row.password_hash);
     res.json({
       data: result.rows,
       pagination: { page: req.pagination.page, limit, total, totalPages: Math.ceil(total / limit) },
@@ -53,20 +55,29 @@ module.exports = function(pool) {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Worker not found' });
     }
+    delete result.rows[0].password_hash;
     res.json(result.rows[0]);
   }));
 
-  // POST /api/workers/:businessId - Create worker (owner only)
+  // POST /api/workers/:businessId - Create worker (owner only).
+  // `password` is optional here - the client-side worker-creation flow
+  // hasn't been ported off Firestore yet, so most workers still end up
+  // with no password at all (password_hash stays NULL) and have to claim
+  // their account later via /change-password. Accepting it here means any
+  // path that does supply one - a rebuilt add-worker screen, an admin
+  // script - just works without another server change.
   router.post('/:businessId', requireBusinessOwner, requireFields('full_name', 'role'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
-    const { email, full_name, phone, role, store_id, permissions, pin } = req.body;
+    const { email, full_name, phone, role, store_id, permissions, pin, password } = req.body;
+    const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
     const result = await pool.query(
-      `INSERT INTO workers (email, full_name, phone, role, business_id, store_id, permissions, pin)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      `INSERT INTO workers (email, full_name, phone, role, business_id, store_id, permissions, pin, password_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
       [email || null, full_name, phone || null, role, businessId,
-       store_id || null, JSON.stringify(permissions || {}), pin || null]
+       store_id || null, JSON.stringify(permissions || {}), pin || null, passwordHash]
     );
+    delete result.rows[0].password_hash;
     res.status(201).json(result.rows[0]);
   }));
 
@@ -76,7 +87,7 @@ module.exports = function(pool) {
   // and that's what actually gates business access/membership checks.
   router.put('/:businessId/:id', requireBusinessOwner, asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
-    const { email, full_name, phone, role, store_id, permissions, pin, is_active } = req.body;
+    const { email, full_name, phone, role, store_id, permissions, pin, is_active, password } = req.body;
 
     const fields = [];
     const params = [];
@@ -90,6 +101,13 @@ module.exports = function(pool) {
     if (permissions !== undefined) { fields.push(`permissions = $${paramIndex++}`); params.push(JSON.stringify(permissions)); }
     if (pin !== undefined) { fields.push(`pin = $${paramIndex++}`); params.push(pin); }
     if (is_active !== undefined) { fields.push(`is_active = $${paramIndex++}`); params.push(is_active); }
+    // Owner-initiated reset - the owner is already authenticated as the
+    // business owner here, so no "current password" proof is needed the
+    // way the worker's own self-service /change-password page requires one.
+    if (password) {
+      fields.push(`password_hash = $${paramIndex++}`);
+      params.push(await bcrypt.hash(password, 10));
+    }
 
     if (fields.length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
@@ -120,6 +138,7 @@ module.exports = function(pool) {
       }
 
       await client.query('COMMIT');
+      delete result.rows[0].password_hash;
       res.json(result.rows[0]);
     } catch (err) {
       await client.query('ROLLBACK');

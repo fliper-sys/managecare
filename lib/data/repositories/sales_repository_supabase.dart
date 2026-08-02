@@ -132,15 +132,50 @@ class SalesRepositorySupabase implements SalesRepository {
         }
       }
 
-      final response = await _http.get(
-        '/sales/$businessId',
-        queryParameters: queryParams,
-        options: Options(headers: _headers),
-      );
-      return (response.data['data'] as List?) ?? [];
+      return await _fetchAllSalesPages(businessId, queryParams);
     } on DioException catch (e) {
       throw Exception('Failed to fetch sales: ${_extractError(e)}');
     }
+  }
+
+  // The backend paginates /sales (default 50/page, 100 max regardless of
+  // what `limit` is requested), so a single request silently truncates any
+  // business/date-range with a larger result set - page through everything
+  // rather than only ever seeing the first 50-100 rows.
+  Future<List<dynamic>> _fetchAllSalesPages(
+      String businessId, Map<String, dynamic> queryParams) async {
+    final params = {...queryParams, 'limit': 100};
+    final first = await _http.get(
+      '/sales/$businessId',
+      queryParameters: {...params, 'page': 1},
+      options: Options(headers: _headers),
+    );
+    final items = <dynamic>[...(first.data['data'] as List? ?? [])];
+    final totalPages = first.data['pagination']?['totalPages'] as int? ?? 1;
+    if (totalPages > 1) {
+      // Firing every remaining page at once (unbounded Future.wait) is fine
+      // for a small catalog but not for sales history - a high-volume
+      // business can have hundreds of pages, and blasting them all
+      // concurrently exhausts the backend's DB connection pool (default 20),
+      // causing unrelated requests across the whole app to time out. Batch
+      // it instead.
+      const batchSize = 5;
+      for (var batchStart = 2; batchStart <= totalPages; batchStart += batchSize) {
+        final batchEnd = (batchStart + batchSize - 1).clamp(batchStart, totalPages);
+        final batch = await Future.wait([
+          for (var page = batchStart; page <= batchEnd; page++)
+            _http.get(
+              '/sales/$businessId',
+              queryParameters: {...params, 'page': page},
+              options: Options(headers: _headers),
+            ),
+        ]);
+        for (final response in batch) {
+          items.addAll(response.data['data'] as List? ?? []);
+        }
+      }
+    }
+    return items;
   }
 
   @override
@@ -181,9 +216,7 @@ class SalesRepositorySupabase implements SalesRepository {
     }
 
     try {
-      final queryParams = <String, dynamic>{
-        'limit': 500,
-      };
+      final queryParams = <String, dynamic>{};
       if (storeId != null && storeId.isNotEmpty) {
         queryParams['storeId'] = storeId;
       }
@@ -194,12 +227,7 @@ class SalesRepositorySupabase implements SalesRepository {
         queryParams['endDate'] = end.toIso8601String();
       }
 
-      final response = await _http.get(
-        '/sales/$businessId',
-        queryParameters: queryParams,
-        options: Options(headers: _headers),
-      );
-      final data = (response.data['data'] as List?) ?? [];
+      final data = await _fetchAllSalesPages(businessId, queryParams);
       return data.cast<Map<String, dynamic>>();
     } on DioException catch (e) {
       throw Exception('Failed to fetch sales: ${_extractError(e)}');
