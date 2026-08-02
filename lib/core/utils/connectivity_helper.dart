@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:http/http.dart' as http;
 
 /// Helper class to check network connectivity
 class ConnectivityHelper {
@@ -13,21 +13,25 @@ class ConnectivityHelper {
   /// actual route to the internet (captive portals, a disconnected router),
   /// and on Windows it can also say "none" - or throw
   /// (NetworkManager::StartListen) - for a machine that's genuinely online,
-  /// especially right after app startup. An earlier version of this method
-  /// trusted a "none" verdict from the plugin as final and returned false
-  /// without ever attempting the DNS lookup below, which meant the one
-  /// signal that actually matters never got a chance to override a bogus
-  /// platform report - exactly the "shows offline while online" failure
-  /// mode. So the interface check is never used to declare offline by
-  /// itself; a real DNS lookup against our own backend is the only thing
-  /// that decides that.
+  /// especially right after app startup. So the interface check is never
+  /// used to declare offline by itself; a real request against our own
+  /// backend is the only thing that decides that.
+  ///
+  /// A prior version used dart:io's InternetAddress.lookup() for that real
+  /// check, but dart:io has no raw DNS resolution on Flutter Web (browsers
+  /// can't do that) - it throws there immediately, so this always returned
+  /// false on every deployed web build regardless of actual connectivity.
+  /// An HTTP request works the same way on every platform (native sockets
+  /// on io platforms, fetch/XHR under the hood on web), so it replaces the
+  /// DNS lookup here.
   static Future<bool> hasInternetConnection() async {
     try {
       // The app's own backend, not a Firebase domain it no longer depends
       // on for anything - what matters is whether *this* host is reachable.
-      final lookup = await InternetAddress.lookup('backend.managecare.info')
+      final response = await http
+          .get(Uri.parse('https://backend.managecare.info/api/health'))
           .timeout(const Duration(seconds: 5));
-      return lookup.isNotEmpty && lookup.first.rawAddress.isNotEmpty;
+      return response.statusCode > 0;
     } catch (_) {
       return false;
     }

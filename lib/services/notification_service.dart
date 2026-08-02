@@ -56,6 +56,14 @@ class NotificationService implements INotificationService {
     await _configureAndroidChannel();
     await _requestPermissions();
 
+    // Windows release builds crash the AOT compiler (gen_snapshot) with
+    // "Unexpected object (Class with illegal cid, full-aot)" referencing
+    // NativeLaunchDetails unless something actually calls this method —
+    // see https://github.com/MaikuB/flutter_local_notifications/issues/2615.
+    // The plugin author confirmed this call is the fix; the return value
+    // isn't otherwise needed here.
+    await _plugin.getNotificationAppLaunchDetails();
+
     _initialized = true;
   }
 
