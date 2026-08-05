@@ -120,12 +120,14 @@ class InventoryRepositorySupabase implements InventoryRepository {
         if (filters.containsKey('isActive')) queryParams['isActive'] = filters['isActive'] == true ? 'true' : 'false';
       }
       if (storeId != null && storeId.isNotEmpty) queryParams['storeId'] = storeId;
-      // The backend paginates this endpoint (default 50/page, 100 max) so a
+      // The backend paginates this endpoint (default 50/page, 500 max) so a
       // single request silently truncates any business with a larger catalog
       // - callers throughout the app (loadProducts, this screen's list, etc.)
       // all expect the full inventory back, so page through every result
-      // here rather than pushing that concern onto every call site.
-      queryParams['limit'] = 100;
+      // here rather than pushing that concern onto every call site. Request
+      // the server's max page size so a 1000+ item catalog needs ~2-3
+      // round-trips instead of ~11.
+      queryParams['limit'] = 500;
       final first = await _http.get(
         '/inventory/$businessId',
         queryParameters: {...queryParams, 'page': 1},
@@ -335,8 +337,14 @@ class InventoryRepositorySupabase implements InventoryRepository {
   // The custom backend doesn't implement Supabase's Realtime protocol
   // (it's a plain REST API, not real Postgres logical replication over a
   // websocket), so a genuine `.stream()` against it would just hang.
-  // Polling is the honest equivalent here.
-  static const _pollInterval = Duration(seconds: 15);
+  // Polling is the honest equivalent here. Multiple providers each hold
+  // their own independent subscription to this same stream (RetailProvider,
+  // ReportsProvider, DrinkProvider, AnalyticsProvider), so every tick here
+  // multiplies into that many concurrent full-catalog paginated fetches -
+  // 30s (vs. the original 15s) roughly halves that background load for a
+  // 1000+ item catalog while still keeping stock counts reasonably fresh
+  // for an active POS screen.
+  static const _pollInterval = Duration(seconds: 30);
 
   @override
   Stream<List<Map<String, dynamic>>> streamInventory(String businessId, {String? storeId}) async* {

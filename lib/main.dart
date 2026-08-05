@@ -302,10 +302,22 @@ class MyApp extends StatelessWidget {
             // Ensure the reports provider can access auth context
             previous ??= ReportsProvider();
             previous.setAuthProvider(auth);
-            if (bid.isNotEmpty) {
+            // This `update` callback re-runs on every notifyListeners() from
+            // either watched provider - AuthProvider/BusinessProvider fire
+            // many times during a normal startup (auth resolution, business
+            // list load, subscription checks, cache writes, ...). Each of
+            // the four subscribe calls below does an immediate eager fetch
+            // on top of its own periodic poll, so without this guard a
+            // single startup was firing dozens of redundant concurrent
+            // requests at the same business's reports endpoints - a
+            // self-inflicted request storm that starved the backend's
+            // connection pool and made unrelated requests time out.
+            // Re-subscribing only actually needs to happen once per business
+            // switch; the periodic polls already keep the data fresh after that.
+            if (bid.isNotEmpty && previous.subscribedBusinessId != bid) {
               // Defer subscriptions with a small delay to ensure window is fully initialized on web
               Future.delayed(const Duration(milliseconds: 100), () {
-                if (previous != null) {
+                if (previous != null && previous.subscribedBusinessId != bid) {
                   previous.subscribeToSalesReports(businessId: bid);
                   previous.subscribeToFinancialReports(businessId: bid);
                   previous.subscribeToInventoryReports(businessId: bid);

@@ -41,7 +41,14 @@ function requireBusinessId(req, res, next) {
  */
 function pagination(req, res, next) {
   const page = Math.max(1, parseInt(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
+  // Raised from 100: every route using this middleware does a plain
+  // single-table filter/sort/limit (sales.js's item join now happens after
+  // paging, not before - see that route), so a bigger page is still a cheap,
+  // index-backed query. The real cost for a 1000+ row business/1000+ item
+  // catalog was never per-row - it was the round-trip count: 100/page meant
+  // ~11-24 sequential/batched HTTP requests just to pull one full catalog or
+  // sales history. A 500 cap cuts that to ~3-5 for the same data.
+  const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 50));
   const offset = (page - 1) * limit;
 
   req.pagination = { page, limit, offset };

@@ -82,8 +82,15 @@ class ReportsProvider extends ChangeNotifier {
   // The custom backend doesn't implement Supabase's Realtime protocol, so
   // these "subscriptions" are polled the same way
   // InventoryRepositorySupabase.streamInventory is (see that class for the
-  // fuller explanation).
-  static const _pollInterval = Duration(seconds: 15);
+  // fuller explanation). This provider stays alive for the whole app
+  // session (see main.dart's ReportsProvider ProxyProvider), and each tick
+  // re-fetches a full date-ranged sales/financial/inventory/expenses report
+  // - not a cheap read. At 15s this was 4 full report refetches every 15
+  // seconds indefinitely, which was a major contributor to backend load on
+  // top of the request-storm bug fixed in main.dart. Reports don't need
+  // near-real-time freshness the way an active POS screen does, so 60s
+  // trades an imperceptible staleness window for a 4x cut in background load.
+  static const _pollInterval = Duration(seconds: 60);
   Timer? _salesSubscription;
   Timer? _financialSalesSubscription;
   Timer? _expensesSubscription;
@@ -100,6 +107,7 @@ class ReportsProvider extends ChangeNotifier {
   }
 
   String? _currentSubscribedBusinessId;
+  String? get subscribedBusinessId => _currentSubscribedBusinessId;
 
   Future<Map<String, double>> _getInventoryCostMap(
     String businessId, {

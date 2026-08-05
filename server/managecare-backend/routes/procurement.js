@@ -48,11 +48,54 @@ module.exports = function(pool) {
     if (!inventoryId) {
       return res.json({ data: [] });
     }
-    const result = await pool.query(
+    const batchesResult = await pool.query(
       'SELECT * FROM inventory_batches WHERE business_id = $1 AND inventory_id = $2 ORDER BY created_at DESC',
       [businessId, inventoryId]
     );
-    res.json({ data: result.rows });
+
+    // Some procurements (mainly ones written by the Firestore->Postgres
+    // import, which had no concept of inventory_batches) only ever got the
+    // procurement header + its `items` jsonb snapshot, never a matching
+    // inventory_batches row - without this fallback those purchases are
+    // invisible on this per-product drill-down even though the general
+    // procurement history list (which reads straight off that snapshot)
+    // shows them fine. Synthesize batch-shaped rows from the snapshot for
+    // any procurement that doesn't already have a real batches row for this
+    // product, so both views agree on what was actually purchased.
+    const legacyResult = await pool.query(
+      `SELECT
+         p.id AS id,
+         p.id AS procurement_id,
+         item->>'productId' AS inventory_id,
+         item->>'batchLabel' AS batch_label,
+         (item->>'quantity')::numeric AS quantity,
+         (item->>'quantity')::numeric AS remaining_quantity,
+         item->>'unit' AS unit,
+         (item->>'cost')::numeric AS cost,
+         (item->>'total')::numeric AS total,
+         (item->>'purchaseQuantity')::numeric AS purchase_quantity,
+         item->>'purchaseUnit' AS purchase_unit,
+         (item->>'purchaseUnitCost')::numeric AS purchase_unit_cost,
+         item->>'expiryDate' AS expiry_date,
+         p.supplier_name AS supplier_name,
+         p.invoice_ref AS invoice_ref,
+         p.reference_image_url AS reference_image_url,
+         p.created_at AS created_at
+       FROM procurements p, jsonb_array_elements(p.items) AS item
+       WHERE p.business_id = $1
+         AND item->>'productId' = $2
+         AND NOT EXISTS (
+           SELECT 1 FROM inventory_batches b
+           WHERE b.procurement_id = p.id AND b.inventory_id = $2
+         )
+       ORDER BY p.created_at DESC`,
+      [businessId, inventoryId]
+    );
+
+    const combined = [...batchesResult.rows, ...legacyResult.rows].sort(
+      (a, b) => new Date(b.created_at) - new Date(a.created_at)
+    );
+    res.json({ data: combined });
   }));
 
   // GET /api/procurement/:businessId/:id - Single procurement

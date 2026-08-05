@@ -143,16 +143,18 @@ class SalesRepositorySupabase implements SalesRepository {
     }
   }
 
-  // The backend paginates /sales (default 50/page, 100 max regardless of
+  // The backend paginates /sales (default 50/page, 500 max regardless of
   // what `limit` is requested), so a single request silently truncates any
   // business/date-range with a larger result set - page through everything
-  // rather than only ever seeing the first 50-100 rows.
+  // rather than only ever seeing the first rows. Using the server's max page
+  // size cuts round-trips ~5x for a high-volume business (e.g. ~5 requests
+  // instead of ~24 for 2,300+ sales in a report's date range).
   Future<List<dynamic>> _fetchAllSalesPages(
       String businessId, Map<String, dynamic> queryParams) async {
     final requestedLimit = (queryParams['limit'] as num?)?.toInt();
     final pageLimit = requestedLimit != null && requestedLimit > 0
-        ? requestedLimit.clamp(1, 100)
-        : 100;
+        ? requestedLimit.clamp(1, 500)
+        : 500;
     final params = {...queryParams, 'limit': pageLimit};
     final first = await _http.get(
       '/sales/$businessId',

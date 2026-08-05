@@ -15,56 +15,79 @@ module.exports = function(pool) {
     const { limit, offset } = req.pagination;
     const { status, paymentMethod, workerId, storeId, startDate, endDate, customerId } = req.query;
 
-    let query = 'SELECT s.*, COALESCE(json_agg(si.*) FILTER (WHERE si.id IS NOT NULL), \'[]\') as items FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id WHERE s.business_id = $1';
+    let where = 'WHERE s.business_id = $1';
     const params = [businessId];
     let paramIndex = 2;
 
     if (status) {
-      query += ` AND s.status = $${paramIndex++}`;
+      where += ` AND s.status = $${paramIndex++}`;
       params.push(status);
     }
     if (paymentMethod) {
-      query += ` AND s.payment_method = $${paramIndex++}`;
+      where += ` AND s.payment_method = $${paramIndex++}`;
       params.push(paymentMethod);
     }
     if (workerId) {
-      query += ` AND s.worker_id = $${paramIndex++}`;
+      where += ` AND s.worker_id = $${paramIndex++}`;
       params.push(workerId);
     }
     if (storeId) {
-      query += ` AND s.store_id = $${paramIndex++}`;
+      where += ` AND s.store_id = $${paramIndex++}`;
       params.push(storeId);
     }
     if (customerId) {
-      query += ` AND s.customer_id = $${paramIndex++}`;
+      where += ` AND s.customer_id = $${paramIndex++}`;
       params.push(customerId);
     }
     if (startDate) {
-      query += ` AND s.created_at >= $${paramIndex++}`;
+      where += ` AND s.created_at >= $${paramIndex++}`;
       params.push(startDate);
     }
     if (endDate) {
-      query += ` AND s.created_at <= $${paramIndex++}`;
+      where += ` AND s.created_at <= $${paramIndex++}`;
       params.push(endDate);
     }
 
-    query += ' GROUP BY s.id ORDER BY s.created_at DESC';
-
-    // Count
-    const countResult = await pool.query(
-      'SELECT COUNT(*) FROM sales WHERE business_id = $1',
-      [businessId]
-    );
+    // Count with the same filters applied - previously this counted every
+    // sale for the business regardless of status/date/etc filters, so
+    // totalPages (and therefore "is there a next page") was wrong for any
+    // filtered view.
+    const countResult = await pool.query(`SELECT COUNT(*) FROM sales s ${where}`, params);
     const total = parseInt(countResult.rows[0].count);
 
-    // Fetch with items
-    query += ` LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
-    params.push(limit, offset);
+    // Page the `sales` rows first (cheap - index-backed filter/sort/limit
+    // with no join), then join sale_items only for that page's ids.
+    // Previously this left-joined and GROUP BY/json_agg'd across *every*
+    // matching sale (fanning out one row per item) before applying
+    // LIMIT/OFFSET, so a business with a large sales history paid the cost
+    // of aggregating its entire history on every single page request -
+    // this is what made sales history/delete/anything touching this
+    // endpoint slow to the point of timing out as history grew.
+    const pageParams = [...params, limit, offset];
+    const salesResult = await pool.query(
+      `SELECT s.* FROM sales s ${where} ORDER BY s.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+      pageParams
+    );
 
-    const result = await pool.query(query, params);
+    const saleIds = salesResult.rows.map((r) => r.id);
+    let itemsBySaleId = {};
+    if (saleIds.length > 0) {
+      const itemsResult = await pool.query(
+        'SELECT * FROM sale_items WHERE sale_id = ANY($1::uuid[])',
+        [saleIds]
+      );
+      itemsBySaleId = itemsResult.rows.reduce((acc, item) => {
+        (acc[item.sale_id] ||= []).push(item);
+        return acc;
+      }, {});
+    }
+
+    const data = salesResult.rows.map((row) =>
+      formatSale({ ...row, items: itemsBySaleId[row.id] || [] })
+    );
 
     res.json({
-      data: result.rows.map(formatSale),
+      data,
       pagination: { page: req.pagination.page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   }));
