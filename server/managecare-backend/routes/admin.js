@@ -201,6 +201,17 @@ module.exports = function(pool) {
     const cashierTotals = {};
     const paymentMethodTotals = {};
     let totalSales = 0;
+    const itemsBySaleId = {};
+    for (const row of itemsResult.rows) {
+      const saleId = row.sale_id;
+      if (!itemsBySaleId[saleId]) itemsBySaleId[saleId] = [];
+      itemsBySaleId[saleId].push({
+        productName: row.product_name || 'Unknown',
+        quantity: Number(row.quantity) || 0,
+        total: Number(row.total) || 0,
+      });
+    }
+
     const transactions = salesResult.rows.map((row) => {
       const amount = Number(row.final_amount) || 0;
       totalSales += amount;
@@ -208,7 +219,14 @@ module.exports = function(pool) {
       cashierTotals[cashier] = (cashierTotals[cashier] || 0) + amount;
       const method = row.payment_method || 'Unknown';
       paymentMethodTotals[method] = (paymentMethodTotals[method] || 0) + amount;
-      return { id: row.id, cashier, total: amount, createdAt: row.created_at };
+      return {
+        id: row.id,
+        cashier,
+        total: amount,
+        paymentMethod: method,
+        createdAt: row.created_at,
+        items: itemsBySaleId[row.id] || [],
+      };
     });
 
     const items = {};

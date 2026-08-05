@@ -422,6 +422,14 @@ class _AppState extends State<App> {
       return;
     }
 
+    final connectivity = _connectivityProviderRef;
+    if (connectivity != null && !connectivity.isConnected) {
+      debugPrint(
+        '[App] Skipping subscription enforcement while offline for $businessId',
+      );
+      return;
+    }
+
     final valid = await SubscriptionService().validateAndUpdateBusinessSubscriptionStatus(
       businessId,
       userId: userId,

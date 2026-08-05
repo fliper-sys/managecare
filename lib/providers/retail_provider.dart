@@ -32,6 +32,7 @@ class Product {
   final String? batchLabel;
   final int? shelfLifeDays;
   final double distributorDiscountPercent;
+  final double? distributorPrice;
 
   Product({
     required this.id,
@@ -52,6 +53,7 @@ class Product {
     this.batchLabel,
     this.shelfLifeDays,
     this.distributorDiscountPercent = 0.0,
+    this.distributorPrice,
   });
 
   String get resolvedSaleUnit => saleUnit.trim().isEmpty ? unit : saleUnit;
@@ -60,41 +62,67 @@ class Product {
   bool get hasWholesalePricing =>
       (wholesalePrice ?? 0) > 0 && (wholesalePrice! - price).abs() > 0.0001;
 
+  static double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final cleaned = value.replaceAll(',', '').trim();
+      if (cleaned.isEmpty) return null;
+      return double.tryParse(cleaned);
+    }
+    return null;
+  }
+
   factory Product.fromJson(Map<String, dynamic> data) {
+    final metadata = data['metadata'] is Map
+        ? Map<String, dynamic>.from(data['metadata'] as Map)
+        : const <String, dynamic>{};
     return Product(
       id: (data['id'] ?? '').toString(),
       name: data['name'] ?? '',
-      price: (data['price'] ?? data['unit_price'] ?? 0.0).toDouble(),
-      cost: (data['cost'] ?? data['cost_price'] ?? 0.0).toDouble(),
-      wholesalePrice:
-          (data['wholesalePrice'] ?? data['wholesale_price'] as num?)
-              ?.toDouble(),
-      stock: (data['quantity'] as num?)?.toDouble() ??
-          (data['stock'] as num?)?.toDouble() ??
-          0.0,
+      price: _toDouble(data['price'] ?? data['unit_price']) ?? 0.0,
+      cost: _toDouble(data['cost'] ?? data['cost_price']) ?? 0.0,
+      wholesalePrice: _toDouble(data['wholesalePrice'] ??
+          data['wholesale_price'] ??
+          metadata['wholesalePrice'] ??
+          metadata['wholesale_price']),
+      stock: _toDouble(data['quantity']) ?? _toDouble(data['stock']) ?? 0.0,
       category: data['category'] ?? 'Uncategorized',
       imageUrl: data['imageUrl'] ?? data['image_url'],
       barcode: data['barcode'],
-      emoji: data['emoji'] ?? '📦',
+      emoji: data['emoji'] ?? metadata['emoji'] ?? '📦',
       unit: (data['unit'] ?? 'pc').toString(),
-      saleUnit:
-          (data['saleUnit'] ?? data['sale_unit'] ?? data['unit'] ?? 'pc')
-              .toString(),
-      saleUnitMultiplier: (data['saleUnitMultiplier'] ??
-                  data['sale_unit_multiplier'] as num?)
-              ?.toDouble() ??
+      saleUnit: (data['saleUnit'] ??
+              data['sale_unit'] ??
+              metadata['saleUnit'] ??
+              metadata['sale_unit'] ??
+              data['unit'] ??
+              'pc')
+          .toString(),
+      saleUnitMultiplier: _toDouble(data['saleUnitMultiplier'] ??
+              data['sale_unit_multiplier'] ??
+              metadata['saleUnitMultiplier'] ??
+              metadata['sale_unit_multiplier']) ??
           1.0,
       trackExpiry: data['trackExpiry'] == true || data['track_expiry'] == true,
       expiryDate: (data['expiryDate'] ?? data['expiry_date']) == null
           ? null
           : parseTimestamp(data['expiryDate'] ?? data['expiry_date']),
       batchLabel: (data['batchLabel'] ?? data['batch_label'])?.toString(),
-      shelfLifeDays:
-          (data['shelfLifeDays'] ?? data['shelf_life_days'] as num?)?.toInt(),
-      distributorDiscountPercent: (data['distributorDiscountPercent'] ??
-                  data['distributor_discount_percent'] as num?)
-              ?.toDouble() ??
+      shelfLifeDays: _toDouble(data['shelfLifeDays'] ??
+              data['shelf_life_days'] ??
+              metadata['shelfLifeDays'] ??
+              metadata['shelf_life_days'])
+          ?.toInt(),
+      distributorDiscountPercent: _toDouble(data['distributorDiscountPercent'] ??
+              data['distributor_discount_percent'] ??
+              metadata['distributorDiscountPercent'] ??
+              metadata['distributor_discount_percent']) ??
           0.0,
+      distributorPrice: _toDouble(data['distributorPrice'] ??
+          data['distributor_price'] ??
+          metadata['distributorPrice'] ??
+          metadata['distributor_price']),
     );
   }
 
@@ -118,6 +146,7 @@ class Product {
         'batch_label': batchLabel!.trim(),
       if (shelfLifeDays != null) 'shelf_life_days': shelfLifeDays,
       'distributor_discount_percent': distributorDiscountPercent,
+      'distributor_price': distributorPrice,
     };
   }
 }

@@ -31,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 6,
+      version: 8,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -118,7 +118,12 @@ class DatabaseHelper {
         createdAt TEXT NOT NULL,
         updatedAt TEXT,
         syncStatus TEXT DEFAULT 'pending',
-        storeId TEXT
+        storeId TEXT,
+        wholesalePrice REAL,
+        distributorPrice REAL,
+        saleUnit TEXT,
+        saleUnitMultiplier REAL,
+        emoji TEXT
       )
     ''');
 
@@ -235,6 +240,19 @@ class DatabaseHelper {
     if (oldVersion < 6) {
       await _addColumnsIfMissing(db, 'sales', {
         'saleType': 'TEXT',
+      });
+    }
+    if (oldVersion < 7) {
+      await _addColumnsIfMissing(db, 'inventory', {
+        'wholesalePrice': 'REAL',
+        'saleUnit': 'TEXT',
+        'saleUnitMultiplier': 'REAL',
+        'emoji': 'TEXT',
+      });
+    }
+    if (oldVersion < 8) {
+      await _addColumnsIfMissing(db, 'inventory', {
+        'distributorPrice': 'REAL',
       });
     }
   }

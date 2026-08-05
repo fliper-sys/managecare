@@ -40,6 +40,7 @@ import '../../../data/models/customer_model.dart';
 import '../../../data/repositories/distributor_repository.dart';
 import '../../../services/managecare_api_client.dart';
 import '../../../core/utils/distributor_sale_utils.dart';
+import '../../dashboard/owner/utils/procurement_filter_utils.dart';
 import '../../widgets/product_view_switcher.dart';
 import 'customer_tracking_screen.dart';
 import 'receipt_detail_screen.dart';
@@ -184,7 +185,12 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Sell ${product.name} to a distributor using the saved discount.'),
+              Text('Sell ${product.name} to a distributor using the saved distributor price.'),
+              const SizedBox(height: 4),
+              Text(
+                'Unit price: ₦${(product.distributorPrice ?? product.price).toStringAsFixed(2)}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
               const SizedBox(height: 12),
               if (distributors.isNotEmpty)
                 DropdownButtonFormField<String>(
@@ -262,9 +268,12 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
     }
 
     try {
-      final presetDiscount = product.distributorDiscountPercent;
+      final distributorUnitPrice = product.distributorPrice ?? product.price;
+      final presetDiscount = product.distributorPrice == null
+          ? product.distributorDiscountPercent
+          : 0.0;
       final totalAmount = calculateDistributorSaleTotal(
-        unitPrice: product.price,
+        unitPrice: distributorUnitPrice,
         quantity: quantity,
         discountPercent: presetDiscount,
       );
@@ -275,7 +284,7 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
         productId: product.id,
         productName: product.name,
         quantity: quantity,
-        unitPrice: product.price,
+        unitPrice: distributorUnitPrice,
         discountPercent: presetDiscount,
         salesRepId: context.read<AuthProvider>().currentUser?.id,
         salesRepName: context.read<AuthProvider>().currentUser?.fullName ?? context.read<AuthProvider>().currentUser?.email,
@@ -284,7 +293,7 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Distributor sale recorded for ₦${totalAmount.toStringAsFixed(2)} using the saved discount.'),
+          content: Text('Distributor sale recorded for ₦${totalAmount.toStringAsFixed(2)}.'),
         ),
       );
       await context.read<RetailProvider>().loadProducts(forceRefresh: true);
@@ -299,7 +308,7 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
               {
                 'name': product.name,
                 'quantity': quantity,
-                'price': product.price,
+                'price': distributorUnitPrice,
                 'total': totalAmount,
               },
             ],
@@ -2199,8 +2208,14 @@ class _ProductsGrid extends StatelessWidget {
       merged['name:${p.name.toLowerCase()}'] = p; // override if exists
     }
 
-    final combined =
-        merged.values.where((product) => !_isFuelProduct(product)).toList();
+    final combined = merged.values
+        .where((product) =>
+            !_isFuelProduct(product) &&
+            !isIngredientInventoryItem({
+              'category': product.category,
+              'name': product.name,
+            }))
+        .toList();
 
     // Filter products based on search query using enhanced search
     var products = searchQuery.isEmpty

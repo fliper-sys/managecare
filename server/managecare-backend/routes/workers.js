@@ -69,13 +69,14 @@ module.exports = function(pool) {
   router.post('/:businessId', requireBusinessOwner, requireFields('full_name', 'role'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { email, full_name, phone, role, store_id, permissions, pin, password } = req.body;
+    const permissionsJson = JSON.stringify(permissions || {});
     const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
     const result = await pool.query(
       `INSERT INTO workers (email, full_name, phone, role, business_id, store_id, permissions, pin, password_hash)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
       [email || null, full_name, phone || null, role, businessId,
-       store_id || null, JSON.stringify(permissions || {}), pin || null, passwordHash]
+       store_id || null, permissionsJson, pin || null, passwordHash]
     );
     delete result.rows[0].password_hash;
     res.status(201).json(result.rows[0]);
@@ -88,6 +89,7 @@ module.exports = function(pool) {
   router.put('/:businessId/:id', requireBusinessOwner, asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
     const { email, full_name, phone, role, store_id, permissions, pin, is_active, password } = req.body;
+    const permissionsJson = permissions !== undefined ? JSON.stringify(permissions) : undefined;
 
     const fields = [];
     const params = [];
@@ -98,7 +100,7 @@ module.exports = function(pool) {
     if (phone !== undefined) { fields.push(`phone = $${paramIndex++}`); params.push(phone); }
     if (role !== undefined) { fields.push(`role = $${paramIndex++}`); params.push(role); }
     if (store_id !== undefined) { fields.push(`store_id = $${paramIndex++}`); params.push(store_id); }
-    if (permissions !== undefined) { fields.push(`permissions = $${paramIndex++}`); params.push(JSON.stringify(permissions)); }
+    if (permissions !== undefined) { fields.push(`permissions = $${paramIndex++}`); params.push(permissionsJson); }
     if (pin !== undefined) { fields.push(`pin = $${paramIndex++}`); params.push(pin); }
     if (is_active !== undefined) { fields.push(`is_active = $${paramIndex++}`); params.push(is_active); }
     // Owner-initiated reset - the owner is already authenticated as the
@@ -134,6 +136,21 @@ module.exports = function(pool) {
         await client.query(
           'UPDATE business_members SET is_active = $1, updated_at = NOW() WHERE user_id = $2 AND business_id = $3',
           [is_active, id, businessId]
+        );
+      }
+
+      if (role !== undefined || permissions !== undefined || store_id !== undefined) {
+        const memberFields = [];
+        const memberParams = [];
+        let memberParamIndex = 1;
+        if (role !== undefined) { memberFields.push(`role = $${memberParamIndex++}`); memberParams.push(role); }
+        if (permissions !== undefined) { memberFields.push(`permissions = $${memberParamIndex++}`); memberParams.push(permissionsJson); }
+        if (store_id !== undefined) { memberFields.push(`store_id = $${memberParamIndex++}`); memberParams.push(store_id); }
+        memberFields.push('updated_at = NOW()');
+        memberParams.push(id, businessId);
+        await client.query(
+          `UPDATE business_members SET ${memberFields.join(', ')} WHERE user_id = $${memberParamIndex++} AND business_id = $${memberParamIndex}`,
+          memberParams
         );
       }
 

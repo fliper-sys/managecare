@@ -47,7 +47,7 @@ class WorkerRepositorySupabase implements WorkerRepository {
         data: _buildPayload(workerData),
         options: Options(headers: _headers),
       );
-      return response.data;
+      return _normalizeWorker(Map<String, dynamic>.from(response.data as Map));
     } on DioException catch (e) {
       throw Exception('Failed to add worker: ${_extractError(e)}');
     }
@@ -95,7 +95,10 @@ class WorkerRepositorySupabase implements WorkerRepository {
         '/workers/$businessId',
         options: Options(headers: _headers),
       );
-      return (response.data['data'] as List?) ?? [];
+      return ((response.data['data'] as List?) ?? [])
+          .whereType<Map>()
+          .map((row) => _normalizeWorker(Map<String, dynamic>.from(row)))
+          .toList();
     } on DioException catch (e) {
       throw Exception('Failed to fetch workers: ${_extractError(e)}');
     }
@@ -116,7 +119,9 @@ class WorkerRepositorySupabase implements WorkerRepository {
             '/workers/${b['business_id']}/$workerId',
             options: Options(headers: _headers),
           );
-          if (response.statusCode == 200) return response.data;
+          if (response.statusCode == 200) {
+            return _normalizeWorker(Map<String, dynamic>.from(response.data as Map));
+          }
         } catch (_) {
           continue;
         }
@@ -159,16 +164,48 @@ class WorkerRepositorySupabase implements WorkerRepository {
   }
 
   Map<String, dynamic> _buildPayload(Map<String, dynamic> data) {
+    final permissions = data['permissions'] ?? data['customPermissions'] ?? {};
     return {
       'email': data['email'],
       'full_name': data['fullName'] ?? data['full_name'] ?? data['name'],
-      'phone': data['phone'],
+      'phone': data['phone'] ?? data['phoneNumber'],
       'role': data['role'] ?? 'staff',
       'store_id': data['storeId'] ?? data['store_id'],
-      'permissions': data['permissions'] ?? {},
+      'permissions': permissions,
       'pin': data['pin'],
-      'is_active': data['isActive'] ?? data['is_active'] ?? true,
+      if (data.containsKey('isActive') || data.containsKey('is_active'))
+        'is_active': data['isActive'] ?? data['is_active'],
     };
+  }
+
+  Map<String, dynamic> _normalizeWorker(Map<String, dynamic> row) {
+    final worker = Map<String, dynamic>.from(row);
+    final role = (worker['role'] ?? 'staff').toString();
+    final rawPermissions = worker['permissions'];
+    final permissionList = rawPermissions is Map
+        ? rawPermissions.entries
+            .where((entry) => entry.value == true)
+            .map((entry) => entry.key.toString())
+            .toList()
+        : rawPermissions is List
+            ? rawPermissions
+                .map((entry) => entry.toString())
+                .where((entry) => entry.trim().isNotEmpty)
+                .toList()
+            : <String>[];
+
+    worker['fullName'] ??= worker['full_name'] ?? worker['name'];
+    worker['name'] ??= worker['fullName'] ?? worker['full_name'];
+    worker['phoneNumber'] ??= worker['phone'];
+    worker['businessId'] ??= worker['business_id'];
+    worker['storeId'] ??= worker['store_id'];
+    worker['isActive'] ??= worker['is_active'] != false;
+    worker['createdAt'] ??= worker['created_at'];
+    worker['updatedAt'] ??= worker['updated_at'];
+    worker['roles'] ??= [role];
+    worker['permissions'] = permissionList;
+    worker['customPermissions'] ??= permissionList;
+    return worker;
   }
 }
 

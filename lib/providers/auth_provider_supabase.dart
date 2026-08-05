@@ -351,14 +351,14 @@ class AuthProvider with ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
-      if (role == 'worker' && businessId.isNotEmpty) {
+      if (businessId.isNotEmpty && role.toLowerCase() != 'owner') {
         // Worker creation goes through admin API.
         await _authService.createWorkerUser(
           email: email,
           password: password,
           fullName: fullName,
           businessId: businessId,
-          role: 'staff',
+          role: role,
         );
         _errorMessage = null;
         _status =

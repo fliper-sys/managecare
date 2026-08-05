@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../../../core/theme/colors.dart';
 import '../../../../../core/theme/text_styles.dart';
 import '../../../../../providers/business_provider.dart';
+import '../../../../../providers/reports_provider.dart';
 import '../../../../../services/managecare_api_client.dart';
 import '../../../../presentation/inventory/utils/bakery_assignment_analytics.dart';
 import '../../../../presentation/inventory/utils/bakery_resupply_row_mapper.dart';
@@ -21,6 +22,8 @@ class _BakeryBakerPerformanceReportScreenState extends State<BakeryBakerPerforma
   DateTimeRange? _range;
   bool _isLoading = true;
   List<Map<String, dynamic>> _assignments = [];
+  List<SaleReport> _sales = [];
+  List<InventoryReport> _inventory = [];
 
   @override
   void initState() {
@@ -49,10 +52,15 @@ class _BakeryBakerPerformanceReportScreenState extends State<BakeryBakerPerforma
           .get('/api/inventory/$businessId/bakery-resupplies', query: {'limit': '500'});
       final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
       final assignments = rows.map(bakeryResupplyRowToJson).toList();
+      final reportsProvider = context.read<ReportsProvider>();
+      await reportsProvider.generateSalesReport(businessId: businessId);
+      await reportsProvider.generateInventoryReport(businessId: businessId);
 
       if (!mounted) return;
       setState(() {
         _assignments = assignments;
+        _sales = List<SaleReport>.from(reportsProvider.salesReports);
+        _inventory = List<InventoryReport>.from(reportsProvider.inventoryReports);
         _isLoading = false;
       });
     } catch (_) {
@@ -114,11 +122,57 @@ class _BakeryBakerPerformanceReportScreenState extends State<BakeryBakerPerforma
     return grouped;
   }
 
+  List<_ProductProfitRow> _productProfitRows() {
+    final costsById = <String, double>{};
+    final costsByName = <String, double>{};
+    for (final item in _inventory) {
+      if (item.productId.trim().isNotEmpty) {
+        costsById[item.productId] = item.costPrice;
+      }
+      costsByName[item.productName.toLowerCase()] = item.costPrice;
+    }
+
+    final rows = <String, _ProductProfitRow>{};
+    for (final sale in _sales) {
+      if (_range != null) {
+        final start = DateTime(_range!.start.year, _range!.start.month, _range!.start.day);
+        final end = DateTime(_range!.end.year, _range!.end.month, _range!.end.day, 23, 59, 59);
+        if (sale.date.isBefore(start) || sale.date.isAfter(end)) continue;
+      }
+
+      for (final item in sale.products) {
+        final productId = (item['productId'] ?? item['id'] ?? '').toString();
+        final productName = (item['productName'] ?? item['name'] ?? 'Unknown product').toString();
+        final quantity = (item['quantity'] as num?)?.toDouble() ?? 0.0;
+        if (quantity <= 0) continue;
+        final unitPrice =
+            (item['unitPrice'] as num?)?.toDouble() ?? (item['price'] as num?)?.toDouble() ?? 0.0;
+        final revenue = (item['total'] as num?)?.toDouble() ?? unitPrice * quantity;
+        final unitCost = costsById[productId] ?? costsByName[productName.toLowerCase()] ?? 0.0;
+        final cost = unitCost * quantity;
+        final key = productId.isNotEmpty ? productId : productName.toLowerCase();
+        final existing = rows[key];
+        rows[key] = existing == null
+            ? _ProductProfitRow(
+                productName: productName,
+                quantity: quantity,
+                revenue: revenue,
+                cost: cost,
+              )
+            : existing.add(quantity: quantity, revenue: revenue, cost: cost);
+      }
+    }
+
+    return rows.values.toList()
+      ..sort((a, b) => b.grossProfit.compareTo(a.grossProfit));
+  }
+
   @override
   Widget build(BuildContext context) {
     final filteredAssignments = _filteredAssignments();
     final overallAnalytics = BakeryAssignmentAnalytics.summarize(filteredAssignments);
     final groupedByBaker = _groupByBaker(filteredAssignments);
+    final productProfitRows = _productProfitRows();
     final bakerEntries = groupedByBaker.entries.toList()
       ..sort((a, b) {
         final aAnalytics = BakeryAssignmentAnalytics.summarize(a.value);
@@ -190,6 +244,50 @@ class _BakeryBakerPerformanceReportScreenState extends State<BakeryBakerPerforma
                             Text('Actual total: ${overallAnalytics.actualTotal.toStringAsFixed(0)}'),
                             Text('Variance: ${overallAnalytics.variance >= 0 ? '+' : ''}${overallAnalytics.variance.toStringAsFixed(0)}'),
                             Text('Completion rate: ${overallAnalytics.completionRate.toStringAsFixed(1)}%'),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Product profitability', style: AppTextStyles.heading4),
+                            const SizedBox(height: 8),
+                            if (productProfitRows.isEmpty)
+                              const Text('No sold product line items found for this period.')
+                            else
+                              ...productProfitRows.take(8).map((row) {
+                                final margin = row.revenue == 0
+                                    ? 0.0
+                                    : (row.grossProfit / row.revenue) * 100;
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          row.productName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Text(
+                                        '₦${row.grossProfit.toStringAsFixed(2)} (${margin.toStringAsFixed(1)}%)',
+                                        style: AppTextStyles.body2.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
                           ],
                         ),
                       ),
@@ -274,6 +372,35 @@ class _BakeryBakerPerformanceReportScreenState extends State<BakeryBakerPerforma
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _ProductProfitRow {
+  final String productName;
+  final double quantity;
+  final double revenue;
+  final double cost;
+
+  const _ProductProfitRow({
+    required this.productName,
+    required this.quantity,
+    required this.revenue,
+    required this.cost,
+  });
+
+  double get grossProfit => revenue - cost;
+
+  _ProductProfitRow add({
+    required double quantity,
+    required double revenue,
+    required double cost,
+  }) {
+    return _ProductProfitRow(
+      productName: productName,
+      quantity: this.quantity + quantity,
+      revenue: this.revenue + revenue,
+      cost: this.cost + cost,
     );
   }
 }

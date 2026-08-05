@@ -124,7 +124,8 @@ class _SalesScreenState extends State<SalesScreen>
 
       if (business != null) {
         final businessId = business.id;
-        _retailProvider.initialize(businessId).then((_) {
+        _retailProvider.initialize(businessId).then((_) async {
+          await _retailProvider.loadProducts(forceRefresh: true);
           if (!mounted) return;
           setState(() {
             _globalPricingMode = _retailProvider.activeCartPricingMode;
@@ -2290,7 +2291,11 @@ class _ProductsGrid extends StatelessWidget {
     final pharmacyProvider = context.watch<PharmacyProvider>();
 
     // Convert pharmacy drugs to Product-like model and merge
-    final pharmacyProducts = businessType == 'pharmacy'
+    final normalizedBusinessType =
+        (businessType ?? '').toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final isPharmacyBusiness = normalizedBusinessType == 'pharmacy' ||
+        normalizedBusinessType == 'drugstore';
+    final pharmacyProducts = isPharmacyBusiness
         ? pharmacyProvider.drugs.map((d) => Product(
               id: 'pharmacy:${d.id}',
               name: d.name,

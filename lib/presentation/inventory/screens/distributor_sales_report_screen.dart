@@ -158,6 +158,7 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
               'id': product.id,
               'name': product.name,
               'price': product.price,
+              'distributorPrice': product.distributorPrice,
               'distributorDiscountPercent': product.distributorDiscountPercent,
             })
         .toList();
@@ -200,6 +201,32 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
                           });
                         },
                       ),
+                    if (selectedProductId != null) ...[
+                      const SizedBox(height: 8),
+                      Builder(builder: (_) {
+                        final selectedProduct = products.firstWhere(
+                          (entry) =>
+                              (entry['id']?.toString() ?? '') ==
+                              selectedProductId,
+                          orElse: () => <String, dynamic>{},
+                        );
+                        final distributorPrice =
+                            (selectedProduct['distributorPrice'] as num?)
+                                ?.toDouble();
+                        final price =
+                            distributorPrice ??
+                                (selectedProduct['price'] as num?)
+                                    ?.toDouble() ??
+                                0.0;
+                        return Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Distributor unit price: ₦${price.toStringAsFixed(2)}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        );
+                      }),
+                    ],
                     const SizedBox(height: 12),
                     if (distributors.isNotEmpty) ...[
                       DropdownButtonFormField<String>(
@@ -290,8 +317,12 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
       return;
     }
 
-    final unitPrice = (product['price'] as num?)?.toDouble() ?? 0.0;
-    final discountPercent = (product['distributorDiscountPercent'] as num?)?.toDouble() ?? 0.0;
+    final distributorPrice = (product['distributorPrice'] as num?)?.toDouble();
+    final unitPrice =
+        distributorPrice ?? (product['price'] as num?)?.toDouble() ?? 0.0;
+    final discountPercent = distributorPrice == null
+        ? (product['distributorDiscountPercent'] as num?)?.toDouble() ?? 0.0
+        : 0.0;
     final salesRepId = context.read<AuthProvider>().currentUser?.id;
     final salesRepName = context.read<AuthProvider>().currentUser?.fullName ?? context.read<AuthProvider>().currentUser?.email ?? '';
 

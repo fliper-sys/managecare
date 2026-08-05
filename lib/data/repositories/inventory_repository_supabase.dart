@@ -27,6 +27,17 @@ class InventoryRepositorySupabase implements InventoryRepository {
         _supabase = supabase ?? Supabase.instance.client,
         _dbHelper = dbHelper ?? DatabaseHelper.instance;
 
+  double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final cleaned = value.replaceAll(',', '').trim();
+      if (cleaned.isEmpty) return null;
+      return double.tryParse(cleaned);
+    }
+    return null;
+  }
+
   String? get _accessToken => _supabase.auth.currentSession?.accessToken;
   Map<String, dynamic> get _headers => {
         'Authorization': 'Bearer $_accessToken',
@@ -215,6 +226,14 @@ class InventoryRepositorySupabase implements InventoryRepository {
         'updatedAt': row['updated_at']?.toString(),
         'syncStatus': 'synced',
         'storeId': row['store_id'],
+        'wholesalePrice':
+            _toDouble(row['wholesalePrice'] ?? row['wholesale_price']),
+        'distributorPrice':
+            _toDouble(row['distributorPrice'] ?? row['distributor_price']),
+        'saleUnit': row['saleUnit'] ?? row['sale_unit'],
+        'saleUnitMultiplier':
+            _toDouble(row['saleUnitMultiplier'] ?? row['sale_unit_multiplier']),
+        'emoji': row['emoji'],
       });
     }
   }
@@ -243,6 +262,15 @@ class InventoryRepositorySupabase implements InventoryRepository {
               'created_at': row['createdAt'],
               'updated_at': row['updatedAt'],
               'store_id': row['storeId'],
+              'wholesalePrice': row['wholesalePrice'],
+              'wholesale_price': row['wholesalePrice'],
+              'distributorPrice': row['distributorPrice'],
+              'distributor_price': row['distributorPrice'],
+              'saleUnit': row['saleUnit'],
+              'sale_unit': row['saleUnit'],
+              'saleUnitMultiplier': row['saleUnitMultiplier'],
+              'sale_unit_multiplier': row['saleUnitMultiplier'],
+              'emoji': row['emoji'],
             })
         .toList();
   }

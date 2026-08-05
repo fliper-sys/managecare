@@ -80,6 +80,26 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     await _loadProducts();
   }
 
+  bool _isPharmacyBusinessType(String businessType) {
+    final normalized =
+        businessType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return normalized == 'pharmacy' || normalized == 'drugstore';
+  }
+
+  String _categoryForCurrentBusiness(dynamic rawCategory) {
+    final category = (rawCategory ?? 'Uncategorized').toString().trim();
+    final businessType = context
+            .read<BusinessProvider>()
+            .currentBusiness
+            ?.businessType ??
+        '';
+    if (!_isPharmacyBusinessType(businessType) &&
+        category.toLowerCase() == 'pharmacy') {
+      return 'Uncategorized';
+    }
+    return category.isEmpty ? 'Uncategorized' : category;
+  }
+
   Future<void> _loadProducts() async {
     try {
       // Prefer the currently selected business (supports owners with multiple businesses)
@@ -105,7 +125,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           'price': row['unit_price'],
           'cost': row['cost_price'],
           'quantity': row['quantity'],
-          'category': row['category'],
+          'category': _categoryForCurrentBusiness(row['category']),
           'sku': row['sku'],
           'barcode': row['barcode'],
         };
@@ -122,33 +142,41 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         allProducts = allProducts.where(isIngredientInventoryItem).toList();
       }
 
-      // Include pharmacy drugs as inventory-like products (if any)
-      try {
-        final pharmacyProvider =
-            Provider.of<PharmacyProvider>(context, listen: false);
-        final pharmacyItems = pharmacyProvider.drugs
-            .map((d) => {
-                  'id': 'pharmacy_${d.id}',
-                  'name': d.name,
-                  'price': d.price,
-                  'quantity': d.stock,
-                  'category': 'Pharmacy',
-                  'emoji': '💊',
-                })
-            .toList();
+      final businessType = (businessProvider.currentBusiness?.businessType ?? '')
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^a-z0-9]'), '');
+      final isPharmacyBusiness = _isPharmacyBusinessType(businessType);
+      if (isPharmacyBusiness) {
+        // Include pharmacy drugs as inventory-like products only for actual
+        // pharmacy businesses. Other businesses already receive their products
+        // from /inventory and should not get synthetic "Pharmacy" rows.
+        try {
+          final pharmacyProvider =
+              Provider.of<PharmacyProvider>(context, listen: false);
+          final pharmacyItems = pharmacyProvider.drugs
+              .map((d) => {
+                    'id': 'pharmacy_${d.id}',
+                    'name': d.name,
+                    'price': d.price,
+                    'quantity': d.stock,
+                    'category': 'Pharmacy',
+                    'emoji': '💊',
+                  })
+              .toList();
 
-        // Merge, preferring explicit inventory collection items when names collide
-        final existingNames = allProducts
-            .map((p) => (p['name'] ?? '').toString().toLowerCase())
-            .toSet();
-        for (final pi in pharmacyItems) {
-          if (!existingNames
-              .contains((pi['name'] ?? '').toString().toLowerCase())) {
-            allProducts.add(pi);
+          // Merge, preferring explicit inventory collection items when names collide
+          final existingNames = allProducts
+              .map((p) => (p['name'] ?? '').toString().toLowerCase())
+              .toSet();
+          for (final pi in pharmacyItems) {
+            if (!existingNames
+                .contains((pi['name'] ?? '').toString().toLowerCase())) {
+              allProducts.add(pi);
+            }
           }
+        } catch (_) {
+          // ignore if provider not available
         }
-      } catch (_) {
-        // ignore if provider not available
       }
 
       if (mounted) {
@@ -578,11 +606,16 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                   wholesalePrice:
                                       (product['wholesalePrice'] as num?)
                                           ?.toDouble(),
+                                  distributorPrice:
+                                      ((product['distributorPrice'] ??
+                                                  product['distributor_price'])
+                                              as num?)
+                                          ?.toDouble(),
                                   stock: ((product['quantity'] ?? 0) as num)
                                       .toDouble(),
                                   category:
-                                      (product['category'] ?? 'Uncategorized')
-                                          .toString(),
+                                      _categoryForCurrentBusiness(
+                                          product['category']),
                                   imageUrl: product['imageUrl'] as String?,
                                   barcode: product['barcode'] as String?,
                                   unit: canonicalizeInventoryUnit(
@@ -1299,8 +1332,19 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         final normalizedUnitCost = normalizedQty == 0
             ? rawUnitCost
             : lineTotal / (normalizedQty as num).toDouble();
+        // Pharmacy drugs are the same underlying inventory row, just tagged
+        // with a 'pharmacy_' prefix earlier in this screen's product list so
+        // they can be merged/deduped separately from generic inventory items
+        // - the backend only accepts a bare UUID, so sending the prefixed id
+        // as-is made every pharmacy procurement's product_id fail validation
+        // silently: inventory quantity/cost never updated and no batch/
+        // history record was ever created for it.
+        final rawProductId = (prod['id'] ?? '').toString();
+        final resolvedProductId = rawProductId.startsWith('pharmacy_')
+            ? rawProductId.substring('pharmacy_'.length)
+            : rawProductId;
         return {
-          'productId': prod['id'] ?? '',
+          'productId': resolvedProductId,
           'name': prod['name'] ?? '',
           'quantity': normalizedQty,
           'unit': baseUnit.isNotEmpty ? baseUnit : selectedUnit,

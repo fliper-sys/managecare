@@ -268,12 +268,18 @@ class AuthenticationService {
     final business =
         currentBusinessId != null ? businessesById[currentBusinessId] : null;
 
-    final permissions = (currentMembership?['permissions'] as Map<String, dynamic>?)
-            ?.entries
+    final rawPermissions = currentMembership?['permissions'];
+    final permissions = rawPermissions is Map<String, dynamic>
+        ? rawPermissions.entries
             .where((e) => e.value == true)
             .map((e) => e.key)
-            .toList() ??
-        const <String>[];
+            .toList()
+        : rawPermissions is List
+            ? rawPermissions
+                .map((e) => e.toString())
+                .where((e) => e.trim().isNotEmpty)
+                .toList()
+            : const <String>[];
 
     return UserModel(
       id: profile['id'] as String,

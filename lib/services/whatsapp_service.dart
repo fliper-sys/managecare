@@ -152,6 +152,13 @@ class WhatsAppService {
     final saleRows =
         ((salesResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
 
+    final inventoryResponse = await ManagecareApiClient.instance.get(
+      '/api/inventory/$businessId',
+      query: {'limit': '100'},
+    );
+    final inventoryRows =
+        ((inventoryResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+
     final pumpEntries = <Map<String, dynamic>>[];
     for (final data in pumpConfigRows) {
       pumpEntries.add({
@@ -303,6 +310,31 @@ class WhatsAppService {
             '  • $workerName: ${_readDouble(summary['volume']).toStringAsFixed(3)}L • ${formatCurrency(_readDouble(summary['amount']))}',
           );
         }
+      }
+    }
+
+    buffer.writeln('');
+    buffer.writeln('REMAINING STOCK');
+    final fuelStockRows = inventoryRows.where((row) {
+      final text = [
+        row['category'],
+        row['name'],
+        row['unit'],
+      ].join(' ').toLowerCase();
+      return text.contains('fuel') ||
+          text.contains('petrol') ||
+          text.contains('diesel') ||
+          text.contains('kerosene') ||
+          text.contains('gas');
+    }).toList();
+    if (fuelStockRows.isEmpty) {
+      buffer.writeln('- No petroleum stock rows found.');
+    } else {
+      for (final row in fuelStockRows.take(12)) {
+        final name = (row['name'] ?? 'Stock').toString();
+        final quantity = _readDouble(row['quantity']);
+        final unit = (row['unit'] ?? 'unit').toString();
+        buffer.writeln('- $name: ${quantity.toStringAsFixed(3)} $unit');
       }
     }
 
@@ -754,23 +786,57 @@ class WhatsAppService {
         return false;
       }
 
-      final txRows = await Supabase.instance.client
-          .from('payment_transactions')
-          .select()
-          .eq('business_id', businessId)
-          .order('created_at', ascending: false)
-          .limit(limit);
-
       final List<Map<String, dynamic>> txs = [];
-      for (final td in txRows) {
-        final created = parseTimestamp(td['created_at']);
-        txs.add({
-          'transactionId': td['transaction_id'] ?? td['id'],
-          'amount': (td['amount'] ?? 0).toString(),
-          'status': td['status'] ?? '',
-          'createdAt': created.toIso8601String(),
-          'email': td['email'] ?? '',
-        });
+      try {
+        final start = DateTime.now();
+        final dayStart = DateTime(start.year, start.month, start.day);
+        final salesResponse = await ManagecareApiClient.instance.get(
+          '/api/sales/$businessId',
+          query: {
+            'startDate': dayStart.toIso8601String(),
+            'endDate': DateTime(start.year, start.month, start.day, 23, 59, 59)
+                .toIso8601String(),
+            'limit': limit.toString(),
+          },
+        );
+        final saleRows =
+            ((salesResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        for (final sale in saleRows) {
+          final created = parseTimestamp(sale['created_at']);
+          txs.add({
+            'transactionId': sale['id'],
+            'amount': (sale['final_amount'] ?? sale['total_amount'] ?? 0).toString(),
+            'status': sale['status'] ?? '',
+            'createdAt': created.toIso8601String(),
+            'cashier': sale['worker_name'] ?? sale['workerName'] ?? '',
+            'paymentMethod': sale['payment_method'] ?? sale['paymentMethod'] ?? '',
+            'items': (sale['items'] as List<dynamic>? ?? [])
+                .whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList(),
+          });
+        }
+      } catch (_) {}
+
+      if (txs.isEmpty) {
+        final txRows = await Supabase.instance.client
+            .from('payment_transactions')
+            .select()
+            .eq('business_id', businessId)
+            .order('created_at', ascending: false)
+            .limit(limit);
+
+        for (final td in txRows) {
+          final created = parseTimestamp(td['created_at']);
+          txs.add({
+            'transactionId': td['transaction_id'] ?? td['id'],
+            'amount': (td['amount'] ?? 0).toString(),
+            'status': td['status'] ?? '',
+            'createdAt': created.toIso8601String(),
+            'email': td['email'] ?? '',
+            'items': const <Map<String, dynamic>>[],
+          });
+        }
       }
 
       final businessName = data['name'] ?? 'Your business';
@@ -841,7 +907,20 @@ class WhatsAppService {
           final who = (tx['cashier'] as String?)?.toString() ??
               (tx['email'] as String?)?.toString() ??
               '';
-          lines.add('${i + 1}. \u20A6${amt.toStringAsFixed(2)} \u2022 ${tx['status']} \u2022 $dateStr${who.isNotEmpty ? ' \u2022 $who' : ''}');
+          final items = (tx['items'] as List<dynamic>? ?? [])
+              .whereType<Map>()
+              .map((item) {
+                final name = (item['productName'] ??
+                        item['product_name'] ??
+                        item['name'] ??
+                        'Item')
+                    .toString();
+                final qty = _saleItemQuantity(Map<String, dynamic>.from(item));
+                return '$name x${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}';
+              })
+              .take(4)
+              .join(', ');
+          lines.add('${i + 1}. \u20A6${amt.toStringAsFixed(2)} \u2022 ${tx['status']} \u2022 $dateStr${who.isNotEmpty ? ' \u2022 $who' : ''}${items.isNotEmpty ? ' \u2022 $items' : ''}');
         }
 
         final statusSummary = statusCounts.entries

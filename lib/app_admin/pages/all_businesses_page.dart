@@ -417,13 +417,15 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
     final List<String> skipped = [];
 
     for (var b in selected) {
-      String? ownerEmail = (b['ownerEmail'] as String?)?.trim();
-      if ((ownerEmail == null || ownerEmail.isEmpty) && (b['ownerId'] != null)) {
-        final ownerId = b['ownerId'] as String?;
+      String? ownerEmail =
+          (b['ownerEmail'] ?? b['owner_email'] ?? b['email'])?.toString().trim();
+      if ((ownerEmail == null || ownerEmail.isEmpty) &&
+          (b['ownerId'] != null || b['owner_id'] != null)) {
+        final ownerId = (b['ownerId'] ?? b['owner_id'])?.toString();
         final ownerUser = admin.allUsers.firstWhere(
             (u) => (u['id'] ?? '') == ownerId,
             orElse: () => {});
-        ownerEmail = (ownerUser['email'] as String?)?.trim();
+        ownerEmail = ownerUser['email']?.toString().trim();
       }
       if (ownerEmail == null || ownerEmail.isEmpty) {
         skipped.add((b['name'] ?? b['businessId'] ?? 'Unknown').toString());
@@ -457,7 +459,7 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
             final createdAt = t['createdAt'] ?? t['createdAt'] ?? '';
             final rawItems = t['items'] as List<dynamic>? ?? [];
             final itemSummary = rawItems.map((it) {
-              final nm = it['productName'] ?? it['name'] ?? '';
+              final nm = it['productName'] ?? it['product_name'] ?? it['name'] ?? '';
               final qty = (it['quantity'] ?? it['qty'] ?? 0);
               return '$nm x$qty';
             }).join(', ');

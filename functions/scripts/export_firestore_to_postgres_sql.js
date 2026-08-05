@@ -29,6 +29,11 @@ const outFile = outIndex >= 0 ? args[outIndex + 1] : '../firestore-postgres-impo
 const projectIndex = args.indexOf('--project');
 const projectId =
   projectIndex >= 0 ? args[projectIndex + 1] : process.env.FIREBASE_PROJECT_ID;
+const serviceAccountIndex = args.indexOf('--service-account');
+const serviceAccountPath =
+  serviceAccountIndex >= 0
+    ? args[serviceAccountIndex + 1]
+    : process.env.GOOGLE_APPLICATION_CREDENTIALS;
 const passwordCsvIndex = args.indexOf('--password-csv');
 const passwordCsvFile =
   passwordCsvIndex >= 0 ? args[passwordCsvIndex + 1] : '../firestore-import-passwords.csv';
@@ -36,11 +41,18 @@ const generateTempPasswords = args.includes('--generate-temp-passwords');
 const dryRun = args.includes('--dry-run');
 
 if (!admin.apps.length) {
-  admin.initializeApp(projectId ? { projectId } : undefined);
+  const options = {};
+  if (projectId) options.projectId = projectId;
+  if (serviceAccountPath) {
+    const resolvedPath = path.resolve(process.cwd(), serviceAccountPath);
+    const serviceAccount = JSON.parse(fs.readFileSync(resolvedPath, 'utf8'));
+    options.credential = admin.credential.cert(serviceAccount);
+    options.projectId = projectId || serviceAccount.project_id;
+  }
+  admin.initializeApp(options);
 }
 
 const db = admin.firestore();
-db.settings({ preferRest: true });
 const fixedNamespace = '0f8fad5b-d9cb-469f-a165-70867728950e';
 const staticTempPasswordHash = process.env.MIGRATION_TEMP_PASSWORD_HASH || null;
 const generatedPasswords = new Map();
@@ -111,6 +123,26 @@ function bool(data, keys, fallback = true) {
     if (typeof value === 'string') return value.toLowerCase() === 'true';
   }
   return fallback;
+}
+
+function optionalNum(data, keys) {
+  for (const key of keys) {
+    const value = data[key];
+    if (value !== undefined && value !== null && value !== '') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+function inventoryMetadata(data) {
+  const metadata = {};
+  const wholesalePrice = optionalNum(data, ['wholesalePrice', 'wholesale_price']);
+
+  if (wholesalePrice !== null) metadata.wholesale_price = wholesalePrice;
+
+  return metadata;
 }
 
 function pgUuid(kind, id) {
@@ -212,8 +244,8 @@ ON CONFLICT (user_id, business_id) DO UPDATE SET
 }
 
 function inventoryInsert(id, legacyId, businessId, data) {
-  return `INSERT INTO inventory (id, legacy_firestore_id, business_id, name, sku, barcode, category, description, unit_price, cost_price, quantity, min_stock_level, unit, expiry_date, is_active, created_at, updated_at)
-VALUES (${sql(id)}::uuid, ${sql(legacyId)}, ${sql(businessId)}::uuid, ${sql(text(data, ['name', 'productName', 'title'], 'Unnamed Item'))}, ${sql(text(data, ['sku']))}, ${sql(text(data, ['barcode']))}, ${sql(text(data, ['category']))}, ${sql(text(data, ['description']))}, ${sql(num(data, ['unit_price', 'unitPrice', 'price', 'sellingPrice'], 0))}, ${sql(num(data, ['cost_price', 'costPrice', 'cost', 'purchasePrice'], 0))}, ${sql(num(data, ['quantity', 'stock'], 0))}, ${sql(num(data, ['min_stock_level', 'minStockLevel', 'lowStockThreshold'], 0))}, ${sql(text(data, ['unit', 'uom'], 'pcs'))}, ${sql(dateValue(data.expiryDate || data.expiry_date))}::timestamptz, ${sql(bool(data, ['isActive', 'is_active'], true))}, COALESCE(${sql(dateValue(data.createdAt || data.created_at))}::timestamptz, NOW()), COALESCE(${sql(dateValue(data.updatedAt || data.updated_at))}::timestamptz, NOW()))
+  return `INSERT INTO inventory (id, legacy_firestore_id, business_id, name, sku, barcode, category, description, unit_price, cost_price, quantity, min_stock_level, unit, expiry_date, is_active, metadata, created_at, updated_at)
+VALUES (${sql(id)}::uuid, ${sql(legacyId)}, ${sql(businessId)}::uuid, ${sql(text(data, ['name', 'productName', 'title'], 'Unnamed Item'))}, ${sql(text(data, ['sku']))}, ${sql(text(data, ['barcode']))}, ${sql(text(data, ['category']))}, ${sql(text(data, ['description']))}, ${sql(num(data, ['unit_price', 'unitPrice', 'price', 'sellingPrice'], 0))}, ${sql(num(data, ['cost_price', 'costPrice', 'cost', 'purchasePrice'], 0))}, ${sql(num(data, ['quantity', 'stock'], 0))}, ${sql(num(data, ['min_stock_level', 'minStockLevel', 'lowStockThreshold'], 0))}, ${sql(text(data, ['unit', 'uom'], 'pcs'))}, ${sql(dateValue(data.expiryDate || data.expiry_date))}::timestamptz, ${sql(bool(data, ['isActive', 'is_active'], true))}, ${jsonSql(inventoryMetadata(data))}, COALESCE(${sql(dateValue(data.createdAt || data.created_at))}::timestamptz, NOW()), COALESCE(${sql(dateValue(data.updatedAt || data.updated_at))}::timestamptz, NOW()))
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
   sku = COALESCE(EXCLUDED.sku, inventory.sku),
@@ -227,6 +259,7 @@ ON CONFLICT (id) DO UPDATE SET
   unit = EXCLUDED.unit,
   expiry_date = COALESCE(EXCLUDED.expiry_date, inventory.expiry_date),
   is_active = EXCLUDED.is_active,
+  metadata = inventory.metadata || EXCLUDED.metadata,
   updated_at = NOW();`;
 }
 

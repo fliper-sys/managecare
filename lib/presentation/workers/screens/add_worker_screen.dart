@@ -354,7 +354,10 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
       final businessType = context.read<BusinessProvider>().currentBusiness?.businessType;
 
-      final primaryRole = _selectedRoles.isNotEmpty ? _selectedRoles.first : 'staff';
+      final primaryRole = _selectedRoles.firstWhere(
+        (role) => role != 'staff',
+        orElse: () => _selectedRoles.isNotEmpty ? _selectedRoles.first : 'staff',
+      );
       final effectivePermissions = _effectivePermissionsForSelection();
 
       // Commission percentage (if worker is barber/stylist)
@@ -435,7 +438,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
         password: password,
         fullName: _fullNameController.text.trim(),
         phoneNumber: _phoneController.text.trim(),
-        role: 'worker',
+        role: primaryRole,
         businessId: selectedBusinessId,
       );
       if (!createdWorkerLogin) {

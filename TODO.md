@@ -1,18 +1,21 @@
-# Task: Limit Export Sales History retrieval to last 100 sales (per selected date range)
+# Private Database Migration Bug Fixes - TODO
 
-## Context
-The Export Sales History screen (Settings) fetches all 2000+ sales (via `ReportsProvider.fetchSalesList` with
-`limit: 5000`/`2000`), but the limit is only applied client-side AFTER fetching every page, causing severe lag.
-Sales Report and Sales History screens must remain unlimited/paginated as they are.
+## Priority 1: Worker & Permission Issues
+- [x] 1. Fix worker role always "staff" (auth_provider_supabase.dart)
+- [x] 2. Fix workers shown off duty / permission filtering (workers.js + worker_permissions)
+- [x] 3. Fix edit permission & role switching not working (worker_details_screen.dart + workers_provider.dart)
 
-## Steps
-- [x] 1. Understand the delete-sale flow and confirm it works (user confirmed)
-- [x] 2. Read all relevant files (sales_repository_supabase, sales_repository_impl, domain/sales_repository,
-         reports_provider, export_sales_history_screen, startup_notifications)
-- [ ] 3. Add optional `int? limit` to abstract `SalesRepository.fetchSales` (domain)
-- [ ] 4. Add `int? limit` param to `SalesRepositorySupabase.fetchSales` and pass into query params (repo)
-- [ ] 5. Add `int? limit` param to `SalesRepositoryImpl.fetchSales` (Firebase impl)
-- [ ] 6. Pass `limit` through in `ReportsProvider.fetchSalesList` to `_salesRepo.fetchSales`
-- [ ] 7. Change all `fetchSalesList` calls in export_sales_history_screen.dart to `limit: 100`
-- [ ] 8. Run `flutter analyze` to verify no type errors
+## Priority 2: Pharmacy & Procurement Issues
+- [x] 4. Fix products registered as "pharmacy" in procurement edit (procurement_screen.dart)
+- [x] 5. Fix sale error due to pharmacy category (sales_screen.dart)
 
+## Priority 3: Wholesale Pricing
+- [x] 6. Fix wholesale pricing missing from product data (inventory_repository_supabase.dart + inventory.js)
+
+## Priority 4: Offline & Subscription
+- [x] 7. Fix logout to subscription page on offline (auth_provider_supabase.dart + enhanced_subscription_provider.dart)
+
+## Priority 5: WhatsApp & Email
+- [x] 8. Fix WhatsApp message to include sold items (whatsapp_service.dart)
+- [x] 9. Add petroleum remaining stock to WhatsApp (whatsapp_service.dart)
+- [x] 10. Wire up daily email transactions from all businesses page (owner_dashboard_screen.dart)

@@ -359,6 +359,87 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     );
   }
 
+  String _displayValue(dynamic value) {
+    if (value == null) return 'N/A';
+    if (value is DateTime) return DateFormat.yMd().add_jm().format(value);
+    if (value is num) return formatAmount(value.toDouble(), decimalDigits: 3);
+    final text = value.toString().trim();
+    return text.isEmpty ? 'N/A' : text;
+  }
+
+  Widget _buildUploadParameterSection(Map<String, dynamic> data) {
+    final uploadedAt = _readDate(data['uploadedAt']);
+    final createdAt = _readDate(data['createdAt']);
+    final disputedAt = _readDate(data['disputedAt']);
+    final resolvedAt = _readDate(data['disputeResolvedAt']);
+    final rows = <MapEntry<String, dynamic>>[
+      MapEntry('Upload ID', data['id']),
+      MapEntry('Pump ID', data['pumpId']),
+      MapEntry('Pump number', data['pumpNumber']),
+      MapEntry('Product ID', data['productId']),
+      MapEntry('Product name', data['productName']),
+      MapEntry('Product unit', data['productUnit']),
+      MapEntry('Product price', data['productPrice']),
+      MapEntry('Worker ID', data['workerId']),
+      MapEntry('Worker name', data['workerName']),
+      MapEntry('Sale ID', data['saleId']),
+      MapEntry('Upload fingerprint', data['uploadFingerprint']),
+      MapEntry('Digital opening volume', data['openingVolume']),
+      MapEntry('Digital closing volume', data['closingVolume']),
+      MapEntry('Digital volume', data['digitalVolume']),
+      MapEntry('Volume difference', data['volumeDifference']),
+      MapEntry('Analog opening volume', data['analogOpeningVolume']),
+      MapEntry('Analog closing volume', data['analogClosingVolume']),
+      MapEntry('Previous analog closing volume', data['previousAnalogClosingVolume']),
+      MapEntry('Previous closing volume', data['previousClosingVolume']),
+      MapEntry('Sold volume', data['soldVolume']),
+      MapEntry('Cash-derived volume', data['cashDerivedVolume']),
+      MapEntry('Expected amount', data['expectedAmount']),
+      MapEntry('Shift opening cash', data['shiftOpeningCash']),
+      MapEntry('Shift close cash', data['shiftCloseCash']),
+      MapEntry('Shift cash difference', data['shiftCashDifference']),
+      MapEntry('Previous shift closing cash', data['previousShiftClosingCash']),
+      MapEntry('Today pump cash', data['todayPumpCash']),
+      MapEntry('Cash amount', data['cashAmount']),
+      MapEntry('POS amount', data['posAmount']),
+      MapEntry('Total paid', data['totalPaid']),
+      MapEntry('Discrepancy summary', data['discrepancySummary']),
+      MapEntry('Discrepancy notes', data['discrepancyNotes']),
+      MapEntry('Shift opening cash photo', data['shiftOpeningCashPhotoUrl']),
+      MapEntry('Shift close cash photo', data['shiftCloseCashPhotoUrl']),
+      MapEntry('Opening photo', data['openingPhotoUrl']),
+      MapEntry('Closing photo', data['closingPhotoUrl']),
+      MapEntry('Is disputed', data['isDisputed']),
+      MapEntry('Disputed at', disputedAt),
+      MapEntry('Disputed by', data['disputedByName'] ?? data['disputedBy']),
+      MapEntry('Dispute reason', data['disputeReason']),
+      MapEntry('Resolved at', resolvedAt),
+      MapEntry('Resolved by', data['disputeResolvedByName'] ?? data['disputeResolvedBy']),
+      MapEntry('Category', data['category']),
+      MapEntry('Uploaded at', uploadedAt),
+      MapEntry('Created at', createdAt),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        const Text(
+          'Upload parameters',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        ...rows.map(
+          (entry) => _buildDetailRow(
+            entry.key,
+            entry.value is List
+                ? (entry.value as List).join(', ')
+                : _displayValue(entry.value),
+          ),
+        ),
+      ],
+    );
+  }
   Future<void> _pickDate({required bool isStart}) async {
     final now = DateTime.now();
     final initialDate = isStart ? _startDate : _endDate;
@@ -982,6 +1063,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                     .toList(),
                                               ),
                                             ),
+                                          _buildUploadParameterSection(data),
+                                          const SizedBox(height: 12),
                                           if (shiftOpeningCashUrl != null && shiftOpeningCashUrl.isNotEmpty)
                                             Column(
                                               crossAxisAlignment: CrossAxisAlignment.start,
