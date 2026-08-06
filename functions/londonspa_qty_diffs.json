@@ -1,0 +1,1890 @@
+[
+  {
+    "id": "09VL13g6OccZ4ORSlj2h",
+    "name": "Advanced Korean Skin lotion",
+    "pgId": "a7f65aa4-f9f8-4497-9ee4-9cb84a221cac",
+    "fsQty": 9,
+    "pgQty": 1,
+    "delta": 8
+  },
+  {
+    "id": "0E1byxjhsxaOw07mBJmT",
+    "name": "Mousuf 50ml",
+    "pgId": "5caff9dd-3f21-42d6-8e4a-3b840671a6e9",
+    "fsQty": 68,
+    "pgQty": 25,
+    "delta": 43
+  },
+  {
+    "id": "0OITp1cviPert2Au5I6m",
+    "name": "Medix 5.5 Soap",
+    "pgId": "449f9b85-03be-41e7-a685-e0f6d42fabb0",
+    "fsQty": 33,
+    "pgQty": 34,
+    "delta": -1
+  },
+  {
+    "id": "0nhKzfbpLO2VjhPGrYyR",
+    "name": "St Ives body wash",
+    "pgId": "3720971f-5055-4203-9a1b-5e9a63722062",
+    "fsQty": 30,
+    "pgQty": 31,
+    "delta": -1
+  },
+  {
+    "id": "0t6I5EpCqEBuYcWNvBQ4",
+    "name": "Keratin Conditioner 750ml",
+    "pgId": "571f93f1-6fd9-4494-99fe-d4259efa4ce0",
+    "fsQty": 16,
+    "pgQty": 11,
+    "delta": 5
+  },
+  {
+    "id": "0trffGZ6rtcOReKvl2ba",
+    "name": "Infinity Glow",
+    "pgId": "d09a6b4f-e046-4456-8587-c85534e83405",
+    "fsQty": 60,
+    "pgQty": 53,
+    "delta": 7
+  },
+  {
+    "id": "1C8OodR7fGCES6pxZYTo",
+    "name": "X 7 Lotions",
+    "pgId": "bfde7164-2482-4862-8faf-6b8e6b43c145",
+    "fsQty": 9,
+    "pgQty": 5,
+    "delta": 4
+  },
+  {
+    "id": "1R0X1wBvhRAgXmYhLbAG",
+    "name": "Evening Primerose supplement",
+    "pgId": "3b466df9-30c3-45d8-9054-30f98db0f375",
+    "fsQty": 4,
+    "pgQty": 5,
+    "delta": -1
+  },
+  {
+    "id": "1fSJNrd4IneftgKLLWRX",
+    "name": "Advanced Korean Skin Body Wash 1200ml",
+    "pgId": "30ba3978-937c-4573-bb23-d669989ecd24",
+    "fsQty": 3,
+    "pgQty": 1,
+    "delta": 2
+  },
+  {
+    "id": "266kkP1nGeiJRyclCqTR",
+    "name": "confetti sprays",
+    "pgId": "629eff21-c4e0-4c65-9e69-831b32716afb",
+    "fsQty": 36,
+    "pgQty": 39,
+    "delta": -3
+  },
+  {
+    "id": "28aQzG3NU9UZiSFlWTMY",
+    "name": "24k Gold Soap",
+    "pgId": "f9b847ec-a3c6-4871-ae42-c3638aded49f",
+    "fsQty": 22,
+    "pgQty": 18,
+    "delta": 4
+  },
+  {
+    "id": "2Cw7L6XLC57AuUn03V4i",
+    "name": "Miss Queen Gold face cream",
+    "pgId": "6504f709-a7b0-4cfb-a5d9-de57d9083b48",
+    "fsQty": 50,
+    "pgQty": 40,
+    "delta": 10
+  },
+  {
+    "id": "2TwllUQJ3OCyTsa6KAKv",
+    "name": "Glow  Booster Lightening Oil",
+    "pgId": "b687ff90-f3f9-4587-aeb3-330ec3414b26",
+    "fsQty": 10,
+    "pgQty": 11,
+    "delta": -1
+  },
+  {
+    "id": "2UXJ3cJPJKuK4p5Ur8m7",
+    "name": "Moon White Body Scrub",
+    "pgId": "c2a39a52-8bbf-4da3-9339-d2afa38092bb",
+    "fsQty": 6,
+    "pgQty": 7,
+    "delta": -1
+  },
+  {
+    "id": "2bB9iWPED7DORaMQIxFL",
+    "name": "tea tree toner",
+    "pgId": "8d070266-3953-4745-a5c5-dffc0be026cd",
+    "fsQty": 11,
+    "pgQty": 10,
+    "delta": 1
+  },
+  {
+    "id": "2j1tajYEISsXA7Q6sr4f",
+    "name": "fair and white scrub wash",
+    "pgId": "5764b487-8ca5-44f2-92e2-f9d3a5bb8522",
+    "fsQty": 11,
+    "pgQty": 10,
+    "delta": 1
+  },
+  {
+    "id": "2syEd5uNlqUDpcR5WTCK",
+    "name": "Papaya Hair Wax",
+    "pgId": "80ce9fd7-d8bc-418b-8bf9-968e95897961",
+    "fsQty": 4,
+    "pgQty": 5,
+    "delta": -1
+  },
+  {
+    "id": "3IJjm83LpzrT9n5kzD8S",
+    "name": "Nivea Advocado",
+    "pgId": "6de1231f-bd3c-4f05-89c7-aedfe4ef9619",
+    "fsQty": 12,
+    "pgQty": 10,
+    "delta": 2
+  },
+  {
+    "id": "3VvdXxQacXjOq2X608zc",
+    "name": "Smooth As Silk big",
+    "pgId": "3d9e5438-d97e-420f-ad8f-c44b815bbabc",
+    "fsQty": 13,
+    "pgQty": 4,
+    "delta": 9
+  },
+  {
+    "id": "3q5fDSTOF4oMX176E9DJ",
+    "name": "Arden Kids Lotion",
+    "pgId": "554e7554-cf4d-4ae5-af35-78547fd9c024",
+    "fsQty": 7,
+    "pgQty": 4,
+    "delta": 3
+  },
+  {
+    "id": "4cHFUtQR6IzBrysikkRV",
+    "name": "Tretinol Gel Usp",
+    "pgId": "bdea0820-6e86-46bd-9914-d1550415ec80",
+    "fsQty": 31,
+    "pgQty": 18,
+    "delta": 13
+  },
+  {
+    "id": "5lwPnKs7xhSQzUa2iNWy",
+    "name": "Advanced Clinical Serum",
+    "pgId": "aa71a6b2-edd9-40b4-b0a1-90bfdda015f8",
+    "fsQty": 10,
+    "pgQty": 12,
+    "delta": -2
+  },
+  {
+    "id": "60GIFmP9uJ0uBNi3Ipua",
+    "name": "Asantee Bar Soap",
+    "pgId": "263e8cda-da62-40b4-bd89-33400729f0a5",
+    "fsQty": 36,
+    "pgQty": 38,
+    "delta": -2
+  },
+  {
+    "id": "6O2OBXbRu7JfoRJRbb0B",
+    "name": "Veet Gold Sugar Scrub",
+    "pgId": "acfd5b9e-c022-4190-a89d-71bc124bb013",
+    "fsQty": 23,
+    "pgQty": 24,
+    "delta": -1
+  },
+  {
+    "id": "6R3TbNkGrSpakr3neJ2t",
+    "name": "Prince And Princess Lotion",
+    "pgId": "f4d5e691-e734-4bbf-b5ac-8ed967470252",
+    "fsQty": 6,
+    "pgQty": 7,
+    "delta": -1
+  },
+  {
+    "id": "6ucbKt0EjeXxWwoCGZAc",
+    "name": "dr davey oil gel",
+    "pgId": "c272c933-6484-4a52-bf94-a50190931836",
+    "fsQty": 47,
+    "pgQty": 46,
+    "delta": 1
+  },
+  {
+    "id": "770DVHC3pwRY1Brr1GH3",
+    "name": "Karis Spray",
+    "pgId": "b6108061-f11b-48a4-ad12-c13b15045f3f",
+    "fsQty": 16,
+    "pgQty": 34,
+    "delta": -18
+  },
+  {
+    "id": "7blqniin6RxK7pLz6ltw",
+    "name": "bod man splash",
+    "pgId": "0969b58b-25f6-4144-a24e-a8fe190956b6",
+    "fsQty": 12,
+    "pgQty": 13,
+    "delta": -1
+  },
+  {
+    "id": "85hhrxDqkTqf7ZJSWEGX",
+    "name": "Mousuf perfume 25 Ml",
+    "pgId": "ee18792f-d9ac-4fde-b41b-c0b6397a7d38",
+    "fsQty": 79,
+    "pgQty": 54,
+    "delta": 25
+  },
+  {
+    "id": "8A4RkZsKPZSOo6avb94s",
+    "name": "Prince And Princess Body Wash",
+    "pgId": "3c634cee-d9a0-455c-bf8d-d32830c61d77",
+    "fsQty": 3,
+    "pgQty": 4,
+    "delta": -1
+  },
+  {
+    "id": "8JWLpJ1eeOL0wJRAwxEi",
+    "name": "Cerave 237ml",
+    "pgId": "f069f432-8987-4f8c-b793-2923fce7fd95",
+    "fsQty": 36,
+    "pgQty": 37,
+    "delta": -1
+  },
+  {
+    "id": "8KKshLjOPWmlXwXgEaa5",
+    "name": "First Class Vaseline Big",
+    "pgId": "5a6edff7-1e5d-438b-9dcd-4ed355bd61d8",
+    "fsQty": 5,
+    "pgQty": 6,
+    "delta": -1
+  },
+  {
+    "id": "8tQNxXafkIfn2bnwtXzV",
+    "name": "Rich And Pure",
+    "pgId": "2395ff7e-f8c6-4b1a-ba9f-3aedec47abc4",
+    "fsQty": 2,
+    "pgQty": 3,
+    "delta": -1
+  },
+  {
+    "id": "8tgDyr9Sb1QUkQwjjEJW",
+    "name": "Nivea roll on",
+    "pgId": "4ba95ccd-68bc-4873-9c6a-83f1e0289a2f",
+    "fsQty": 155,
+    "pgQty": 159,
+    "delta": -4
+  },
+  {
+    "id": "9Mj2Q1DwUWCPYLNaqJFk",
+    "name": "Neutrogena 250ml",
+    "pgId": "44b713a9-0b5a-4b7f-b953-d25587782949",
+    "fsQty": 2,
+    "pgQty": 3,
+    "delta": -1
+  },
+  {
+    "id": "9cEJKynorTwjrtpxpFfK",
+    "name": "Now Women  pink 100ml",
+    "pgId": "b515dbe7-5fb9-4975-af4a-abd6c19465a8",
+    "fsQty": 5,
+    "pgQty": 3,
+    "delta": 2
+  },
+  {
+    "id": "9cx1u8jo98qum3rWED5G",
+    "name": "Veet gold Gluta Hya Oil",
+    "pgId": "7247d2f3-92eb-47f4-8e32-6827a7b29874",
+    "fsQty": 1,
+    "pgQty": 2,
+    "delta": -1
+  },
+  {
+    "id": "A2EstyJP2rvp7bL7tvFQ",
+    "name": "Monkids",
+    "pgId": "9a2b1268-a104-4c7a-a85b-9661139e35e6",
+    "fsQty": 7,
+    "pgQty": 3,
+    "delta": 4
+  },
+  {
+    "id": "A4kKzXXfTnxpIapRvgaO",
+    "name": "so white tube cream and gel",
+    "pgId": "1b608b1a-a225-495a-93b7-51fc07e2397a",
+    "fsQty": 17,
+    "pgQty": 18,
+    "delta": -1
+  },
+  {
+    "id": "A7jBWAm97SrPzSl9u1qY",
+    "name": "The Ordinary toner",
+    "pgId": "c2e05a3b-565f-43d1-a3a4-c971c94631ad",
+    "fsQty": 13,
+    "pgQty": 16,
+    "delta": -3
+  },
+  {
+    "id": "AKzucrqwU8kBQ6bPDE4E",
+    "name": "Yc Face Wash",
+    "pgId": "fd8ee945-7d45-4576-ba83-de4ba50a0bd8",
+    "fsQty": 9,
+    "pgQty": 10,
+    "delta": -1
+  },
+  {
+    "id": "AXvEbt0Po7JmWl9Ajtpu",
+    "name": "classic lip gloss go shine",
+    "pgId": "8b112831-491a-4614-baae-a85be08ede83",
+    "fsQty": 23,
+    "pgQty": 24,
+    "delta": -1
+  },
+  {
+    "id": "AjJ1KkTNi58ld4KTGZrk",
+    "name": "Kuu Spa Salt Scrub Tumeric",
+    "pgId": "48989250-d5d7-4c39-b91e-43ba54c37754",
+    "fsQty": 6,
+    "pgQty": 3,
+    "delta": 3
+  },
+  {
+    "id": "Ar07A9a1E2BayicNR9sf",
+    "name": "Nano Extra White Soap",
+    "pgId": "75ca7560-1538-4488-b8c2-e6b6d4e570e1",
+    "fsQty": 22,
+    "pgQty": 17,
+    "delta": 5
+  },
+  {
+    "id": "AzfMZimNhQXYowS5mzv9",
+    "name": "Tessori Perfume Pink",
+    "pgId": "ea012a4f-4a46-4bbd-bec9-e660f24e628a",
+    "fsQty": 6,
+    "pgQty": 4,
+    "delta": 2
+  },
+  {
+    "id": "BAhDQCX4MP7mlPNV2Wf2",
+    "name": "VO5 shampoo alberto",
+    "pgId": "ca158e4b-6ffc-407c-976a-3bfc859bb4a6",
+    "fsQty": 17,
+    "pgQty": 15,
+    "delta": 2
+  },
+  {
+    "id": "BQXxPFg66OomxCNKPIzw",
+    "name": "Face Facts Serum",
+    "pgId": "ca27105c-ab4e-4bcc-a9a6-1f42951293b9",
+    "fsQty": 102,
+    "pgQty": 96,
+    "delta": 6
+  },
+  {
+    "id": "BRQIVUc9uLxPg2TyRZfD",
+    "name": "Garnier Skin Naturals",
+    "pgId": "5576720b-aa7b-4f6a-95ab-4726c1915a93",
+    "fsQty": 7,
+    "pgQty": 5,
+    "delta": 2
+  },
+  {
+    "id": "BykHltPT2D7tmyGOM8UX",
+    "name": "black leather and brown",
+    "pgId": "a5fc6eb5-f3eb-4d68-889f-a3517aa5ea76",
+    "fsQty": 11,
+    "pgQty": 7,
+    "delta": 4
+  },
+  {
+    "id": "CFFu7hBKGJT989Pepp66",
+    "name": "Tesori D'orienta can",
+    "pgId": "0f00e32f-4ae1-425a-8162-682c49b949a3",
+    "fsQty": 20,
+    "pgQty": 18,
+    "delta": 2
+  },
+  {
+    "id": "CO6I1GnUSQ0EUdiZFsrI",
+    "name": "Barakat 25ml",
+    "pgId": "5557ee73-84f1-4987-bd92-0de026c8ea3d",
+    "fsQty": 4,
+    "pgQty": 5,
+    "delta": -1
+  },
+  {
+    "id": "CdRZjPay7t8cpbyXrXEr",
+    "name": "Hawaii  Soap",
+    "pgId": "c8205a7a-c17b-4bcb-84b9-daf81a36f189",
+    "fsQty": 87,
+    "pgQty": 68,
+    "delta": 19
+  },
+  {
+    "id": "CxQvHB2AjNlKB3pvz11a",
+    "name": "Smooth As Silk soap Small",
+    "pgId": "9d3e63c9-d8b4-4b12-afff-1c479395a285",
+    "fsQty": 24,
+    "pgQty": 23,
+    "delta": 1
+  },
+  {
+    "id": "DAoNiQzlCV42xuQkQNFM",
+    "name": "White Season Carrot&gold",
+    "pgId": "509d60dc-6829-4fd1-82f9-5b2afb76a24f",
+    "fsQty": 3,
+    "pgQty": 2,
+    "delta": 1
+  },
+  {
+    "id": "DENDoJq0jrc1XKm85mXB",
+    "name": "Bio Cos Face Wash",
+    "pgId": "d93cca47-2754-47d9-bc30-7a8b6f06d6c2",
+    "fsQty": 9,
+    "pgQty": 7,
+    "delta": 2
+  },
+  {
+    "id": "DwJwJUBDpD7iEzzmAroC",
+    "name": "My Dear Body Splash",
+    "pgId": "2630cfe1-e7f5-4b7d-b783-37b82a16ef84",
+    "fsQty": 21,
+    "pgQty": 18,
+    "delta": 3
+  },
+  {
+    "id": "EB2bwC1a8pjOGLqkPfon",
+    "name": "9pm 30ml",
+    "pgId": "b79fb0e7-0798-492b-989e-874a2e6c84b5",
+    "fsQty": 19,
+    "pgQty": 9,
+    "delta": 10
+  },
+  {
+    "id": "EHH9EX4pl8af5o9hyQzZ",
+    "name": "Fair Child soap",
+    "pgId": "39a84ce9-156a-431b-92f2-eb31c7fa1225",
+    "fsQty": 69,
+    "pgQty": 45,
+    "delta": 24
+  },
+  {
+    "id": "EOWe9qupQKQsRnzOgfFB",
+    "name": "classic makeup powder",
+    "pgId": "c9683ef4-3088-4beb-b1db-222d1296554a",
+    "fsQty": 29,
+    "pgQty": 30,
+    "delta": -1
+  },
+  {
+    "id": "FzYYhDGtOH6tnvRxkSSB",
+    "name": "DOVE SPRAYS",
+    "pgId": "fb0a843e-d229-45ff-8f91-e84c8804ee58",
+    "fsQty": 69,
+    "pgQty": 114,
+    "delta": -45
+  },
+  {
+    "id": "G6xDcYiXwf1zPlvDQle8",
+    "name": "simple toner",
+    "pgId": "8b54ec55-cf25-4903-94d6-a5a3b2bc2853",
+    "fsQty": 11,
+    "pgQty": 12,
+    "delta": -1
+  },
+  {
+    "id": "GCyf0p5hCicxbg3X7HI9",
+    "name": "alpha abutin soap",
+    "pgId": "4d365c3d-fb8e-46c0-a3c9-107e72c4c415",
+    "fsQty": 16,
+    "pgQty": 17,
+    "delta": -1
+  },
+  {
+    "id": "GF5AReiacTIOkn991VMX",
+    "name": "Hollywood activator",
+    "pgId": "6a983395-9cc8-4b04-b79e-2411d6d1013f",
+    "fsQty": 3,
+    "pgQty": 1,
+    "delta": 2
+  },
+  {
+    "id": "GQAKBpqw0wg10xTjYbys",
+    "name": "Veet Gold Body Treatment Oil",
+    "pgId": "24fc20de-d37d-4f5d-854d-e8cf6c8d2cf6",
+    "fsQty": 23,
+    "pgQty": 24,
+    "delta": -1
+  },
+  {
+    "id": "GV7mCBKhPKhVhsgQmK4L",
+    "name": "ponds powder 100ml",
+    "pgId": "3a3b8975-cd85-4dba-a08f-db54f764d907",
+    "fsQty": 2,
+    "pgQty": 1,
+    "delta": 1
+  },
+  {
+    "id": "H0ZyVWwoqeRW0GhsMPfx",
+    "name": "so white Serum",
+    "pgId": "44ead9b6-0052-4167-819e-e4a00aa7ee2c",
+    "fsQty": 2,
+    "pgQty": 3,
+    "delta": -1
+  },
+  {
+    "id": "H0lponSYPqpC01AA76MU",
+    "name": "Jam Soap",
+    "pgId": "5756b27f-0cb7-4879-858c-db917196c53e",
+    "fsQty": 129,
+    "pgQty": 81,
+    "delta": 48
+  },
+  {
+    "id": "HJcNOJnL7Wsw1yXbaNb3",
+    "name": "Erha21 Hand Cream",
+    "pgId": "fe27aaff-7a8d-4293-902a-1d2ebf453e3d",
+    "fsQty": 8,
+    "pgQty": 9,
+    "delta": -1
+  },
+  {
+    "id": "HolATyJCPjTLFMnKcGsR",
+    "name": "Precious Kid",
+    "pgId": "c71fe320-bf46-41a9-8ecb-910665c5764c",
+    "fsQty": 11,
+    "pgQty": 12,
+    "delta": -1
+  },
+  {
+    "id": "IRJmgYLMuzBB3ld3E7FK",
+    "name": "VONE 45 Soap",
+    "pgId": "2eda2d59-3ec4-4fa3-8ace-08be4476e190",
+    "fsQty": 26,
+    "pgQty": 27,
+    "delta": -1
+  },
+  {
+    "id": "IcL6oUgHpAJgAt9rAsgR",
+    "name": "classic oil contol",
+    "pgId": "5a120da1-4dc9-4740-bee5-cabb10a564fd",
+    "fsQty": 48,
+    "pgQty": 49,
+    "delta": -1
+  },
+  {
+    "id": "JJXKWrK7o2WWeyr3cL5Y",
+    "name": "Red diamond perfume",
+    "pgId": "32e3e09c-2ce1-45bd-b55b-11d9c8643234",
+    "fsQty": 0,
+    "pgQty": 2,
+    "delta": -2
+  },
+  {
+    "id": "JY6vrYhXMRpJ0mY6Pqpr",
+    "name": "KHAMRA 50ML",
+    "pgId": "6cbd6588-d444-460c-8d12-04f0e7c42469",
+    "fsQty": 6,
+    "pgQty": 1,
+    "delta": 5
+  },
+  {
+    "id": "JYoGyBIqX5l8K23HZGNN",
+    "name": "Fogg spray",
+    "pgId": "66bd5cbf-acdd-4596-8e0d-7adf59503f43",
+    "fsQty": 22,
+    "pgQty": 6,
+    "delta": 16
+  },
+  {
+    "id": "JyCDQT3t48ve5UVt0RUS",
+    "name": "Dr Rashel Skin Whitting Serum",
+    "pgId": "933d389b-ed9c-4e80-a43a-27b422325e18",
+    "fsQty": 10,
+    "pgQty": 11,
+    "delta": -1
+  },
+  {
+    "id": "K87kWpRWy8Muxhc6ehQI",
+    "name": "V6 soap",
+    "pgId": "2e0ca884-3bd1-4df7-a2a1-1af9b9bca7fd",
+    "fsQty": 18,
+    "pgQty": 17,
+    "delta": 1
+  },
+  {
+    "id": "KAIyyCaETtIPZKAP9eII",
+    "name": "9Pm Spray",
+    "pgId": "fdefc506-ce0b-4f28-adf4-96e28dbf9655",
+    "fsQty": 8,
+    "pgQty": 10,
+    "delta": -2
+  },
+  {
+    "id": "KPcmKiW2B3bMuWm2C2AO",
+    "name": "Advanced Korean Face Cream",
+    "pgId": "5432f4a7-1ae6-4d85-b8ce-0887bd71d6d9",
+    "fsQty": 8,
+    "pgQty": 9,
+    "delta": -1
+  },
+  {
+    "id": "KZn6c91EzGmGIi81buEa",
+    "name": "Extract Soap",
+    "pgId": "1829e4ca-1125-45fd-bfa3-6a96af948aee",
+    "fsQty": 83,
+    "pgQty": 98,
+    "delta": -15
+  },
+  {
+    "id": "Ke0dn2vaMuE7GMVkBnvs",
+    "name": "rexona spray",
+    "pgId": "624f3978-26e5-4093-8be5-23da591abc52",
+    "fsQty": 100,
+    "pgQty": 102,
+    "delta": -2
+  },
+  {
+    "id": "KrFeZD8XyfuqMRWaTuDl",
+    "name": "Lataffa Spray",
+    "pgId": "f858c3b2-dce5-4e2b-9915-d32d71679e76",
+    "fsQty": 18,
+    "pgQty": 6,
+    "delta": 12
+  },
+  {
+    "id": "KsxA7Xc7yrvLXCWl15dG",
+    "name": "Vaseline blue seal 100ml",
+    "pgId": "9c457076-609c-427a-b467-c2990fc76c7c",
+    "fsQty": 14,
+    "pgQty": 16,
+    "delta": -2
+  },
+  {
+    "id": "LLTmNdGwBYZjt7maqeHV",
+    "name": "Hexfli sugar scrub",
+    "pgId": "d490b386-e8bc-4d2d-af73-8286342c1d86",
+    "fsQty": 13,
+    "pgQty": 14,
+    "delta": -1
+  },
+  {
+    "id": "LbJUkjnGdJywN4sdhgp8",
+    "name": "parley face soap",
+    "pgId": "d04893d9-2534-421e-b179-c7ece88fb95e",
+    "fsQty": 22,
+    "pgQty": 23,
+    "delta": -1
+  },
+  {
+    "id": "LeUrRNUEXKF7a49DAHVq",
+    "name": "e45 soap",
+    "pgId": "b4a60127-1028-4110-9bd1-85f0243f4008",
+    "fsQty": 20,
+    "pgQty": 22,
+    "delta": -2
+  },
+  {
+    "id": "LpFJd38CasaaY9dNOL7d",
+    "name": "Orbi 20 Soap",
+    "pgId": "6ca31529-fe69-4cdc-8b94-b9e503c9f314",
+    "fsQty": 41,
+    "pgQty": 40,
+    "delta": 1
+  },
+  {
+    "id": "Mb0RyLlZufhM0lEQMYN2",
+    "name": "Oscar Spray",
+    "pgId": "4fd1efce-5529-457c-81e4-f7f218dc63ff",
+    "fsQty": 89,
+    "pgQty": 156,
+    "delta": -67
+  },
+  {
+    "id": "MbH0KQdKvCVhMrhNwwWS",
+    "name": "enchantor roll on",
+    "pgId": "0e17a1e8-8b5c-4d70-89a0-ce922b8550b8",
+    "fsQty": 49,
+    "pgQty": 47,
+    "delta": 2
+  },
+  {
+    "id": "Mc08kaTAZb1o9BwnaJON",
+    "name": "Body Fantasia splash",
+    "pgId": "04353df4-dcbb-4f95-a1e4-1213c82a6235",
+    "fsQty": 10,
+    "pgQty": 4,
+    "delta": 6
+  },
+  {
+    "id": "MdEyKzcAo3qAv6nkH4f2",
+    "name": "Fair Child LOTION",
+    "pgId": "23dbf5ea-a503-439c-96b9-32dc7937c3b7",
+    "fsQty": 32,
+    "pgQty": 37,
+    "delta": -5
+  },
+  {
+    "id": "NJITwIpe9U79IMgO5E26",
+    "name": "Veet Gold Face cream",
+    "pgId": "6389f6dd-4461-4d61-9b61-add329f576d9",
+    "fsQty": 19,
+    "pgQty": 18,
+    "delta": 1
+  },
+  {
+    "id": "OKtjnhSlDWyzXL4zrGfV",
+    "name": "Parley Gold Advance Beauty Cream",
+    "pgId": "e847606c-1bc4-461c-b98e-ef0289395632",
+    "fsQty": 50,
+    "pgQty": 44,
+    "delta": 6
+  },
+  {
+    "id": "OLvYZEGNXgheWwjExteh",
+    "name": "glutathione and vitamin c lotion",
+    "pgId": "6cf4e1ea-c7e2-485f-beb9-4762c926edf3",
+    "fsQty": 5,
+    "pgQty": 1,
+    "delta": 4
+  },
+  {
+    "id": "OPHIQqA4Ipuv8AAGkiBV",
+    "name": "Riggs Kids",
+    "pgId": "29e26542-cb22-4eb8-bae3-217deec70c85",
+    "fsQty": 31,
+    "pgQty": 17,
+    "delta": 14
+  },
+  {
+    "id": "OsNoggSSWzq8arHVzCnA",
+    "name": "24k Sprays",
+    "pgId": "d3b330db-7e88-41ba-98d0-f782ce9964be",
+    "fsQty": 18,
+    "pgQty": 6,
+    "delta": 12
+  },
+  {
+    "id": "P7Kwk1TRBnU2KPPDLPJY",
+    "name": "cussions  baby oil",
+    "pgId": "439a8321-7fd1-4527-ae3b-6221e0734d4d",
+    "fsQty": 0,
+    "pgQty": 3,
+    "delta": -3
+  },
+  {
+    "id": "PPtdJP7x6e8b18vnAwFF",
+    "name": "Irish Gold",
+    "pgId": "2e4f3b84-d071-476b-8d5d-f9a24ab2fcef",
+    "fsQty": 19,
+    "pgQty": 20,
+    "delta": -1
+  },
+  {
+    "id": "PfAKlZzLrMidnS6upAcP",
+    "name": "Men Sure Roll On",
+    "pgId": "3cdc3c1e-f8f3-4bd2-8dcd-5c8673d54a16",
+    "fsQty": 15,
+    "pgQty": 14,
+    "delta": 1
+  },
+  {
+    "id": "QJQK5ljNDhmrQgYrmXeh",
+    "name": "Bismid Kojic glutathione night face cream",
+    "pgId": "60e5a76c-d743-4ab2-9cd9-936cc5a4afbb",
+    "fsQty": 2,
+    "pgQty": 3,
+    "delta": -1
+  },
+  {
+    "id": "QK99NnCVtWlZdRI7TSXF",
+    "name": "AZALAIC ACID GEL EZANIC",
+    "pgId": "0b9115b4-9c47-40c9-8b76-3dba34d82b8d",
+    "fsQty": 2,
+    "pgQty": 3,
+    "delta": -1
+  },
+  {
+    "id": "QZUlvQb9LlmDV2rQfk0m",
+    "name": "Fair And White Miss White",
+    "pgId": "8932fb49-fe5e-459a-959b-77aa18c2a65c",
+    "fsQty": 1,
+    "pgQty": 0,
+    "delta": 1
+  },
+  {
+    "id": "QrIVq4fsMu3bqEWXQjzY",
+    "name": "Baby Secret Body Wash Vitamin C",
+    "pgId": "25e6537a-2b43-448b-b22c-cb87041df237",
+    "fsQty": 5,
+    "pgQty": 2,
+    "delta": 3
+  },
+  {
+    "id": "R2QXfm7GoZSWRP0h1KrS",
+    "name": "Doobai Body Spray",
+    "pgId": "02565f43-3776-4ef7-b875-6a4f6a4e78ef",
+    "fsQty": 2,
+    "pgQty": 8,
+    "delta": -6
+  },
+  {
+    "id": "RFq2u4eLzxOrdbJlZrwy",
+    "name": "Touch Oil",
+    "pgId": "c2e685a4-3e7f-4fd5-a660-f845d5194181",
+    "fsQty": 69,
+    "pgQty": 111,
+    "delta": -42
+  },
+  {
+    "id": "RgjjylHHVEai9z08CJQW",
+    "name": "Egyptian secret lotions",
+    "pgId": "1bd2fffe-073a-4a08-8588-fa53d98cf519",
+    "fsQty": 9,
+    "pgQty": 8,
+    "delta": 1
+  },
+  {
+    "id": "RqSBZGSOgA6lwhL5rTPh",
+    "name": "riggs roll on",
+    "pgId": "426ceae8-c92c-445d-867e-ad364d03d2e6",
+    "fsQty": 31,
+    "pgQty": 13,
+    "delta": 18
+  },
+  {
+    "id": "SaaNE5jfqWPtVNuRrOcn",
+    "name": "Smart Collection 100ml",
+    "pgId": "334df4db-e636-498b-9eae-fd1e0a98bc61",
+    "fsQty": 131,
+    "pgQty": 123,
+    "delta": 8
+  },
+  {
+    "id": "SrgJvaMJVrantLG8MFCs",
+    "name": "Soothing And Moisture Aloe Vera",
+    "pgId": "145ffe66-f098-4b55-9e72-7a1807907aad",
+    "fsQty": 5,
+    "pgQty": 7,
+    "delta": -2
+  },
+  {
+    "id": "TEP2GAUlu8cfJpt7E4Kn",
+    "name": "Supremacy Perfume 50ml",
+    "pgId": "d641e2c6-3af9-47ff-987b-9abc3d382391",
+    "fsQty": 23,
+    "pgQty": 24,
+    "delta": -1
+  },
+  {
+    "id": "U6biO4p53hMtITkZG0ly",
+    "name": "My Dear Body Spray",
+    "pgId": "c4f5cdca-b0d2-4f45-b704-23a5c12bf139",
+    "fsQty": 103,
+    "pgQty": 105,
+    "delta": -2
+  },
+  {
+    "id": "UC77wtP72IaBheWiQgMX",
+    "name": "simple purifying gel wash",
+    "pgId": "600d1cf0-6977-42a5-99e3-628dcce0c12c",
+    "fsQty": 4,
+    "pgQty": 6,
+    "delta": -2
+  },
+  {
+    "id": "V9BqMGFifIWo17Kcd6oj",
+    "name": "Riggs spray",
+    "pgId": "a9eb7482-adfd-44ea-8f14-111cab520e2c",
+    "fsQty": 1,
+    "pgQty": 29,
+    "delta": -28
+  },
+  {
+    "id": "VINvv9a40nnHkIh19BO2",
+    "name": "La Roche Posay Lotion and facial wash",
+    "pgId": "c07f45fb-822e-488d-8a3e-263eff3a4162",
+    "fsQty": 8,
+    "pgQty": 10,
+    "delta": -2
+  },
+  {
+    "id": "VfYc465P0g615vj9531k",
+    "name": "Kojie San Soap 3 in one",
+    "pgId": "c1664cce-6c00-47ef-9986-11cd78700bf9",
+    "fsQty": 21,
+    "pgQty": 15,
+    "delta": 6
+  },
+  {
+    "id": "VmSsF79eA8K8W1KEDJiN",
+    "name": "disser oil vitamin c",
+    "pgId": "301d8def-3725-43e9-9b81-65399af2070a",
+    "fsQty": 12,
+    "pgQty": 0,
+    "delta": 12
+  },
+  {
+    "id": "VnkGxd877Ql4jmQrj9wM",
+    "name": "Aqua Rich Body Lotion 500ml",
+    "pgId": "443111be-9f89-4647-94dc-11a966b549da",
+    "fsQty": 7,
+    "pgQty": 8,
+    "delta": -1
+  },
+  {
+    "id": "W9i0oX7hf4eSqUWslfnS",
+    "name": "Fem FRESH  wash",
+    "pgId": "0c05c1eb-308f-432d-8410-b44a71247dfc",
+    "fsQty": 4,
+    "pgQty": 5,
+    "delta": -1
+  },
+  {
+    "id": "WSTCasMlIsUAxtD6zRT2",
+    "name": "Advanced Korean Skin Oil",
+    "pgId": "b05d16d6-e523-483b-be71-b889d5d27fd8",
+    "fsQty": 0,
+    "pgQty": 2,
+    "delta": -2
+  },
+  {
+    "id": "WWxCYdVMl6FcDLqSWrBd",
+    "name": "Laura mercie powder ",
+    "pgId": "519acce6-71de-4b08-b580-d67dbf4758cc",
+    "fsQty": 5,
+    "pgQty": 6,
+    "delta": -1
+  },
+  {
+    "id": "Wdb4RkYOnw384jUJFVFn",
+    "name": "Paris Active Tone",
+    "pgId": "6a4c4a09-0e83-4c3d-82ed-f452b65d512d",
+    "fsQty": 7,
+    "pgQty": 6,
+    "delta": 1
+  },
+  {
+    "id": "WwaIT3swYjpULsvhwSHH",
+    "name": "Women Sure roll on",
+    "pgId": "f6087286-f74c-4b24-bbca-0132b3892803",
+    "fsQty": 6,
+    "pgQty": 0,
+    "delta": 6
+  },
+  {
+    "id": "X8geKanXuZ3QAvxvkkry",
+    "name": "Palmer Skin Success Lotion",
+    "pgId": "8b32d59c-d96b-4415-83e6-4508949c2737",
+    "fsQty": 2,
+    "pgQty": 3,
+    "delta": -1
+  },
+  {
+    "id": "XAkDrSMpFgHZzpUHl3NJ",
+    "name": "glutathione injection soap",
+    "pgId": "54671ca0-06ef-4d95-b189-8f536c8c0ef1",
+    "fsQty": 36,
+    "pgQty": 26,
+    "delta": 10
+  },
+  {
+    "id": "XC63TgbZFniwc4kVfdvB",
+    "name": "Skin Doctor Paris lotion",
+    "pgId": "0e0c816d-e865-4980-b75a-37e39ddd70f9",
+    "fsQty": 18,
+    "pgQty": 10,
+    "delta": 8
+  },
+  {
+    "id": "XI1uqMgmXncl6EsonWUF",
+    "name": "Kojic White Soap",
+    "pgId": "cc1afc81-b625-4458-b298-e29c44fb7854",
+    "fsQty": 63,
+    "pgQty": 65,
+    "delta": -2
+  },
+  {
+    "id": "XhQbSx01tQ5juNhYLwpT",
+    "name": "mousuf 100ml",
+    "pgId": "d58a61fe-950b-4360-a228-7ebd14616807",
+    "fsQty": 22,
+    "pgQty": 25,
+    "delta": -3
+  },
+  {
+    "id": "XsfQik4HGIDsqut4yjWd",
+    "name": "Kaly 50ml small",
+    "pgId": "b6bf8c44-dc9d-4679-8474-94f253bf6f5d",
+    "fsQty": 29,
+    "pgQty": 11,
+    "delta": 18
+  },
+  {
+    "id": "YeDodxwPEDe1PFNwSweU",
+    "name": "recovery oil",
+    "pgId": "b3d21d7d-c121-40c7-91af-d325890eaeb6",
+    "fsQty": 10,
+    "pgQty": 7,
+    "delta": 3
+  },
+  {
+    "id": "YqkBGZFk8NrqylMEuHBC",
+    "name": "Dove Beauty Cream Bar",
+    "pgId": "831d9bb3-fe24-48e9-aa45-a96d0ca733ea",
+    "fsQty": 34,
+    "pgQty": 27,
+    "delta": 7
+  },
+  {
+    "id": "Z3rvAycJXjKxzVjNBi8t",
+    "name": "Infinity Paris",
+    "pgId": "035f4ef1-9ccd-4b24-8e17-faec2a378c7d",
+    "fsQty": 5,
+    "pgQty": 4,
+    "delta": 1
+  },
+  {
+    "id": "ZBvSRVJDGCh2w0mRvRVj",
+    "name": "Li Vitamin E",
+    "pgId": "387d4ef2-1ea7-48f6-b0fe-ccad0428f68f",
+    "fsQty": 12,
+    "pgQty": 13,
+    "delta": -1
+  },
+  {
+    "id": "ZEt0aic0GJGapVp1YQWn",
+    "name": "deal perfume",
+    "pgId": "5a39716f-cfed-425f-bf2e-5a6e775c3cf0",
+    "fsQty": 8,
+    "pgQty": 5,
+    "delta": 3
+  },
+  {
+    "id": "ZFk5Cm5BD9EzKgA35sjj",
+    "name": "nivea roll on derma",
+    "pgId": "cd4159d9-dd47-4aa7-b63d-f0df30a68e0f",
+    "fsQty": 40,
+    "pgQty": 43,
+    "delta": -3
+  },
+  {
+    "id": "ZRUviuhhRFmVPjLj0scZ",
+    "name": "Brut spray",
+    "pgId": "0ec71971-afc6-4390-a3b7-85bf5633ed85",
+    "fsQty": 10,
+    "pgQty": 3,
+    "delta": 7
+  },
+  {
+    "id": "Zgf5uZ5hNi4Lsv1MtaOF",
+    "name": "Baby Secret Vitamin C Lotion",
+    "pgId": "78bae6e3-0f74-4b10-bf00-5421e30cbc7d",
+    "fsQty": 4,
+    "pgQty": 1,
+    "delta": 3
+  },
+  {
+    "id": "ZzdDQxAtRy0CpilOKMcX",
+    "name": "Pei Mei Vitamin Serum and roushoun",
+    "pgId": "40b9c21d-d7f1-4f28-9632-88c3a90e11e4",
+    "fsQty": 28,
+    "pgQty": 30,
+    "delta": -2
+  },
+  {
+    "id": "aA8pDzIpo0Se0iVjq67X",
+    "name": "Monogotas Vanillaxcoco",
+    "pgId": "9efc2ba5-7da8-4d0e-9377-dda5e6f20989",
+    "fsQty": 21,
+    "pgQty": 34,
+    "delta": -13
+  },
+  {
+    "id": "aW95F4aWHR8enZqBTQiN",
+    "name": "Parley Beauty Cream",
+    "pgId": "65310de0-3784-41c6-a0b6-a75354cee1a5",
+    "fsQty": 63,
+    "pgQty": 50,
+    "delta": 13
+  },
+  {
+    "id": "aYTxNV2S8r1IXNRabGvM",
+    "name": "Tcb Naturals 250ml",
+    "pgId": "31227a4d-cb7b-41f5-9948-cf83a1d1dce3",
+    "fsQty": 26,
+    "pgQty": 27,
+    "delta": -1
+  },
+  {
+    "id": "aa3GybgDfbzLS6qdIiEk",
+    "name": "Feather Touch Hair Removal",
+    "pgId": "c6bd5b78-cc95-4e90-8b13-c00041889c4a",
+    "fsQty": 0,
+    "pgQty": 2,
+    "delta": -2
+  },
+  {
+    "id": "b0uSkuz8SP8zx7Rr34Rp",
+    "name": "Kaly perfumes",
+    "pgId": "4d7f31d7-bcd8-4fb2-ae9f-ca3d6a671286",
+    "fsQty": 22,
+    "pgQty": 17,
+    "delta": 5
+  },
+  {
+    "id": "bXz5K9Lc51yDOQJ38GUZ",
+    "name": "1001 sence body splash",
+    "pgId": "cfd8293c-2715-4539-9616-5f1b7bf8f84e",
+    "fsQty": 205,
+    "pgQty": 209,
+    "delta": -4
+  },
+  {
+    "id": "c0hBVJLsarCjoHesIXdq",
+    "name": "Above Ultra Hold Dubas 450ml",
+    "pgId": "90ad2232-a1b5-43d2-8cec-2e166c0b060c",
+    "fsQty": 4,
+    "pgQty": 5,
+    "delta": -1
+  },
+  {
+    "id": "cAJdsr0F4U58F3wyrdh6",
+    "name": "Happiness Perfume",
+    "pgId": "9db05fd4-c8e4-471a-821e-abc84393b0c3",
+    "fsQty": 6,
+    "pgQty": 4,
+    "delta": 2
+  },
+  {
+    "id": "cEv64T59G0bywNs4Pdtj",
+    "name": "Storm Elixir",
+    "pgId": "ea740936-4d37-4686-81b7-651d7e54e8bc",
+    "fsQty": 106,
+    "pgQty": 116,
+    "delta": -10
+  },
+  {
+    "id": "cGOPSqpun8zga2OzfNqL",
+    "name": "enchanter powder small",
+    "pgId": "9aeaa155-35e7-4a45-b99f-37935086cca2",
+    "fsQty": 3,
+    "pgQty": 4,
+    "delta": -1
+  },
+  {
+    "id": "cMNqoxCtI6rc7Wse5PRm",
+    "name": "Dr Teals Body Lotion",
+    "pgId": "a7df1b2a-9481-4e19-9da1-97ffbc4adc15",
+    "fsQty": 7,
+    "pgQty": 3,
+    "delta": 4
+  },
+  {
+    "id": "cST7ePHMAcQu05ag4qXk",
+    "name": "Longrich Toothpaste",
+    "pgId": "abb2de0b-d698-46d9-8fcd-2e3312090a3b",
+    "fsQty": 21,
+    "pgQty": 15,
+    "delta": 6
+  },
+  {
+    "id": "dTk2UmV40GdgyjoWwwBV",
+    "name": "Face Facts skinbarrier moisturerasing gel",
+    "pgId": "336489d0-7371-4594-a0ad-b819c92f82ad",
+    "fsQty": 13,
+    "pgQty": 12,
+    "delta": 1
+  },
+  {
+    "id": "dWEm8nxN5dC58R6Q2ztI",
+    "name": "vaseline blue seal",
+    "pgId": "5ef79837-884f-41ba-8b66-c1b1bdbffbe0",
+    "fsQty": 41,
+    "pgQty": 31,
+    "delta": 10
+  },
+  {
+    "id": "djI26jz3qZP7sJjsjm0F",
+    "name": "Nivea radiant and beauty Vit C",
+    "pgId": "619f2456-f70f-4c7a-a4c7-8945cc820101",
+    "fsQty": 40,
+    "pgQty": 41,
+    "delta": -1
+  },
+  {
+    "id": "dxlYTmUArRwDVanx0KjY",
+    "name": "Sugar Chrome 30ml Air Fag",
+    "pgId": "2da67baf-6696-4cd0-906e-506a9885d119",
+    "fsQty": 4,
+    "pgQty": 5,
+    "delta": -1
+  },
+  {
+    "id": "eHfTPUotZvtcnD1u7unL",
+    "name": "storm kids",
+    "pgId": "9ffc0951-0625-48d6-9775-2bf9c338eaf7",
+    "fsQty": 9,
+    "pgQty": 8,
+    "delta": 1
+  },
+  {
+    "id": "eiQee9SPSlzzlUYacwFV",
+    "name": "Veet Gold  pack Face Soap",
+    "pgId": "9ce068ca-8a80-445b-85c6-80c6f303165e",
+    "fsQty": 68,
+    "pgQty": 67,
+    "delta": 1
+  },
+  {
+    "id": "f2pwHtDShcSKNP9fTtJP",
+    "name": "peau de lune lotion",
+    "pgId": "fb825f2e-c6c1-43c1-a3da-1b6d21b17868",
+    "fsQty": 9,
+    "pgQty": 8,
+    "delta": 1
+  },
+  {
+    "id": "fAGbQLiD9SBKPFItO3Up",
+    "name": "CeraVe Facial Moisturizing Lotion",
+    "pgId": "b375984f-bbbc-45a6-90bf-362aafd578cf",
+    "fsQty": 1,
+    "pgQty": 2,
+    "delta": -1
+  },
+  {
+    "id": "fHNvo1C2YkYDq4to2CyU",
+    "name": "advance purity lotion",
+    "pgId": "f9b2c067-6d88-480a-bba4-e0b2d757f24a",
+    "fsQty": 4,
+    "pgQty": 5,
+    "delta": -1
+  },
+  {
+    "id": "fJ1644gcGMf8c08TBSUx",
+    "name": "victoria secret mist",
+    "pgId": "e84ab708-b99b-4528-8fd1-f4a405818cfb",
+    "fsQty": 28,
+    "pgQty": 8,
+    "delta": 20
+  },
+  {
+    "id": "fWYcTuu0guCEntR9Tgoc",
+    "name": "Only You Perfume Collection",
+    "pgId": "57d9b2dc-b056-4804-9e5c-df2c5214b98c",
+    "fsQty": 57,
+    "pgQty": 53,
+    "delta": 4
+  },
+  {
+    "id": "fh0L7xL5BRCmOpvqMffv",
+    "name": "boots Glycerin And Rose Water 200ml",
+    "pgId": "d8f9b587-c483-40ea-b0ea-672bd9fc3859",
+    "fsQty": 6,
+    "pgQty": 7,
+    "delta": -1
+  },
+  {
+    "id": "fiyRtEFHKi7Sx2bRywOZ",
+    "name": "sure sprays",
+    "pgId": "db912d1e-e667-4a91-bc99-d86019e6a08c",
+    "fsQty": 54,
+    "pgQty": 47,
+    "delta": 7
+  },
+  {
+    "id": "fneBq6AvDkxMKENJ1laR",
+    "name": "Total Glow",
+    "pgId": "2f9a9494-1681-4b92-8e92-6dad6f43ad8e",
+    "fsQty": 6,
+    "pgQty": 4,
+    "delta": 2
+  },
+  {
+    "id": "g85yXwSkBVLhbpKE7oVh",
+    "name": "veet gold young face soap",
+    "pgId": "b1206ab0-308d-4024-8c42-f6dee476d88e",
+    "fsQty": 25,
+    "pgQty": 2,
+    "delta": 23
+  },
+  {
+    "id": "gHD24WojaUhmXftAgGWz",
+    "name": "Veet Gold Turmeric & vitamin c Soap",
+    "pgId": "d1a1d930-172c-4ccd-a297-c98712b7571c",
+    "fsQty": 118,
+    "pgQty": 105,
+    "delta": 13
+  },
+  {
+    "id": "gT7QPyyUxRcJBH5N3DFZ",
+    "name": "Healthy Glow body wash",
+    "pgId": "5cac3731-c329-400c-813c-fbc7ba091b61",
+    "fsQty": 6,
+    "pgQty": 7,
+    "delta": -1
+  },
+  {
+    "id": "gk8TjRzd5rTwN71kjIS3",
+    "name": "Hit the spot face cleansing 6",
+    "pgId": "f50fc0ab-2d45-4cad-91e6-ae2fe448a1f6",
+    "fsQty": 4,
+    "pgQty": 3,
+    "delta": 1
+  },
+  {
+    "id": "gpPs8WE334jdPf9t6htn",
+    "name": "Kuza Indian Hemp",
+    "pgId": "f57a9d14-f189-4598-bd7f-92b0a35a390e",
+    "fsQty": 9,
+    "pgQty": 5,
+    "delta": 4
+  },
+  {
+    "id": "gveH3PBMK8VQfGsB46Qs",
+    "name": "advanced white soap",
+    "pgId": "b772d6e4-f8dd-4745-91bd-d924ef787880",
+    "fsQty": 39,
+    "pgQty": 38,
+    "delta": 1
+  },
+  {
+    "id": "h2AjX3yGpBVopyHOxtOP",
+    "name": "cosmo whitening roll on",
+    "pgId": "5f5e73c0-1817-4eff-a3de-4a5331fd4d78",
+    "fsQty": 29,
+    "pgQty": 28,
+    "delta": 1
+  },
+  {
+    "id": "hogH58VB0VOJRLfm489v",
+    "name": "Vaseline Even Tone",
+    "pgId": "4d740a41-dc27-4475-940e-7b91124647a3",
+    "fsQty": 4,
+    "pgQty": 3,
+    "delta": 1
+  },
+  {
+    "id": "hpzU7NwQTSqUo8e53TCo",
+    "name": "Chandi Whitening Cream",
+    "pgId": "4802da2e-bac6-4c98-b6b6-6a9f53775231",
+    "fsQty": 20,
+    "pgQty": 21,
+    "delta": -1
+  },
+  {
+    "id": "i1KPWsXdFM3xgFWaI9Mm",
+    "name": "Blue Heaven Hair Remover",
+    "pgId": "96b25c7f-e527-48b1-bb3c-7b2fb782cfa2",
+    "fsQty": 4,
+    "pgQty": 3,
+    "delta": 1
+  },
+  {
+    "id": "iMyqb4We3LqDIzkV7vhR",
+    "name": "onlee u perfume",
+    "pgId": "91a1d5a0-7d73-4714-a613-fde7faa23c5a",
+    "fsQty": 5,
+    "pgQty": 4,
+    "delta": 1
+  },
+  {
+    "id": "idWntiQGCd1LC22eUAqD",
+    "name": "Sk Duchess Glow",
+    "pgId": "02ad5a39-0635-4110-918b-4291eeacfaf1",
+    "fsQty": 89,
+    "pgQty": 81,
+    "delta": 8
+  },
+  {
+    "id": "j2yxmxuymP14asGW768m",
+    "name": "Veet Gold body wash",
+    "pgId": "918dc4b5-99e0-49f0-98b6-0fd34d3ad09b",
+    "fsQty": 25,
+    "pgQty": 21,
+    "delta": 4
+  },
+  {
+    "id": "jRETJHqTN3vwGZ5RlDbP",
+    "name": "Florentina powder",
+    "pgId": "7dcfa4bf-addb-4de5-9a66-86bf87818cb0",
+    "fsQty": 12,
+    "pgQty": 0,
+    "delta": 12
+  },
+  {
+    "id": "jrYxwa6TvuslHxQAMs2x",
+    "name": "Collections Sprays",
+    "pgId": "245d6e67-5a10-48ec-865a-198f2d861b23",
+    "fsQty": 683,
+    "pgQty": 692,
+    "delta": -9
+  },
+  {
+    "id": "juyfQcRh08BLt8JpYlxx",
+    "name": "K Brothers Soap",
+    "pgId": "2d544747-4ca8-4467-9120-69e6c961f1ce",
+    "fsQty": 27,
+    "pgQty": 32,
+    "delta": -5
+  },
+  {
+    "id": "kBLrrJrMlUwn7XfO1MjM",
+    "name": "AREINA cotton pads",
+    "pgId": "1a420b3d-c4d7-4fa1-bcfa-2c23b163b23d",
+    "fsQty": 11,
+    "pgQty": 12,
+    "delta": -1
+  },
+  {
+    "id": "kBwbkfPRI5CRODu6HpYJ",
+    "name": "face fact UN WWIND",
+    "pgId": "8ab031f7-2f78-4271-9791-30839cf10d3b",
+    "fsQty": 19,
+    "pgQty": 18,
+    "delta": 1
+  },
+  {
+    "id": "kdUHpv6WZXkL8ZmyuhWG",
+    "name": "classic foundation",
+    "pgId": "48a78172-f401-4308-a331-77f95d61df58",
+    "fsQty": 9,
+    "pgQty": 11,
+    "delta": -2
+  },
+  {
+    "id": "l4tPQ4QGOGtkBihH1IKG",
+    "name": "IDOLE Soap",
+    "pgId": "5909dc30-a4a7-44b2-8484-3140140db713",
+    "fsQty": 6,
+    "pgQty": 7,
+    "delta": -1
+  },
+  {
+    "id": "l7uZso5HjINicRQfEIYo",
+    "name": "beauty formula facial wash",
+    "pgId": "c1fe4eb6-035a-4693-a0a3-68d9d11e43da",
+    "fsQty": 11,
+    "pgQty": 9,
+    "delta": 2
+  },
+  {
+    "id": "l8DDKCb0o94lJroER60s",
+    "name": "Mary And May Eye Cream",
+    "pgId": "759f2ef3-d114-401c-a159-ccd1014a3c95",
+    "fsQty": 0,
+    "pgQty": 1,
+    "delta": -1
+  },
+  {
+    "id": "lamLtsY5PmjOQX5HOi31",
+    "name": "Listerine Fresh Burst mouth wash BIG",
+    "pgId": "a14c304c-cb31-4ba6-a66a-e79a50f99a9a",
+    "fsQty": 11,
+    "pgQty": 10,
+    "delta": 1
+  },
+  {
+    "id": "lgAuhaEz4zmubFqbI6Br",
+    "name": "The Ordinary Serum",
+    "pgId": "7e3fb21d-1b90-4017-a70e-f0e68f5f8dca",
+    "fsQty": 18,
+    "pgQty": 13,
+    "delta": 5
+  },
+  {
+    "id": "lkPFSTwX3aWnAA9uDfx4",
+    "name": "Gissah",
+    "pgId": "4480b3f7-81b3-46db-acf8-57f8bbdfbcb6",
+    "fsQty": 34,
+    "pgQty": 32,
+    "delta": 2
+  },
+  {
+    "id": "lmPSGJ9JugZW2PFeQWyE",
+    "name": "Body Treat 500ml",
+    "pgId": "82a3aded-8b02-4c9e-8377-e8f0ca739172",
+    "fsQty": 4,
+    "pgQty": 5,
+    "delta": -1
+  },
+  {
+    "id": "lzqAnKlOxzJmz66TDzTA",
+    "name": "Be Tres",
+    "pgId": "0480d985-f577-4617-8c25-d1665c1ae842",
+    "fsQty": 15,
+    "pgQty": 0,
+    "delta": 15
+  },
+  {
+    "id": "m5BghAEOi2O6p2dn15Za",
+    "name": "Simple Refreshing Face Wash",
+    "pgId": "5a9abaef-e535-4185-af2a-e5aba4c7cb66",
+    "fsQty": 34,
+    "pgQty": 28,
+    "delta": 6
+  },
+  {
+    "id": "mDS5HTpc6DB4MtXgEfDh",
+    "name": "Nivea men Deep",
+    "pgId": "12e38cf1-3d0b-48ef-b15b-78522d256874",
+    "fsQty": 16,
+    "pgQty": 18,
+    "delta": -2
+  },
+  {
+    "id": "mTtX4hROph0iAnsxDjjK",
+    "name": "Glutathione Vitamin C Face Cream",
+    "pgId": "37dfd862-57eb-4cff-9fe6-8f74ab94539c",
+    "fsQty": 8,
+    "pgQty": 9,
+    "delta": -1
+  },
+  {
+    "id": "mflH1oaT0MVyrws2Mk2M",
+    "name": "ageless glow divas",
+    "pgId": "86a1519c-8b3e-4e22-910c-ca7e2a9997ff",
+    "fsQty": 9,
+    "pgQty": 1,
+    "delta": 8
+  },
+  {
+    "id": "nENcs7kYbtl3n2kx91HG",
+    "name": "Aqua Rich Body Gel 1000ml",
+    "pgId": "95a398dc-404c-4e57-9460-181346c6a47e",
+    "fsQty": 5,
+    "pgQty": 3,
+    "delta": 2
+  },
+  {
+    "id": "nLHZLohuFPTFZ1ZsZCsn",
+    "name": "active caviar drip oil",
+    "pgId": "bd868f00-0b69-41f8-a186-80d14a90b670",
+    "fsQty": 9,
+    "pgQty": 11,
+    "delta": -2
+  },
+  {
+    "id": "nhwAfCK7DSjBrPxdwOk8",
+    "name": "ultra matte lipstick",
+    "pgId": "b085a40a-c4fb-4ec0-90d8-6f213ff56552",
+    "fsQty": 43,
+    "pgQty": 42,
+    "delta": 1
+  },
+  {
+    "id": "owTAp3PApOKcpPTV0r0G",
+    "name": "Medix 5.5 Junior Body Lotion",
+    "pgId": "611711bc-7986-440d-9869-a62a2988bc27",
+    "fsQty": 8,
+    "pgQty": 3,
+    "delta": 5
+  },
+  {
+    "id": "ox2YLf4Bzro1xdjSou2h",
+    "name": "tea tree facial wash",
+    "pgId": "5309d431-021c-4b60-ae7e-b64dee5c0980",
+    "fsQty": 9,
+    "pgQty": 11,
+    "delta": -2
+  },
+  {
+    "id": "p0Xc6QiaX0EDuyoSViUl",
+    "name": "ponds powder small",
+    "pgId": "8fa25060-f27f-4e12-896a-ad7676255a0f",
+    "fsQty": 18,
+    "pgQty": 19,
+    "delta": -1
+  },
+  {
+    "id": "pn3n8L1dtH4dPLvNEzML",
+    "name": "Storm spray",
+    "pgId": "e67b784d-24b4-4ac7-839d-1742f4fc8af5",
+    "fsQty": 249,
+    "pgQty": 280,
+    "delta": -31
+  },
+  {
+    "id": "qHjOmHu63An2jfjF9Nfa",
+    "name": "Hug Perfume",
+    "pgId": "fb60a64d-143e-427f-af01-a394688e2109",
+    "fsQty": 5,
+    "pgQty": 6,
+    "delta": -1
+  },
+  {
+    "id": "r6ufgcqofiahqPvVV5RG",
+    "name": "Nasem Oil",
+    "pgId": "ab37c5ab-e01a-43e7-8022-8985db892907",
+    "fsQty": 78,
+    "pgQty": 42,
+    "delta": 36
+  },
+  {
+    "id": "r9P9ZFCrqI9wciZrdLEL",
+    "name": "Gen Z Lotion",
+    "pgId": "e13905d1-3d58-4705-bac0-fec7520d9011",
+    "fsQty": 5,
+    "pgQty": 6,
+    "delta": -1
+  },
+  {
+    "id": "rQCU3TpjyaTNBZPlviTQ",
+    "name": "beauty formula toner",
+    "pgId": "e33c0c51-0c19-49bc-8ba3-e8c57df18684",
+    "fsQty": 2,
+    "pgQty": 3,
+    "delta": -1
+  },
+  {
+    "id": "rUGqSnJWcVNhgBcBE0w7",
+    "name": "Secret Armor Splash",
+    "pgId": "8baf6da8-9cf8-4f5d-bf9d-431cf158ecbf",
+    "fsQty": 9,
+    "pgQty": 0,
+    "delta": 9
+  },
+  {
+    "id": "rZgvPJUWGVLlHGP06eyR",
+    "name": "Nivea Sunscreen",
+    "pgId": "77369e08-8f5b-48ea-a07b-aa0e66905f06",
+    "fsQty": 17,
+    "pgQty": 19,
+    "delta": -2
+  },
+  {
+    "id": "sJc35qA7Dx21z7dL4eDC",
+    "name": "Aventos",
+    "pgId": "b16a9de1-fa1a-43df-b82a-6c87e74fe6ee",
+    "fsQty": 5,
+    "pgQty": 2,
+    "delta": 3
+  },
+  {
+    "id": "sPDsKZMnzi5c18WVbxkm",
+    "name": "right guard spray",
+    "pgId": "69102bcd-22e4-4d1f-991c-9884da06393a",
+    "fsQty": 28,
+    "pgQty": 27,
+    "delta": 1
+  },
+  {
+    "id": "si4yjCWiJpUpSWHkK68x",
+    "name": "kojie san single",
+    "pgId": "350e6cd6-5af5-49a2-a565-411c7ed79fd4",
+    "fsQty": 43,
+    "pgQty": 29,
+    "delta": 14
+  },
+  {
+    "id": "uBjbLmoMcTIc8mmJs3oS",
+    "name": "Asantee 4 In 1 and 3 in one soap",
+    "pgId": "cdb44348-25e8-42ac-bef4-f90c35d79079",
+    "fsQty": 33,
+    "pgQty": 14,
+    "delta": 19
+  },
+  {
+    "id": "uJqqFLqSZP1lirw1iRD9",
+    "name": "Nature's Magic Lait De Beaute Glutathione",
+    "pgId": "1fbefbb2-bf51-4ca7-88d5-f2727ab1b47c",
+    "fsQty": 22,
+    "pgQty": 21,
+    "delta": 1
+  },
+  {
+    "id": "uU7S4jlKt4uQGGjtjHDy",
+    "name": "Almond Herbal White Lotion With Lotion",
+    "pgId": "ecc93c71-b67d-4800-85e8-6f350625e235",
+    "fsQty": 9,
+    "pgQty": 10,
+    "delta": -1
+  },
+  {
+    "id": "ulHyrGOwzlFFKnsJzuJL",
+    "name": "Golden Glow lotion",
+    "pgId": "fbbe0d37-7f04-449f-bc90-03d9245778e6",
+    "fsQty": 1,
+    "pgQty": 0,
+    "delta": 1
+  },
+  {
+    "id": "v4DiKUY3o6d6DtnE6NF5",
+    "name": "fair lady lotion",
+    "pgId": "053518d7-33e7-4afa-ad11-641d10b1259b",
+    "fsQty": 16,
+    "pgQty": 15,
+    "delta": 1
+  },
+  {
+    "id": "v9kBvKUEKgG6vsRvCtvW",
+    "name": "New Musk Men",
+    "pgId": "6ecb404d-8ad0-4fff-bc7c-4adb065dbbd6",
+    "fsQty": 11,
+    "pgQty": 10,
+    "delta": 1
+  },
+  {
+    "id": "vav5IxyJqHLflG6N6DEn",
+    "name": "dancer perfume",
+    "pgId": "1e9d93d0-e22a-48fb-abe7-0c74cad701f3",
+    "fsQty": 4,
+    "pgQty": 0,
+    "delta": 4
+  },
+  {
+    "id": "vlMVbZ605YwNVQfCSyZg",
+    "name": "St Ives Soothing Lotions",
+    "pgId": "a6c9306e-9483-4dcf-9669-c32be9afc6dd",
+    "fsQty": 30,
+    "pgQty": 25,
+    "delta": 5
+  },
+  {
+    "id": "wJAQrgjPwNrZpQTfCpMR",
+    "name": "Bio Cos face cream",
+    "pgId": "3d893e0c-0786-4ae1-977b-25c53cdac371",
+    "fsQty": 33,
+    "pgQty": 25,
+    "delta": 8
+  },
+  {
+    "id": "wLW1dmVr0x9zrEtq7Xug",
+    "name": "Rexona Roll On",
+    "pgId": "92a28837-2035-4c5a-8942-87b2b5d3a12c",
+    "fsQty": 30,
+    "pgQty": 28,
+    "delta": 2
+  },
+  {
+    "id": "wLdKpuFH0IXMDVAChy4P",
+    "name": "24k perfume",
+    "pgId": "71294389-ee2d-42e7-84c2-a0a0f97001cf",
+    "fsQty": 27,
+    "pgQty": 26,
+    "delta": 1
+  },
+  {
+    "id": "wUSnvmVAL4cPgpFDHFYe",
+    "name": "Dove Lotion",
+    "pgId": "2bb2cc04-2659-4828-b4ed-0bd77a51f76b",
+    "fsQty": 8,
+    "pgQty": 9,
+    "delta": -1
+  },
+  {
+    "id": "wvMTncmtjuXnCB5UtwQL",
+    "name": "vaseline B3 oil1 tick",
+    "pgId": "a2b815e4-74ec-4fe3-820c-29ae57702c76",
+    "fsQty": 33,
+    "pgQty": 23,
+    "delta": 10
+  },
+  {
+    "id": "wzFn7bOPn8vBWcCFSPT7",
+    "name": "Advanced Snail 92",
+    "pgId": "7c53f1a1-806e-4b06-99dc-07bc3d4591e3",
+    "fsQty": 3,
+    "pgQty": 4,
+    "delta": -1
+  },
+  {
+    "id": "x0ENmWAhe5e5GuC1hbM9",
+    "name": "Biore Uv Small",
+    "pgId": "7a4503e5-d996-452a-ab0f-cd7d2adcd1a4",
+    "fsQty": 12,
+    "pgQty": 9,
+    "delta": 3
+  },
+  {
+    "id": "xEDJrJ4ILfEv6GAQ5FxK",
+    "name": "Dove Soap Glowing Wash",
+    "pgId": "dd8f5233-a5b7-4bb0-9d6c-a00dc4d89c74",
+    "fsQty": 22,
+    "pgQty": 16,
+    "delta": 6
+  },
+  {
+    "id": "xEDkgzpwZrDadtK0qOA0",
+    "name": "Fair And White So White",
+    "pgId": "c9f4f8cf-6142-46b7-8216-c6e681c8c17d",
+    "fsQty": 28,
+    "pgQty": 15,
+    "delta": 13
+  },
+  {
+    "id": "xFYmxjDsUCKDODLvisEL",
+    "name": "Fakhar Lattafa 100ml",
+    "pgId": "7473ada0-a0ca-4d6e-84c2-8beff3c7f6e4",
+    "fsQty": 3,
+    "pgQty": 2,
+    "delta": 1
+  },
+  {
+    "id": "xUboF0excFbO5ug7zuIY",
+    "name": "tea tree scrub",
+    "pgId": "241949a3-5919-4e75-a126-6cb037c2e2b8",
+    "fsQty": 6,
+    "pgQty": 10,
+    "delta": -4
+  },
+  {
+    "id": "xsDeAnyGjzWjoTIWSDfG",
+    "name": "adour spray",
+    "pgId": "63ea1ed7-7fee-4302-a64e-1fd4f5388d68",
+    "fsQty": 6,
+    "pgQty": 8,
+    "delta": -2
+  },
+  {
+    "id": "xxDGlvgK5iCqzF0rBUas",
+    "name": "Asantee Perfume",
+    "pgId": "fe38ab7a-c922-4dce-990b-d853d0db76e6",
+    "fsQty": 4,
+    "pgQty": 3,
+    "delta": 1
+  },
+  {
+    "id": "y5Zt5WpJou7q76ud0QYj",
+    "name": "Egg Yolk Soap",
+    "pgId": "607c7607-60ce-43e6-ac52-04706c9c0bd4",
+    "fsQty": 32,
+    "pgQty": 33,
+    "delta": -1
+  },
+  {
+    "id": "yIj4nSGicjjfi9J95ip9",
+    "name": "neutrogena body oil",
+    "pgId": "35d63d0a-df79-4627-9f91-3e512015367e",
+    "fsQty": 1,
+    "pgQty": 0,
+    "delta": 1
+  },
+  {
+    "id": "yng2FfoqDbl68Tn8OhNR",
+    "name": "Estelin Serum",
+    "pgId": "759348cf-232d-48ea-90da-949bf10d44cf",
+    "fsQty": 24,
+    "pgQty": 28,
+    "delta": -4
+  },
+  {
+    "id": "z1aLxzC2sEDKa2LLWvp2",
+    "name": "Medix 5.5 Junior Body Wash",
+    "pgId": "8244c286-e519-4c78-8992-9b107974fdcc",
+    "fsQty": 13,
+    "pgQty": 7,
+    "delta": 6
+  },
+  {
+    "id": "zLQwHEBxfanPD346JS9q",
+    "name": "vanilla essence spray",
+    "pgId": "597845cd-8fcc-4083-bf22-6618c4ed2395",
+    "fsQty": 6,
+    "pgQty": 7,
+    "delta": -1
+  },
+  {
+    "id": "zXF5g1Nu9XSZfcWT7Fog",
+    "name": "Vanilla Crush",
+    "pgId": "c045666d-3c1f-4370-9ac3-cd0b4eb39510",
+    "fsQty": 17,
+    "pgQty": 12,
+    "delta": 5
+  }
+]

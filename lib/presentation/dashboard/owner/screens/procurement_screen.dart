@@ -86,17 +86,15 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     return normalized == 'pharmacy' || normalized == 'drugstore';
   }
 
+  // Always reflects the item's real stored category - a business that
+  // stocks (or was migrated with) products genuinely categorized "Pharmacy"
+  // should still see and procure them under that category, not have them
+  // silently relabeled "Uncategorized" just because the business itself
+  // isn't pharmacy-type. The isPharmacyBusiness gate below this is a
+  // separate, still-valid concern: it only decides whether *synthetic*
+  // pharmacy-drug rows get merged in from PharmacyProvider.
   String _categoryForCurrentBusiness(dynamic rawCategory) {
     final category = (rawCategory ?? 'Uncategorized').toString().trim();
-    final businessType = context
-            .read<BusinessProvider>()
-            .currentBusiness
-            ?.businessType ??
-        '';
-    if (!_isPharmacyBusinessType(businessType) &&
-        category.toLowerCase() == 'pharmacy') {
-      return 'Uncategorized';
-    }
     return category.isEmpty ? 'Uncategorized' : category;
   }
 

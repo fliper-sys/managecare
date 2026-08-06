@@ -124,8 +124,7 @@ class _SalesScreenState extends State<SalesScreen>
 
       if (business != null) {
         final businessId = business.id;
-        _retailProvider.initialize(businessId).then((_) async {
-          await _retailProvider.loadProducts(forceRefresh: true);
+        _retailProvider.initialize(businessId).then((_) {
           if (!mounted) return;
           setState(() {
             _globalPricingMode = _retailProvider.activeCartPricingMode;

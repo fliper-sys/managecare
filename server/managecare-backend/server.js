@@ -1949,24 +1949,33 @@ app.get('/api/status-table/:table', async (req, res) => {
 });
 
 // ── Health check (no auth required) ─────────────────────────
+// The Flutter client's ConnectivityHelper.hasInternetConnection() polls this
+// endpoint to decide whether the app is online at all - it only cares that
+// the HTTP request completes (any status code counts), with a 5s client
+// timeout. `pool.query('SELECT 1')` acquires a connection from the same
+// pool (max 20) every other route competes for, so under the kind of
+// request-storm/slow-query load this backend can see with a large business
+// (before the sales-query and polling-interval fixes elsewhere in this
+// session), this handler could itself queue behind pool.options
+// .connectionTimeoutMillis (5s) waiting for a free connection - long enough
+// to blow the client's timeout and make a fully-online app show "You're
+// Offline" purely because the DB pool was busy, not because anything was
+// actually unreachable. Racing the DB ping against a short timeout keeps
+// this endpoint fast (and the response always sent) regardless of pool
+// congestion, while still reporting DB status when it's available quickly.
 app.get('/api/health', async (req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      database: 'connected',
-      minio: minioClient ? 'configured' : 'not configured',
-    });
-  } catch (err) {
-    res.status(503).json({
-      status: 'error',
-      database: 'disconnected',
-      error: err.message,
-    });
-  }
+  const dbPing = pool.query('SELECT 1').then(() => 'connected').catch(() => 'disconnected');
+  const dbTimeout = new Promise((resolve) => setTimeout(() => resolve('degraded'), 2000));
+  const database = await Promise.race([dbPing, dbTimeout]);
+
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    database,
+    minio: minioClient ? 'configured' : 'not configured',
+  });
 });
 
 // ── Auth routes (no auth required) ──────────────────────────
