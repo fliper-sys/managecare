@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/routes.dart';
 import '../../../core/theme/colors.dart';
@@ -82,27 +82,29 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
+  // Businesses live in Postgres, not Firestore - admin subscription grants
+  // only ever write to Postgres, so reading Firestore here always found
+  // stale/missing data and could bounce owners back to the subscription
+  // screen even right after an admin granted them a subscription.
   Future<Map<String, dynamic>?> _fetchBusinessSubscriptionStatus(
       String businessId) async {
     try {
       if (businessId.trim().isEmpty) return null;
-      final doc = await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .get();
-      if (!doc.exists) return null;
-
-      final data = doc.data();
+      final data = await Supabase.instance.client
+          .from('businesses')
+          .select()
+          .eq('id', businessId)
+          .maybeSingle();
       if (data == null) return null;
 
       return {
-        'subscriptionStatus': data['subscriptionStatus'],
-        'subscriptionReviewStatus': data['subscriptionReviewStatus'],
-        'subscriptionPlan': data['subscriptionPlan'],
-        'subscriptionAmount': data['subscriptionAmount'],
-        'hasActiveSubscription': data['isSubscriptionActive'],
-        'isSubscriptionActive': data['isSubscriptionActive'],
-        'subscriptionEndDate': data['subscriptionEndDate'],
+        'subscriptionStatus': data['subscription_status'],
+        'subscriptionReviewStatus': data['subscription_review_status'],
+        'subscriptionPlan': data['subscription_plan'],
+        'subscriptionAmount': data['subscription_amount'],
+        'hasActiveSubscription': data['is_subscription_active'],
+        'isSubscriptionActive': data['is_subscription_active'],
+        'subscriptionEndDate': data['subscription_end_date'],
       };
     } catch (_) {
       return null;
@@ -111,16 +113,10 @@ class _LoginScreenState extends State<LoginScreen>
 
   DateTime? _parseSubscriptionDate(dynamic value) {
     if (value == null) return null;
-    if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
     if (value is String) {
       return DateTime.tryParse(value);
     }
-    try {
-      if (value.runtimeType.toString().contains('Timestamp')) {
-        return (value as dynamic).toDate() as DateTime;
-      }
-    } catch (_) {}
     return null;
   }
 

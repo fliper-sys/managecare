@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: managecare
       POSTGRES_USER: managecare
-      POSTGRES_PASSWORD: BqHjAf8aMMmhHhOlW0j6bYIj4T7Owrya
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
@@ -22,7 +22,7 @@ services:
       DB_PORT: 5432
       DB_NAME: managecare
       DB_USER: managecare
-      DB_PASSWORD: BqHjAf8aMMmhHhOlW0j6bYIj4T7Owrya
+      DB_PASSWORD: ${DB_PASSWORD}
       PORT: 4000
     depends_on:
       - postgres

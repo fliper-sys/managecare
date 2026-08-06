@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/whatsapp_service.dart';
 import '../services/notification_and_email_service.dart';
 import '../services/sync_service.dart';
@@ -10,7 +10,6 @@ import '../core/utils/connectivity_helper.dart';
 DateTime? _parseDrinkNullableDate(dynamic value) {
   if (value == null) return null;
   if (value is DateTime) return value;
-  if (value is Timestamp) return value.toDate();
   if (value is String) return DateTime.tryParse(value);
   if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
   return null;
@@ -372,6 +371,26 @@ abstract class DrinkRepository {
   Stream<List<StockItem>> streamInventory();
   Stream<List<Order>> streamOrders();
   Stream<List<BarInvoice>> streamInvoices();
+
+  // Saved bar table labels
+  Future<List<String>> fetchBarTables();
+  Future<void> saveBarTable(String label);
+  Future<void> deleteBarTable(String label);
+
+  // Sale creation (a paid order or a converted invoice becomes a sale)
+  Future<Map<String, dynamic>> createSale(Map<String, dynamic> saleData);
+
+  /// Sums completed sales for this business. Pass [period] ('today') for a
+  /// server-side date filter, or an explicit [start]/[end] range; omitting
+  /// both sums all-time.
+  Future<double> getSalesTotal({String? period, DateTime? start, DateTime? end});
+
+  /// Merges bar-specific extras (preferred table, common purchases) into a
+  /// customer's metadata. Doesn't bump total_spent/total_transactions -
+  /// those are already recorded by the sale itself (createSale carries the
+  /// customer id, which the backend uses to update those stats), so a
+  /// second increment here would double-count.
+  Future<void> mergeCustomerMetadata(String customerId, Map<String, dynamic> metadata);
 }
 
 class DrinkProvider extends ChangeNotifier {
@@ -382,7 +401,6 @@ class DrinkProvider extends ChangeNotifier {
   StreamSubscription<List<BarInvoice>>? _invoicesSub;
 
   String? _businessId;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   final List<DrinkItem> drinks = [];
   final List<Modifier> modifiers = [];
@@ -400,30 +418,14 @@ class DrinkProvider extends ChangeNotifier {
     _businessId = businessId;
   }
 
-  String _barTableDocId(String label) {
-    final normalized = label.trim().toLowerCase();
-    final safe = normalized.replaceAll(RegExp(r'[^a-z0-9]+'), '_');
-    return safe.replaceAll(RegExp(r'_+'), '_').replaceAll(RegExp(r'^_|_$'), '');
-  }
-
   Future<void> loadSavedBarTables() async {
-    if (_businessId == null || _businessId!.isEmpty) return;
+    if (_businessId == null || _businessId!.isEmpty || repository == null) return;
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('barTables')
-          .orderBy('label')
-          .get();
-
+      final labels = await repository!.fetchBarTables();
       savedBarTables
         ..clear()
-        ..addAll(
-          snapshot.docs
-              .map((doc) => (doc.data()['label'] ?? '').toString().trim())
-              .where((label) => label.isNotEmpty),
-        );
+        ..addAll(labels);
       notifyListeners();
     } catch (e) {
       if (kDebugMode) {
@@ -441,6 +443,9 @@ class DrinkProvider extends ChangeNotifier {
     if (trimmed.isEmpty) {
       throw StateError('Table label is required');
     }
+    if (repository == null) {
+      throw StateError('No repository configured');
+    }
 
     final exists = savedBarTables.any(
       (table) => table.trim().toLowerCase() == trimmed.toLowerCase(),
@@ -451,22 +456,13 @@ class DrinkProvider extends ChangeNotifier {
       notifyListeners();
     }
 
-    await _firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('barTables')
-        .doc(_barTableDocId(trimmed))
-        .set({
-      'label': trimmed,
-      'updatedAt': FieldValue.serverTimestamp(),
-      'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await repository!.saveBarTable(trimmed);
   }
 
   Future<void> deleteSavedBarTable(String label) async {
     final businessId = _businessId;
     final trimmed = label.trim();
-    if (businessId == null || businessId.isEmpty || trimmed.isEmpty) return;
+    if (businessId == null || businessId.isEmpty || trimmed.isEmpty || repository == null) return;
 
     savedBarTables.removeWhere(
       (table) => table.trim().toLowerCase() == trimmed.toLowerCase(),
@@ -474,12 +470,7 @@ class DrinkProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('barTables')
-          .doc(_barTableDocId(trimmed))
-          .delete();
+      await repository!.deleteBarTable(trimmed);
     } catch (e) {
       if (kDebugMode) {
         print('DrinkProvider.deleteSavedBarTable error: $e');
@@ -769,44 +760,15 @@ class DrinkProvider extends ChangeNotifier {
   }
 
   Future<void> _persistInvoice(BarInvoice invoice) async {
-    if (repository != null) {
-      await repository!.saveInvoice(invoice.toJson());
-      return;
+    if (repository == null) {
+      throw StateError('No repository configured');
     }
-
-    if (_businessId == null || _businessId!.isEmpty) {
-      throw StateError('Business ID not found');
-    }
-
-    await _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('invoices')
-        .doc(invoice.id)
-        .set(invoice.toJson(), SetOptions(merge: true));
+    await repository!.saveInvoice(invoice.toJson());
   }
 
   Future<void> _persistStockItem(String drinkId, StockItem stock) async {
-    final drink = getDrinkById(drinkId);
-
-    if (repository != null) {
-      await repository!.updateStock(drinkId, stock);
-      return;
-    }
-
-    if (_businessId == null || _businessId!.isEmpty) return;
-
-    await _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('inventory')
-        .doc(drinkId)
-        .set({
-      'quantity': stock.totalBottles(drink?.bottlesPerCarton ?? 1),
-      'cartons': stock.cartons,
-      'bottles': stock.bottles,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    if (repository == null) return;
+    await repository!.updateStock(drinkId, stock);
   }
 
   void _applyStockConsumption(List<OrderLine> lines) {
@@ -903,18 +865,14 @@ class DrinkProvider extends ChangeNotifier {
       'finalAmount': subtotal,
       'status': 'completed',
       'paymentMethod': paymentMethod,
-      'category': 'Drinks/Bar',
-      'createdAt': FieldValue.serverTimestamp(),
       if (workerId != null) 'workerId': workerId,
       if (workerName != null) 'workerName': workerName,
-      'linkedOrderId': orderId,
     };
 
-    // Save sale to Firestore if we have business context
-    if (_businessId != null && _businessId!.isNotEmpty) {
+    // Save sale to the backend if we have business context
+    if (_businessId != null && _businessId!.isNotEmpty && repository != null) {
       // Check connectivity up front — same reasoning as RetailProvider.checkout:
-      // Firestore's offline persistence can resolve a write locally without
-      // throwing even with no network, which would otherwise leave this sale
+      // a write attempted with no network would otherwise leave this sale
       // with no local record, no sync queue entry, and no way to tell the
       // cashier it's pending sync.
       final hasNetwork = await ConnectivityHelper.hasInternetConnection();
@@ -928,13 +886,17 @@ class DrinkProvider extends ChangeNotifier {
         );
       } else {
         try {
-          final saleRef = await _firestore.collection('businesses').doc(_businessId).collection('sales').add(saleData);
-          await saleRef.update({'orderId': saleRef.id});
+          final created = await repository!.createSale(saleData);
+          final saleId = created['id']?.toString() ?? '';
 
           // Optionally, send owner notification/email
           try {
-            final businessDoc = await _firestore.collection('businesses').doc(_businessId).get();
-            final businessData = businessDoc.data() ?? <String, dynamic>{};
+            final businessData = await Supabase.instance.client
+                    .from('businesses')
+                    .select('name, email')
+                    .eq('id', _businessId as Object)
+                    .maybeSingle() ??
+                <String, dynamic>{};
             final ownerEmail = (businessData['email'] as String?) ?? '';
             final businessName = (businessData['name'] as String?) ?? '';
 
@@ -948,7 +910,7 @@ class DrinkProvider extends ChangeNotifier {
                 totalAmount: subtotal,
                 items: items.cast<Map<String, dynamic>>(),
                 paymentMethod: paymentMethod,
-                receiptNumber: saleRef.id,
+                receiptNumber: saleId,
                 businessId: _businessId,
               );
 
@@ -959,7 +921,7 @@ class DrinkProvider extends ChangeNotifier {
                   channel: 'email',
                   recipient: ownerEmail,
                   success: ownerSuccess,
-                  orderId: saleRef.id,
+                  orderId: saleId,
                 );
               } catch (_) {}
             }
@@ -968,7 +930,7 @@ class DrinkProvider extends ChangeNotifier {
           }
         } catch (e) {
           if (kDebugMode) print('Failed to create sale record for paid order: $e');
-          debugPrint('[DrinkProvider] Firestore write failed, saving locally: $e');
+          debugPrint('[DrinkProvider] Remote sale write failed, saving locally: $e');
           await _saveSaleOffline(
             items: items,
             subtotal: subtotal,
@@ -1303,6 +1265,10 @@ class DrinkProvider extends ChangeNotifier {
       }
     }
 
+    if (repository == null) {
+      throw StateError('No repository configured');
+    }
+
     final saleData = {
       'businessId': businessId,
       'items': items,
@@ -1314,28 +1280,15 @@ class DrinkProvider extends ChangeNotifier {
       'finalAmount': invoice.total,
       'status': 'completed',
       'paymentMethod': paymentMethod,
-      'category': 'Drinks/Bar',
-      'createdAt': FieldValue.serverTimestamp(),
-      'invoiceId': invoice.id,
-      'invoiceNumber': invoice.invoiceNumber,
-      'sourceInvoiceType': invoice.invoiceType,
       'customerId': invoice.customerId,
-      'customerName': invoice.customerName,
-      'customerPhone': invoice.customerPhone,
-      'customerEmail': invoice.customerEmail,
-      'tableLabel': invoice.tableLabel,
-      'notes': invoice.notes,
       'workerId': workerId ?? invoice.workerId,
       'workerName': workerName ?? invoice.workerName,
       'storeId': invoice.storeId,
+      'notes': invoice.notes,
     };
 
-    final saleRef = await _firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('sales')
-        .add(saleData);
-    await saleRef.update({'orderId': saleRef.id});
+    final created = await repository!.createSale(saleData);
+    final saleId = created['id']?.toString() ?? '';
 
     // Deduct stock when invoice is converted to sale (payment received)
     _applyStockConsumption(invoice.lines);
@@ -1349,7 +1302,7 @@ class DrinkProvider extends ChangeNotifier {
     final convertedInvoice = invoice.copyWith(
       status: 'converted',
       convertedAt: DateTime.now(),
-      linkedSaleId: saleRef.id,
+      linkedSaleId: saleId,
       paymentMethod: paymentMethod,
     );
 
@@ -1372,7 +1325,7 @@ class DrinkProvider extends ChangeNotifier {
     notifyListeners();
 
     return {
-      'id': saleRef.id,
+      'id': saleId,
       'items': items,
       'subtotal': invoice.subtotal,
       'tax': invoice.tax,
@@ -1417,51 +1370,47 @@ class DrinkProvider extends ChangeNotifier {
     String? tableLabel,
     List<OrderLine> lines = const [],
   }) async {
-    if (_businessId == null || _businessId!.isEmpty) return;
+    if (_businessId == null || _businessId!.isEmpty || repository == null) return;
 
-    final customerRef = _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('customers')
-        .doc(customerId);
-    final currentDoc = await customerRef.get();
-    if (!currentDoc.exists) return;
+    // total_transactions/total_spent/average_order_value were already
+    // bumped when the sale was created (createSale carries the customer
+    // id); only the bar-specific common-purchases tally needs a read here,
+    // to merge quantities rather than overwrite them.
+    try {
+      final existing = await Supabase.instance.client
+              .from('customers')
+              .select('metadata')
+              .eq('id', customerId)
+              .maybeSingle() ??
+          <String, dynamic>{};
+      final existingMetadata = Map<String, dynamic>.from(existing['metadata'] as Map? ?? {});
+      final commonPurchases =
+          Map<String, dynamic>.from(existingMetadata['barCommonPurchases'] as Map? ?? {});
+      for (final line in lines) {
+        final drink = getDrinkById(line.drinkId);
+        final key = line.drinkId;
+        final current = Map<String, dynamic>.from(
+          commonPurchases[key] as Map? ?? const <String, dynamic>{},
+        );
+        commonPurchases[key] = {
+          'drinkId': line.drinkId,
+          'name': drink?.name ?? current['name'] ?? line.drinkId,
+          'quantity': ((current['quantity'] as num?)?.toInt() ?? 0) +
+              line.quantityBottles,
+          'lastPurchasedAt': DateTime.now().toIso8601String(),
+        };
+      }
 
-    final data = currentDoc.data() ?? <String, dynamic>{};
-    final previousTransactions =
-        (data['totalTransactions'] as num?)?.toInt() ?? 0;
-    final previousSpent = (data['totalSpent'] as num?)?.toDouble() ?? 0.0;
-    final newTransactionCount = previousTransactions + 1;
-    final newTotalSpent = previousSpent + purchaseAmount;
-    final newAverageOrderValue =
-        newTransactionCount == 0 ? 0.0 : newTotalSpent / newTransactionCount;
-    final commonPurchases =
-        Map<String, dynamic>.from(data['barCommonPurchases'] as Map? ?? {});
-    for (final line in lines) {
-      final drink = getDrinkById(line.drinkId);
-      final key = line.drinkId;
-      final current = Map<String, dynamic>.from(
-        commonPurchases[key] as Map? ?? const <String, dynamic>{},
-      );
-      commonPurchases[key] = {
-        'drinkId': line.drinkId,
-        'name': drink?.name ?? current['name'] ?? line.drinkId,
-        'quantity': ((current['quantity'] as num?)?.toInt() ?? 0) +
-            line.quantityBottles,
-        'lastPurchasedAt': DateTime.now().toIso8601String(),
+      final metadata = {
+        if ((tableLabel ?? '').trim().isNotEmpty) 'preferredBarTable': tableLabel!.trim(),
+        if (commonPurchases.isNotEmpty) 'barCommonPurchases': commonPurchases,
       };
+      if (metadata.isNotEmpty) {
+        await repository!.mergeCustomerMetadata(customerId, metadata);
+      }
+    } catch (e) {
+      if (kDebugMode) print('DrinkProvider._updateCustomerAfterSale error: $e');
     }
-
-    await customerRef.set({
-      'totalTransactions': newTransactionCount,
-      'totalSpent': newTotalSpent,
-      'averageOrderValue': newAverageOrderValue,
-      'lastPurchaseDate': FieldValue.serverTimestamp(),
-      if ((tableLabel ?? '').trim().isNotEmpty)
-        'preferredBarTable': tableLabel!.trim(),
-      if (commonPurchases.isNotEmpty) 'barCommonPurchases': commonPurchases,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
   }
 
   double getTotalSales() {
@@ -1469,36 +1418,19 @@ class DrinkProvider extends ChangeNotifier {
         0.0, (sum, o) => sum + (o.status == 'paid' ? o.total() : 0.0));
   }
 
-  Future<double> getTotalSalesFromFirestore() async {
-    if (_businessId == null) {
+  Future<double> getTotalSalesFromRemote() async {
+    if (_businessId == null || repository == null) {
       // Fallback to in-memory orders
       return getTotalSales();
     }
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .get();
-
-      double totalSales = 0.0;
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final status = (data['status'] ?? 'completed').toString().toLowerCase();
-        if (status == 'cancelled' || status == 'refunded') continue;
-        final amount = (data['finalAmount'] as num?)?.toDouble() ??
-            (data['totalAmount'] as num?)?.toDouble() ??
-            (data['total'] as num?)?.toDouble() ??
-            0.0;
-        totalSales += amount;
-      }
-
-      debugPrint('[DrinkProvider] Firestore total sales: \u20a6$totalSales');
+      final totalSales = await repository!.getSalesTotal();
+      debugPrint('[DrinkProvider] Remote total sales: \u20a6$totalSales');
       return totalSales;
     } catch (e) {
       debugPrint(
-          '[DrinkProvider] Error fetching from Firestore: $e, falling back to in-memory');
+          '[DrinkProvider] Error fetching remote sales total: $e, falling back to in-memory');
       return getTotalSales();
     }
   }
@@ -1515,81 +1447,16 @@ class DrinkProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Get today's sales total from Firestore sales collection
+  /// Get today's sales total from the backend's sales summary route.
   Future<double> getTodaysSalesTotal() async {
-    if (_businessId == null || _businessId!.isEmpty) {
+    if (_businessId == null || _businessId!.isEmpty || repository == null) {
       return 0.0;
     }
 
     try {
-      final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day);
-      final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
-
-      try {
-        final snapshot = await _firestore
-            .collection('businesses')
-            .doc(_businessId)
-            .collection('sales')
-            .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
-            .where('createdAt', isLessThanOrEqualTo: endOfDay)
-            .get();
-
-        double totalSales = 0.0;
-        for (final doc in snapshot.docs) {
-          final data = doc.data();
-          final status =
-              (data['status'] ?? 'completed').toString().toLowerCase();
-          if (status == 'cancelled' || status == 'refunded') continue;
-          final amount = (data['finalAmount'] as num?)?.toDouble() ??
-              (data['totalAmount'] as num?)?.toDouble() ??
-              (data['total'] as num?)?.toDouble() ??
-              0.0;
-          totalSales += amount;
-        }
-
-        debugPrint('[DrinkProvider] Today\'s sales total: ₦$totalSales');
-        return totalSales;
-      } catch (e) {
-        // If Firestore requires a composite index, fall back to a date-only
-        // query and filter the status on the client side. This avoids a
-        // hard failure in the app when indexes are missing.
-        final msg = e.toString();
-        if (msg.contains('requires an index') || msg.contains('FAILED_PRECONDITION')) {
-          try {
-            debugPrint('[DrinkProvider] Composite index required; falling back to date-only query for today\'s sales');
-            final fallback = await _firestore
-                .collection('businesses')
-                .doc(_businessId)
-                .collection('sales')
-                .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
-                .where('createdAt', isLessThanOrEqualTo: endOfDay)
-                .get();
-
-            double totalSales = 0.0;
-            for (final doc in fallback.docs) {
-              final data = doc.data();
-              final status =
-                  (data['status'] ?? 'completed').toString().toLowerCase();
-              if (status == 'cancelled' || status == 'refunded') continue;
-              final amount = (data['finalAmount'] as num?)?.toDouble() ??
-                  (data['totalAmount'] as num?)?.toDouble() ??
-                  (data['total'] as num?)?.toDouble() ??
-                  0.0;
-              totalSales += amount;
-            }
-
-            debugPrint('[DrinkProvider] Today\'s sales total (fallback): ₦$totalSales');
-            return totalSales;
-          } catch (e2) {
-            debugPrint('[DrinkProvider] Fallback date-only query failed: $e2');
-            return 0.0;
-          }
-        }
-
-        debugPrint('[DrinkProvider] Error fetching today\'s sales: $e');
-        return 0.0;
-      }
+      final totalSales = await repository!.getSalesTotal(period: 'today');
+      debugPrint('[DrinkProvider] Today\'s sales total: ₦$totalSales');
+      return totalSales;
     } catch (e) {
       debugPrint('[DrinkProvider] Error fetching today\'s sales: $e');
       return 0.0;

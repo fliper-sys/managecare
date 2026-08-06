@@ -1,5 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/routes.dart';
@@ -9,6 +8,7 @@ import '../../../data/repositories/distributor_repository.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/reports_provider.dart';
+import '../../../providers/retail_provider.dart';
 import '../utils/distributor_sales_analytics.dart';
 
 class DistributorSalesReportScreen extends StatefulWidget {
@@ -44,27 +44,13 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
         throw Exception('No business selected');
       }
 
-      final distributorSnapshot = await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('distributors')
-          .orderBy('createdAt', descending: true)
-          .get();
-
-      final salesSnapshot = await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('distributor_sales')
-          .orderBy('createdAt', descending: true)
-          .get();
+      final repository = DistributorRepository();
+      final distributors = await repository.getDistributors(businessId);
+      final sales = await repository.getDistributorSales(businessId);
 
       setState(() {
-        _distributors = distributorSnapshot.docs
-            .map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()})
-            .toList();
-        _sales = salesSnapshot.docs
-            .map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()})
-            .toList();
+        _distributors = distributors;
+        _sales = sales;
         _isLoading = false;
       });
     } catch (e) {
@@ -138,7 +124,7 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
     }
 
     try {
-      final repository = DistributorRepository(firestore: FirebaseFirestore.instance);
+      final repository = DistributorRepository();
       await repository.addDistributor(
         businessId: businessId,
         name: name,
@@ -162,16 +148,19 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
       return;
     }
 
-    final repository = DistributorRepository(firestore: FirebaseFirestore.instance);
+    final repository = DistributorRepository();
     final distributors = await repository.getDistributors(businessId);
-    final inventorySnapshot = await FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(businessId)
-        .collection('inventory')
-        .orderBy('name')
-        .get();
-    final products = inventorySnapshot.docs
-        .map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()})
+    await context.read<RetailProvider>().loadProducts();
+    final products = context
+        .read<RetailProvider>()
+        .products
+        .map((product) => <String, dynamic>{
+              'id': product.id,
+              'name': product.name,
+              'price': product.price,
+              'distributorPrice': product.distributorPrice,
+              'distributorDiscountPercent': product.distributorDiscountPercent,
+            })
         .toList();
 
     if (!mounted) return;
@@ -212,6 +201,32 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
                           });
                         },
                       ),
+                    if (selectedProductId != null) ...[
+                      const SizedBox(height: 8),
+                      Builder(builder: (_) {
+                        final selectedProduct = products.firstWhere(
+                          (entry) =>
+                              (entry['id']?.toString() ?? '') ==
+                              selectedProductId,
+                          orElse: () => <String, dynamic>{},
+                        );
+                        final distributorPrice =
+                            (selectedProduct['distributorPrice'] as num?)
+                                ?.toDouble();
+                        final price =
+                            distributorPrice ??
+                                (selectedProduct['price'] as num?)
+                                    ?.toDouble() ??
+                                0.0;
+                        return Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Distributor unit price: ₦${price.toStringAsFixed(2)}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        );
+                      }),
+                    ],
                     const SizedBox(height: 12),
                     if (distributors.isNotEmpty) ...[
                       DropdownButtonFormField<String>(
@@ -302,8 +317,12 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
       return;
     }
 
-    final unitPrice = (product['price'] as num?)?.toDouble() ?? 0.0;
-    final discountPercent = (product['distributorDiscountPercent'] as num?)?.toDouble() ?? 0.0;
+    final distributorPrice = (product['distributorPrice'] as num?)?.toDouble();
+    final unitPrice =
+        distributorPrice ?? (product['price'] as num?)?.toDouble() ?? 0.0;
+    final discountPercent = distributorPrice == null
+        ? (product['distributorDiscountPercent'] as num?)?.toDouble() ?? 0.0
+        : 0.0;
     final salesRepId = context.read<AuthProvider>().currentUser?.id;
     final salesRepName = context.read<AuthProvider>().currentUser?.fullName ?? context.read<AuthProvider>().currentUser?.email ?? '';
 
@@ -358,8 +377,8 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
 
       final createdAt = sale['createdAt'];
       DateTime? date;
-      if (createdAt is Timestamp) {
-        date = createdAt.toDate();
+      if (createdAt is String) {
+        date = DateTime.tryParse(createdAt);
       } else if (createdAt is DateTime) {
         date = createdAt;
       }
@@ -379,16 +398,10 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
     final businessId = context.read<BusinessProvider>().currentBusiness?.id ?? '';
     if (businessId.isEmpty) return;
 
-    final salesSnapshot = await FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(businessId)
-        .collection('distributors')
-        .doc(distributor['id']?.toString() ?? '')
-        .collection('sales')
-        .orderBy('createdAt', descending: true)
-        .get();
-
-    final sales = salesSnapshot.docs.map((doc) => <String, dynamic>{'id': doc.id, ...doc.data()}).toList();
+    final sales = await DistributorRepository().getDistributorSales(
+      businessId,
+      distributorId: distributor['id']?.toString(),
+    );
 
     if (!mounted) return;
 
@@ -408,8 +421,9 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
                     itemBuilder: (ctx, index) {
                       final sale = sales[index];
                       final createdAt = sale['createdAt'];
-                      final when = createdAt is Timestamp
-                          ? createdAt.toDate().toLocal().toString().split('.').first
+                      final parsedCreatedAt = createdAt is String ? DateTime.tryParse(createdAt) : null;
+                      final when = parsedCreatedAt != null
+                          ? parsedCreatedAt.toLocal().toString().split('.').first
                           : createdAt?.toString() ?? '—';
                       return ListTile(
                         title: Text(sale['productName']?.toString() ?? 'Unknown product'),
@@ -555,8 +569,9 @@ class _DistributorSalesReportScreenState extends State<DistributorSalesReportScr
                           itemBuilder: (context, index) {
                             final sale = filteredSales[index];
                             final createdAt = sale['createdAt'];
-                            final label = createdAt is Timestamp
-                                ? createdAt.toDate().toLocal().toString().split('.').first
+                            final parsedCreatedAt = createdAt is String ? DateTime.tryParse(createdAt) : null;
+                            final label = parsedCreatedAt != null
+                                ? parsedCreatedAt.toLocal().toString().split('.').first
                                 : createdAt?.toString() ?? '—';
                             final total = (sale['totalAmount'] as num?)?.toDouble() ?? 0.0;
                             return Card(

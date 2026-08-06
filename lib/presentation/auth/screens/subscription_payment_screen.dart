@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -7,6 +6,7 @@ import '../../../core/theme/colors.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../services/kora_payment_service.dart';
+import '../../../services/managecare_api_client.dart';
 import '../../../services/subscription_service.dart';
 import '../../../widgets/loading_indicator.dart';
 import 'kora_checkout_screen.dart';
@@ -669,62 +669,27 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     required bool recurringEnabled,
     required String selectedPaymentMethod,
   }) async {
-    final now = DateTime.now();
     final receiptUrl = 'kora:$reference';
 
-    await FirebaseFirestore.instance
-        .collection('subscription_requests')
-        .doc('KORA_${widget.userId}_${now.millisecondsSinceEpoch}')
-        .set({
-      'userId': widget.userId,
-      'businessId': businessId,
-      'businessType': businessType,
-      'planId': selectedPlan.id,
-      'planName': selectedPlan.name,
-      'planTier': selectedPlan.tierId,
-      'planFamily': selectedPlan.businessFamily,
-      'amount': selectedPlan.price,
-      'currency': currency,
-      'userEmail': widget.userEmail,
-      'userName': widget.userName,
-      'receiptUrl': receiptUrl,
-      'status': 'approved',
-      'paymentMethod': paymentMethod,
-      'paymentProcessor': 'kora',
-      'selectedKoraPaymentMethod': selectedPaymentMethod,
-      'recurringEnabled': recurringEnabled,
-      'recurrenceInterval': recurringEnabled ? 'plan_duration' : null,
-      'processorTransactionId': reference,
-      'subscriptionStatus': 'approved',
-      'createdAt': now.toIso8601String(),
-      'approvedAt': now.toIso8601String(),
-      'approvedBy': 'system',
-      'updatedAt': now.toIso8601String(),
-      'processorResponse': processorResponse,
-    });
+    // Note: activateSubscriptionImmediately (below) already logs a
+    // subscription_events row server-side, so no separate
+    // subscription_requests write is needed here.
+    try {
+      await ManagecareApiClient.instance.post('/api/payments/transactions', body: {
+        'transactionId': reference,
+        'businessId': businessId,
+        'amount': selectedPlan.price,
+        'currency': currency,
+        'email': widget.userEmail,
+        'method': paymentMethod,
+        'status': 'completed',
+        'processorResponse': processorResponse,
+      });
+    } catch (e) {
+      debugPrint('[SubscriptionPayment] Failed to log payment transaction: $e');
+    }
 
-    await FirebaseFirestore.instance.collection('payment_transactions').add({
-      'transactionId': reference,
-      'businessId': businessId,
-      'userId': widget.userId,
-      'userEmail': widget.userEmail,
-      'userName': widget.userName,
-      'amount': selectedPlan.price,
-      'currency': currency,
-      'method': paymentMethod,
-      'provider': 'kora',
-      'selectedKoraPaymentMethod': selectedPaymentMethod,
-      'recurringEnabled': recurringEnabled,
-      'status': 'completed',
-      'subscriptionPayment': true,
-      'planId': selectedPlan.id,
-      'processorResponse': processorResponse,
-      'createdAt': now.toIso8601String(),
-    });
-
-    final activated = await SubscriptionService(
-      firestore: FirebaseFirestore.instance,
-    ).activateSubscriptionImmediately(
+    final activated = await SubscriptionService().activateSubscriptionImmediately(
       userId: widget.userId,
       planId: selectedPlan.id,
       receiptUrl: receiptUrl,
@@ -775,68 +740,17 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
     required String currency,
     required String reference,
   }) async {
-    final now = DateTime.now();
-    final nextRenewal = now.add(Duration(days: selectedPlan.durationInDays));
-    final recurringData = {
-      'subscriptionRecurringEnabled': true,
-      'subscriptionRecurringProvider': 'kora',
-      'subscriptionRecurringMethod': 'card',
-      'subscriptionRecurringStatus': 'active',
-      'subscriptionRecurringInterval': 'plan_duration',
-      'subscriptionRecurringPlanId': selectedPlan.id,
-      'subscriptionRecurringAmount': selectedPlan.price,
-      'subscriptionRecurringCurrency': currency,
-      'subscriptionRecurringLastReference': reference,
-      'subscriptionRecurringNextRenewalAt': Timestamp.fromDate(nextRenewal),
-      'subscriptionRecurringUpdatedAt': Timestamp.fromDate(now),
-      'subscriptionRecurringReminderSentFor': FieldValue.delete(),
-    };
-
-    await FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(businessId)
-        .set(recurringData, SetOptions(merge: true));
-
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(widget.userId)
-        .set(recurringData, SetOptions(merge: true));
-
-    await FirebaseFirestore.instance.collection('admin_notifications').add({
-      'type': 'subscription',
-      'title': 'Recurring Renewal Enabled',
-      'message':
-          '${widget.userName} enabled recurring card renewal for ${selectedPlan.name}.',
-      'data': {
-        'userId': widget.userId,
-        'businessId': businessId,
-        'planId': selectedPlan.id,
-        'amount': selectedPlan.price,
-        'currency': currency,
-        'nextRenewalAt': nextRenewal.toIso8601String(),
-        'provider': 'kora',
-      },
-      'isRead': false,
-      'createdAt': Timestamp.fromDate(now),
-    });
-
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(widget.userId)
-        .collection('notifications')
-        .add({
-      'title': 'Recurring renewal enabled',
-      'body':
-          'Your card renewal preference is active. We will remind you before your next ${selectedPlan.name} renewal.',
-      'type': 'subscription_recurring_enabled',
-      'isRead': false,
-      'createdAt': Timestamp.fromDate(now),
-      'data': {
-        'businessId': businessId,
-        'planId': selectedPlan.id,
-        'nextRenewalAt': nextRenewal.toIso8601String(),
-      },
-    });
+    // The recurring-renewal toggle is permanently disabled in the UI above
+    // (`onChanged: null` in _buildPaymentMethodSelector - card recurring
+    // billing isn't enabled for NGN on this Kora account), so this path is
+    // unreachable today. Kept as a stub rather than removed outright in
+    // case recurring billing gets enabled later; it now has no backend
+    // support for the businesses/users recurring-preference fields.
+    debugPrint(
+      '[SubscriptionPayment] Recurring preference requested for $businessId '
+      '(plan ${selectedPlan.id}, ref $reference) but recurring billing is '
+      'not yet supported by the backend.',
+    );
   }
 
   void _showError(String message) {

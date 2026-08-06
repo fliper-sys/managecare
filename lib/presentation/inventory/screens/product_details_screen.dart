@@ -5,13 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
+import '../../../data/repositories/procurement_repository.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/pharmacy_provider.dart';
 import '../../../providers/retail_provider.dart' show Product;
+import '../../../services/managecare_api_client.dart';
 import '../../../services/web_download.dart' as web_download;
 import '../../../widgets/loading_indicator.dart';
 
@@ -60,14 +61,15 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('businesses')
-            .doc(business.id)
-            .collection('inventory')
-            .doc(widget.productId)
-            .snapshots(),
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      // Product details no longer live in Firestore, and the custom backend
+      // doesn't implement realtime push, so this is a one-shot fetch rather
+      // than a live subscription.
+      body: FutureBuilder<Map<String, dynamic>?>(
+        future: ManagecareApiClient.instance
+            .get('/api/inventory/${business.id}/${widget.productId}')
+            .then((data) => data as Map<String, dynamic>?)
+            .catchError((_) => null),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: LoadingIndicator());
@@ -86,7 +88,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             );
           }
 
-          if (!snapshot.hasData || !snapshot.data!.exists) {
+          if (!snapshot.hasData || snapshot.data == null) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -104,8 +106,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             );
           }
 
-          final productData = snapshot.data!.data() as Map<String, dynamic>;
-          final product = Product.fromFirestore(snapshot.data!);
+          final productData = snapshot.data!;
+          final product = Product.fromJson(productData);
 
           return DefaultTabController(
             length: 3,
@@ -115,7 +117,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                 SliverAppBar(
                   expandedHeight: 400,
                   pinned: true,
-                  backgroundColor: Colors.white,
+                  backgroundColor: Theme.of(context).colorScheme.surface,
                   elevation: 0,
                   leading: IconButton(
                     icon: Container(
@@ -251,9 +253,9 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       slivers: [
         SliverToBoxAdapter(
           child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             ),
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -377,7 +379,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                   
                   _buildDetailRow('Barcode', product.barcode ?? 'N/A'),
                   _buildDetailRow('Unit', product.unit),
-                  if ((productData['bagWeightKg'] ?? 0) != null && (productData['bagWeightKg'] as num) > 0)
+                  if ((productData['bagWeightKg'] as num?) != null && (productData['bagWeightKg'] as num) > 0)
                     _buildDetailRow('Bag weight', '${(productData['bagWeightKg'] as num).toString()} kg'),
                   _buildDetailRow('Emoji', product.emoji),
                   _buildDetailRow('Profit Margin', '${(((product.price - product.cost) / product.price) * 100).toStringAsFixed(1)}%'),
@@ -435,7 +437,6 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   // Helper: Parse timestamp from various formats
   DateTime _parseTimestamp(dynamic value) {
     if (value == null) return DateTime.now();
-    if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
     if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
     if (value is String) {
@@ -490,7 +491,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
         .toString()
         .trim()
         .toLowerCase();
-    final itemName = (item['productName'] ?? item['name'] ?? '')
+    final itemName = (item['productName'] ?? item['product_name'] ?? item['name'] ?? '')
         .toString()
         .trim()
         .toLowerCase();
@@ -555,31 +556,22 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
   ) async {
     final combined = <String, Map<String, dynamic>>{};
 
-    Future<void> addDocs(QuerySnapshot snapshot) async {
-      for (final doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
+    try {
+      final response = await ManagecareApiClient.instance.get('/api/sales/$businessId', query: {'limit': 1000});
+      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      for (final data in rows) {
         if (!_saleContainsProduct(data, product)) continue;
-        combined[doc.id] = {'id': doc.id, ...data};
+        final id = (data['id'] ?? '').toString();
+        // Normalize snake_case backend fields to the camelCase keys the
+        // rest of this screen's sales-tab code reads.
+        combined[id] = {
+          ...data,
+          'createdAt': data['createdAt'] ?? data['created_at'],
+          'paymentMethod': data['paymentMethod'] ?? data['payment_method'],
+        };
       }
-    }
-
-    try {
-      await addDocs(await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('sales')
-          .get());
     } catch (e) {
-      debugPrint('[ProductDetailsScreen] Nested sales load failed: $e');
-    }
-
-    try {
-      await addDocs(await FirebaseFirestore.instance
-          .collection('sales')
-          .where('businessId', isEqualTo: businessId)
-          .get());
-    } catch (e) {
-      debugPrint('[ProductDetailsScreen] Root sales load failed: $e');
+      debugPrint('[ProductDetailsScreen] Sales load failed: $e');
     }
 
     final records = combined.values.toList();
@@ -589,6 +581,11 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
       return rightTime.compareTo(leftTime);
     });
     return records;
+  }
+
+  String _shortId(dynamic id) {
+    final str = id?.toString() ?? '';
+    return str.length <= 8 ? str : str.substring(0, 8);
   }
 
   String _escapeCsv(String value) {
@@ -951,28 +948,21 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
             children: [
               const Text('Procurement History', style: AppTextStyles.heading5),
               const SizedBox(height: 12),
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('businesses')
-                    .doc(businessId)
-                    .collection('procurements')
-                    .orderBy('createdAt', descending: true)
-                    .limit(50)
-                    .snapshots(),
+              StreamBuilder<List<Map<String, dynamic>>>(
+                stream: ProcurementRepository().procurementsStream(businessId: businessId),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  
-                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
                     return const Center(
                       child: Text('No procurement records found'),
                     );
                   }
-                  
+
                   // Filter for procurements containing this product only
-                  final procurementsForProduct = snapshot.data!.docs.where((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
+                  final procurementsForProduct = snapshot.data!.where((data) {
                     final items = (data['items'] as List?) ?? [];
                     
                     return items.any((item) {
@@ -1002,9 +992,8 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: procurementsForProduct.length,
                     itemBuilder: (context, index) {
-                      final procDoc = procurementsForProduct[index];
-                      final procData = procDoc.data() as Map<String, dynamic>;
-                      
+                      final procData = procurementsForProduct[index];
+
                       final timestamp = _parseTimestamp(procData['createdAt'] ?? procData['timestamp']);
                       final formattedDate = DateFormat('MMM dd, yyyy').format(timestamp);
                       final status = procData['status'] ?? 'pending';
@@ -1055,7 +1044,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      'Invoice: ${procData['invoiceRef'] ?? procDoc.id.substring(0, 8)}',
+                                      'Invoice: ${procData['invoiceRef'] ?? _shortId(procData['id'])}',
                                       style: AppTextStyles.caption,
                                     ),
                                     const SizedBox(height: 4),
@@ -1260,23 +1249,17 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     try {
       debugPrint('[_calculateProcurementStats] Starting for product: ${widget.productId}');
       
-      final snapshot = await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('procurements')
-          .get();
-      
-      debugPrint('[_calculateProcurementStats] Found ${snapshot.docs.length} procurement documents');
-      
+      final procurements = await ProcurementRepository().fetchProcurements(businessId: businessId);
+
+      debugPrint('[_calculateProcurementStats] Found ${procurements.length} procurement documents');
+
       int totalUnits = 0;
       double productOnlyCost = 0.0;
       int pending = 0;
-      
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        
+
+      for (var data in procurements) {
         final items = (data['items'] as List?) ?? [];
-        debugPrint('[_calculateProcurementStats] Procurement ${doc.id} has ${items.length} items');
+        debugPrint('[_calculateProcurementStats] Procurement ${data['id']} has ${items.length} items');
         
         for (var item in items) {
           if (item is! Map) continue;
@@ -1364,7 +1347,7 @@ class _ProductDetailsScreenState extends State<ProductDetailsScreen> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
         title: Text(drug.name),
         elevation: 0,
@@ -1517,7 +1500,7 @@ class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
     bool overlapsContent,
   ) {
     return Container(
-      color: Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       child: tabBar,
     );
   }

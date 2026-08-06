@@ -2,9 +2,13 @@ import 'analytics_service.dart';
 import 'barcode_service.dart';
 import 'thermal_printing_service.dart';
 import 'cloud_storage_service.dart';
-import 'firebase_service.dart';
+import 'minio_storage_service.dart';
+import 'self_hosted_push_service.dart';
 
-/// Service initializer for all app services
+/// Service initializer for all app services.
+///
+/// Firebase has been fully replaced by the self-hosted Supabase stack.
+/// See managecare-1/database.md for the migration plan.
 class ServicesInitializer {
   static final ServicesInitializer _instance = ServicesInitializer._internal();
 
@@ -21,12 +25,20 @@ class ServicesInitializer {
   /// Initialize all services
   Future<void> initializeAll() async {
     if (_isInitialized) return;
-    // Initialize Firebase (must be done first)
+
+    // Initialize self-hosted push notifications (replaces FCM)
     try {
-      await FirebaseService.initialize();
-      print('✓ Firebase Service initialized');
+      await SelfHostedPushService.instance.initialize();
+      print('✓ SelfHostedPushService initialized');
     } catch (e) {
-      print('Firebase Service initialization: $e');
+      print('SelfHostedPushService initialization: $e');
+    }
+
+    try {
+      await MinioStorageService().initialize();
+      print('✓ MinIO Storage Service initialized');
+    } catch (e) {
+      print('MinIO Storage initialization warning: $e');
     }
 
     // Initialize Analytics (non-critical)
@@ -88,13 +100,4 @@ class ServicesInitializer {
     }
     return CloudStorageService();
   }
-
-  /// Get Firebase service instance
-  FirebaseService getFirebaseService() {
-    if (!FirebaseService().isInitialized) {
-      throw Exception('Firebase Service not initialized.');
-    }
-    return FirebaseService();
-  }
 }
-

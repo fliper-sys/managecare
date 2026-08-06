@@ -9,6 +9,15 @@ class ExportService {
   static const String _dateFormat = 'yyyy-MM-dd HH:mm:ss';
   static final DateFormat _dateFormatter = DateFormat(_dateFormat);
 
+  static double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      return double.tryParse(value.replaceAll(RegExp(r'[^0-9.\-]'), '')) ??
+          0.0;
+    }
+    return 0.0;
+  }
+
   /// Export sales to CSV format
   static Future<String> exportToCSV(List<SaleModel> sales) async {
     try {
@@ -315,25 +324,44 @@ class ExportService {
       for (final entry in raw) {
         final id = entry['id'] as String? ?? '';
         final data = entry['data'] as Map<String, dynamic>? ?? {};
-        final created = data['createdAt'];
+        final created = data['createdAt'] ?? data['created_at'];
         final createdDt = parseTimestamp(created);
         final dateStr = _dateFormatter.format(createdDt);
-        final customer = (data['customerName'] ?? data['customerDisplayName'] ?? data['customer'] ?? '').toString();
+        final customer = (data['customerName'] ??
+                data['customer_name'] ??
+                data['customerDisplayName'] ??
+                data['customer'] ??
+                '')
+            .toString();
         final items = (data['items'] as List?) ?? [];
         if (items.isNotEmpty) {
           for (final it in items) {
             final item = it is Map ? it : {};
-            final pname = (item['productName'] ?? item['name'] ?? '').toString();
+            final pname =
+                (item['productName'] ?? item['product_name'] ?? item['name'] ?? '')
+                    .toString();
             final qty = (item['quantity'] ?? item['qty'] ?? 0).toString();
-            final unitPrice = (item['unitPrice'] ?? item['price'] ?? 0).toString();
-            final total = (item['total'] ?? (item['quantity'] ?? 0) * (item['unitPrice'] ?? 0) ?? 0).toString();
-            final pm = (data['paymentMethod'] ?? data['payment'] ?? '').toString();
+            final unitPrice =
+                (item['unitPrice'] ?? item['unit_price'] ?? item['price'] ?? 0)
+                    .toString();
+            final total = (item['total'] ?? 0).toString();
+            final pm =
+                (data['paymentMethod'] ?? data['payment_method'] ?? data['payment'] ?? '')
+                    .toString();
             final status = (data['status'] ?? '').toString();
             buffer.writeln([id, dateStr, customer, pname, qty, unitPrice, total, pm, status].join(','));
           }
         } else {
-          final total = ((data['finalAmount'] ?? data['totalAmount'] ?? data['total'] ?? 0) as num).toString();
-          final pm = (data['paymentMethod'] ?? data['payment'] ?? '').toString();
+          final total = (data['finalAmount'] ??
+                  data['final_amount'] ??
+                  data['totalAmount'] ??
+                  data['total_amount'] ??
+                  data['total'] ??
+                  0)
+              .toString();
+          final pm =
+              (data['paymentMethod'] ?? data['payment_method'] ?? data['payment'] ?? '')
+                  .toString();
           final status = (data['status'] ?? '').toString();
           buffer.writeln([id, dateStr, customer, 'N/A', '0', '0', total, pm, status].join(','));
         }
@@ -373,34 +401,47 @@ class ExportService {
           final m = it is Map ? it : {};
           return SaleItem(
             id: (m['id'] ?? '') as String,
-            productId: (m['productId'] ?? '') as String,
-            productName: (m['productName'] ?? m['name'] ?? '') as String,
-            quantity: (m['quantity'] ?? m['qty'] ?? 0).toDouble(),
-            unitPrice: ((m['unitPrice'] ?? m['price'] ?? 0) as num).toDouble(),
-            discount: ((m['discount'] ?? 0) as num).toDouble(),
-            total: ((m['total'] ?? 0) as num).toDouble(),
+            productId: (m['productId'] ?? m['product_id'] ?? '').toString(),
+            productName:
+                (m['productName'] ?? m['product_name'] ?? m['name'] ?? '')
+                    .toString(),
+            quantity: _readDouble(m['quantity'] ?? m['qty']),
+            unitPrice:
+                _readDouble(m['unitPrice'] ?? m['unit_price'] ?? m['price']),
+            discount: _readDouble(m['discount']),
+            total: _readDouble(m['total']),
           );
         }).toList() ?? [];
 
-        DateTime createdAt = parseTimestamp(data['createdAt']);
+        DateTime createdAt = parseTimestamp(data['createdAt'] ?? data['created_at']);
 
         return SaleModel(
           id: id,
-          businessId: (data['businessId'] ?? '') as String,
-          customerId: data['customerId'] as String?,
-          customerName: data['customerName'] as String?,
+          businessId: (data['businessId'] ?? data['business_id'] ?? '').toString(),
+          customerId: (data['customerId'] ?? data['customer_id'])?.toString(),
+          customerName:
+              (data['customerName'] ?? data['customer_name'])?.toString(),
           items: items.cast<SaleItem>(),
-          totalAmount: ((data['totalAmount'] ?? data['total'] ?? 0) as num).toDouble(),
-          discountAmount: ((data['discountAmount'] ?? data['discount'] ?? 0) as num).toDouble(),
-          taxAmount: ((data['taxAmount'] ?? data['tax'] ?? 0) as num).toDouble(),
-          finalAmount: ((data['finalAmount'] ?? data['totalAmount'] ?? data['total'] ?? 0) as num).toDouble(),
-          paymentMethod: (data['paymentMethod'] ?? data['payment'] ?? 'unknown') as String,
+          totalAmount:
+              _readDouble(data['totalAmount'] ?? data['total_amount'] ?? data['total']),
+          discountAmount: _readDouble(
+              data['discountAmount'] ?? data['discount_amount'] ?? data['discount']),
+          taxAmount:
+              _readDouble(data['taxAmount'] ?? data['tax_amount'] ?? data['tax']),
+          finalAmount: _readDouble(data['finalAmount'] ??
+              data['final_amount'] ??
+              data['totalAmount'] ??
+              data['total_amount'] ??
+              data['total']),
+          paymentMethod:
+              (data['paymentMethod'] ?? data['payment_method'] ?? data['payment'] ?? 'unknown')
+                  .toString(),
           status: (data['status'] ?? 'completed') as String,
           receiptNumber: data['receiptNumber'] as String?,
           notes: data['notes'] as String?,
-          createdBy: (data['createdBy'] ?? '') as String,
+          createdBy: (data['createdBy'] ?? data['created_by'] ?? '').toString(),
           createdAt: createdAt,
-          updatedAt: parseTimestamp(data['updatedAt']),
+          updatedAt: parseTimestamp(data['updatedAt'] ?? data['updated_at']),
         );
       }).toList();
 

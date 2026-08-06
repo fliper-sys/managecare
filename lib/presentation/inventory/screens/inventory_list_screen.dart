@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
@@ -10,7 +9,7 @@ import '../../../widgets/custom_button.dart';
 import '../../../widgets/animated_lottie.dart';
 import '../../../services/barcode_service.dart';
 import '../../../services/inventory_export_service.dart';
-import '../../../data/repositories/inventory_repository_impl.dart';
+import '../../../data/repositories/inventory_repository_supabase.dart';
 import '../../../data/repositories/distributor_repository.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
@@ -40,7 +39,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   String _selectedCategory = 'All';
   String _sortBy = 'name';
   bool _showLowStock = false;
-  late InventoryRepositoryImpl _repository;
+  late InventoryRepositorySupabase _repository;
   List<Map<String, dynamic>> _inventory = [];
   List<Map<String, dynamic>> _filteredInventory = [];
   bool _isLoading = true;
@@ -62,8 +61,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   @override
   void initState() {
     super.initState();
-    _repository =
-        InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
+    _repository = InventoryRepositorySupabase();
     _selectedCategory = widget.initialCategory ??
         (widget.showIngredientsOnly ? 'Ingredient' : 'All');
     _loadInventory();
@@ -90,48 +88,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final userStoreId = authProvider.currentUser?.storeId;
 
-      var inventoryData =
+      final inventoryData =
           await _repository.getInventory(businessId, storeId: userStoreId);
-
-      // Fallback: if primary query returned no results, try broader fetches
-      if ((inventoryData.isEmpty) && businessId.isNotEmpty) {
-        try {
-          final allItems =
-              await _repository.fetchInventory(storeId: userStoreId);
-          final userBizId = authProvider.currentUser?.businessId ?? '';
-          final businessName = businessProvider.currentBusiness?.name ?? '';
-
-          final fallback = <dynamic>[];
-          for (final it in allItems) {
-            final bid = (it['businessId'] ?? '').toString();
-            final bname = (it['businessName'] ?? '').toString();
-            final createdBy = (it['createdBy'] ?? '').toString();
-
-            if (bid == businessId || bid == userBizId) {
-              fallback.add(it);
-              continue;
-            }
-
-            // Accept items with empty businessId if they reference the same business name
-            if ((bid.isEmpty) && (bname == businessName)) {
-              fallback.add(it);
-              continue;
-            }
-
-            // Accept items with empty businessId created by current user
-            if (bid.isEmpty && createdBy == authProvider.currentUser?.id) {
-              fallback.add(it);
-              continue;
-            }
-          }
-
-          if (fallback.isNotEmpty) {
-            inventoryData = fallback;
-          }
-        } catch (e) {
-          // ignore fallback errors
-        }
-      }
 
       List<Map<String, dynamic>> items = [];
       int lowStock = 0;
@@ -141,40 +99,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
         if (item is Map<String, dynamic>) {
           items.add(item);
           final quantity = item['quantity'] ?? 0;
-          final minStock = item['minStock'] ?? 10;
+          final minStock = item['min_stock_level'] ?? 10;
 
           if (quantity == 0) {
             outOfStock++;
           } else if (quantity <= minStock) lowStock++;
         }
-      }
-
-      // If there are pharmacy drugs cached locally (offline-first), merge them in so they are visible here
-      try {
-        final pharmacyProvider =
-            Provider.of<PharmacyProvider>(context, listen: false);
-        for (final d in pharmacyProvider.drugs) {
-          final nameKey = d.name.toLowerCase();
-          final exists = items.any(
-              (it) => (it['name'] ?? '').toString().toLowerCase() == nameKey);
-          if (!exists) {
-            items.add({
-              'id': 'pharmacy_${d.id}',
-              'name': d.name,
-              'price': d.price,
-              'quantity': d.stock,
-              'category': 'Pharmacy',
-              'emoji': '💊',
-            });
-            if (d.stock == 0) {
-              outOfStock++;
-            } else if (d.stock <= (10)) {
-              lowStock++;
-            }
-          }
-        }
-      } catch (_) {
-        // ignore if provider not available
       }
 
       // Sort by selected sort option
@@ -201,7 +131,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   void _sortInventory(List<Map<String, dynamic>> items) {
     switch (_sortBy) {
       case 'price':
-        items.sort((a, b) => (b['price'] ?? 0).compareTo(a['price'] ?? 0));
+        items.sort((a, b) => (b['unit_price'] ?? 0).compareTo(a['unit_price'] ?? 0));
         break;
       case 'stock':
         items
@@ -228,7 +158,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       final sku = (item['sku'] ?? '').toString();
       final category = (item['category'] ?? 'All').toString();
       final quantity = item['quantity'] ?? 0;
-      final minStock = item['minStock'] ?? 10;
+      final minStock = item['min_stock_level'] ?? 10;
       final isIngredient = _isIngredientItem(item);
 
       if (hideIngredientsInBakeryMode && isIngredient) {
@@ -452,8 +382,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     }
 
     try {
-      final repository = InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
-      await repository.updateInventory(productId, {
+      await _repository.updateInventory(productId, {
         'businessId': businessId,
         'distributorDiscountPercent': discount,
         'discountPercent': discount,
@@ -542,6 +471,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
             action: SnackBarAction(
               label: 'Undo',
               onPressed: () async {
+                // The user can tap Undo up to 5s after this snackbar shows -
+                // if they've already navigated away by then, `context` here
+                // belongs to an unmounted State and using it throws
+                // "This widget has been unmounted". Bail out before touching
+                // it at all in that case.
+                if (!mounted) return;
                 // show small progress while undoing
                 showDialog<void>(
                   context: context,
@@ -567,11 +502,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                     await _loadInventory();
                   }
                 } catch (e) {
+                  if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                       content: Text('Restore failed: $e'),
                       backgroundColor: Colors.red));
                 } finally {
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 }
               },
             ),
@@ -612,6 +548,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
             action: SnackBarAction(
               label: 'Undo',
               onPressed: () async {
+                // The user can tap Undo up to 5s after this snackbar shows -
+                // if they've already navigated away by then, `context` here
+                // belongs to an unmounted State and using it throws
+                // "This widget has been unmounted". Bail out before touching
+                // it at all in that case.
+                if (!mounted) return;
                 // show small progress while restoring
                 showDialog<void>(
                   context: context,
@@ -634,11 +576,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   await repo.syncInventoryToFirestore(original);
                   await _loadInventory();
                 } catch (e) {
+                  if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                       content: Text('Restore failed: $e'),
                       backgroundColor: Colors.red));
                 } finally {
-                  Navigator.pop(context);
+                  if (mounted) Navigator.pop(context);
                 }
               },
             ),
@@ -785,12 +728,10 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
               if (selected == null || selected.isEmpty) return;
 
-              final repo = InventoryRepositoryImpl(
-                  firestore: FirebaseFirestore.instance);
               try {
                 ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Assigning...')));
-                final count = await repo.assignAllInventoryToStore(
+                final count = await _repository.assignAllInventoryToStore(
                     businessProvider.currentBusiness!.id, selected);
                 ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Assigned $count items to store')));
@@ -850,18 +791,22 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                if (_isBakeryBusiness())
+                // Only the Ingredients-filtered view of this screen should
+                // offer resupply — the general Inventory view lists retail
+                // products, not supplies to reorder from a distributor.
+                if (_isBakeryBusiness() && widget.showIngredientsOnly)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16),
-                    child: SizedBox(
-                      width: double.infinity,
+                    child: Align(
+                      alignment: Alignment.centerRight,
                       child: ElevatedButton.icon(
                         onPressed: _navigateToBakeryResupplyScreen,
-                        icon: const Icon(Icons.shopping_cart_checkout),
+                        icon: const Icon(Icons.shopping_cart_checkout, size: 18),
                         label: const Text('Bakery Resupply'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orange,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
                         ),
                       ),
                     ),
@@ -957,23 +902,6 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               },
             ),
           ),
-          if (_isBakeryBusiness())
-            Container(
-              width: double.infinity,
-              color: theme.cardColor,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              child: OutlinedButton.icon(
-                onPressed: _navigateToBakeryResupplyScreen,
-                icon: const Icon(Icons.bakery_dining_outlined),
-                label: const Text('Open Bakery Resupply'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.orange.shade800,
-                  side: const BorderSide(color: Colors.orange),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-            ),
-
           // Product List
           Expanded(
             child: Builder(builder: (context) {
@@ -1029,8 +957,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                     name: item['name'] ?? 'Unnamed',
                     sku: item['sku'] ?? 'N/A',
                     quantity: (item['quantity'] as num?)?.toInt() ?? 0,
-                    minStock: (item['minStock'] as num?)?.toInt() ?? 10,
-                    price: (item['price'] as num?)?.toDouble() ?? 0.0,
+                    minStock: (item['min_stock_level'] as num?)?.toInt() ?? 10,
+                    price: (item['unit_price'] as num?)?.toDouble() ?? 0.0,
                     category: item['category'] ?? 'All',
                     emoji: item['emoji'] ?? '📦',
                     onTap: () {

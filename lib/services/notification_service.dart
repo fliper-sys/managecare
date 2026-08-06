@@ -40,11 +40,29 @@ class NotificationService implements INotificationService {
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const ios = DarwinInitializationSettings();
-    const settings = InitializationSettings(android: android, iOS: ios);
+    // Windows notifications: appName is required for toast notifications
+    const windows = WindowsInitializationSettings(
+      appName: 'Manage Care', appUserModelId: '', guid: '',
+    );
+    const settings = InitializationSettings(
+      android: android,
+      iOS: ios,
+      windows: windows,
+      macOS: DarwinInitializationSettings(),
+      linux: LinuxInitializationSettings(defaultActionName: 'Manage Care'),
+    );
 
-    await _plugin.initialize(settings);
+    await _plugin.initialize(settings: settings);
     await _configureAndroidChannel();
     await _requestPermissions();
+
+    // Windows release builds crash the AOT compiler (gen_snapshot) with
+    // "Unexpected object (Class with illegal cid, full-aot)" referencing
+    // NativeLaunchDetails unless something actually calls this method —
+    // see https://github.com/MaikuB/flutter_local_notifications/issues/2615.
+    // The plugin author confirmed this call is the fix; the return value
+    // isn't otherwise needed here.
+    await _plugin.getNotificationAppLaunchDetails();
 
     _initialized = true;
   }
@@ -99,7 +117,12 @@ class NotificationService implements INotificationService {
     const ios = DarwinNotificationDetails();
     const details = NotificationDetails(android: android, iOS: ios);
 
-    await _plugin.show(id, title, body, details);
+    await _plugin.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: details,
+    );
   }
 
   @override
@@ -123,11 +146,11 @@ class NotificationService implements INotificationService {
     const details = NotificationDetails(android: android, iOS: ios);
 
     await _plugin.zonedSchedule(
-      id,
-      title,
-      body,
-      tzDate,
-      details,
+      id: id,
+      title: title,
+      body: body,
+      scheduledDate: tzDate,
+      notificationDetails: details,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
     );
   }
@@ -188,7 +211,7 @@ class NotificationService implements INotificationService {
 
   @override
   Future<void> cancelNotification(int id) async {
-    await _plugin.cancel(id);
+    await _plugin.cancel(id: id);
     await _removeScheduledAlertMetadata(id);
   }
 

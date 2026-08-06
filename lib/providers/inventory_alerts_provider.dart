@@ -1,18 +1,19 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../data/models/inventory_alert_model.dart';
+import '../services/managecare_api_client.dart';
 
 class InventoryAlertsProvider extends ChangeNotifier {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final ManagecareApiClient _api = ManagecareApiClient.instance;
 
   String? _businessId;
   List<InventoryAlert> _activeAlerts = [];
   List<InventoryAlert> _allAlerts = [];
   bool _isLoading = false;
   String _errorMessage = '';
-  String? _indexCreateUrl;
 
-  String? get indexCreateUrl => _indexCreateUrl;
+  // Kept for API compatibility with the alerts screen's "create a Firestore
+  // composite index" banner, which no longer applies against Postgres.
+  String? get indexCreateUrl => null;
   int _criticalCount = 0;
   int _warningCount = 0;
 
@@ -29,7 +30,10 @@ class InventoryAlertsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Load all inventory alerts
+  /// Load all inventory alerts. Alerts are computed fresh on the backend
+  /// from current stock vs minimum threshold - there's no separate synced
+  /// alert record to fall out of date, so there's no equivalent of the old
+  /// "check thresholds" pass needed before this.
   Future<void> loadAlerts() async {
     if (_businessId == null) return;
 
@@ -37,43 +41,20 @@ class InventoryAlertsProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory_alerts')
-          .orderBy('severity', descending: true)
-          .orderBy('updatedAt', descending: true)
-          .get();
+      final response = await _api.get('/api/inventory-alerts/$_businessId');
+      final data = (response['data'] as List?) ?? [];
 
-      _allAlerts = snapshot.docs
-          .map((doc) => InventoryAlert.fromJson(doc.data()))
-          .toList();
+      _allAlerts =
+          data.map((raw) => InventoryAlert.fromJson(raw as Map<String, dynamic>)).toList();
 
-      // Filter active (unacknowledged) alerts
       _activeAlerts = _allAlerts.where((alert) => !alert.acknowledged).toList();
-
-      // Count by severity
-      _criticalCount =
-          _activeAlerts.where((a) => a.severity == 'critical').length;
-      _warningCount =
-          _activeAlerts.where((a) => a.severity == 'warning').length;
+      _criticalCount = _activeAlerts.where((a) => a.severity == 'critical').length;
+      _warningCount = _activeAlerts.where((a) => a.severity == 'warning').length;
 
       _errorMessage = '';
-      print('[InventoryAlertsProvider] Loaded ${_allAlerts.length} alerts');
+      debugPrint('[InventoryAlertsProvider] Loaded ${_allAlerts.length} alerts');
     } catch (e) {
-      // Detect Firestore index error and surface an actionable URL if present
-      if (e is FirebaseException && e.code == 'failed-precondition' && (e.message ?? '').contains('create_composite')) {
-        final msg = e.message ?? '';
-        final match = RegExp(r'https?://\S*create_composite=\S+').firstMatch(msg);
-        _indexCreateUrl = match?.group(0);
-        _errorMessage = 'Failed to load alerts: the query requires a composite index. Create it using the console link below.';
-        if (_indexCreateUrl != null) {
-          _errorMessage = 'Failed to load alerts: the query requires a composite index. Create it here: $_indexCreateUrl';
-        }
-      } else {
-        _errorMessage = 'Failed to load alerts: $e';
-      }
-
+      _errorMessage = 'Failed to load alerts: $e';
       _allAlerts = [];
       _activeAlerts = [];
       debugPrint('[InventoryAlertsProvider] Error: $_errorMessage');
@@ -83,154 +64,21 @@ class InventoryAlertsProvider extends ChangeNotifier {
     }
   }
 
-  /// Check inventory and create alerts
+  /// Alerts are computed live on every loadAlerts() call now, so there's no
+  /// separate "create/update alert records" step to run first. Kept as a
+  /// thin alias so existing call sites don't need to change.
   Future<void> checkInventoryThresholds() async {
-    if (_businessId == null) return;
-
-    try {
-      final productsSnapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory')
-          .get();
-
-      for (var productDoc in productsSnapshot.docs) {
-        final data = productDoc.data();
-        final productId = productDoc.id;
-        final productName = data['name'] ?? 'Unknown';
-        final quantity = (data['quantity'] as num?)?.toInt() ?? 0;
-        final minThreshold = (data['minStock'] as num?)?.toInt() ?? 10;
-        final reorderQty = (data['reorderQuantity'] as num?)?.toInt() ?? 50;
-
-        if (quantity <= minThreshold) {
-          final severity = _calculateSeverity(quantity, minThreshold);
-
-          // Check if alert already exists
-          final existingAlert = _allAlerts.firstWhere(
-            (a) => a.productId == productId,
-            orElse: () => InventoryAlert(
-              id: 'temp',
-              businessId: '',
-              productId: '',
-              productName: '',
-              currentStock: 0,
-              minimumThreshold: 0,
-              reorderQuantity: 0,
-              severity: '',
-              isActive: false,
-              acknowledged: false,
-              createdAt: DateTime.now(),
-              updatedAt: DateTime.now(),
-            ),
-          );
-
-          if (existingAlert.id == 'temp') {
-            // Create new alert
-            await _createAlert(
-              productId,
-              productName,
-              quantity,
-              minThreshold,
-              reorderQty,
-              severity,
-            );
-          } else if (existingAlert.severity != severity) {
-            // Update severity if changed
-            await _updateAlertSeverity(existingAlert.id, severity, quantity);
-          }
-        }
-      }
-
-      await loadAlerts();
-    } catch (e) {
-      debugPrint('[InventoryAlertsProvider] Error checking thresholds: $e');
-    }
+    await loadAlerts();
   }
 
-  /// Create a new alert
-  Future<void> _createAlert(
-    String productId,
-    String productName,
-    int currentStock,
-    int minimumThreshold,
-    int reorderQuantity,
-    String severity,
-  ) async {
-    try {
-      final alertId = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory_alerts')
-          .doc()
-          .id;
-
-      final alert = InventoryAlert(
-        id: alertId,
-        businessId: _businessId!,
-        productId: productId,
-        productName: productName,
-        currentStock: currentStock,
-        minimumThreshold: minimumThreshold,
-        reorderQuantity: reorderQuantity,
-        severity: severity,
-        isActive: true,
-        acknowledged: false,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory_alerts')
-          .doc(alertId)
-          .set(alert.toJson());
-
-      print(
-          '[InventoryAlertsProvider] Created $severity alert for $productName');
-    } catch (e) {
-      debugPrint('[InventoryAlertsProvider] Error creating alert: $e');
-    }
-  }
-
-  /// Update alert severity
-  Future<void> _updateAlertSeverity(
-    String alertId,
-    String newSeverity,
-    int currentStock,
-  ) async {
-    try {
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory_alerts')
-          .doc(alertId)
-          .update({
-        'severity': newSeverity,
-        'currentStock': currentStock,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-
-      print('[InventoryAlertsProvider] Updated alert $alertId to $newSeverity');
-    } catch (e) {
-      debugPrint('[InventoryAlertsProvider] Error updating alert: $e');
-    }
-  }
-
-  /// Acknowledge an alert (mark as seen)
+  /// Acknowledge an alert (mark as seen) for the current severity level.
+  /// If the stock condition worsens/improves to a different severity later,
+  /// it re-surfaces as unacknowledged.
   Future<void> acknowledgeAlert(String alertId) async {
+    if (_businessId == null) return;
     try {
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory_alerts')
-          .doc(alertId)
-          .update({
-        'acknowledged': true,
-        'acknowledgedAt': FieldValue.serverTimestamp(),
-      });
+      await _api.post('/api/inventory-alerts/$_businessId/$alertId/acknowledge');
 
-      // Update local state
       final index = _allAlerts.indexWhere((a) => a.id == alertId);
       if (index >= 0) {
         _allAlerts[index] = _allAlerts[index].copyWith(
@@ -240,12 +88,10 @@ class InventoryAlertsProvider extends ChangeNotifier {
       }
 
       _activeAlerts.removeWhere((a) => a.id == alertId);
-      _criticalCount =
-          _activeAlerts.where((a) => a.severity == 'critical').length;
-      _warningCount =
-          _activeAlerts.where((a) => a.severity == 'warning').length;
+      _criticalCount = _activeAlerts.where((a) => a.severity == 'critical').length;
+      _warningCount = _activeAlerts.where((a) => a.severity == 'warning').length;
 
-      print('[InventoryAlertsProvider] Acknowledged alert: $alertId');
+      debugPrint('[InventoryAlertsProvider] Acknowledged alert: $alertId');
       notifyListeners();
     } catch (e) {
       debugPrint('[InventoryAlertsProvider] Error acknowledging alert: $e');
@@ -254,34 +100,18 @@ class InventoryAlertsProvider extends ChangeNotifier {
 
   /// Place reorder for product (from an existing alert)
   Future<void> placeReorder(String alertId, InventoryAlert alert) async {
+    if (_businessId == null) return;
     try {
-      final reorderId = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('reorders')
-          .doc()
-          .id;
-
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('reorders')
-          .doc(reorderId)
-          .set({
-        'id': reorderId,
-        'alertId': alertId,
-        'productId': alert.productId,
-        'productName': alert.productName,
+      await _api.post('/api/reorders/$_businessId', body: {
+        'product_id': alert.productId,
+        'product_name': alert.productName,
         'quantity': alert.reorderQuantity,
-        'status': 'pending', // pending, ordered, received
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'source': 'alert',
       });
 
-      // Acknowledge the alert
       await acknowledgeAlert(alertId);
 
-      print(
+      debugPrint(
           '[InventoryAlertsProvider] Reorder placed for ${alert.productName}: ${alert.reorderQuantity} units');
     } catch (e) {
       debugPrint('[InventoryAlertsProvider] Error placing reorder: $e');
@@ -292,32 +122,16 @@ class InventoryAlertsProvider extends ChangeNotifier {
   /// Place a direct reorder for a product (without a pre-existing alert)
   Future<void> placeDirectReorderForProduct(
       String productId, String productName, int quantity) async {
+    if (_businessId == null) return;
     try {
-      final reorderId = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('reorders')
-          .doc()
-          .id;
-
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('reorders')
-          .doc(reorderId)
-          .set({
-        'id': reorderId,
-        'alertId': null,
-        'productId': productId,
-        'productName': productName,
+      await _api.post('/api/reorders/$_businessId', body: {
+        'product_id': productId,
+        'product_name': productName,
         'quantity': quantity,
-        'status': 'pending',
         'source': 'direct',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      print(
+      debugPrint(
           '[InventoryAlertsProvider] Direct reorder placed for $productName: $quantity units');
       notifyListeners();
     } catch (e) {
@@ -346,14 +160,12 @@ class InventoryAlertsProvider extends ChangeNotifier {
     if (_businessId == null) return [];
 
     try {
-      final reorderDocs = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('reorders')
-          .where('status', isNotEqualTo: 'received')
-          .get();
-
-      return reorderDocs.docs.map((doc) => doc.data()).toList();
+      final response = await _api.get('/api/reorders/$_businessId');
+      final data = (response['data'] as List?) ?? [];
+      return data
+          .where((r) => (r as Map)['status'] != 'received')
+          .cast<Map<String, dynamic>>()
+          .toList();
     } catch (e) {
       debugPrint('[InventoryAlertsProvider] Error getting reorders: $e');
       return [];
@@ -362,30 +174,14 @@ class InventoryAlertsProvider extends ChangeNotifier {
 
   /// Mark reorder as received
   Future<void> markReorderReceived(String reorderId) async {
+    if (_businessId == null) return;
     try {
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('reorders')
-          .doc(reorderId)
-          .update({
-        'status': 'received',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await _api.patch('/api/reorders/$_businessId/$reorderId/receive');
 
-      print('[InventoryAlertsProvider] Marked reorder $reorderId as received');
+      debugPrint('[InventoryAlertsProvider] Marked reorder $reorderId as received');
     } catch (e) {
-      debugPrint(
-          '[InventoryAlertsProvider] Error marking reorder received: $e');
+      debugPrint('[InventoryAlertsProvider] Error marking reorder received: $e');
     }
-  }
-
-  /// Calculate severity level
-  String _calculateSeverity(int currentStock, int minimumThreshold) {
-    final percentage = (currentStock / minimumThreshold) * 100;
-    if (percentage <= 25) return 'critical';
-    if (percentage <= 50) return 'warning';
-    return 'normal';
   }
 
   /// Clear all
@@ -396,4 +192,3 @@ class InventoryAlertsProvider extends ChangeNotifier {
     notifyListeners();
   }
 }
-

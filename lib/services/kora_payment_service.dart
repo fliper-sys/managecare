@@ -1,4 +1,4 @@
-import 'package:cloud_functions/cloud_functions.dart';
+import 'managecare_api_client.dart';
 
 class KoraCheckoutInitialization {
   final String checkoutUrl;
@@ -31,10 +31,10 @@ class KoraPaymentVerification {
 }
 
 class KoraPaymentService {
-  KoraPaymentService({FirebaseFunctions? functions})
-      : _functions = functions ?? FirebaseFunctions.instance;
+  KoraPaymentService({ManagecareApiClient? api})
+      : _api = api ?? ManagecareApiClient.instance;
 
-  final FirebaseFunctions _functions;
+  final ManagecareApiClient _api;
 
   static const String redirectUrl =
       'https://managecare.app/subscription/kora-complete';
@@ -67,9 +67,7 @@ class KoraPaymentService {
     bool recurringEnabled = false,
     String? recurrenceInterval,
   }) async {
-    final callable =
-        _functions.httpsCallable('initializeKoraSubscriptionPayment');
-    final response = await callable.call(<String, dynamic>{
+    final response = await _api.post('/api/payments/kora/initialize', body: {
       'reference': reference,
       'amount': amount,
       'currency': currency,
@@ -85,7 +83,7 @@ class KoraPaymentService {
       'recurrenceInterval': recurrenceInterval,
     });
 
-    final data = Map<String, dynamic>.from(response.data as Map);
+    final data = Map<String, dynamic>.from(response as Map);
     return KoraCheckoutInitialization(
       checkoutUrl: data['checkoutUrl']?.toString() ?? '',
       reference: data['reference']?.toString() ?? reference,
@@ -99,15 +97,14 @@ class KoraPaymentService {
     required String userId,
     required String businessId,
   }) async {
-    final callable = _functions.httpsCallable('verifyKoraSubscriptionPayment');
-    final response = await callable.call(<String, dynamic>{
+    final response = await _api.post('/api/payments/kora/verify', body: {
       'reference': reference,
       'planId': planId,
       'userId': userId,
       'businessId': businessId,
     });
 
-    final data = Map<String, dynamic>.from(response.data as Map);
+    final data = Map<String, dynamic>.from(response as Map);
     return KoraPaymentVerification(
       success: data['success'] == true,
       message: data['message']?.toString() ?? 'Unable to verify payment.',

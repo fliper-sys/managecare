@@ -1,378 +1,209 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../models/business_model.dart';
 
 class BusinessRepository {
-  final FirebaseFirestore _firestore;
-  final String _collection = 'businesses';
+  final SupabaseClient _supabase;
 
-  BusinessRepository({FirebaseFirestore? firestore}) : _firestore = firestore ?? FirebaseFirestore.instance;
+  BusinessRepository({SupabaseClient? supabase})
+      : _supabase = supabase ?? Supabase.instance.client;
+
+  Map<String, dynamic> _toPostgres(BusinessModel business) {
+    return {
+      'id': business.id,
+      'name': business.name,
+      'business_type': business.businessType,
+      'owner_id': business.ownerId,
+      'address': business.address,
+      'phone': business.phone,
+      'email': business.email,
+      'currency': business.currency ?? 'NGN',
+      'logo_url': business.logoUrl ?? business.photoUrl,
+      'subscription_tier': business.subscriptionTier,
+      'subscription_plan': business.subscriptionPlan,
+      'subscription_start_date':
+          business.subscriptionStartDate?.toIso8601String(),
+      'subscription_end_date': business.subscriptionEndDate?.toIso8601String(),
+      'is_subscription_active': business.isSubscriptionActive,
+      'is_active': business.isActive,
+      'created_at': business.createdAt.toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+      'settings': business.settings,
+    }..removeWhere((_, value) => value == null);
+  }
+
+  BusinessModel _fromPostgres(Map<String, dynamic> data) {
+    String? s(String snake, [String? camel]) =>
+        (data[snake] ?? (camel == null ? null : data[camel]))?.toString();
+
+    DateTime? dt(String snake, [String? camel]) {
+      final value = data[snake] ?? (camel == null ? null : data[camel]);
+      if (value == null) return null;
+      if (value is DateTime) return value;
+      return DateTime.tryParse(value.toString());
+    }
+
+    bool b(String snake, String camel, bool fallback) {
+      final value = data[snake] ?? data[camel];
+      if (value is bool) return value;
+      if (value is String) return value.toLowerCase() == 'true';
+      return fallback;
+    }
+
+    int? i(String snake, String camel) {
+      final value = data[snake] ?? data[camel];
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      return int.tryParse(value?.toString() ?? '');
+    }
+
+    return BusinessModel(
+      id: s('id') ?? '',
+      name: s('name') ?? '',
+      businessType: s('business_type', 'businessType') ?? '',
+      description: s('description'),
+      ownerId: s('owner_id', 'ownerId') ?? '',
+      logoUrl: s('logo_url', 'logoUrl'),
+      photoUrl: s('photo_url', 'photoUrl'),
+      currency: s('currency') ?? 'NGN',
+      taxId: s('tax_id', 'taxId'),
+      email: s('email'),
+      phone: s('phone'),
+      website: s('website'),
+      address: s('address'),
+      city: s('city'),
+      state: s('state'),
+      country: s('country'),
+      postalCode: s('postal_code', 'postalCode'),
+      referralEmail: s('referral_email', 'referralEmail'),
+      subscriptionTier: s('subscription_tier', 'subscriptionTier') ?? 'tier1',
+      businessClass: s('business_class', 'businessClass') ?? 'tier1',
+      subscriptionPlan: s('subscription_plan', 'subscriptionPlan'),
+      subscriptionStartDate:
+          dt('subscription_start_date', 'subscriptionStartDate'),
+      subscriptionEndDate: dt('subscription_end_date', 'subscriptionEndDate'),
+      isSubscriptionActive:
+          b('is_subscription_active', 'isSubscriptionActive', true),
+      isActive: b('is_active', 'isActive', true),
+      createdAt: dt('created_at', 'createdAt') ?? DateTime.now(),
+      updatedAt: dt('updated_at', 'updatedAt'),
+      totalWorkers: i('total_workers', 'totalWorkers'),
+      totalProducts: i('total_products', 'totalProducts'),
+      totalCustomers: i('total_customers', 'totalCustomers'),
+      settings: data['settings'] is Map
+          ? Map<String, dynamic>.from(data['settings'] as Map)
+          : null,
+    );
+  }
 
   Future<BusinessModel?> getBusinessById(String id) async {
     try {
-      print(
-          '[BusinessRepositoryImpl.getBusinessById] Fetching business with ID: $id');
-
-      // Try direct doc lookup with a couple of short retries to handle eventual consistency
-      DocumentSnapshot? doc;
-      const retries = 3;
-      for (var attempt = 0; attempt < retries; attempt++) {
-        doc = await _firestore.collection(_collection).doc(id).get();
-        if (doc.exists) break;
-        // small delay before retrying
-        await Future.delayed(const Duration(milliseconds: 250));
-      }
-
-      if (doc != null && doc.exists) {
-        final business = BusinessModel.fromFirestore(doc);
-        print(
-            '[BusinessRepositoryImpl.getBusinessById] Found business by doc id: ${business.name}');
-        return business;
-      }
-
-      print(
-          '[BusinessRepositoryImpl.getBusinessById] Business document does NOT exist for ID: $id; attempting fallback queries');
-
-      // Fallback queries: some imports or legacy imports stored the business id in fields
-      final fallbackFields = ['id', 'externalId', 'legacyId', 'code', 'businessCode'];
-      for (final field in fallbackFields) {
-        try {
-          final q = await _firestore
-              .collection(_collection)
-              .where(field, isEqualTo: id)
-              .limit(1)
-              .get();
-          if (q.docs.isNotEmpty) {
-            final foundDoc = q.docs.first;
-            final business = BusinessModel.fromFirestore(foundDoc);
-            print(
-                '[BusinessRepositoryImpl.getBusinessById] Found business by field "$field": ${business.name} (doc ${foundDoc.id})');
-            return business;
-          }
-        } catch (e) {
-          // ignore per-field errors and continue
-          print('[BusinessRepositoryImpl.getBusinessById] fallback query error for field $field: $e');
-        }
-      }
-
-      // No business found via fallback
-      print(
-          '[BusinessRepositoryImpl.getBusinessById] No business found for ID via doc or fallback fields: $id');
-      return null;
+      final data = await _supabase
+          .from('businesses')
+          .select()
+          .eq('id', id)
+          .eq('is_active', true)
+          .maybeSingle();
+      if (data == null) return null;
+      return _fromPostgres(Map<String, dynamic>.from(data));
     } catch (e) {
-      print('[BusinessRepositoryImpl.getBusinessById] ERROR: $e');
+      debugPrint('[BusinessRepository] getBusinessById failed: $e');
       throw Exception('Failed to get business: $e');
     }
   }
 
   Future<List<BusinessModel>> getUserBusinesses(String userId) async {
     try {
-      print(
-          '[BusinessRepositoryImpl.getUserBusinesses] Fetching businesses for user: $userId');
+      final owned = await _supabase
+          .from('businesses')
+          .select()
+          .eq('owner_id', userId)
+          .eq('is_active', true);
 
-      // First, verify the collection exists and check for any documents
-      final allDocs = await _firestore.collection(_collection).limit(5).get();
-      print(
-          '[BusinessRepositoryImpl.getUserBusinesses] Collection "$_collection" has ${allDocs.docs.length} total documents (checking first 5)');
+      final byId = <String, BusinessModel>{};
+      for (final row in owned) {
+        final business = _fromPostgres(Map<String, dynamic>.from(row));
+        if (business.id.isNotEmpty) byId[business.id] = business;
+      }
 
-      if (allDocs.docs.isNotEmpty) {
-        print(
-            '[BusinessRepositoryImpl.getUserBusinesses] Sample documents in collection:');
-        for (final doc in allDocs.docs.take(3)) {
-          final data = doc.data();
-          print(
-              '[BusinessRepositoryImpl.getUserBusinesses]   - Doc ${doc.id}: ownerId=${data['ownerId']}, name=${data['name']}');
+      final memberships = await _supabase
+          .from('business_members')
+          .select('businesses(*)')
+          .eq('user_id', userId)
+          .eq('is_active', true);
+
+      for (final row in memberships) {
+        final businessData = row['businesses'];
+        if (businessData is Map) {
+          final business =
+              _fromPostgres(Map<String, dynamic>.from(businessData));
+          if (business.id.isNotEmpty && business.isActive) {
+            byId[business.id] = business;
+          }
         }
       }
 
-      final querySnapshot = await _firestore
-          .collection(_collection)
-          .where('ownerId', isEqualTo: userId)
-          // Note: removed isActive filter to avoid composite index requirement
-          // Note: orderBy removed to avoid requiring a composite index
-          // Filtering and sorting are done client-side after retrieval
-          .get();
-
-      print(
-          '[BusinessRepositoryImpl.getUserBusinesses] Query for ownerId="$userId" returned ${querySnapshot.docs.length} documents');
-
-      if (querySnapshot.docs.isEmpty) {
-        print(
-            '[BusinessRepositoryImpl.getUserBusinesses] No businesses found for user $userId');
-        print(
-            '[BusinessRepositoryImpl.getUserBusinesses] This is expected if the user has not created any businesses yet');
-        print(
-            '[BusinessRepositoryImpl.getUserBusinesses] User needs to create their first business via the Create Business button');
-        return [];
-      }
-
-      final businesses = <BusinessModel>[];
-      for (final doc in querySnapshot.docs) {
-        try {
-          print(
-              '[BusinessRepositoryImpl.getUserBusinesses] Processing document: ${doc.id}');
-          final b = BusinessModel.fromFirestore(doc);
-          if (b.isActive) businesses.add(b);
-        } catch (e, st) {
-          // Don't fail the whole load because a single doc is malformed. Log and continue.
-          print('[BusinessRepositoryImpl.getUserBusinesses] Skipping doc ${doc.id} due to parse error: $e');
-          print(st);
-          continue;
-        }
-      }
-
-      print(
-          '[BusinessRepositoryImpl.getUserBusinesses] After filtering by isActive: ${businesses.length} businesses (some docs may have been skipped due to parse errors)');
-
-      // Sort by createdAt descending on client side
-      businesses.sort((a, b) {
-        final aTime = a.createdAt.millisecondsSinceEpoch;
-        final bTime = b.createdAt.millisecondsSinceEpoch;
-        return bTime.compareTo(aTime); // Descending order
-      });
-
-      return businesses;
+      debugPrint(
+          '[BusinessRepository] Loaded ${byId.length} businesses from Postgres');
+      return byId.values.toList();
     } catch (e) {
-      print('[BusinessRepositoryImpl.getUserBusinesses] ERROR: $e');
-      rethrow;
+      debugPrint('[BusinessRepository] getUserBusinesses failed: $e');
+      throw Exception('Failed to get businesses: $e');
     }
   }
 
   Future<void> createBusiness(BusinessModel business) async {
     try {
-      await _firestore
-          .collection(_collection)
-          .doc(business.id)
-          .set(business.toFirestore());
+      await _supabase.rpc('create_business_with_owner', params: {
+        'p_business_id': business.id,
+        'p_name': business.name,
+        'p_business_type': business.businessType,
+        'p_owner_id': business.ownerId,
+        'p_address': business.address,
+        'p_phone': business.phone,
+        'p_email': business.email,
+        'p_currency': business.currency ?? 'NGN',
+        'p_logo_url': business.logoUrl ?? business.photoUrl,
+        'p_subscription_tier': business.subscriptionTier,
+        'p_subscription_plan': business.subscriptionPlan,
+        'p_subscription_start_date':
+            business.subscriptionStartDate?.toIso8601String(),
+        'p_subscription_end_date':
+            business.subscriptionEndDate?.toIso8601String(),
+        'p_is_subscription_active': business.isSubscriptionActive,
+      });
     } catch (e) {
+      debugPrint('[BusinessRepository] createBusiness failed: $e');
       throw Exception('Failed to create business: $e');
-    }
-  }
-
-  /// Create default fuel products (Petrol, Diesel, Kerosene) for a gas business.
-  /// This will only create docs if they don't already exist.
-  Future<void> createDefaultFuelProducts(String businessId, {String fuelUnit = 'L'}) async {
-    try {
-      final inventoryRef = _firestore.collection(_collection).doc(businessId).collection('inventory');
-
-      final defaultProducts = [
-        {
-          'id': 'petrol',
-          'name': 'Petrol',
-          'price': 200.0,
-          'cost': 0.0,
-          'quantity': 0,
-          'category': 'Fuel',
-          'unit': fuelUnit,
-          'emoji': '⛽',
-          'createdAt': FieldValue.serverTimestamp(),
-        },
-        {
-          'id': 'diesel',
-          'name': 'Diesel',
-          'price': 180.0,
-          'cost': 0.0,
-          'quantity': 0,
-          'category': 'Fuel',
-          'unit': fuelUnit,
-          'emoji': '🛢️',
-          'createdAt': FieldValue.serverTimestamp(),
-        },
-        {
-          'id': 'kerosene',
-          'name': 'Kerosene',
-          'price': 150.0,
-          'cost': 0.0,
-          'quantity': 0,
-          'category': 'Fuel',
-          'unit': fuelUnit,
-          'emoji': '🔥',
-          'createdAt': FieldValue.serverTimestamp(),
-        },
-        {
-          'id': 'cooking_gas',
-          'name': 'Cooking Gas (LPG)',
-          'price': 12000.0,
-          'cost': 0.0,
-          'quantity': 0,
-          'category': 'Fuel',
-          'unit': 'cyl',
-          'emoji': '🧯',
-          'createdAt': FieldValue.serverTimestamp(),
-        }
-      ];
-
-      final batch = _firestore.batch();
-      var hasWrites = false;
-
-      for (final p in defaultProducts) {
-        final docRef = inventoryRef.doc(p['id'] as String);
-        final snapshot = await docRef.get();
-        if (!snapshot.exists) {
-          final data = Map<String, dynamic>.from(p);
-          data.remove('id');
-          batch.set(docRef, data);
-          hasWrites = true;
-        }
-      }
-
-      // Commit only if we added operations
-      if (hasWrites) {
-        await batch.commit();
-      }
-    } catch (e) {
-      throw Exception('Failed to create default fuel products: $e');
-    }
-  }
-
-  /// Create starter bakery products so a bakery can begin selling immediately.
-  Future<void> createDefaultBakeryProducts(String businessId) async {
-    try {
-      final inventoryRef =
-          _firestore.collection(_collection).doc(businessId).collection('inventory');
-
-      final defaultProducts = [
-        {
-          'id': 'bread_loaf',
-          'name': 'Bread Loaf',
-          'price': 1000.0,
-          'cost': 0.0,
-          'quantity': 0,
-          'category': 'Bread',
-          'unit': 'pcs',
-          'emoji': 'bread',
-          'trackExpiry': true,
-          'shelfLifeDays': 2,
-          'batchLabel': 'Daily Bread',
-          'expiryDate': DateTime.now().add(const Duration(days: 2)),
-          'createdAt': FieldValue.serverTimestamp(),
-        },
-        {
-          'id': 'meat_pie',
-          'name': 'Meat Pie',
-          'price': 800.0,
-          'cost': 0.0,
-          'quantity': 0,
-          'category': 'Pastry',
-          'unit': 'pcs',
-          'emoji': 'pie',
-          'trackExpiry': true,
-          'shelfLifeDays': 1,
-          'batchLabel': 'Daily Pastry',
-          'expiryDate': DateTime.now().add(const Duration(days: 1)),
-          'createdAt': FieldValue.serverTimestamp(),
-        },
-        {
-          'id': 'cupcake',
-          'name': 'Cupcake',
-          'price': 500.0,
-          'cost': 0.0,
-          'quantity': 0,
-          'category': 'Cake',
-          'unit': 'pcs',
-          'emoji': 'cake',
-          'trackExpiry': true,
-          'shelfLifeDays': 3,
-          'batchLabel': 'Cake Batch',
-          'expiryDate': DateTime.now().add(const Duration(days: 3)),
-          'createdAt': FieldValue.serverTimestamp(),
-        },
-        {
-          'id': 'small_chops_pack',
-          'name': 'Small Chops Pack',
-          'price': 1500.0,
-          'cost': 0.0,
-          'quantity': 0,
-          'category': 'Snacks',
-          'unit': 'pack',
-          'emoji': 'snack',
-          'trackExpiry': true,
-          'shelfLifeDays': 1,
-          'batchLabel': 'Small Chops Batch',
-          'expiryDate': DateTime.now().add(const Duration(days: 1)),
-          'createdAt': FieldValue.serverTimestamp(),
-        },
-        {
-          'id': 'flour_bag',
-          'name': 'Flour Bag',
-          'price': 0.0,
-          'cost': 0.0,
-          'quantity': 0,
-          'category': 'Ingredient',
-          'unit': 'bag',
-          'emoji': 'flour',
-          'trackExpiry': true,
-          'shelfLifeDays': 90,
-          'batchLabel': 'Ingredient Stock',
-          'expiryDate': DateTime.now().add(const Duration(days: 90)),
-          'createdAt': FieldValue.serverTimestamp(),
-        },
-        {
-          'id': 'birthday_cake',
-          'name': 'Birthday Cake',
-          'price': 15000.0,
-          'cost': 0.0,
-          'quantity': 0,
-          'category': 'Cake',
-          'unit': 'pcs',
-          'emoji': 'cake',
-          'trackExpiry': true,
-          'shelfLifeDays': 3,
-          'batchLabel': 'Cake Order',
-          'expiryDate': DateTime.now().add(const Duration(days: 3)),
-          'createdAt': FieldValue.serverTimestamp(),
-        },
-      ];
-
-      final batch = _firestore.batch();
-      var hasWrites = false;
-
-      for (final p in defaultProducts) {
-        final docRef = inventoryRef.doc(p['id'] as String);
-        final snapshot = await docRef.get();
-        if (!snapshot.exists) {
-          final data = Map<String, dynamic>.from(p);
-          data.remove('id');
-          batch.set(docRef, data);
-          hasWrites = true;
-        }
-      }
-
-      if (hasWrites) {
-        await batch.commit();
-      }
-    } catch (e) {
-      throw Exception('Failed to create default bakery products: $e');
     }
   }
 
   Future<void> updateBusiness(BusinessModel business) async {
     try {
-      await _firestore.collection(_collection).doc(business.id).update({
-        ...business.toFirestore(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await _supabase
+          .from('businesses')
+          .update(_toPostgres(business)..remove('created_at'))
+          .eq('id', business.id);
     } catch (e) {
+      debugPrint('[BusinessRepository] updateBusiness failed: $e');
       throw Exception('Failed to update business: $e');
     }
   }
 
   Future<void> deleteBusiness(String id) async {
     try {
-      await _firestore.collection(_collection).doc(id).update({
-        'isActive': false,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await _supabase.from('businesses').update({
+        'is_active': false,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', id);
     } catch (e) {
       throw Exception('Failed to delete business: $e');
     }
   }
 
-  Stream<BusinessModel?> businessStream(String id) {
-    return _firestore
-        .collection(_collection)
-        .doc(id)
-        .snapshots()
-        .map((doc) => doc.exists ? BusinessModel.fromFirestore(doc) : null);
+  Stream<BusinessModel?> businessStream(String id) async* {
+    yield await getBusinessById(id);
   }
 
   Future<void> updateBusinessStats({
@@ -381,18 +212,13 @@ class BusinessRepository {
     int? totalProducts,
     int? totalCustomers,
   }) async {
+    final updates = <String, dynamic>{
+      'updated_at': DateTime.now().toIso8601String(),
+    };
     try {
-      final Map<String, dynamic> updates = {
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      if (totalWorkers != null) updates['totalWorkers'] = totalWorkers;
-      if (totalProducts != null) updates['totalProducts'] = totalProducts;
-      if (totalCustomers != null) updates['totalCustomers'] = totalCustomers;
-
-      await _firestore.collection(_collection).doc(businessId).update(updates);
+      await _supabase.from('businesses').update(updates).eq('id', businessId);
     } catch (e) {
-      throw Exception('Failed to update business stats: $e');
+      debugPrint('[BusinessRepository] updateBusinessStats failed: $e');
     }
   }
 
@@ -403,48 +229,118 @@ class BusinessRepository {
     required DateTime endDate,
     bool isActive = true,
   }) async {
-    try {
-      await _firestore.collection(_collection).doc(businessId).update({
-        'subscriptionTier': tier,
-        'subscriptionStartDate': Timestamp.fromDate(startDate),
-        'subscriptionEndDate': Timestamp.fromDate(endDate),
-        'isSubscriptionActive': isActive,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      throw Exception('Failed to update subscription: $e');
-    }
+    await _supabase.from('businesses').update({
+      'subscription_tier': tier,
+      'subscription_start_date': startDate.toIso8601String(),
+      'subscription_end_date': endDate.toIso8601String(),
+      'is_subscription_active': isActive,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', businessId);
   }
 
   Future<List<BusinessModel>> getBusinessesByType(String businessType) async {
-    try {
-      final querySnapshot = await _firestore
-          .collection(_collection)
-          .where('businessType', isEqualTo: businessType)
-          .where('isActive', isEqualTo: true)
-          .limit(50)
-          .get();
-
-      return querySnapshot.docs
-          .map((doc) => BusinessModel.fromFirestore(doc))
-          .toList();
-    } catch (e) {
-      throw Exception('Failed to get businesses by type: $e');
-    }
+    final rows = await _supabase
+        .from('businesses')
+        .select()
+        .eq('business_type', businessType)
+        .eq('is_active', true)
+        .limit(50);
+    return rows
+        .map((row) => _fromPostgres(Map<String, dynamic>.from(row)))
+        .toList();
   }
 
   Future<int> getBusinessCount() async {
-    try {
-      final snapshot = await _firestore
-          .collection(_collection)
-          .where('isActive', isEqualTo: true)
-          .count()
-          .get();
+    final rows = await _supabase.from('businesses').select('id');
+    return rows.length;
+  }
 
-      return snapshot.count ?? 0;
+  Future<void> createDefaultFuelProducts(
+    String businessId, {
+    String fuelUnit = 'L',
+  }) async {
+    final now = DateTime.now().toIso8601String();
+    final defaults = [
+      {
+        'business_id': businessId,
+        'name': 'Petrol',
+        'unit_price': 200.0,
+        'cost_price': 0.0,
+        'quantity': 0,
+        'category': 'Fuel',
+        'unit': fuelUnit,
+        'created_at': now,
+        'updated_at': now,
+      },
+      {
+        'business_id': businessId,
+        'name': 'Diesel',
+        'unit_price': 180.0,
+        'cost_price': 0.0,
+        'quantity': 0,
+        'category': 'Fuel',
+        'unit': fuelUnit,
+        'created_at': now,
+        'updated_at': now,
+      },
+      {
+        'business_id': businessId,
+        'name': 'Kerosene',
+        'unit_price': 150.0,
+        'cost_price': 0.0,
+        'quantity': 0,
+        'category': 'Fuel',
+        'unit': fuelUnit,
+        'created_at': now,
+        'updated_at': now,
+      },
+      {
+        'business_id': businessId,
+        'name': 'Cooking Gas (LPG)',
+        'unit_price': 12000.0,
+        'cost_price': 0.0,
+        'quantity': 0,
+        'category': 'Fuel',
+        'unit': 'cyl',
+        'created_at': now,
+        'updated_at': now,
+      },
+    ];
+
+    try {
+      await _supabase.from('inventory').upsert(defaults);
     } catch (e) {
-      throw Exception('Failed to get business count: $e');
+      debugPrint('[BusinessRepository] createDefaultFuelProducts failed: $e');
+    }
+  }
+
+  Future<void> createDefaultBakeryProducts(String businessId) async {
+    final now = DateTime.now().toIso8601String();
+    final defaults = [
+      ['bread_loaf', 'Bread Loaf', 'Bread', 'pcs', 1000.0],
+      ['meat_pie', 'Meat Pie', 'Pastry', 'pcs', 800.0],
+      ['cupcake', 'Cupcake', 'Cake', 'pcs', 500.0],
+      ['small_chops_pack', 'Small Chops Pack', 'Snacks', 'pack', 1500.0],
+      ['flour_bag', 'Flour Bag', 'Ingredient', 'bag', 0.0],
+      ['birthday_cake', 'Birthday Cake', 'Cake', 'pcs', 15000.0],
+    ]
+        .map((p) => {
+              'business_id': businessId,
+              'name': p[1],
+              'category': p[2],
+              'unit': p[3],
+              'unit_price': p[4],
+              'cost_price': 0.0,
+              'quantity': 0,
+              'created_at': now,
+              'updated_at': now,
+            })
+        .toList();
+
+    try {
+      await _supabase.from('inventory').upsert(defaults);
+    } catch (e) {
+      debugPrint('[BusinessRepository] createDefaultBakeryProducts failed: $e');
     }
   }
 }
-

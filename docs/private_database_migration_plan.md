@@ -1,5 +1,64 @@
 # Private Database Migration Plan
 
+## Current Configuration Status
+
+The app is now configured to use the private database path as the primary
+runtime path:
+
+- Flutter initializes `Supabase.initialize()` with
+  `https://backend.managecare.info`.
+- `lib/main.dart` uses `providers/auth_provider_supabase.dart`, not the old
+  Firebase auth provider.
+- `functions/server.js` exposes:
+  - `/auth/v1/*` for the Supabase Flutter auth client.
+  - `/rest/v1/:table` for the migrated `supabase.from(...)` repositories.
+  - `/rest/v1/rpc/create_business_with_owner`.
+  - `/rest/v1/rpc/get_daily_sales_summary`.
+  - `/api/*` custom backend endpoints.
+- PostgreSQL migrations `008` and `009` add notification, device,
+  profile-auth, business membership, sync, and realtime-support tables.
+
+Run this readiness check after each deploy:
+
+```powershell
+.\tools\check_private_db_readiness.ps1
+```
+
+On the VPS, run:
+
+```bash
+cd /opt/managecare-backend
+git pull
+psql -U postgres -d managecare -f managecare-1/migrations/008_notifications_and_devices.sql
+psql -U postgres -d managecare -f managecare-1/migrations/009_missing_objects.sql
+pm2 restart managecare-backend
+pm2 save
+```
+
+## Important Remaining Migration Work
+
+The app still contains Firebase-backed modules. Firebase cannot be fully removed
+until every `FirebaseFirestore`, `FirebaseAuth`, and `FirebaseStorage` call is
+either migrated to Supabase/Postgres/MinIO or intentionally kept for a narrow
+legacy/admin/push purpose.
+
+Use this inventory command:
+
+```powershell
+rg "FirebaseFirestore|FirebaseAuth|FirebaseStorage|firebase_storage|cloud_firestore|firebase_auth" lib -l
+```
+
+High-priority modules to migrate first:
+
+- `lib/providers/business_provider.dart`
+- `lib/providers/workers_provider.dart`
+- `lib/providers/retail_provider.dart`
+- `lib/providers/reports_provider.dart`
+- `lib/providers/settings_provider.dart`
+- `lib/providers/receipt_settings_provider.dart`
+- `lib/providers/notification_provider.dart`
+- industry screens that still write direct Firestore subcollections
+
 ## Goal
 Create a private database layer that can eventually replace or complement Firebase for core business data such as inventory, sales, procurements, and users.
 

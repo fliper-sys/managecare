@@ -7,9 +7,7 @@ import '../../../core/extensions/list_extensions.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../data/local/database_helper.dart';
 import '../../../services/sync_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../../domain/usecases/sales/create_sale.dart';
-import '../../../data/repositories/sales_repository_impl.dart';
+import '../../../data/repositories/sales_repository_supabase.dart';
 import '../../../widgets/async_button.dart';
 
 class CartItem {
@@ -367,10 +365,32 @@ class _WorkerSalesScreenState extends State<WorkerSalesScreen> {
     // local DB + queue otherwise (or if the online attempt fails).
     if (hasNetwork) {
       try {
-        final repo =
-            SalesRepositoryImpl(firestore: FirebaseFirestore.instance);
-        final createSale = CreateSale(repository: repo);
-        await createSale.call(saleForServer);
+        final repo = SalesRepositorySupabase();
+        await repo.createSale({
+          'id': saleId,
+          'businessId': saleForServer['businessId'],
+          'store_id': saleForServer['storeId'],
+          'customer_id': null,
+          'total_amount': total,
+          'discount_amount': 0.0,
+          'tax_amount': 0.0,
+          'final_amount': total,
+          'payment_method': 'cash',
+          'status': 'completed',
+          'created_by': user?.id,
+          'sale_type': 'retail',
+          'items': (saleForServer['items'] as List).map((raw) {
+            final item = raw as Map<String, dynamic>;
+            return {
+              'product_id': item['productId'],
+              'product_name': item['productName'],
+              'quantity': item['quantity'],
+              'unit_price': item['unitPrice'],
+              'discount': 0,
+              'total': item['total'],
+            };
+          }).toList(),
+        });
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

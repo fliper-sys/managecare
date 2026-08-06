@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../core/theme/colors.dart';
@@ -9,7 +8,8 @@ import '../../../core/theme/text_styles.dart';
 import '../../../data/models/inventory_model.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
-import '../../../data/repositories/inventory_repository_impl.dart';
+import '../../../data/repositories/inventory_repository_supabase.dart';
+import '../../../services/managecare_api_client.dart';
 import '../../../core/utils/inventory_utils.dart';
 
 /// Input formatter to allow only decimal numbers (digits and single decimal point)
@@ -125,28 +125,42 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
         return;
       }
 
-      final repository = InventoryRepositoryImpl(
-        firestore: FirebaseFirestore.instance,
-      );
-      final inventory = await repository.getInventoryByIdForBusiness(
-        businessId,
-        widget.inventoryId,
-      );
+      dynamic response;
+      try {
+        response = await ManagecareApiClient.instance
+            .get('/api/inventory/$businessId/${widget.inventoryId}');
+      } catch (_) {
+        response = null;
+      }
 
-      if (inventory != null) {
-        Map<String, dynamic> raw;
-        if (inventory is InventoryModel) {
-          raw = inventory.toJson();
-        } else if (inventory is Map<String, dynamic>) {
-          raw = Map<String, dynamic>.from(inventory);
-        } else if (inventory is Map) {
-          // try to coerce a generic Map
-          raw = Map<String, dynamic>.from(Map<String, dynamic>.from(inventory.map((k, v) => MapEntry(k.toString(), v))));
-          debugPrint('[EditInventoryScreen] Coerced inventory Map from ${inventory.runtimeType}');
-        } else {
-          debugPrint('[EditInventoryScreen] Unexpected inventory type: ${inventory.runtimeType}');
-          raw = <String, dynamic>{};
-        }
+      if (response != null) {
+        final pgRow = Map<String, dynamic>.from(response as Map);
+        final metadata = (pgRow['metadata'] is Map)
+            ? Map<String, dynamic>.from(pgRow['metadata'] as Map)
+            : <String, dynamic>{};
+
+        // InventoryModel.fromJson/the field reads below expect the app's
+        // usual camelCase shape - the backend returns the Postgres table's
+        // snake_case columns directly, and the extra fields this screen has
+        // always shown (wholesalePrice, saleUnit, emoji, ...) never had a
+        // real column at all, so those come from `metadata` instead.
+        final raw = <String, dynamic>{
+          'id': pgRow['id'],
+          'businessId': pgRow['business_id'],
+          'name': pgRow['name'],
+          'sku': pgRow['sku'],
+          'category': pgRow['category'],
+          'quantity': pgRow['quantity'],
+          'reorderLevel': pgRow['min_stock_level'],
+          'unitPrice': pgRow['unit_price'],
+          'unit': pgRow['unit'],
+          'expiryDate': pgRow['expiry_date'],
+          'createdAt': pgRow['created_at'],
+          'updatedAt': pgRow['updated_at'],
+          'cost': pgRow['cost_price'],
+          'barcode': pgRow['barcode'],
+          ...metadata,
+        };
 
         final model = InventoryModel.fromJson(raw);
 
@@ -215,36 +229,38 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
         return;
       }
 
-      final repository = InventoryRepositoryImpl(
-        firestore: FirebaseFirestore.instance,
-      );
+      final repository = InventoryRepositorySupabase();
 
+      // Fields with no dedicated Postgres column go in `metadata` (a jsonb
+      // catch-all the backend merges rather than overwrites) - they never
+      // had a real home in the migrated schema, which combined with this
+      // screen still targeting Firestore is why editing silently didn't
+      // persist them (or anything else) at all.
       final updatedData = {
         'name': _nameController.text.trim(),
         'sku': _skuController.text.trim(),
         'category': _categoryController.text.trim(),
         'quantity': double.tryParse(_quantityController.text.trim()) ?? 0,
-        'reorderLevel': double.tryParse(_reorderLevelController.text.trim()) ?? 0,
-        // keep backward-compatible key 'minStock' for other parts of app
-        'minStock': double.tryParse(_minStockController.text.trim()) ?? double.tryParse(_reorderLevelController.text.trim()) ?? 0,
-        'price': _parsePrice(_unitPriceController.text),
+        'minStockLevel': double.tryParse(_minStockController.text.trim()) ??
+            double.tryParse(_reorderLevelController.text.trim()) ??
+            0,
         'unitPrice': _parsePrice(_unitPriceController.text),
-        'sellingPrice': _parsePrice(_unitPriceController.text), // Keep legacy inventory view fields in sync
-        'wholesalePrice': _parsePrice(_wholesalePriceController.text),
-        'saleUnit': _selectedSaleUnit ?? _unitController.text.trim(),
-        'saleUnitMultiplier': double.tryParse(_saleUnitMultiplierController.text.trim()) ?? 1.0,
         'cost': _parsePrice(_costController.text),
-        'costPrice': _parsePrice(_costController.text), // Keep backward compatibility
         'unit': _unitController.text.trim(),
-        'bagWeightKg': double.tryParse(_bagWeightController.text.trim()) ?? 0.0,
         'barcode': _barcodeController.text.trim(),
-        'imageUrl': _imageUrlController.text.trim(),
-        'emoji': _emojiController.text.trim(),
-        'batchLabel': _batchLabelController.text.trim(),
-        'trackExpiry': _trackExpiry,
-        'expiryDate': _expiryDate, // store as DateTime
-        'updatedAt': DateTime.now().toIso8601String(),
+        'expiryDate': _expiryDate?.toIso8601String(),
         'businessId': businessId,
+        'metadata': {
+          'wholesalePrice': _parsePrice(_wholesalePriceController.text),
+          'saleUnit': _selectedSaleUnit ?? _unitController.text.trim(),
+          'saleUnitMultiplier':
+              double.tryParse(_saleUnitMultiplierController.text.trim()) ?? 1.0,
+          'bagWeightKg': double.tryParse(_bagWeightController.text.trim()) ?? 0.0,
+          'imageUrl': _imageUrlController.text.trim(),
+          'emoji': _emojiController.text.trim(),
+          'batchLabel': _batchLabelController.text.trim(),
+          'trackExpiry': _trackExpiry,
+        },
       };
 
       await repository.updateInventory(widget.inventoryId, updatedData);
@@ -917,7 +933,7 @@ class _EditInventoryScreenState extends State<EditInventoryScreen> {
                 child: Builder(builder: (context) {
                   final businessProvider = context.read<BusinessProvider>();
                   final businessId = businessProvider.currentBusiness?.id ?? '';
-                  final repo = InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
+                  final repo = InventoryRepositorySupabase();
 
                   return StreamBuilder<List<Map<String, dynamic>>>(
                     stream: repo.streamInventoryHistory(businessId, widget.inventoryId),

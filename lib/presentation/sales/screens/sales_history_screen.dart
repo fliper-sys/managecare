@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import '../../../core/utils/datetime_utils.dart';
+import '../../../core/constants/routes.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../widgets/animated_lottie.dart';
@@ -178,8 +178,10 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Sales History'),
         elevation: 0,
@@ -215,25 +217,23 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
         children: [
           // Search and Filter
           Container(
-            color: AppColors.primary,
+            color: theme.colorScheme.primary,
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: Column(
               children: [
                 TextField(
                   controller: _searchController,
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: theme.colorScheme.onPrimary),
                   decoration: InputDecoration(
                     hintText: 'Search by order ID, customer...',
-                    hintStyle:
-                        TextStyle(color: Colors.white.withOpacity(0.7)),
-                    prefixIcon: const Icon(Icons.search, color: Colors.white),
+                    hintStyle: TextStyle(color: theme.colorScheme.onPrimary.withOpacity(0.72)),
+                    prefixIcon: Icon(Icons.search, color: theme.colorScheme.onPrimary),
                     suffixIcon: IconButton(
-                      icon:
-                          const Icon(Icons.calendar_today, color: Colors.white),
+                      icon: Icon(Icons.calendar_today, color: theme.colorScheme.onPrimary),
                       onPressed: _selectDateRange,
                     ),
                     filled: true,
-                    fillColor: Colors.white.withOpacity(0.2),
+                    fillColor: theme.colorScheme.onPrimary.withOpacity(0.18),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -248,19 +248,18 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
                       vertical: 8,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
+                      color: theme.colorScheme.onPrimary.withOpacity(0.18),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.date_range,
-                            color: Colors.white, size: 16),
+                        Icon(Icons.date_range, color: theme.colorScheme.onPrimary, size: 16),
                         const SizedBox(width: 8),
                         Text(
                           '${_selectedDateRange!.start.day}/${_selectedDateRange!.start.month} - ${_selectedDateRange!.end.day}/${_selectedDateRange!.end.month}',
                           style: AppTextStyles.body2.copyWith(
-                            color: Colors.white,
+                            color: theme.colorScheme.onPrimary,
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -268,9 +267,9 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
                           onTap: () {
                             setState(() => _selectedDateRange = null);
                           },
-                          child: const Icon(
+                          child: Icon(
                             Icons.close,
-                            color: Colors.white,
+                            color: theme.colorScheme.onPrimary,
                             size: 16,
                           ),
                         ),
@@ -309,12 +308,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
 
           // Tabs
           Container(
-            color: Colors.white,
+            color: theme.cardColor,
             child: TabBar(
               controller: _tabController,
-              labelColor: AppColors.primary,
-              unselectedLabelColor: AppColors.textSecondary,
-              indicatorColor: AppColors.primary,
+              labelColor: theme.colorScheme.primary,
+              unselectedLabelColor: theme.colorScheme.onSurface.withOpacity(0.7),
+              indicatorColor: theme.colorScheme.primary,
               isScrollable: true,
               tabs: const [
                 Tab(text: 'All'),
@@ -339,6 +338,14 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.of(context).pushNamed(Routes.refundHistory);
+        },
+        child: const Icon(Icons.assignment_return_rounded),
+        tooltip: 'Refund History',
+        backgroundColor: theme.colorScheme.error,
+      ),
     );
   }
 }
@@ -351,21 +358,28 @@ class _QuickStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
+        color: theme.colorScheme.primary.withOpacity(0.22),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         children: [
           Text(
             value,
-            style: AppTextStyles.heading5.copyWith(color: Colors.white),
+            style: AppTextStyles.heading5.copyWith(
+              color: theme.colorScheme.onPrimary,
+            ),
           ),
           Text(
             label,
-            style: AppTextStyles.caption.copyWith(color: Colors.white),
+            style: AppTextStyles.caption.copyWith(
+              color: theme.colorScheme.onPrimary.withOpacity(isDark ? 0.88 : 0.92),
+            ),
           ),
         ],
       ),
@@ -390,7 +404,7 @@ class _SalesListState extends State<_SalesList> {
   bool _isLoading = true;
   bool _isLoadingMore = false;
   String? _error;
-  DocumentSnapshot? _lastDoc;
+  int? _nextPage;
   final ScrollController _scrollController = ScrollController();
   final int _pageSize = 50;
 
@@ -436,7 +450,7 @@ class _SalesListState extends State<_SalesList> {
         _isLoading = true;
         _error = null;
         _sales = [];
-        _lastDoc = null;
+        _nextPage = null;
       });
     } else if (_isLoadingMore || !_mountedOrAlive()) {
       return;
@@ -467,11 +481,11 @@ class _SalesListState extends State<_SalesList> {
         start: start,
         end: end,
         status: widget.filter != 'all' ? widget.filter : null,
-        startAfterDoc: reset ? null : _lastDoc,
+        page: reset ? null : _nextPage,
       );
 
       final newSales = (page['sales'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-      final lastDoc = page['lastDoc'] as DocumentSnapshot?;
+      final nextPage = page['nextPage'] as int?;
 
       // Offline sales live only in the local DB until they sync — without
       // this merge they're invisible here even though the sale itself (and
@@ -495,7 +509,6 @@ class _SalesListState extends State<_SalesList> {
           if (filteredLocal.isNotEmpty) {
             combinedSales = [...filteredLocal, ...newSales];
             int millis(dynamic v) {
-              if (v is Timestamp) return v.toDate().millisecondsSinceEpoch;
               if (v is String) return DateTime.tryParse(v)?.millisecondsSinceEpoch ?? 0;
               return 0;
             }
@@ -510,7 +523,7 @@ class _SalesListState extends State<_SalesList> {
         } else {
           _sales.addAll(newSales);
         }
-        _lastDoc = lastDoc;
+        _nextPage = nextPage;
         _isLoading = false;
         _isLoadingMore = false;
       });
@@ -532,7 +545,7 @@ class _SalesListState extends State<_SalesList> {
   bool _mountedOrAlive() => mounted;
 
   Future<void> _loadMore() async {
-    if (_isLoadingMore || _lastDoc == null) return;
+    if (_isLoadingMore || _nextPage == null) return;
     setState(() => _isLoadingMore = true);
     await _loadSales(reset: false);
   }
@@ -550,6 +563,60 @@ class _SalesListState extends State<_SalesList> {
         final parentState = context.findAncestorStateOfType<_SalesHistoryScreenState>();
         parentState?._loadQuickStats();
       } catch (_) {}
+    }
+  }
+
+  Future<void> _deleteSale(Map<String, dynamic> sale) async {
+    final saleId = sale['id']?.toString() ?? '';
+    if (saleId.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete sale?'),
+        content: const Text(
+          'This will remove the sale from history and restore the sold stock.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await context.read<RetailProvider>().deleteSale(
+            saleId,
+            reason: 'Deleted from sales history',
+          );
+      if (!mounted) return;
+      setState(() {
+        _sales.removeWhere((item) => item['id']?.toString() == saleId);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sale deleted')),
+      );
+      try {
+        final parentState =
+            context.findAncestorStateOfType<_SalesHistoryScreenState>();
+        parentState?._loadQuickStats();
+      } catch (_) {}
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not delete sale: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
     }
   }
 
@@ -614,16 +681,21 @@ class _SalesListState extends State<_SalesList> {
         final items = (sale['items'] as List?)?.length ??
             (sale['cartItems'] as List?)?.length ??
             1;
-        final orderId = sale['id'] ?? 'SALE-${index + 1}';
+        final rawOrderId = (sale['id'] ?? '').toString();
+        // The raw id is a full UUID (36 chars) - showing it in full made
+        // this card's title wrap/overflow. Reference numbers elsewhere in
+        // the app use the same "last 8 chars" shorthand for a sale with no
+        // dedicated short referenceId.
+        final orderId = sale['referenceId'] != null
+            ? 'Sale #${sale['referenceId']}'
+            : rawOrderId.isEmpty
+                ? 'SALE-${index + 1}'
+                : 'Sale #${rawOrderId.length > 8 ? rawOrderId.substring(rawOrderId.length - 8) : rawOrderId}';
         final customer = sale['customer'] ??
             sale['customerName'] ??
             sale['buyerName'] ??
             'Walk-in Customer';
-        final amount = ((sale['total'] ??
-                sale['amount'] ??
-                sale['subtotal'] ??
-                0.0) as num)
-            .toDouble();
+        final amount = _calculateSaleAmount(sale);
 
         return _SaleCard(
           orderId: orderId,
@@ -641,6 +713,7 @@ class _SalesListState extends State<_SalesList> {
           onRefund: (sale['status'] == 'refunded' || sale['pendingSync'] == true)
               ? null
               : () => _openRefund(sale),
+          onDelete: sale['pendingSync'] == true ? null : () => _deleteSale(sale),
         );
       },
     );
@@ -660,6 +733,50 @@ class _SalesListState extends State<_SalesList> {
 
     return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
   }
+
+  double _calculateSaleAmount(Map<String, dynamic> sale) {
+    double parseAmount(dynamic value) {
+      if (value is num) return value.toDouble();
+      if (value is String) return double.tryParse(value) ?? 0.0;
+      return 0.0;
+    }
+
+    final itemAmount = parseAmount(sale['totalAmount']) > 0
+        ? parseAmount(sale['totalAmount'])
+        : parseAmount(sale['finalAmount']);
+    if (itemAmount > 0) return itemAmount;
+
+    final fallbackAmount = parseAmount(sale['total']) > 0
+        ? parseAmount(sale['total'])
+        : parseAmount(sale['amount']);
+    if (fallbackAmount > 0) return fallbackAmount;
+
+    final computedSubtotal = parseAmount(sale['subtotal']);
+    if (computedSubtotal > 0) return computedSubtotal;
+
+    // If the line items exist, sum them as a last resort. This is useful for
+    // pending or offline sales where the sale object may omit a simple total
+    // field but still has valid item totals.
+    final items = sale['items'] as List?;
+    if (items != null && items.isNotEmpty) {
+      return items.fold<double>(0.0, (sum, rawItem) {
+        if (rawItem is Map<String, dynamic>) {
+          final total = parseAmount(rawItem['total']);
+          final quantity = parseAmount(rawItem['quantity']);
+          if (total > 0) return sum + total;
+          if (quantity > 0) {
+            final unitPrice = parseAmount(rawItem['unitPrice']) > 0
+                ? parseAmount(rawItem['unitPrice'])
+                : parseAmount(rawItem['price']);
+            return sum + (unitPrice * quantity);
+          }
+        }
+        return sum;
+      });
+    }
+
+    return 0.0;
+  }
 }
 
 class _SaleCard extends StatelessWidget {
@@ -672,6 +789,7 @@ class _SaleCard extends StatelessWidget {
   final String time;
   final Map<String, dynamic> saleData;
   final VoidCallback? onRefund;
+  final VoidCallback? onDelete;
 
   const _SaleCard({
     required this.orderId,
@@ -683,6 +801,7 @@ class _SaleCard extends StatelessWidget {
     required this.time,
     required this.saleData,
     this.onRefund,
+    this.onDelete,
   });
 
   Color get _statusColor {
@@ -766,6 +885,8 @@ class _SaleCard extends StatelessWidget {
       // Direct name fields
       if (item['productName'] is String && (item['productName'] as String).isNotEmpty) {
         name = item['productName'];
+      } else if (item['product_name'] is String && (item['product_name'] as String).isNotEmpty) {
+        name = item['product_name'];
       } else if (item['name'] is String && (item['name'] as String).isNotEmpty) {
         name = item['name'];
       }
@@ -786,8 +907,8 @@ class _SaleCard extends StatelessWidget {
       }
 
       // productId lookup
-      if ((name == null || name.isEmpty) && item['productId'] != null) {
-        final pid = item['productId'].toString();
+      if ((name == null || name.isEmpty) && (item['productId'] ?? item['product_id']) != null) {
+        final pid = (item['productId'] ?? item['product_id']).toString();
         final p = retailProvider.products.firstWhere(
           (prod) => prod.id == pid,
           orElse: () => Product(
@@ -818,6 +939,10 @@ class _SaleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cardColor = theme.cardColor;
+    final secondaryTextColor = theme.colorScheme.onSurface.withOpacity(0.72);
+
     return GestureDetector(
       onTap: () {
         // Navigate to receipt detail screen
@@ -830,7 +955,7 @@ class _SaleCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: cardColor,
           borderRadius: BorderRadius.circular(12),
           boxShadow: AppColors.cardShadow,
         ),
@@ -856,7 +981,10 @@ class _SaleCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(orderId, style: AppTextStyles.subtitle1),
+                      Text(orderId,
+                          style: AppTextStyles.subtitle1,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
                       Text(customer, style: AppTextStyles.caption),
                       if (saleData['workerName'] != null &&
                           saleData['workerName'].toString().isNotEmpty)
@@ -908,14 +1036,14 @@ class _SaleCard extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
-                Icon(_paymentIcon, size: 16, color: AppColors.textSecondary),
+                Icon(_paymentIcon, size: 16, color: secondaryTextColor),
                 const SizedBox(width: 4),
-                Text(paymentMethod, style: AppTextStyles.body2),
+                Text(paymentMethod, style: AppTextStyles.body2.copyWith(color: secondaryTextColor)),
                 const SizedBox(width: 16),
-                const Icon(
+                Icon(
                   Icons.shopping_cart,
                   size: 16,
-                  color: AppColors.textSecondary,
+                  color: secondaryTextColor,
                 ),
                 const SizedBox(width: 4),
                 Text('$items items', style: AppTextStyles.body2),
@@ -957,19 +1085,39 @@ class _SaleCard extends StatelessWidget {
                 );
               }),
             ],
-            if (onRefund != null) ...[
+            if (onRefund != null || onDelete != null) ...[
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: onRefund,
-                  icon: const Icon(Icons.assignment_return_outlined, size: 16),
-                  label: const Text('Refund'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.error,
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    visualDensity: VisualDensity.compact,
-                  ),
+                child: Wrap(
+                  spacing: 8,
+                  children: [
+                    if (onRefund != null)
+                      TextButton.icon(
+                        onPressed: onRefund,
+                        icon: const Icon(
+                          Icons.assignment_return_outlined,
+                          size: 16,
+                        ),
+                        label: const Text('Refund'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.error,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    if (onDelete != null)
+                      TextButton.icon(
+                        onPressed: onDelete,
+                        icon: const Icon(Icons.delete_outline, size: 16),
+                        label: const Text('Delete'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.error,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],

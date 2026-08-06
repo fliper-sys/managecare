@@ -34,6 +34,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   late TextEditingController _priceController;
   late TextEditingController _costController;
   late TextEditingController _wholesalePriceController;
+  late TextEditingController _distributorPriceController;
   late TextEditingController _stockController;
   late TextEditingController _categoryController;
   late TextEditingController _barcodeController;
@@ -69,6 +70,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _wholesalePriceController = TextEditingController(
       text: widget.product?.wholesalePrice?.toString() ?? '',
     );
+    _distributorPriceController = TextEditingController(
+      text: widget.product?.distributorPrice?.toString() ?? '',
+    );
     _stockController =
         TextEditingController(text: widget.product?.stock.toString() ?? '');
     _categoryController =
@@ -97,6 +101,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _priceController.dispose();
     _costController.dispose();
     _wholesalePriceController.dispose();
+    _distributorPriceController.dispose();
     _stockController.dispose();
     _categoryController.dispose();
     _barcodeController.dispose();
@@ -118,6 +123,23 @@ class _AddProductScreenState extends State<AddProductScreen> {
         normalized == 'bakeryshop' ||
         normalized == 'bakeshop';
   }
+
+  bool _requiresStoreSelection(BuildContext context) {
+    final type = context
+            .read<BusinessProvider>()
+            .currentBusiness
+            ?.businessType
+            .toLowerCase() ??
+        '';
+    final normalized = type.replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return normalized == 'retail' ||
+        normalized == 'supermarket' ||
+        normalized == 'grocery' ||
+        normalized == 'minimart';
+  }
+
+  bool _supportsStoreSelection(BuildContext context) =>
+      _requiresStoreSelection(context) || _isBakeryBusiness(context);
 
   void _applyBakeryCategory(String category) {
     final shelfLife = _bakeryShelfLifeDays[category] ?? 1;
@@ -245,11 +267,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
   Future<void> _saveProduct() async {
     final retailProvider =
         Provider.of<RetailProvider>(context, listen: false);
-    
+    final requiresStoreSelection = _requiresStoreSelection(context);
+
     // RETAIL-SPECIFIC: Store selection is required for retail inventory management
     // Store requirement ensures products are tracked across multiple physical locations
     // Other business types (Restaurant, Salon, etc.) do not require this
-    if (retailProvider.stores.isEmpty) {
+    if (requiresStoreSelection && retailProvider.stores.isEmpty) {
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -308,7 +331,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
     }
     
     // Validate store selection
-    if (_selectedStoreId == null || _selectedStoreId!.isEmpty) {
+    if (requiresStoreSelection &&
+        (_selectedStoreId == null || _selectedStoreId!.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please select a store'),
@@ -354,6 +378,9 @@ class _AddProductScreenState extends State<AddProductScreen> {
         wholesalePrice: _wholesalePriceController.text.trim().isEmpty
             ? null
             : double.tryParse(_wholesalePriceController.text.trim()),
+        distributorPrice: _distributorPriceController.text.trim().isEmpty
+            ? null
+            : double.tryParse(_distributorPriceController.text.trim()),
         stock: double.parse(_stockController.text),
         category: _categoryController.text.isEmpty
             ? 'Uncategorized'
@@ -414,6 +441,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
   Widget build(BuildContext context) {
     final isEditing = widget.product != null;
     final isBakery = _isBakeryBusiness(context);
+    final requiresStoreSelection = _requiresStoreSelection(context);
+    final supportsStoreSelection = _supportsStoreSelection(context);
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -540,75 +569,91 @@ class _AddProductScreenState extends State<AddProductScreen> {
             ],
 
             const SizedBox(height: 12),
-            Consumer<RetailProvider>(builder: (context, retail, _) {
-              final stores = retail.stores;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Store *', style: AppTextStyles.label),
-                      if (stores.isEmpty)
-                        TextButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).pushNamed('/retail/stores');
-                          },
-                          icon: const Icon(Icons.add, size: 16),
-                          label: const Text('Create Store'),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (stores.isEmpty)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.tertiaryContainer,
-                        border: Border.all(color: Theme.of(context).colorScheme.tertiary),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'No stores available. Please create a store to add products.',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onTertiaryContainer,
-                          fontSize: 14,
-                        ),
-                      ),
-                    )
-                  else
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _selectedStoreId == null ? Theme.of(context).colorScheme.error : Colors.transparent,
-                        ),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedStoreId,
-                          isExpanded: true,
-                          hint: const Text('Select a store'),
-                          icon: const Icon(Icons.store),
-                          items: stores.map((s) {
-                            return DropdownMenuItem(
-                              value: s.id,
-                              child: Text(s.name),
-                            );
-                          }).toList(),
-                          onChanged: (String? val) {
-                            if (val != null) setState(() => _selectedStoreId = val);
-                          },
-                        ),
-                      ),
+            if (supportsStoreSelection)
+              Consumer<RetailProvider>(builder: (context, retail, _) {
+                final stores = retail.stores;
+                if (!requiresStoreSelection && stores.isEmpty) {
+                  return Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pushNamed('/retail/stores');
+                      },
+                      icon: const Icon(Icons.add, size: 16),
+                      label: const Text('Add store for this product'),
                     ),
-                ],
-              );
-            }),
+                  );
+                }
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          requiresStoreSelection ? 'Store *' : 'Store (optional)',
+                          style: AppTextStyles.label,
+                        ),
+                        if (stores.isEmpty)
+                          TextButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).pushNamed('/retail/stores');
+                            },
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('Create Store'),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (stores.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.tertiaryContainer,
+                          border: Border.all(color: Theme.of(context).colorScheme.tertiary),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'No stores available. Please create a store to add products.',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onTertiaryContainer,
+                            fontSize: 14,
+                          ),
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _selectedStoreId == null ? Theme.of(context).colorScheme.error : Colors.transparent,
+                          ),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedStoreId,
+                            isExpanded: true,
+                            hint: const Text('Select a store'),
+                            icon: const Icon(Icons.store),
+                            items: stores.map((s) {
+                              return DropdownMenuItem(
+                                value: s.id,
+                                child: Text(s.name),
+                              );
+                            }).toList(),
+                            onChanged: (String? val) {
+                              if (val != null) setState(() => _selectedStoreId = val);
+                            },
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              }),
             const SizedBox(height: 16),
 
             // Emoji
@@ -783,6 +828,21 @@ class _AddProductScreenState extends State<AddProductScreen> {
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: InputDecoration(
                 hintText: 'Wholesale price (optional)',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _distributorPriceController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                hintText: 'Distributor price (optional)',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),

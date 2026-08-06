@@ -8,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/utils/receipt_utility.dart';
+import '../../../core/utils/decimal_input_formatter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io';
 import 'package:path/path.dart' as p;
@@ -2197,9 +2198,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
       auth.isOwnerUser || WorkerPermissions.canApplyDiscount(currentRole);
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: SafeArea(
         child: Padding(
@@ -2288,7 +2289,7 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                             margin: const EdgeInsets.only(bottom: 8),
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.white,
+                              color: Theme.of(context).colorScheme.surface,
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(
                                   color: Colors.grey.withOpacity(0.3)),
@@ -2315,7 +2316,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                                     width: 80,
                                     child: TextFormField(
                                       initialValue: price.toStringAsFixed(2),
-                                      keyboardType: TextInputType.number,
+                                      keyboardType: TextInputType.text,
+                                      inputFormatters: [
+                                        DecimalInputFormatter(),
+                                      ],
                                       textAlign: TextAlign.right,
                                       style: AppTextStyles.body2,
                                       decoration: const InputDecoration(

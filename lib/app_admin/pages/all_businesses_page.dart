@@ -417,13 +417,15 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
     final List<String> skipped = [];
 
     for (var b in selected) {
-      String? ownerEmail = (b['ownerEmail'] as String?)?.trim();
-      if ((ownerEmail == null || ownerEmail.isEmpty) && (b['ownerId'] != null)) {
-        final ownerId = b['ownerId'] as String?;
+      String? ownerEmail =
+          (b['ownerEmail'] ?? b['owner_email'] ?? b['email'])?.toString().trim();
+      if ((ownerEmail == null || ownerEmail.isEmpty) &&
+          (b['ownerId'] != null || b['owner_id'] != null)) {
+        final ownerId = (b['ownerId'] ?? b['owner_id'])?.toString();
         final ownerUser = admin.allUsers.firstWhere(
             (u) => (u['id'] ?? '') == ownerId,
             orElse: () => {});
-        ownerEmail = (ownerUser['email'] as String?)?.trim();
+        ownerEmail = ownerUser['email']?.toString().trim();
       }
       if (ownerEmail == null || ownerEmail.isEmpty) {
         skipped.add((b['name'] ?? b['businessId'] ?? 'Unknown').toString());
@@ -457,7 +459,7 @@ class _AllBusinessesPageState extends State<AllBusinessesPage> {
             final createdAt = t['createdAt'] ?? t['createdAt'] ?? '';
             final rawItems = t['items'] as List<dynamic>? ?? [];
             final itemSummary = rawItems.map((it) {
-              final nm = it['productName'] ?? it['name'] ?? '';
+              final nm = it['productName'] ?? it['product_name'] ?? it['name'] ?? '';
               final qty = (it['quantity'] ?? it['qty'] ?? 0);
               return '$nm x$qty';
             }).join(', ');
@@ -673,8 +675,11 @@ class BusinessDetailPage extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // Features (if available)
-            if (business['features'] != null)
+            // Features (if available) - defaults to an empty JSONB object
+            // ('{}') on the backend when unset, not an array, so guard the
+            // cast rather than assuming list shape whenever it's non-null.
+            if (business['features'] is List &&
+                (business['features'] as List).isNotEmpty)
               _buildSection(
                 context,
                 'Enabled Features',
@@ -816,7 +821,9 @@ class BusinessDetailPage extends StatelessWidget {
     final currentClass = business['businessClass']?.toString().toLowerCase() ?? 'tier1';
     final isActive = business['isActive'] ?? true;
     final maxWorkers = (business['maxWorkers'] ?? 50) as int;
-    final currentFeatures = List<String>.from((business['features'] ?? []) as List);
+    final rawFeatures = business['features'];
+    final currentFeatures =
+        List<String>.from(rawFeatures is List ? rawFeatures : []);
     
     String selectedClass = currentClass;
     bool selectedActive = isActive;
@@ -1029,16 +1036,20 @@ class BusinessDetailPage extends StatelessWidget {
                           final messenger = ScaffoldMessenger.of(context);
                           
                           try {
-                            await FirebaseFirestore.instance
-                                .collection('businesses')
-                                .doc(businessId)
-                                .update({
+                            final admin = Provider.of<AdminProvider>(
+                              context,
+                              listen: false,
+                            );
+                            final ok = await admin.updateBusiness(businessId, {
                               'businessClass': selectedClass,
                               'isActive': selectedActive,
                               'maxWorkers': selectedMaxWorkers,
                               'features': selectedFeatures,
-                              'updatedAt': FieldValue.serverTimestamp(),
                             });
+                            if (!ok) {
+                              throw Exception(admin.errorMessage ??
+                                  'Unable to update business');
+                            }
                             
                             messenger.showSnackBar(
                               const SnackBar(
@@ -1384,9 +1395,22 @@ class BusinessDetailPage extends StatelessWidget {
               final data = snap.data!;
               final totalSales = (data['totalSales'] ?? 0).toDouble();
               final txCount = data['transactionCount'] ?? 0;
-              final items = Map<String, Map<String, double>>.from((data['items'] ?? {}));
-              final cashierTotals = Map<String, double>.from((data['cashierTotals'] ?? {}));
-              final paymentMethodTotals = Map<String, double>.from((data['paymentMethodTotals'] ?? {}));
+              final rawItems = (data['items'] as Map?) ?? {};
+              final items = <String, Map<String, double>>{
+                for (final entry in rawItems.entries)
+                  entry.key.toString(): {
+                    'quantity': ((entry.value as Map?)?['quantity'] as num?)?.toDouble() ?? 0.0,
+                    'sales': ((entry.value as Map?)?['sales'] as num?)?.toDouble() ?? 0.0,
+                  },
+              };
+              final cashierTotals = <String, double>{
+                for (final entry in ((data['cashierTotals'] as Map?) ?? {}).entries)
+                  entry.key.toString(): (entry.value as num?)?.toDouble() ?? 0.0,
+              };
+              final paymentMethodTotals = <String, double>{
+                for (final entry in ((data['paymentMethodTotals'] as Map?) ?? {}).entries)
+                  entry.key.toString(): (entry.value as num?)?.toDouble() ?? 0.0,
+              };
               final transactions = List<Map<String, dynamic>>.from((data['transactions'] ?? []));
               final previousDayTotal = (data['previousDayTotal'] ?? 0).toDouble();
 
@@ -2223,17 +2247,24 @@ void _editBusiness(BuildContext context, Map<String, dynamic> business) {
               onPressed: () async {
                 try {
                   final businessId = business['id'] ?? business['businessId'];
-                  await FirebaseFirestore.instance
-                      .collection('businesses')
-                      .doc(businessId)
-                      .update({
-                    'name': nameController.text,
-                    'ownerName': ownerNameController.text,
-                    'email': emailController.text,
-                    'phone': phoneController.text,
-                    'businessClass': selectedClass,
-                    'updatedAt': FieldValue.serverTimestamp(),
-                  });
+                  final admin = Provider.of<AdminProvider>(
+                    context,
+                    listen: false,
+                  );
+                  final ok = await admin.updateBusiness(
+                    businessId.toString(),
+                    {
+                      'name': nameController.text,
+                      'ownerName': ownerNameController.text,
+                      'email': emailController.text,
+                      'phone': phoneController.text,
+                      'businessClass': selectedClass,
+                    },
+                  );
+                  if (!ok) {
+                    throw Exception(
+                        admin.errorMessage ?? 'Unable to update business');
+                  }
 
                   if (context.mounted) {
                     Navigator.pop(ctx);
@@ -2285,13 +2316,18 @@ void _toggleStatus(BuildContext context, dynamic business) {
           onPressed: () async {
             try {
               final businessId = business['id'] ?? business['businessId'];
-              await FirebaseFirestore.instance
-                  .collection('businesses')
-                  .doc(businessId)
-                  .update({
-                'isActive': newStatus,
-                'updatedAt': FieldValue.serverTimestamp(),
-              });
+              final admin = Provider.of<AdminProvider>(
+                context,
+                listen: false,
+              );
+              final ok = await admin.updateBusiness(
+                businessId.toString(),
+                {'isActive': newStatus},
+              );
+              if (!ok) {
+                throw Exception(
+                    admin.errorMessage ?? 'Unable to update business status');
+              }
 
               if (context.mounted) {
                 Navigator.pop(ctx);

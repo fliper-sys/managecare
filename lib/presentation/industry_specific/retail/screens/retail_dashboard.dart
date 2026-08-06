@@ -46,15 +46,13 @@ class _RetailDashboardState extends State<RetailDashboard> {
     final user = auth.currentUser;
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final accentColor =
-        widget.isBakery ? const Color(0xFFFF8A18) : AppColors.primary;
+    // Bakery and retail share the same Manage Care blue/white branding —
+    // only tile labels ("Bakery POS" vs "Open POS") differ, not colors.
+    final accentColor = AppColors.primary;
 
     return Scaffold(
-      backgroundColor: isDark
-          ? colorScheme.surface
-          : (widget.isBakery
-              ? const Color(0xFFF8F6F1)
-              : const Color(0xFFF5F8FF)),
+      backgroundColor:
+          isDark ? colorScheme.surface : const Color(0xFFF5F8FF),
       body: SafeArea(
         child: Consumer<RetailProvider>(
           builder: (context, retailProvider, _) {
@@ -64,7 +62,10 @@ class _RetailDashboardState extends State<RetailDashboard> {
               0,
               (sum, p) => sum + (p.price * (100 - p.stock)),
             );
-            final quickActions = _getQuickActionItems(context).take(6).toList();
+            // No cap: disabled (not-yet-granted) tiles are now shown
+            // alongside enabled ones rather than omitted, so cutting the
+            // list short would hide tiles a worker should be able to see.
+            final quickActions = _getQuickActionItems(context);
 
             return SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
@@ -99,9 +100,7 @@ class _RetailDashboardState extends State<RetailDashboard> {
                           value: '$lowStockCount',
                           caption: 'Needs attention',
                           icon: Icons.inventory_2_outlined,
-                          color: widget.isBakery
-                              ? const Color(0xFFEBA33A)
-                              : AppColors.warning,
+                          color: AppColors.warning,
                           showChevron: true,
                         ),
                       ),
@@ -179,24 +178,13 @@ class _RetailDashboardState extends State<RetailDashboard> {
         isDark ? colorScheme.onSurfaceVariant : Colors.black.withOpacity(0.76);
     final bubbleColor =
         isDark ? colorScheme.surfaceContainerHighest : Colors.white;
-    final heroGradient = widget.isBakery
-        ? (isDark
-            ? [
-                const Color(0xFF4A2B08),
-                const Color(0xFF6F3B05),
-                const Color(0xFFD97706),
-              ]
-            : const [
-                Color(0xFFFFF2D8),
-                Color(0xFFFFC56F),
-                Color(0xFFD97706),
-              ])
-        : (isDark
-            ? [
-                colorScheme.primary.withOpacity(0.24),
-                colorScheme.surfaceContainerHighest,
-              ]
-            : [AppColors.primary.withOpacity(0.18), Colors.white]);
+    // Same Manage Care blue/white gradient for bakery and retail.
+    final heroGradient = isDark
+        ? [
+            colorScheme.primary.withOpacity(0.24),
+            colorScheme.surfaceContainerHighest,
+          ]
+        : [AppColors.primary.withOpacity(0.18), Colors.white];
 
     return Container(
       margin: const EdgeInsets.only(top: 10),
@@ -391,7 +379,7 @@ class _RetailDashboardState extends State<RetailDashboard> {
         crossAxisCount: 2,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
-        childAspectRatio: 1.95,
+        childAspectRatio: 1.3,
       ),
       itemBuilder: (context, index) => quickActions[index],
     );
@@ -527,13 +515,26 @@ class _RetailDashboardState extends State<RetailDashboard> {
     // Helper permission checks
     bool can(bool Function(String) check) => check(role);
 
-    // Add items helper
-    void add(IconData icon, String label, String route, Color color) {
+    // Add items helper. Tiles the current user isn't permitted to use are
+    // still shown (per admin request) but dimmed, and tapping them explains
+    // how to get access instead of silently doing nothing.
+    void add(
+      IconData icon,
+      String label,
+      String route,
+      Color color, {
+      bool enabled = true,
+    }) {
       items.add(_QuickActionCard(
         icon: icon,
         label: label,
         color: color,
-        onTap: () => Navigator.pushNamed(context, route),
+        enabled: enabled,
+        onTap: enabled
+            ? () => Navigator.pushNamed(context, route)
+            : () => ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Ask your admin to enable "$label"')),
+                ),
       ));
     }
 
@@ -542,7 +543,7 @@ class _RetailDashboardState extends State<RetailDashboard> {
         Icons.point_of_sale,
         widget.isBakery ? 'Bakery POS' : 'Open POS',
         Routes.retailPos,
-        widget.isBakery ? const Color(0xFFD97706) : AppColors.primary,
+        AppColors.primary,
       );
       add(
         Icons.storefront,
@@ -574,12 +575,12 @@ class _RetailDashboardState extends State<RetailDashboard> {
           Icons.inventory_2,
           'Inventory',
           Routes.inventory,
-          const Color(0xFFD97706),
+          AppColors.primary,
         );
         add(
           Icons.playlist_add_check,
           'Record Resupply',
-          Routes.inventory,
+          Routes.bakeryResupply,
           Colors.brown,
         );
         add(
@@ -610,71 +611,89 @@ class _RetailDashboardState extends State<RetailDashboard> {
       add(Icons.bar_chart, 'Reports', Routes.retailStoreReports, Colors.teal);
       add(Icons.print, 'Printer Settings', Routes.printerSettings, Colors.teal);
     } else {
-      if (WorkerPermissions.canManageSalesForUser(role, currentPermissions)) {
+      // `view_inventory`/`view_sales_history` are meant for lighter-weight
+      // "can see stock/sales info" purposes elsewhere in the app (e.g. POS),
+      // not full screen access — a cashier has both by default, so gating
+      // whole screens on them was granting inventory/reports access nobody
+      // approved. Screen-access tiles below are gated on the permissions
+      // actually meant for that (`manage_inventory`/`access_inventory_screen`,
+      // `view_reports`/`access_reports_dashboard`), which a cashier starts
+      // without and an admin grants explicitly via the worker's permissions.
+      final canManageSales =
+          WorkerPermissions.canManageSalesForUser(role, currentPermissions);
+      final canManageInv =
+          WorkerPermissions.canManageInventoryForUser(role, currentPermissions);
+      final canViewReports = AccessControl.canViewReports(context);
+      final canViewDistributorSales =
+          can(WorkerPermissions.canViewAnalytics) || canViewReports;
+      final canViewSalesHistory =
+          canManageSales || can(WorkerPermissions.canViewAnalytics);
+
+      add(
+        Icons.point_of_sale,
+        widget.isBakery ? 'Bakery POS' : 'Open POS',
+        Routes.bakerySales,
+        AppColors.primary,
+        enabled: canManageSales,
+      );
+      add(
+        Icons.receipt_long_rounded,
+        'Sales History',
+        Routes.salesHistory,
+        AppColors.info,
+        enabled: canViewSalesHistory,
+      );
+      add(
+        Icons.event_busy,
+        widget.isBakery ? 'Freshness Tracker' : 'Expiry Tracker',
+        Routes.expiryTracker,
+        Colors.red,
+        enabled: canManageInv,
+      );
+      add(
+        Icons.add_box,
+        widget.isBakery ? 'Add Bakery Item' : 'Add Product',
+        Routes.retailAddProduct,
+        AppColors.success,
+        enabled: canManageInv,
+      );
+      if (isBakeryBusiness) {
         add(
-          Icons.point_of_sale,
-          widget.isBakery ? 'Bakery POS' : 'Open POS',
-          Routes.bakerySales,
-          widget.isBakery ? const Color(0xFFD97706) : AppColors.primary,
+          Icons.inventory_2,
+          'Inventory',
+          Routes.inventory,
+          AppColors.primary,
+          enabled: canManageInv,
         );
-      }
-      if (WorkerPermissions.canViewInventoryForUser(role, currentPermissions)) {
         add(
-          Icons.event_busy,
-          widget.isBakery ? 'Freshness Tracker' : 'Expiry Tracker',
-          Routes.expiryTracker,
-          Colors.red,
+          Icons.playlist_add_check,
+          'Record Resupply',
+          Routes.bakeryResupply,
+          Colors.brown,
+          enabled: canManageInv,
         );
-      }
-      if (WorkerPermissions.canManageInventoryForUser(
-        role,
-        currentPermissions,
-      )) {
         add(
-          Icons.add_box,
-          widget.isBakery ? 'Add Bakery Item' : 'Add Product',
-          Routes.retailAddProduct,
-          AppColors.success,
+          Icons.report,
+          'Inventory Report',
+          Routes.inventoryReport,
+          Colors.teal,
+          enabled: canManageInv,
         );
-      }
-      // Worker-level inventory/report access for bakery
-      if (WorkerPermissions.canViewInventoryForUser(role, currentPermissions) ||
-          WorkerPermissions.canManageInventoryForUser(role, currentPermissions)) {
-        if (isBakeryBusiness) {
-          add(
-            Icons.inventory_2,
-            'Inventory',
-            Routes.inventory,
-            const Color(0xFFD97706),
-          );
-          add(
-            Icons.playlist_add_check,
-            'Record Resupply',
-            Routes.inventory,
-            Colors.brown,
-          );
-          add(
-            Icons.report,
-            'Inventory Report',
-            Routes.inventoryReport,
-            Colors.teal,
-          );
-        }
-      }
-        if (isBakeryBusiness &&
-          (can(WorkerPermissions.canViewAnalytics) ||
-              AccessControl.canViewReports(context))) {
         add(
           Icons.local_shipping,
           'Distributor Sales',
           Routes.distributorSalesReport,
           Colors.deepOrange,
+          enabled: canViewDistributorSales,
         );
       }
-      if (can(WorkerPermissions.canViewAnalytics) ||
-          AccessControl.canViewReports(context)) {
-        add(Icons.bar_chart, 'Reports', Routes.retailStoreReports, Colors.teal);
-      }
+      add(
+        Icons.bar_chart,
+        'Reports',
+        Routes.retailStoreReports,
+        Colors.teal,
+        enabled: canViewReports,
+      );
     }
 
     items.add(_QuickActionCard(
@@ -1208,74 +1227,71 @@ class _QuickActionCard extends StatelessWidget {
   final String label;
   final Color color;
   final VoidCallback onTap;
+  final bool enabled;
 
   const _QuickActionCard({
     required this.icon,
     required this.label,
     required this.color,
     required this.onTap,
+    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tileColor = enabled ? color : colorScheme.outline;
 
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.6)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(isDark ? 0.22 : 0.06),
-              blurRadius: 18,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: color.withOpacity(isDark ? 0.22 : 0.16),
-                borderRadius: BorderRadius.circular(14),
+      child: Opacity(
+        opacity: enabled ? 1 : 0.55,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(18),
+            border:
+                Border.all(color: colorScheme.outlineVariant.withOpacity(0.6)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.22 : 0.06),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
               ),
-              child: Icon(icon, color: color, size: 24),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: colorScheme.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Quick access',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: colorScheme.onSurfaceVariant),
-                  ),
-                ],
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: tileColor.withOpacity(isDark ? 0.22 : 0.16),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: tileColor, size: 28),
               ),
-            ),
-            Icon(Icons.chevron_right_rounded, color: colorScheme.onSurfaceVariant),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+              ),
+              Icon(
+                enabled ? Icons.chevron_right_rounded : Icons.lock_outline_rounded,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
         ),
       ),
     );

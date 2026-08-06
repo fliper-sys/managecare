@@ -5,13 +5,14 @@ import 'package:flutter/foundation.dart'
     show kIsWeb, TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'firebase_options.dart';
+import 'core/config/supabase_config.dart';
 import 'app.dart';
 import 'providers/auth_provider.dart';
 import 'providers/business_provider.dart';
@@ -50,6 +51,7 @@ import 'data/repositories/industry_specific/drink_repository_impl.dart';
 import 'providers/drink_provider.dart';
 import 'presentation/industry_specific/realestate/providers/real_estate_provider.dart';
 import 'providers/realestate_provider.dart'; // wrapper (kept for registration)
+import 'providers/business_logic_provider.dart';
 import 'providers/gym_provider.dart';
 import 'providers/workers_provider.dart';
 import 'providers/inventory_alerts_provider.dart';
@@ -81,21 +83,41 @@ void main() async {
     databaseFactory = databaseFactoryFfi;
   }
 
-  // Run the independent startup steps concurrently — none of these depend
-  // on each other's results, so doing them one-by-one only adds latency
-  // before the first frame (and, for a cached user, before auto-login can
-  // even begin).
-  await Future.wait([
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]),
-    _initializeFirebase(),
-    Hive.initFlutter(),
-    if (!kIsWeb) _initializeLocalDatabase(),
-  ]);
+  // Run the independent startup steps concurrently. Bounded by an overall
+  // timeout and never allowed to throw past this point - Supabase.initialize
+  // tries to restore/refresh a persisted session over the network with no
+  // timeout of its own, so on a device that can't currently reach the
+  // backend (this VPS has real, repeated outages) this whole block would
+  // otherwise hang forever. Since runApp() below never runs until this
+  // completes, that hang meant the app process stayed alive with no window
+  // and no taskbar icon ever appearing - nothing to show the user something
+  // was wrong, just a silently stuck launch. The rest of the app already
+  // handles a not-yet-authenticated/offline Supabase client throughout
+  // (ConnectivityProvider, the local SQLite cache, etc.), so proceeding to
+  // runApp() even after a timeout here is safe - worst case the user has to
+  // sign in again once connectivity returns, instead of the app never
+  // opening at all.
+  try {
+    await Future.wait([
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]),
+      // Firebase is only used for push notifications (FCM) + crash reporting.
+      // All business data now flows through Supabase/Postgres.
+      _initializeFirebaseIfAvailable(),
+      Supabase.initialize(
+        url: SupabaseConfig.url,
+        anonKey: SupabaseConfig.anonKey,
+      ),
+      Hive.initFlutter(),
+      if (!kIsWeb) _initializeLocalDatabase(),
+    ]).timeout(const Duration(seconds: 10));
+  } catch (e) {
+    debugPrint('[main] Startup init did not fully complete (continuing to show the app anyway): $e');
+  }
 
   // Initialize app services (analytics, barcode, cloud storage, push/local
   // notifications, etc.) in the background so startup isn't blocked. None
@@ -125,26 +147,20 @@ void main() async {
   runApp(const MyApp());
 }
 
-Future<void> _initializeFirebase() async {
+/// Initialise Firebase purely for push notifications (FCM).
+///
+/// This is intentionally non-fatal; all business data now flows through
+/// Supabase/Postgres.  If Firebase isn't configured for this platform the
+/// app will still start — only push notifications will be unavailable.
+Future<void> _initializeFirebaseIfAvailable() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-
-    // ── Quota optimisation: Firestore offline persistence ───────────────
-    // Serves recently-read documents and query results from the on-device
-    // cache, reducing Firestore reads on repeat visits to the same screen.
-    // 100MB cache (default is 40MB) reduces evictions for larger catalogues.
-    FirebaseFirestore.instance.settings = const Settings(
-      persistenceEnabled: true,
-      cacheSizeBytes: 104857600, // 100 MB
-    );
-    // ─────────────────────────────────────────────────────────────────
-  } on FirebaseException catch (e) {
-    if (e.code != 'duplicate-app') {
-      rethrow;
-    }
-    // App already initialized, continue
+  } catch (e) {
+    // Firebase not available — notifications will be degraded, but the app
+    // still works.  Typical on custom builds / side-loads / emulators.
+    debugPrint('[main] Firebase init failed (non-fatal): $e');
   }
 }
 
@@ -216,6 +232,13 @@ class MyApp extends StatelessWidget {
             }
 
             try {
+              // The platform admin account has no business of its own -
+              // skip the business load entirely instead of firing a
+              // request that will always come back empty.
+              if (auth.currentUser!.email.toLowerCase() == 'mcadmin@mc.c') {
+                return previous;
+              }
+
               final preferredId = auth.currentUser!.businessId;
               final isWorker = auth.isWorkerUser;
 
@@ -296,10 +319,22 @@ class MyApp extends StatelessWidget {
             // Ensure the reports provider can access auth context
             previous ??= ReportsProvider();
             previous.setAuthProvider(auth);
-            if (bid.isNotEmpty) {
+            // This `update` callback re-runs on every notifyListeners() from
+            // either watched provider - AuthProvider/BusinessProvider fire
+            // many times during a normal startup (auth resolution, business
+            // list load, subscription checks, cache writes, ...). Each of
+            // the four subscribe calls below does an immediate eager fetch
+            // on top of its own periodic poll, so without this guard a
+            // single startup was firing dozens of redundant concurrent
+            // requests at the same business's reports endpoints - a
+            // self-inflicted request storm that starved the backend's
+            // connection pool and made unrelated requests time out.
+            // Re-subscribing only actually needs to happen once per business
+            // switch; the periodic polls already keep the data fresh after that.
+            if (bid.isNotEmpty && previous.subscribedBusinessId != bid) {
               // Defer subscriptions with a small delay to ensure window is fully initialized on web
               Future.delayed(const Duration(milliseconds: 100), () {
-                if (previous != null) {
+                if (previous != null && previous.subscribedBusinessId != bid) {
                   previous.subscribeToSalesReports(businessId: bid);
                   previous.subscribeToFinancialReports(businessId: bid);
                   previous.subscribeToInventoryReports(businessId: bid);
@@ -364,15 +399,22 @@ class MyApp extends StatelessWidget {
           create: (_) => RestaurantProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            // Only fetch menu/tables/orders for businesses that are actually
+            // restaurants — otherwise every login/business switch pays for
+            // a restaurant data load no screen will ever show.
+            final isRestaurantBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/restaurant';
             if (previous == null) {
               final p = RestaurantProvider();
-              if (bid.isNotEmpty) p.setBusinessId(bid);
+              if (bid.isNotEmpty && isRestaurantBusiness) p.setBusinessId(bid);
               return p;
             }
             // Reset provider state when business is cleared (logout)
             if (bid.isEmpty) {
               previous.reset();
-            } else {
+            } else if (isRestaurantBusiness) {
               previous.setBusinessId(bid);
             }
             return previous;
@@ -423,6 +465,14 @@ class MyApp extends StatelessWidget {
           create: (_) =>
               AgriProvider(notificationService: NotificationService.instance),
           update: (_, businessProvider, previous) {
+            final isAgriBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/agri';
+            // Skip rebuilding (and refetching) when the current business
+            // isn't agri — this provider previously recreated itself on
+            // every business switch regardless of industry.
+            if (!isAgriBusiness && previous != null) return previous;
             final bid = businessProvider.currentBusiness?.id ?? 'demo';
             return AgriProvider(
                 repository: AgriRepositoryImpl(businessId: bid),
@@ -449,12 +499,16 @@ class MyApp extends StatelessWidget {
           create: (_) => AutoProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isAutoBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/auto';
             if (previous == null) {
               final ap = AutoProvider();
-              if (bid.isNotEmpty) ap.setBusinessId(bid);
+              if (bid.isNotEmpty && isAutoBusiness) ap.setBusinessId(bid);
               return ap;
             }
-            if (bid.isNotEmpty) previous.setBusinessId(bid);
+            if (bid.isNotEmpty && isAutoBusiness) previous.setBusinessId(bid);
             return previous;
           },
         ),
@@ -462,12 +516,18 @@ class MyApp extends StatelessWidget {
           create: (_) => BarberShopProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isBarbershopBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/barbershop';
             if (previous == null) {
               final p = BarberShopProvider();
-              if (bid.isNotEmpty) p.setBusinessId(bid);
+              if (bid.isNotEmpty && isBarbershopBusiness) p.setBusinessId(bid);
               return p;
             }
-            if (bid.isNotEmpty) previous.setBusinessId(bid);
+            if (bid.isNotEmpty && isBarbershopBusiness) {
+              previous.setBusinessId(bid);
+            }
             return previous;
           },
         ),
@@ -475,15 +535,19 @@ class MyApp extends StatelessWidget {
           create: (_) => SalonProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isSalonBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/salon';
             if (previous == null) {
               final p = SalonProvider();
-              if (bid.isNotEmpty) p.setBusinessId(bid);
+              if (bid.isNotEmpty && isSalonBusiness) p.setBusinessId(bid);
               return p;
             }
             // Reset provider state when business is cleared (logout)
             if (bid.isEmpty) {
               previous.reset();
-            } else {
+            } else if (isSalonBusiness) {
               previous.setBusinessId(bid);
             }
             return previous;
@@ -493,12 +557,16 @@ class MyApp extends StatelessWidget {
           create: (_) => HotelProvider(repository: HotelRepositoryImpl()),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isHotelBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/hotel';
             if (previous == null) {
               final hp = HotelProvider(repository: HotelRepositoryImpl());
-              if (bid.isNotEmpty) hp.setBusinessId(bid);
+              if (bid.isNotEmpty && isHotelBusiness) hp.setBusinessId(bid);
               return hp;
             }
-            if (bid.isNotEmpty) previous.setBusinessId(bid);
+            if (bid.isNotEmpty && isHotelBusiness) previous.setBusinessId(bid);
             return previous;
           },
         ),
@@ -506,12 +574,20 @@ class MyApp extends StatelessWidget {
           create: (_) => WholesaleProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isWholesaleBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/wholesale';
             if (previous == null) {
               final wp = WholesaleProvider();
-              if (bid.isNotEmpty) wp.initializeWithBusinessId(bid);
+              if (bid.isNotEmpty && isWholesaleBusiness) {
+                wp.initializeWithBusinessId(bid);
+              }
               return wp;
             }
-            if (bid.isNotEmpty) previous.initializeWithBusinessId(bid);
+            if (bid.isNotEmpty && isWholesaleBusiness) {
+              previous.initializeWithBusinessId(bid);
+            }
             return previous;
           },
         ),
@@ -521,17 +597,26 @@ class MyApp extends StatelessWidget {
           ),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? 'demo';
-            final repo = DrinkRepositoryImpl(businessId: bid);
+            final isDrinkBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/drink';
             if (previous == null) {
+              final repo = DrinkRepositoryImpl(businessId: bid);
               final p = DrinkProvider(repository: repo);
-              p.setBusinessId(bid);
-              // initialize in background
-              p.initialize(repository: repo);
+              if (isDrinkBusiness) {
+                p.setBusinessId(bid);
+                // initialize in background
+                p.initialize(repository: repo);
+              }
               return p;
             }
             // trigger background re-initialization for existing provider
-            previous.setBusinessId(bid);
-            previous.initialize(repository: repo);
+            if (isDrinkBusiness) {
+              final repo = DrinkRepositoryImpl(businessId: bid);
+              previous.setBusinessId(bid);
+              previous.initialize(repository: repo);
+            }
             return previous;
           },
         ),
@@ -540,6 +625,14 @@ class MyApp extends StatelessWidget {
               repository: GymRepositoryImpl(businessId: 'demo'),
               businessId: 'demo'),
           update: (_, businessProvider, previous) {
+            final isGymBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/gym';
+            // Skip rebuilding (and refetching) when the current business
+            // isn't a gym — this provider previously recreated itself on
+            // every business switch regardless of industry.
+            if (!isGymBusiness && previous != null) return previous;
             final bid = businessProvider.currentBusiness?.id ?? 'demo';
             // Create a provider with repository and business id wired to current business
             return GymProvider(
@@ -552,18 +645,38 @@ class MyApp extends StatelessWidget {
           create: (_) => RealestateProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isRealEstateBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/realestate';
             if (previous == null) {
               final p = RealestateProvider();
-              if (bid.isNotEmpty) p.setBusinessId(bid);
+              if (bid.isNotEmpty && isRealEstateBusiness) p.setBusinessId(bid);
               return p;
             }
             // Reset provider state when business is cleared (logout)
             if (bid.isEmpty) {
               previous.reset();
-            } else {
+            } else if (isRealEstateBusiness) {
               previous.setBusinessId(bid);
             }
             return previous;
+          },
+        ),
+        // Backs the real estate maintenance-ticket screens
+        // (create_ticket_screen.dart, maintenance_screen.dart), which read
+        // this via context.read<BusinessLogicProvider>() but had no
+        // registration at all before this - a latent crash waiting to
+        // happen the first time that code path was reached.
+        ChangeNotifierProxyProvider<BusinessProvider, BusinessLogicProvider>(
+          create: (_) => BusinessLogicProvider(),
+          update: (_, businessProvider, previous) {
+            final provider = previous ?? BusinessLogicProvider();
+            final business = businessProvider.currentBusiness;
+            if (business != null) {
+              provider.setBusinessContext(business.id, business.businessType);
+            }
+            return provider;
           },
         ),
         // Customer provider: caches customers for the current business
@@ -583,14 +696,18 @@ class MyApp extends StatelessWidget {
           create: (_) => ApartmentProvider(),
           update: (_, businessProvider, previous) {
             final bid = businessProvider.currentBusiness?.id ?? '';
+            final isApartmentBusiness = BusinessProvider.industryRouteForType(
+                  businessProvider.currentBusiness?.businessType,
+                ) ==
+                '/apartment';
             if (previous == null) {
               return ApartmentProvider();
             }
             // Load apartments for the current business, or reset if no business
-            if (bid.isNotEmpty) {
-              previous.loadApartments(bid);
-            } else {
+            if (bid.isEmpty) {
               previous.reset();
+            } else if (isApartmentBusiness) {
+              previous.loadApartments(bid);
             }
             return previous;
           },

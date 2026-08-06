@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:provider/provider.dart';
 import '../../../data/repositories/auth_repository_impl.dart';
 import '../../../data/repositories/worker_repository_impl.dart';
@@ -14,7 +13,9 @@ import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../widgets/profile_avatar.dart';
 import '../../../core/utils/worker_permissions.dart';
+import '../../../services/managecare_api_client.dart';
 import '../../inventory/utils/bakery_assignment_analytics.dart';
+import '../../inventory/utils/bakery_resupply_row_mapper.dart';
 
 String summarizeBakeryActivity(Map<String, dynamic> activity, {required bool isOutput}) {
   if (activity.isEmpty) return 'No activity';
@@ -176,25 +177,16 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
         return;
       }
 
-      final query = FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('bakery_resupplies')
-          .where('bakerId', isEqualTo: widget.workerId)
-          .orderBy('createdAt', descending: true);
-
-      final snapshot = await query.get();
-      final history = snapshot.docs.map((doc) {
-        final data = doc.data();
-        return {
-          'id': doc.id,
-          ...data,
-        };
-      }).toList();
+      final response = await ManagecareApiClient.instance.get(
+        '/api/inventory/$businessId/bakery-resupplies',
+        query: {'baker_id': widget.workerId, 'limit': '500'},
+      );
+      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      final history = rows.map(bakeryResupplyRowToJson).toList();
 
       if (mounted) {
         setState(() {
-          _bakeryResupplyHistory = history.cast<Map<String, dynamic>>();
+          _bakeryResupplyHistory = history;
           _loadingBakeryHistory = false;
         });
       }
@@ -209,8 +201,8 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
   }
 
   DateTime? _readAssignmentDate(dynamic value) {
-    if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
     return null;
   }
 
@@ -415,9 +407,7 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
     if (confirmed != true) return;
 
     try {
-      await AuthRepositoryImpl(
-        firebaseAuth: FirebaseAuth.instance,
-      ).resetPassword(email);
+      await AuthRepositoryImpl().resetPassword(email);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1115,16 +1105,10 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                     final actual = ((entry['actualProductionAmount'] as num?) ?? 0).toDouble();
                     final variance = actual - expected;
                     final notes = (entry['notes'] ?? '').toString().trim();
-                    final createdAt = entry['createdAt'];
-                    String dateLabel;
-
-                    if (createdAt is Timestamp) {
-                      dateLabel = '${createdAt.toDate().day}/${createdAt.toDate().month}/${createdAt.toDate().year}';
-                    } else if (createdAt is DateTime) {
-                      dateLabel = '${createdAt.day}/${createdAt.month}/${createdAt.year}';
-                    } else {
-                      dateLabel = 'Unknown date';
-                    }
+                    final parsedCreatedAt = _readAssignmentDate(entry['createdAt']);
+                    final dateLabel = parsedCreatedAt != null
+                        ? '${parsedCreatedAt.day}/${parsedCreatedAt.month}/${parsedCreatedAt.year}'
+                        : 'Unknown date';
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12),

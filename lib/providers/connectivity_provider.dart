@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import '../core/utils/connectivity_helper.dart';
 import 'sync_provider.dart';
 
 class ConnectivityProvider with ChangeNotifier {
@@ -8,7 +9,9 @@ class ConnectivityProvider with ChangeNotifier {
 
   bool _isConnected = true;
   bool _wasOffline = false;
+  int _consecutiveFailures = 0;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  Timer? _pollTimer;
   SyncProvider? _syncProvider;
 
   bool get isConnected => _isConnected;
@@ -19,23 +22,48 @@ class ConnectivityProvider with ChangeNotifier {
   }
 
   Future<void> initialize() async {
-    // Check initial connectivity
-    final result = await _connectivity.checkConnectivity();
-    _isConnected = !result.contains(ConnectivityResult.none);
-    notifyListeners();
+    // connectivity_plus only reports whether a network interface is
+    // attached, and on Windows neither half of that report can be trusted:
+    // checkConnectivity() can claim "none" for a genuinely-connected
+    // machine, and onConnectivityChanged's platform channel can outright
+    // throw (NetworkManager::StartListen) instead of ever delivering
+    // events. So the interface plugin is never the source of truth here -
+    // ConnectivityHelper's real DNS lookup against our own backend is. The
+    // plugin is only used, best-effort, as a hint to re-check sooner; a
+    // periodic poll is the fallback for when it can't even do that much.
+    await checkConnection();
 
-    // Listen to connectivity changes
     _connectivitySubscription = _connectivity.onConnectivityChanged.listen(
-      (List<ConnectivityResult> results) => _updateConnectionStatus(results),
+      (_) => checkConnection(),
+      onError: (_) {},
     );
+
+    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      checkConnection();
+    });
   }
 
-  Future<void> _updateConnectionStatus(List<ConnectivityResult> results) async {
+  Future<bool> checkConnection() async {
     final previousState = _isConnected;
-    // Check if any result indicates connectivity (none = no connection)
-    _isConnected = !results.contains(ConnectivityResult.none);
+    final reachable = await ConnectivityHelper.hasInternetConnection();
 
-    // Track if we were offline
+    if (reachable) {
+      // Recover instantly - there's no downside to believing "online" a
+      // moment early once a request actually succeeds.
+      _consecutiveFailures = 0;
+      _isConnected = true;
+    } else {
+      // A lone failed health check is often just one slow/dropped request
+      // against a VPS under concurrent polling load from every 15s-interval
+      // stream in the app, not a real outage. Only declare offline once
+      // two checks in a row fail, so a single blip doesn't flash the
+      // "working offline" banner on an otherwise-stable connection.
+      _consecutiveFailures++;
+      if (_consecutiveFailures >= 2) {
+        _isConnected = false;
+      }
+    }
+
     if (!_isConnected) {
       _wasOffline = true;
     }
@@ -52,16 +80,9 @@ class ConnectivityProvider with ChangeNotifier {
       }
     }
 
-    // Notify listeners if connection state changed
     if (previousState != _isConnected) {
       notifyListeners();
     }
-  }
-
-  Future<bool> checkConnection() async {
-    final result = await _connectivity.checkConnectivity();
-    _isConnected = !result.contains(ConnectivityResult.none);
-    notifyListeners();
     return _isConnected;
   }
 
@@ -73,6 +94,7 @@ class ConnectivityProvider with ChangeNotifier {
   @override
   void dispose() {
     _connectivitySubscription?.cancel();
+    _pollTimer?.cancel();
     super.dispose();
   }
 }

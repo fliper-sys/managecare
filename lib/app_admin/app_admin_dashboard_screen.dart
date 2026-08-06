@@ -16,6 +16,10 @@ import 'pages/all_businesses_page.dart';
 import 'pages/admin_payments_page.dart';
 import 'pages/business_subscription_overview_page.dart';
 import 'pages/marketers_page.dart';
+import 'pages/admin_expenses_page.dart';
+import 'pages/admin_restricted_businesses_page.dart';
+import 'pages/admin_workers_page.dart';
+import 'pages/admin_work_page.dart';
 import '../providers/marketer_provider.dart';
 
 class AdminDashboardApp extends StatelessWidget {
@@ -72,6 +76,10 @@ class _DashboardHomeState extends State<DashboardHome> {
     const BusinessesPage(),
     const PaymentsPage(),
     const UsersAndWorkersPage(),
+    const RestrictedBusinessesPage(),
+    const AdminExpensesPage(),
+    const AdminWorkersPage(),
+    const AdminWorkPage(),
     const MarketersPage(),
     const SettingsPage(),
   ];
@@ -152,6 +160,26 @@ class _DashboardHomeState extends State<DashboardHome> {
                     icon: Icon(Icons.groups_outlined),
                     selectedIcon: Icon(Icons.groups_rounded),
                     label: 'Users',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.gpp_bad_outlined),
+                    selectedIcon: Icon(Icons.gpp_bad_rounded),
+                    label: 'Restricted',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.account_balance_wallet_outlined),
+                    selectedIcon: Icon(Icons.account_balance_wallet_rounded),
+                    label: 'Expenses',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.badge_outlined),
+                    selectedIcon: Icon(Icons.badge_rounded),
+                    label: 'Workers',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.task_alt_outlined),
+                    selectedIcon: Icon(Icons.task_alt_rounded),
+                    label: 'Work',
                   ),
                   NavigationDestination(
                     icon: Icon(Icons.campaign_outlined),
@@ -269,56 +297,6 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                     Row(
                       children: [
-                        Consumer<AdminProvider>(builder: (ctx, admin, _) {
-                          return GestureDetector(
-                            onTap: () {
-                              Navigator.pushNamed(context, Routes.installationRequestsAdmin);
-                            },
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  margin: const EdgeInsets.only(right: 6),
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [Color(0xFF4C1D95), Color(0xFF7C3AED)],
-                                    ),
-                                    borderRadius: BorderRadius.circular(15),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: const Color(0xFF4C1D95).withOpacity(0.25),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
-                                  child: const Icon(Icons.build_rounded, color: Colors.white),
-                                ),
-                                if (admin.pendingInstallationRequestsCount > 0)
-                                  Positioned(
-                                    top: -6,
-                                    right: -6,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.red,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white, width: 1.5),
-                                      ),
-                                      constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
-                                      child: Center(
-                                        child: Text(
-                                          admin.pendingInstallationRequestsCount > 99 ? '99+' : admin.pendingInstallationRequestsCount.toString(),
-                                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          );
-                        }),
                         GestureDetector(
                           onTap: () {
                             Navigator.push(
@@ -350,7 +328,13 @@ class _DashboardPageState extends State<DashboardPage> {
                         const SizedBox(width: 8),
                         GestureDetector(
                           onTap: () {
-                            Navigator.pushNamed(context, Routes.adminSubscriptions);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (ctx) =>
+                                    const BusinessSubscriptionOverviewPage(),
+                              ),
+                            );
                           },
                           child: Container(
                             padding: const EdgeInsets.all(12),
@@ -419,14 +403,17 @@ class _DashboardPageState extends State<DashboardPage> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: _buildStatCard(
-                        'Active Users',
-                        admin.stats.activeUsers.toString(),
-                        Icons.groups_rounded,
+                        'Active Businesses',
+                        activeSubscriptions.toString(),
+                        Icons.verified_user_rounded,
                         const Color(0xFF10B981),
-                        '24h live',
-                        onTap: () => Navigator.pushNamed(
+                        'Active subscriptions',
+                        onTap: () => Navigator.push(
                           context,
-                          Routes.adminUsersAndWorkers,
+                          MaterialPageRoute(
+                            builder: (ctx) =>
+                                const BusinessSubscriptionOverviewPage(),
+                          ),
                         ),
                       ),
                     ),
@@ -437,13 +424,13 @@ class _DashboardPageState extends State<DashboardPage> {
                   children: [
                     Expanded(
                       child: _buildStatCard(
-                        'Manual Reviews',
-                        pendingApprovals.toString(),
-                        Icons.fact_check_rounded,
+                        'Revenue Report',
+                        formatCurrency(admin.stats.totalRevenue.toDouble()),
+                        Icons.analytics_rounded,
                         const Color(0xFFF97316),
-                        pendingApprovals > 0 ? 'Legacy requests' : 'Kora auto-approval',
+                        'Categories and tiers',
                         onTap: () =>
-                            Navigator.pushNamed(context, Routes.adminSubscriptions),
+                            Navigator.pushNamed(context, Routes.adminPayments),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -454,9 +441,12 @@ class _DashboardPageState extends State<DashboardPage> {
                         Icons.gpp_bad_rounded,
                         const Color(0xFFEF4444),
                         restrictedBusinesses > 0 ? 'Follow up' : 'Healthy',
-                        onTap: () => Navigator.pushNamed(
+                        onTap: () => Navigator.push(
                           context,
-                          Routes.allBusinessesAdmin,
+                          MaterialPageRoute(
+                            builder: (ctx) =>
+                                const AdminDashboardApp(initialIndex: 4),
+                          ),
                         ),
                       ),
                     ),
@@ -479,13 +469,18 @@ class _DashboardPageState extends State<DashboardPage> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: _buildStatCard(
-                        'Live Subscriptions',
-                        activeSubscriptions.toString(),
-                        Icons.workspace_premium_rounded,
+                        'Expenses',
+                        'Register',
+                        Icons.account_balance_wallet_rounded,
                         const Color(0xFF14B8A6),
-                        '$marketers marketers',
-                        onTap: () =>
-                            Navigator.pushNamed(context, Routes.adminPayments),
+                        'Company costs',
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) =>
+                                const AdminDashboardApp(initialIndex: 5),
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -516,7 +511,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           context,
                           MaterialPageRoute(
                             builder: (ctx) =>
-                                const AdminDashboardApp(initialIndex: 4),
+                                const AdminDashboardApp(initialIndex: 8),
                           ),
                         ),
                       ),
@@ -540,16 +535,23 @@ class _DashboardPageState extends State<DashboardPage> {
                     _buildQuickActionTile(
                       context,
                       title: 'Subscription Queue',
-                      subtitle: 'Approve or decline pending requests',
+                      subtitle: 'View live plans and subscription history',
                       icon: Icons.fact_check_rounded,
                       color: const Color(0xFFF97316),
-                      onTap: () =>
-                          Navigator.pushNamed(context, Routes.adminSubscriptions),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) =>
+                                const BusinessSubscriptionOverviewPage(),
+                          ),
+                        );
+                      },
                     ),
                     _buildQuickActionTile(
                       context,
                       title: 'Business Control',
-                      subtitle: 'Edit details and restrict access',
+                      subtitle: 'Edit details and registered accounts',
                       icon: Icons.business_center_rounded,
                       color: const Color(0xFF3B82F6),
                       onTap: () => Navigator.pushNamed(
@@ -560,13 +562,77 @@ class _DashboardPageState extends State<DashboardPage> {
                     _buildQuickActionTile(
                       context,
                       title: 'User Access',
-                      subtitle: 'Approve yearly access for teams',
+                      subtitle: 'Inspect users and linked workers',
                       icon: Icons.groups_rounded,
                       color: const Color(0xFF10B981),
                       onTap: () => Navigator.pushNamed(
                         context,
                         Routes.adminUsersAndWorkers,
                       ),
+                    ),
+                    _buildQuickActionTile(
+                      context,
+                      title: 'Restricted Accounts',
+                      subtitle: 'See locked businesses and reasons',
+                      icon: Icons.gpp_bad_rounded,
+                      color: const Color(0xFFEF4444),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) =>
+                                const AdminDashboardApp(initialIndex: 4),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildQuickActionTile(
+                      context,
+                      title: 'Company Expenses',
+                      subtitle: 'Register expenses and receipts',
+                      icon: Icons.account_balance_wallet_rounded,
+                      color: const Color(0xFF0EA5E9),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) =>
+                                const AdminDashboardApp(initialIndex: 5),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildQuickActionTile(
+                      context,
+                      title: 'ManageCare Workers',
+                      subtitle: 'Create support, programmer, and admin roles',
+                      icon: Icons.badge_rounded,
+                      color: const Color(0xFF14B8A6),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) =>
+                                const AdminDashboardApp(initialIndex: 6),
+                          ),
+                        );
+                      },
+                    ),
+                    _buildQuickActionTile(
+                      context,
+                      title: 'Work Board',
+                      subtitle: 'Send fixes and updates to IT',
+                      icon: Icons.task_alt_rounded,
+                      color: const Color(0xFF64748B),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (ctx) =>
+                                const AdminDashboardApp(initialIndex: 7),
+                          ),
+                        );
+                      },
                     ),
                     _buildQuickActionTile(
                       context,
@@ -579,7 +645,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           context,
                           MaterialPageRoute(
                             builder: (ctx) =>
-                                const AdminDashboardApp(initialIndex: 4),
+                                const AdminDashboardApp(initialIndex: 8),
                           ),
                         );
                       },
@@ -2719,7 +2785,7 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                     runSpacing: 10,
                     children: [
                       _buildHeaderChip(
-                        label: 'Manual Reviews',
+                        label: 'Payment Issues',
                         value: admin.pendingSubscriptionApprovalsCount.toString(),
                         color: const Color(0xFFF97316),
                       ),
@@ -2729,8 +2795,8 @@ class _UsersAndWorkersPageState extends State<UsersAndWorkersPage> {
                         color: const Color(0xFFEF4444),
                       ),
                       _buildHeaderChip(
-                        label: 'Active Users',
-                        value: admin.stats.activeUsers.toString(),
+                        label: 'Active Businesses',
+                        value: admin.activeBusinessesCount.toString(),
                         color: const Color(0xFF10B981),
                       ),
                       _buildHeaderChip(

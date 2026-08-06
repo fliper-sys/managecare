@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:printing/printing.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -38,7 +38,9 @@ import '../../../core/utils/inventory_utils.dart';
 import '../../../core/utils/worker_permissions.dart';
 import '../../../data/models/customer_model.dart';
 import '../../../data/repositories/distributor_repository.dart';
+import '../../../services/managecare_api_client.dart';
 import '../../../core/utils/distributor_sale_utils.dart';
+import '../../dashboard/owner/utils/procurement_filter_utils.dart';
 import '../../widgets/product_view_switcher.dart';
 import 'customer_tracking_screen.dart';
 import 'receipt_detail_screen.dart';
@@ -170,7 +172,7 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
     final notesController = TextEditingController();
     final newDistributorController = TextEditingController();
 
-    final repository = DistributorRepository(firestore: FirebaseFirestore.instance);
+    final repository = DistributorRepository();
     final distributors = await repository.getDistributors(businessId);
     String? selectedDistributorId;
     String? selectedDistributorName;
@@ -183,7 +185,12 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Sell ${product.name} to a distributor using the saved discount.'),
+              Text('Sell ${product.name} to a distributor using the saved distributor price.'),
+              const SizedBox(height: 4),
+              Text(
+                'Unit price: ₦${(product.distributorPrice ?? product.price).toStringAsFixed(2)}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
               const SizedBox(height: 12),
               if (distributors.isNotEmpty)
                 DropdownButtonFormField<String>(
@@ -261,9 +268,12 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
     }
 
     try {
-      final presetDiscount = product.distributorDiscountPercent;
+      final distributorUnitPrice = product.distributorPrice ?? product.price;
+      final presetDiscount = product.distributorPrice == null
+          ? product.distributorDiscountPercent
+          : 0.0;
       final totalAmount = calculateDistributorSaleTotal(
-        unitPrice: product.price,
+        unitPrice: distributorUnitPrice,
         quantity: quantity,
         discountPercent: presetDiscount,
       );
@@ -274,7 +284,7 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
         productId: product.id,
         productName: product.name,
         quantity: quantity,
-        unitPrice: product.price,
+        unitPrice: distributorUnitPrice,
         discountPercent: presetDiscount,
         salesRepId: context.read<AuthProvider>().currentUser?.id,
         salesRepName: context.read<AuthProvider>().currentUser?.fullName ?? context.read<AuthProvider>().currentUser?.email,
@@ -283,7 +293,7 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Distributor sale recorded for ₦${totalAmount.toStringAsFixed(2)} using the saved discount.'),
+          content: Text('Distributor sale recorded for ₦${totalAmount.toStringAsFixed(2)}.'),
         ),
       );
       await context.read<RetailProvider>().loadProducts(forceRefresh: true);
@@ -298,7 +308,7 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
               {
                 'name': product.name,
                 'quantity': quantity,
-                'price': product.price,
+                'price': distributorUnitPrice,
                 'total': totalAmount,
               },
             ],
@@ -550,15 +560,12 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
                 String ownerEmail = '';
                 if (business.ownerId.isNotEmpty) {
                   try {
-                    final ownerDoc = await FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(business.ownerId)
-                        .get();
-                    ownerEmail =
-                        ((ownerDoc.data() ?? const <String, dynamic>{})['email']
-                                    as String? ??
-                                '')
-                            .trim();
+                    final ownerRow = await Supabase.instance.client
+                        .from('profiles')
+                        .select('email')
+                        .eq('id', business.ownerId)
+                        .maybeSingle();
+                    ownerEmail = (ownerRow?['email'] as String? ?? '').trim();
                   } catch (e) {
                     debugPrint(
                         '[SalesScreen] Failed to resolve owner email: $e');
@@ -806,30 +813,26 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
             : null,
       );
 
-      await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(business.id)
-          .collection('invoices')
-          .add({
-        'invoiceNumber': invoiceNumber,
-        'businessId': business.id,
-        'businessName': business.name,
-        'status': 'draft',
-        'source': 'sales_screen',
-        'customerId': selectedCustomer?.id,
-        'customerName': selectedCustomer?.name ?? 'Walk-in Customer',
-        'customerEmail': selectedCustomer?.email,
-        'customerPhone': selectedCustomer?.phone,
-        'items': cartItems,
-        'subtotal': subtotal,
-        'tax': tax,
-        'discount': discount,
-        'total': total,
-        'createdAt': Timestamp.fromDate(createdAt),
-        'updatedAt': Timestamp.fromDate(createdAt),
-        'createdBy': auth.currentUser?.id,
-        'createdByName': auth.currentUser?.fullName,
-      });
+      try {
+        await ManagecareApiClient.instance.post('/api/invoices/${business.id}', body: {
+          'invoiceNumber': invoiceNumber,
+          'status': 'draft',
+          'source': 'sales_screen',
+          'customerId': selectedCustomer?.id,
+          'customerName': selectedCustomer?.name ?? 'Walk-in Customer',
+          'customerEmail': selectedCustomer?.email,
+          'customerPhone': selectedCustomer?.phone,
+          'items': cartItems,
+          'subtotal': subtotal,
+          'tax': tax,
+          'discount': discount,
+          'total': total,
+          'createdBy': auth.currentUser?.id,
+          'createdByName': auth.currentUser?.fullName,
+        });
+      } catch (e) {
+        debugPrint('[BakerySales] Failed to log invoice record: $e');
+      }
 
       final filename = PdfInvoiceGenerator.getInvoiceFilename(invoiceNumber);
       if (!mounted) return;
@@ -1963,10 +1966,14 @@ class _BakerySalesScreenState extends State<BakerySalesScreen>
                       }
 
                       final sale = filtered[index];
-                      final createdAt = sale['createdAt'] as Timestamp?;
+                      final rawCreatedAt = sale['createdAt'];
+                      final createdAt = rawCreatedAt is DateTime
+                          ? rawCreatedAt
+                          : (rawCreatedAt is String
+                              ? DateTime.tryParse(rawCreatedAt)
+                              : null);
                       final formattedTime = createdAt != null
-                          ? DateFormat('dd/MM/yyyy HH:mm')
-                              .format(createdAt.toDate())
+                          ? DateFormat('dd/MM/yyyy HH:mm').format(createdAt)
                           : 'Unknown time';
                       final amount = sale['totalAmount'] as num? ?? 0;
                       final worker = sale['workerName'] ?? 'Unknown';
@@ -2163,20 +2170,34 @@ class _ProductsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final allProducts = context.watch<RetailProvider>().products;
+    // PharmacyRepositoryImpl.fetchDrugs() reads from the generic
+    // /inventory/:businessId endpoint with no pharmacy-specific filter, so
+    // PharmacyProvider ends up holding *every* business's full inventory
+    // relabeled as "drugs" - merging it in unconditionally meant a bakery's
+    // own products got shadowed by a "Pharmacy"-badged copy of themselves
+    // here. Only businesses that are actually a pharmacy should see
+    // pharmacy drugs folded into the sale screen's product list.
+    final businessType = context
+        .watch<BusinessProvider>()
+        .currentBusiness
+        ?.businessType
+        .toLowerCase();
     final pharmacyProvider = context.watch<PharmacyProvider>();
 
     // Convert pharmacy drugs to Product-like model and merge
-    final pharmacyProducts = pharmacyProvider.drugs.map((d) => Product(
-          id: 'pharmacy:${d.id}',
-          name: d.name,
-          price: d.price,
-          cost: 0.0,
-          stock: d.stock.toDouble(),
-          category: 'Pharmacy',
-          imageUrl: null,
-          barcode: null,
-          emoji: '💊',
-        ));
+    final pharmacyProducts = businessType == 'pharmacy'
+        ? pharmacyProvider.drugs.map((d) => Product(
+              id: 'pharmacy:${d.id}',
+              name: d.name,
+              price: d.price,
+              cost: 0.0,
+              stock: d.stock.toDouble(),
+              category: 'Pharmacy',
+              imageUrl: null,
+              barcode: null,
+              emoji: '💊',
+            ))
+        : const Iterable<Product>.empty();
 
     // Merge by name (case-insensitive), prefer inventory (allProducts)
     final merged = <String, Product>{};
@@ -2187,8 +2208,14 @@ class _ProductsGrid extends StatelessWidget {
       merged['name:${p.name.toLowerCase()}'] = p; // override if exists
     }
 
-    final combined =
-        merged.values.where((product) => !_isFuelProduct(product)).toList();
+    final combined = merged.values
+        .where((product) =>
+            !_isFuelProduct(product) &&
+            !isIngredientInventoryItem({
+              'category': product.category,
+              'name': product.name,
+            }))
+        .toList();
 
     // Filter products based on search query using enhanced search
     var products = searchQuery.isEmpty

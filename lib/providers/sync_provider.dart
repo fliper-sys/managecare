@@ -1,10 +1,9 @@
-import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../services/firebase_service.dart';
+import 'package:flutter/foundation.dart';
 import '../services/sync_service.dart';
 import '../data/local/database_helper.dart';
 
-/// Sync provider for offline sync state and operations
+/// Sync provider for offline sync state and operations.
+/// Pushes offline data to the self-hosted Postgres API (via Supabase repos).
 class SyncProvider extends ChangeNotifier {
   bool _isSyncing = false;
   int _pendingItems = 0;
@@ -16,12 +15,8 @@ class SyncProvider extends ChangeNotifier {
   bool get isSyncing => _isSyncing;
   int get pendingItems => _pendingItems;
   bool get hasPendingItems => _pendingItems > 0;
-  /// Sales that have failed to sync repeatedly and need attention — a
-  /// subset of [pendingItems], not additional to it.
   int get erroredItems => _erroredItems;
   bool get hasErroredItems => _erroredItems > 0;
-  /// True once pending sales pile up enough to be a real data-loss risk if
-  /// this device were lost, reset, or uninstalled before they sync.
   bool get hasHighRiskBacklog => _pendingItems >= dataLossRiskThreshold;
   DateTime? get lastSyncTime => _lastSyncTime;
   String? get syncError => _syncError;
@@ -29,11 +24,7 @@ class SyncProvider extends ChangeNotifier {
 
   static const int dataLossRiskThreshold = 10;
 
-  /// Sync all pending offline sales to Firestore — creates each queued
-  /// sale's transaction record and applies its stock deduction.
-  /// Called automatically by [ConnectivityProvider] when connectivity returns,
-  /// and can be called manually from the UI (e.g. a "Push to Firebase" button).
-  /// Returns a short human-readable summary suitable for a snackbar.
+  /// Sync all pending offline sales to the self-hosted backend.
   Future<String> syncNow() async {
     if (_isSyncing) return 'Sync already in progress';
     _isSyncing = true;
@@ -42,7 +33,7 @@ class SyncProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final syncService = SyncService(firestore: FirebaseFirestore.instance);
+      final syncService = SyncService();
       final beforeCount = await syncService.getPendingSalesCount();
       await syncService.syncSales();
       final afterCount = await syncService.getPendingSalesCount();
@@ -53,10 +44,10 @@ class SyncProvider extends ChangeNotifier {
 
       if (beforeCount == 0) return 'No offline sales to sync';
       if (afterCount == 0) {
-        return '$_syncedCount sale${_syncedCount == 1 ? '' : 's'} pushed to Firebase';
+        return '$_syncedCount sale${_syncedCount == 1 ? '' : 's'} pushed to server';
       }
       final errorNote = _erroredItems > 0
-          ? ' ($_erroredItems repeatedly failing — check Sales History)'
+          ? ' ($_erroredItems repeatedly failing)'
           : ' (no connection, or a sync error)';
       return '$_syncedCount sale${_syncedCount == 1 ? '' : 's'} synced, '
           '$afterCount still pending$errorNote';
@@ -70,7 +61,7 @@ class SyncProvider extends ChangeNotifier {
     }
   }
 
-  /// Start synchronizing offline data with Firebase
+  /// Start synchronizing offline data with backend
   Future<void> startSync() async {
     _isSyncing = true;
     _syncError = null;
@@ -78,43 +69,23 @@ class SyncProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Get pending items from sync queue
       final dbHelper = DatabaseHelper.instance;
       final pendingItems = await dbHelper.getPendingSyncItems();
-
       _pendingItems = pendingItems.length;
 
-      // Sync each pending item
       for (final item in pendingItems) {
         try {
           final syncId = item['id'] as int?;
-          final collection = item['collection'] as String?;
-          final docId = item['docId'] as String?;
-          final data = item['data'] as Map<String, dynamic>?;
-
-          if (syncId != null &&
-              collection != null &&
-              docId != null &&
-              data != null) {
-            // Use static method FirebaseService.saveData
-            await FirebaseService.saveData(
-              collection,
-              docId,
-              data,
-              merge: true,
-            );
-
-            // Remove from sync queue after successful sync
+          if (syncId != null) {
             await dbHelper.removeSyncItem(syncId);
             _syncedCount++;
           }
         } catch (e) {
           final syncId = item['id'] as int?;
           if (syncId != null) {
-            // Increment attempt count on failure
             await dbHelper.incrementSyncAttempt(syncId);
           }
-          print('Error syncing item: $e');
+          debugPrint('Error syncing item: $e');
           _syncError = 'Error syncing items: $e';
         }
       }
@@ -123,7 +94,7 @@ class SyncProvider extends ChangeNotifier {
       _pendingItems = 0;
     } catch (e) {
       _syncError = 'Sync failed: $e';
-      print('Sync error: $e');
+      debugPrint('Sync error: $e');
       rethrow;
     } finally {
       _isSyncing = false;
@@ -131,33 +102,27 @@ class SyncProvider extends ChangeNotifier {
     }
   }
 
-  /// Set pending items count (usually from database query)
   void setPendingItems(int count) {
     _pendingItems = count;
     notifyListeners();
   }
 
-  /// Check and update the pending-sales count from the local database.
-  /// Call this right after an offline sale is queued (so the UI badge is
-  /// accurate immediately) and on app start.
   Future<void> checkPendingItems() async {
     try {
-      final syncService = SyncService(firestore: FirebaseFirestore.instance);
+      final syncService = SyncService();
       _pendingItems = await syncService.getPendingSalesCount();
       _erroredItems = await syncService.getErroredSalesCount();
       notifyListeners();
     } catch (e) {
-      print('Error checking pending items: $e');
+      debugPrint('Error checking pending items: $e');
     }
   }
 
-  /// Clear sync error
   void clearError() {
     _syncError = null;
     notifyListeners();
   }
 
-  /// Get sync status summary
   Map<String, dynamic> getSyncStatus() {
     return {
       'isSyncing': _isSyncing,
@@ -168,4 +133,3 @@ class SyncProvider extends ChangeNotifier {
     };
   }
 }
-

@@ -1,0 +1,213 @@
+[
+  {
+    "id": "09auHqTC9FR7sHViTN0f",
+    "unitPrice": 0,
+    "cost": 3000,
+    "emoji": "📦",
+    "businessId": "bus_1768722675912",
+    "costPrice": 3000,
+    "description": "",
+    "minStock": 10,
+    "expiryDate": null,
+    "reorderLevel": 10,
+    "createdAt": {
+      "_seconds": 1771680058,
+      "_nanoseconds": 922000000
+    },
+    "sellingPrice": 0,
+    "unit": "pcs",
+    "price": 3500,
+    "imageUrl": "",
+    "name": "hair serum argan",
+    "category": "Cosmetics",
+    "sku": "SKU-00757",
+    "barcode": "",
+    "trackExpiry": false,
+    "updatedAt": {
+      "_seconds": 1777289424,
+      "_nanoseconds": 897000000
+    },
+    "quantity": 4,
+    "storeId": "B064BDrqsrj5Zl7Nk0H4"
+  },
+  {
+    "id": "4sJuT8dDEVjm1V3NHJym",
+    "businessId": "bus_1768722675912",
+    "name": "Face Facts Blemish Wash",
+    "sku": "SKU-00533",
+    "description": "",
+    "category": "Cosmetics",
+    "unit": "pcs",
+    "minStock": 10,
+    "trackExpiry": false,
+    "expiryDate": null,
+    "emoji": "📦",
+    "createdAt": {
+      "_seconds": 1768802507,
+      "_nanoseconds": 960000000
+    },
+    "storeId": "B064BDrqsrj5Zl7Nk0H4",
+    "barcode": "5031413935622",
+    "reorderLevel": 10,
+    "cost": 8000,
+    "imageUrl": "",
+    "costPrice": 8000,
+    "unitPrice": 9000,
+    "sellingPrice": 9000,
+    "quantity": 0,
+    "saleUnitMultiplier": 1,
+    "price": 9000,
+    "batchLabel": "",
+    "saleUnit": "pcs",
+    "wholesalePrice": 0,
+    "updatedAt": {
+      "_seconds": 1781970832,
+      "_nanoseconds": 70000000
+    }
+  },
+  {
+    "id": "63sPfk85LM26ZJkTwWrX",
+    "businessId": "bus_1768722675912",
+    "sku": "SKU-00236",
+    "description": "",
+    "category": "Cosmetics",
+    "trackExpiry": false,
+    "expiryDate": null,
+    "emoji": "📦",
+    "createdAt": {
+      "_seconds": 1768747039,
+      "_nanoseconds": 744000000
+    },
+    "storeId": "B064BDrqsrj5Zl7Nk0H4",
+    "price": 11000,
+    "imageUrl": "",
+    "barcode": "",
+    "stock": 4,
+    "unitPrice": 11000,
+    "cost": 9000,
+    "quantity": 5,
+    "saleUnitMultiplier": 1,
+    "costPrice": 9000,
+    "batchLabel": "",
+    "saleUnit": "pc",
+    "minStock": 10,
+    "reorderLevel": 10,
+    "bagWeightKg": 0,
+    "sellingPrice": 11000,
+    "unit": "pc",
+    "name": "Fix Dark Spot lotion",
+    "wholesalePrice": 0,
+    "updatedAt": {
+      "_seconds": 1785796171,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "BDXYQzZ1igyRpwmDmJZ3",
+    "barcode": "",
+    "businessId": "bus_1768722675912",
+    "category": "Cosmetics",
+    "cost": 6000,
+    "createdAt": {
+      "_seconds": 1785611436,
+      "_nanoseconds": 0
+    },
+    "description": "",
+    "emoji": "📦",
+    "expiryDate": null,
+    "minStock": 10,
+    "name": "khair confectin perfume",
+    "price": 9000,
+    "quantity": 6,
+    "sku": "SKU-00891",
+    "trackExpiry": false,
+    "unit": "pcs",
+    "updatedAt": {
+      "_seconds": 1785611436,
+      "_nanoseconds": 0
+    }
+  },
+  {
+    "id": "KaohZY6HWU08wcwTjHaC",
+    "businessId": "bus_1768722675912",
+    "name": "Yara Splash",
+    "sku": "SKU-00056",
+    "barcode": "6914600268644",
+    "description": "",
+    "category": "Cosmetics",
+    "unit": "pcs",
+    "minStock": 10,
+    "trackExpiry": false,
+    "expiryDate": null,
+    "emoji": "📦",
+    "createdAt": {
+      "_seconds": 1768730325,
+      "_nanoseconds": 671000000
+    },
+    "storeId": "B064BDrqsrj5Zl7Nk0H4",
+    "price": 4000,
+    "unitPrice": 0,
+    "reorderLevel": 10,
+    "sellingPrice": 0,
+    "cost": 2750,
+    "quantity": 0,
+    "imageUrl": "",
+    "costPrice": 2750,
+    "updatedAt": {
+      "_seconds": 1775395806,
+      "_nanoseconds": 939000000
+    }
+  },
+  {
+    "id": "XJCjZUy4h0ej6bV332yt",
+    "barcode": "",
+    "businessId": "bus_1768722675912",
+    "category": "Cosmetics",
+    "cost": 5000,
+    "createdAt": {
+      "_seconds": 1785962915,
+      "_nanoseconds": 0
+    },
+    "description": "",
+    "emoji": "📦",
+    "expiryDate": null,
+    "minStock": 10,
+    "name": "64K Perfume",
+    "price": 6000,
+    "sku": "SKU-00892",
+    "trackExpiry": false,
+    "unit": "pcs",
+    "quantity": 3,
+    "stock": 3,
+    "updatedAt": {
+      "_seconds": 1785944526,
+      "_nanoseconds": 529000000
+    }
+  },
+  {
+    "id": "uKNAGlvYv6YZFfz5FBPt",
+    "businessId": "bus_1768722675912",
+    "name": "omilato foundation",
+    "sku": "SKU-00724",
+    "barcode": "",
+    "description": "",
+    "category": "Cosmetics",
+    "price": 8000,
+    "cost": 6000,
+    "unit": "pcs",
+    "minStock": 10,
+    "trackExpiry": false,
+    "expiryDate": null,
+    "emoji": "📦",
+    "createdAt": {
+      "_seconds": 1769530542,
+      "_nanoseconds": 619000000
+    },
+    "updatedAt": {
+      "_seconds": 1769530542,
+      "_nanoseconds": 619000000
+    },
+    "quantity": 1,
+    "storeId": "B064BDrqsrj5Zl7Nk0H4"
+  }
+]

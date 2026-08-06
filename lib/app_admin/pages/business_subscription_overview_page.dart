@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/utils/datetime_utils.dart';
+import '../../data/repositories/admin_repository.dart';
 import '../../providers/admin_provider.dart';
 import '../admin_theme.dart';
 
@@ -15,6 +16,7 @@ class BusinessSubscriptionOverviewPage extends StatefulWidget {
 
 class _BusinessSubscriptionOverviewPageState
     extends State<BusinessSubscriptionOverviewPage> {
+  final _adminRepository = AdminRepository();
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
 
@@ -487,6 +489,10 @@ class _BusinessSubscriptionOverviewPageState
                     .toList(),
               ),
               const SizedBox(height: 20),
+              _buildSubscriptionHistory(
+                (business['id'] ?? business['businessId']).toString(),
+              ),
+              const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -525,6 +531,103 @@ class _BusinessSubscriptionOverviewPageState
     );
   }
 
+  Widget _buildSubscriptionHistory(String businessId) {
+    if (businessId.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _adminRepository.fetchSubscriptionHistory(businessId),
+      builder: (context, snapshot) {
+        final records = (snapshot.data ?? const []).take(10).toList();
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: context.adminSurfaceAlt,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: context.adminBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Subscription History',
+                style: TextStyle(
+                  color: context.adminTextPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const LinearProgressIndicator()
+              else if (snapshot.hasError)
+                Text(
+                  'Unable to load subscription records',
+                  style: TextStyle(color: context.adminTextSecondary),
+                )
+              else if (records.isEmpty)
+                Text(
+                  'No subscription records found for this business',
+                  style: TextStyle(color: context.adminTextSecondary),
+                )
+              else
+                ...records.map((data) {
+                  final amount = _readDouble(data['amount']);
+                  final createdAt = data['createdAt'] == null
+                      ? null
+                      : parseTimestamp(data['createdAt']);
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                (data['planName'] ??
+                                        data['plan_name'] ??
+                                        data['planId'] ??
+                                        data['plan_id'] ??
+                                        data['subscriptionTier'] ??
+                                        'Subscription')
+                                    .toString(),
+                                style: TextStyle(
+                                  color: context.adminTextPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                [
+                                  (data['status'] ?? 'pending').toString(),
+                                  if (createdAt != null) _formatDate(createdAt),
+                                ].join(' - '),
+                                style: TextStyle(
+                                  color: context.adminTextSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          'NGN ${amount.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            color: Color(0xFF10B981),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   DateTime? _subscriptionStartDate(Map<String, dynamic> business) {
     final raw = business['subscriptionStartDate'];
     if (raw == null) return null;
@@ -545,5 +648,11 @@ class _BusinessSubscriptionOverviewPageState
 
   String _formatDate(DateTime date) {
     return '${date.day}/${date.month}/${date.year}';
+  }
+
+  double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value == null) return 0;
+    return double.tryParse(value.toString().replaceAll(',', '').trim()) ?? 0;
   }
 }
