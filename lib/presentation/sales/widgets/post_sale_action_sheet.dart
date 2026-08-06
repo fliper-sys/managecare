@@ -8,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/utils/receipt_utility.dart';
+import '../../../core/utils/decimal_input_formatter.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io';
 import 'package:path/path.dart' as p;
@@ -2315,7 +2316,10 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                                     width: 80,
                                     child: TextFormField(
                                       initialValue: price.toStringAsFixed(2),
-                                      keyboardType: TextInputType.number,
+                                      keyboardType: TextInputType.text,
+                                      inputFormatters: [
+                                        DecimalInputFormatter(),
+                                      ],
                                       textAlign: TextAlign.right,
                                       style: AppTextStyles.body2,
                                       decoration: const InputDecoration(

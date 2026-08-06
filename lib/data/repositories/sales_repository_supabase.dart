@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/repositories/sales_repository.dart';
@@ -106,6 +108,13 @@ class SalesRepositorySupabase implements SalesRepository {
   @override
   Future<List<dynamic>> getSales(String businessId,
       {Map<String, dynamic>? filters}) async {
+    // Only an unfiltered fetch reflects the *complete* history - caching a
+    // filtered/date-ranged result under the same businessId key would
+    // silently overwrite the full-history cache with a partial one, so
+    // those calls bypass the cache read/write below (same precaution
+    // InventoryRepositorySupabase.getInventory takes).
+    final isFullFetch = filters == null || filters.isEmpty;
+
     try {
       final queryParams = <String, dynamic>{};
       if (filters != null) {
@@ -137,10 +146,117 @@ class SalesRepositorySupabase implements SalesRepository {
         }
       }
 
-      return await _fetchAllSalesPages(businessId, queryParams);
+      final items = await _fetchAllSalesPages(businessId, queryParams);
+
+      if (isFullFetch) {
+        unawaited(_cacheSales(businessId, items).catchError(
+          (e) => debugPrint('[SalesRepositorySupabase] Cache write failed: $e'),
+        ));
+      }
+
+      return items;
     } on DioException catch (e) {
+      if (isFullFetch) {
+        final cached = await _getCachedSales(businessId);
+        if (cached.isNotEmpty) {
+          debugPrint(
+              '[SalesRepositorySupabase] Network fetch failed, serving ${cached.length} cached sale(s): ${_extractError(e)}');
+          return cached;
+        }
+      }
       throw Exception('Failed to fetch sales: ${_extractError(e)}');
     }
+  }
+
+  // ---------- Local cache (SQLite via DatabaseHelper) ----------
+  // Reuses the same local `sales`/`sale_items` tables offline-queued sales
+  // are written to (syncStatus distinguishes a locally-queued sale awaiting
+  // upload from a server-fetched one cached for offline viewing), so Sales
+  // History has something to show ("at least the cache") when the network
+  // fetch fails instead of going blank.
+
+  Future<void> _cacheSales(String businessId, List<dynamic> items) async {
+    // Only overwrite this business's *synced* cache rows - a pending/failed
+    // local sale still awaiting upload must not be wiped out by a server
+    // fetch that doesn't know about it yet.
+    await _dbHelper.delete('sales',
+        where: 'businessId = ? AND syncStatus = ?',
+        whereArgs: [businessId, 'synced']);
+    for (final raw in items) {
+      final row = Map<String, dynamic>.from(raw as Map);
+      final saleId = row['id']?.toString() ?? '';
+      if (saleId.isEmpty) continue;
+      await _dbHelper.insert('sales', {
+        'id': saleId,
+        'businessId': businessId,
+        'customerId': row['customer_id'],
+        'totalAmount': (row['total_amount'] as num?)?.toDouble() ?? 0.0,
+        'discountAmount': (row['discount_amount'] as num?)?.toDouble() ?? 0.0,
+        'taxAmount': (row['tax_amount'] as num?)?.toDouble() ?? 0.0,
+        'finalAmount': (row['final_amount'] as num?)?.toDouble() ??
+            (row['total_amount'] as num?)?.toDouble() ??
+            0.0,
+        'paymentMethod': row['payment_method'] ?? '',
+        'status': row['status'] ?? 'completed',
+        'notes': row['notes'],
+        'createdBy': row['created_by'] ?? '',
+        'createdAt': row['created_at']?.toString() ?? DateTime.now().toIso8601String(),
+        'updatedAt': row['updated_at']?.toString(),
+        'syncStatus': 'synced',
+        'storeId': row['store_id'],
+        'workerId': row['worker_id'],
+        'workerName': row['worker_name'],
+        'saleType': row['sale_type'],
+      });
+
+      final items0 = row['items'];
+      if (items0 is List) {
+        for (final rawItem in items0) {
+          if (rawItem is! Map) continue;
+          final item = Map<String, dynamic>.from(rawItem);
+          final itemId = item['id']?.toString() ??
+              '$saleId-${item['product_id'] ?? item['productId'] ?? ''}';
+          await _dbHelper.insert('sale_items', {
+            'id': itemId,
+            'saleId': saleId,
+            'productId': item['product_id'] ?? item['productId'] ?? '',
+            'productName': item['product_name'] ?? item['productName'] ?? '',
+            'quantity': (item['quantity'] as num?)?.toDouble() ?? 0.0,
+            'unitPrice': (item['unit_price'] as num?)?.toDouble() ??
+                (item['unitPrice'] as num?)?.toDouble() ??
+                0.0,
+            'discount': (item['discount'] as num?)?.toDouble() ?? 0.0,
+            'total': (item['total'] as num?)?.toDouble() ?? 0.0,
+            'pricingMode': item['pricing_mode'] ?? item['pricingMode'],
+            'inventoryUnit': item['inventory_unit'] ?? item['inventoryUnit'],
+            'saleUnit': item['sale_unit'] ?? item['saleUnit'],
+            'saleUnitMultiplier':
+                (item['sale_unit_multiplier'] as num?)?.toDouble() ??
+                    (item['saleUnitMultiplier'] as num?)?.toDouble(),
+          });
+        }
+      }
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _getCachedSales(String businessId) async {
+    final rows = await _dbHelper.query('sales',
+        where: 'businessId = ? AND syncStatus = ?',
+        whereArgs: [businessId, 'synced'],
+        orderBy: 'createdAt DESC');
+    final result = <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final saleId = row['id']?.toString() ?? '';
+      final itemRows = saleId.isEmpty
+          ? <Map<String, dynamic>>[]
+          : await _dbHelper.query('sale_items',
+              where: 'saleId = ?', whereArgs: [saleId]);
+      result.add({
+        ...Map<String, dynamic>.from(row),
+        'items': itemRows.map((i) => Map<String, dynamic>.from(i)).toList(),
+      });
+    }
+    return result;
   }
 
   // The backend paginates /sales (default 50/page, 500 max regardless of

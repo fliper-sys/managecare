@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import '../../../core/utils/decimal_input_formatter.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:intl/intl.dart';
@@ -778,6 +779,11 @@ class _SalesScreenState extends State<SalesScreen>
     }
   }
 
+  String _shortSaleRef(dynamic id) {
+    final s = (id ?? '').toString();
+    return s.length > 8 ? s.substring(s.length - 8) : s;
+  }
+
   Future<void> _loadSalesHistory() async {
     if (_loadingHistory) return;
 
@@ -835,8 +841,17 @@ class _SalesScreenState extends State<SalesScreen>
       if (normalizedLocal.isEmpty) return serverSales;
 
       final combined = [...normalizedLocal, ...serverSales];
-      int millis(dynamic v) =>
-          v is Timestamp ? v.toDate().millisecondsSinceEpoch : 0;
+      // parseTimestamp (already used elsewhere in this file) handles
+      // Timestamp/DateTime/String/num uniformly - the old millis() helper
+      // here only understood Timestamp and silently treated every other
+      // shape as epoch 0. Since server sales carry a plain ISO string
+      // `created_at` from Postgres (never a Firestore Timestamp - this app
+      // doesn't write sales to Firestore anymore), every server sale tied
+      // at 0 and any locally-pending sale (a real Timestamp) sorted above
+      // *all* of them regardless of true chronological order, mixing up
+      // the displayed order and time of sales whenever an offline-queued
+      // sale existed alongside already-synced ones.
+      int millis(dynamic v) => parseTimestamp(v).millisecondsSinceEpoch;
       combined.sort(
           (a, b) => millis(b['createdAt']).compareTo(millis(a['createdAt'])));
       return combined;
@@ -1921,39 +1936,56 @@ class _SalesScreenState extends State<SalesScreen>
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Row(
-                                      children: [
-                                        Text(
-                                            'Sale #${sale['referenceId'] ?? sale['id']}',
-                                            style: AppTextStyles.body1.copyWith(
-                                                fontWeight:
-                                                    FontWeight.w600)),
-                                        if (isRefunded) ...[
-                                          const SizedBox(width: 8),
-                                          Tooltip(
-                                            message: refundedAtText != null
-                                                ? 'Refunded on $refundedAtText'
-                                                : 'Refunded',
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                  horizontal: 8, vertical: 4),
-                                              decoration: BoxDecoration(
-                                                color: AppColors.warning.withOpacity(0.12),
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                                border: Border.all(
-                                                    color: AppColors.warning.withOpacity(0.3)),
-                                              ),
-                                              child: Text('Refunded',
-                                                  style: AppTextStyles.body2.copyWith(
-                                                      color: AppColors.warning,
-                                                      fontWeight:
-                                                          FontWeight.w600)),
-                                            ),
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                                // referenceId is a short human
+                                                // reference when present; the
+                                                // fallback raw sale id is a
+                                                // full UUID (36 chars) which
+                                                // overflowed into the amount
+                                                // on the right with no
+                                                // truncation - shorten it to
+                                                // the last 8 chars, the same
+                                                // convention used for a quick
+                                                // human-readable reference.
+                                                'Sale #${sale['referenceId'] ?? _shortSaleRef(sale['id'])}',
+                                                overflow: TextOverflow.ellipsis,
+                                                maxLines: 1,
+                                                style: AppTextStyles.body1.copyWith(
+                                                    fontWeight:
+                                                        FontWeight.w600)),
                                           ),
+                                          if (isRefunded) ...[
+                                            const SizedBox(width: 8),
+                                            Tooltip(
+                                              message: refundedAtText != null
+                                                  ? 'Refunded on $refundedAtText'
+                                                  : 'Refunded',
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                    horizontal: 8, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.warning.withOpacity(0.12),
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  border: Border.all(
+                                                      color: AppColors.warning.withOpacity(0.3)),
+                                                ),
+                                                child: Text('Refunded',
+                                                    style: AppTextStyles.body2.copyWith(
+                                                        color: AppColors.warning,
+                                                        fontWeight:
+                                                            FontWeight.w600)),
+                                              ),
+                                            ),
+                                          ],
                                         ],
-                                      ],
+                                      ),
                                     ),
+                                    const SizedBox(width: 8),
                                     Text('\u20a6${amount.toStringAsFixed(2)}',
                                         style: AppTextStyles.heading4.copyWith(
                                             color: AppColors.primary)),
@@ -2109,7 +2141,7 @@ class _SalesScreenState extends State<SalesScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Sale #${sale['referenceId'] ?? sale['id']}',
+              Text('Sale #${sale['referenceId'] ?? _shortSaleRef(sale['id'])}',
                   style: AppTextStyles.heading3),
               if (isPendingSync) ...[
                 const SizedBox(height: 8),
@@ -2694,7 +2726,6 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   // Per-item price overrides (keyed by product id)
   final Map<String, double> _priceOverrides = {};
-  final Map<String, TextEditingController> _priceControllers = {};
   final Set<String> _manualPriceOverrideProductIds = {};
 
   ScrollController get _effectiveScrollController =>
@@ -3079,30 +3110,16 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return 'Sold in ${inventoryUnitLabel(saleUnit)} • 1 ${saleUnit.isEmpty ? product.unit : saleUnit} = $multiplierLabel ${product.unit}';
   }
 
-  TextEditingController _getPriceController(
-    String productId,
-    double initialPrice,
-  ) {
-    return _priceControllers.putIfAbsent(
-      productId,
-      () => TextEditingController(text: initialPrice.toStringAsFixed(2)),
-    );
-  }
-
-  void _setPriceOverrideValue(
-    String productId,
-    double price, {
-    bool updateController = true,
-  }) {
+  // The price field below is deliberately *uncontrolled* (initialValue, no
+  // TextEditingController) - see its `key:` for why. An earlier version
+  // used a persistent controller that build() rewrote on every rebuild
+  // (which fires on every keystroke anywhere in this sheet, every focus
+  // change, anything that calls setState), snapping the cursor to the end
+  // each time; a guard that skipped the rewrite when the text already
+  // matched still wasn't reliably enough to stop it. Not having a
+  // controller to fight with at all avoids the whole bug class.
+  void _setPriceOverrideValue(String productId, double price) {
     _priceOverrides[productId] = price;
-    if (!updateController) return;
-
-    final formattedPrice = price.toStringAsFixed(2);
-    final controller = _getPriceController(productId, price);
-    controller.value = TextEditingValue(
-      text: formattedPrice,
-      selection: TextSelection.collapsed(offset: formattedPrice.length),
-    );
   }
 
   void _applyModePrice(RetailProvider retail, Product product, String mode) {
@@ -3123,9 +3140,6 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     _customerNameController.dispose();
     _taxRateController.dispose();
     _discountController.dispose();
-    for (final controller in _priceControllers.values) {
-      controller.dispose();
-    }
     super.dispose();
   }
 
@@ -3146,19 +3160,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     _manualPriceOverrideProductIds.removeWhere(
       (productId) => !currentProductIds.contains(productId),
     );
-    final removedControllerIds = _priceControllers.keys
-        .where((productId) => !currentProductIds.contains(productId))
-        .toList();
-    for (final productId in removedControllerIds) {
-      _priceControllers.remove(productId)?.dispose();
-    }
     for (final entry in entries) {
-      final effectivePrice = retail.getEffectivePriceForCartItem(entry.key.id);
       if (!_manualPriceOverrideProductIds.contains(entry.key.id)) {
-        _setPriceOverrideValue(entry.key.id, effectivePrice);
-      } else {
-        _priceOverrides.putIfAbsent(entry.key.id, () => effectivePrice);
-        _getPriceController(entry.key.id, _priceOverrides[entry.key.id]!);
+        _setPriceOverrideValue(
+          entry.key.id,
+          retail.getEffectivePriceForCartItem(entry.key.id),
+        );
       }
     }
     final customerProvider = context.watch<CustomerProvider>();
@@ -3248,13 +3255,45 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                     SizedBox(
                                     width: 120,
                                     child: TextFormField(
-                                      controller: _getPriceController(
-                                        item.id,
-                                        _priceOverrides[item.id] ?? item.price,
-                                      ),
-                                      keyboardType:
-                                          const TextInputType.numberWithOptions(
-                                              decimal: true),
+                                      // Deliberately uncontrolled
+                                      // (initialValue, no
+                                      // TextEditingController) - once
+                                      // mounted, changing initialValue on a
+                                      // later rebuild does *not* touch the
+                                      // field's live text/cursor, which is
+                                      // exactly what's needed while the
+                                      // user is mid-edit. The key is scoped
+                                      // to the *stored* pricing mode
+                                      // (unaffected by ordinary typing -
+                                      // only retail.setPricingModeForCartItem
+                                      // changes it, i.e. tapping a
+                                      // Retail/Wholesale chip below), so
+                                      // typing a custom value never
+                                      // recreates this field, but toggling
+                                      // a chip correctly forces a fresh one
+                                      // showing the new price.
+                                      key: ValueKey(
+                                          'price_${item.id}_${retail.getPricingModeForCartItem(item.id)}'),
+                                      initialValue:
+                                          (_priceOverrides[item.id] ?? item.price)
+                                              .toStringAsFixed(2),
+                                      // This runs on Windows desktop (POS
+                                      // terminals), where a numeric
+                                      // keyboardType is meaningless for a
+                                      // physical keyboard but still changes
+                                      // how the engine tracks the cursor -
+                                      // TextInputType.numberWithOptions
+                                      // combined with no inputFormatters had
+                                      // a known cursor-tracking bug around
+                                      // the decimal point on desktop (typing
+                                      // before the decimal appeared to do
+                                      // nothing until the cursor was moved
+                                      // past it). Plain text + an explicit
+                                      // decimal formatter sidesteps it.
+                                      keyboardType: TextInputType.text,
+                                      inputFormatters: [
+                                        DecimalInputFormatter(),
+                                      ],
                                       decoration: InputDecoration(
                                         prefixText: '₦',
                                         isDense: true,
@@ -3309,11 +3348,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                               .add(item.id);
                                         }
                                         setState(() {
-                                          _setPriceOverrideValue(
-                                            item.id,
-                                            parsed,
-                                            updateController: false,
-                                          );
+                                          _setPriceOverrideValue(item.id, parsed);
                                         });
                                       },
                                     ),
@@ -3662,9 +3697,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             width: 100,
                             child: TextFormField(
                               controller: _taxRateController,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
+                              keyboardType: TextInputType.text,
+                              inputFormatters: [
+                                DecimalInputFormatter(),
+                              ],
                               decoration: InputDecoration(
                                 hintText: '0',
                                 isDense: true,
@@ -3695,9 +3731,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             width: 100,
                             child: TextFormField(
                               controller: _discountController,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
+                              keyboardType: TextInputType.text,
+                              inputFormatters: [
+                                DecimalInputFormatter(),
+                              ],
                               decoration: InputDecoration(
                                 hintText: '0',
                                 isDense: true,

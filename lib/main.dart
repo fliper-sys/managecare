@@ -83,24 +83,41 @@ void main() async {
     databaseFactory = databaseFactoryFfi;
   }
 
-  // Run the independent startup steps concurrently.
-  await Future.wait([
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]),
-    // Firebase is only used for push notifications (FCM) + crash reporting.
-    // All business data now flows through Supabase/Postgres.
-    _initializeFirebaseIfAvailable(),
-    Supabase.initialize(
-      url: SupabaseConfig.url,
-      anonKey: SupabaseConfig.anonKey,
-    ),
-    Hive.initFlutter(),
-    if (!kIsWeb) _initializeLocalDatabase(),
-  ]);
+  // Run the independent startup steps concurrently. Bounded by an overall
+  // timeout and never allowed to throw past this point - Supabase.initialize
+  // tries to restore/refresh a persisted session over the network with no
+  // timeout of its own, so on a device that can't currently reach the
+  // backend (this VPS has real, repeated outages) this whole block would
+  // otherwise hang forever. Since runApp() below never runs until this
+  // completes, that hang meant the app process stayed alive with no window
+  // and no taskbar icon ever appearing - nothing to show the user something
+  // was wrong, just a silently stuck launch. The rest of the app already
+  // handles a not-yet-authenticated/offline Supabase client throughout
+  // (ConnectivityProvider, the local SQLite cache, etc.), so proceeding to
+  // runApp() even after a timeout here is safe - worst case the user has to
+  // sign in again once connectivity returns, instead of the app never
+  // opening at all.
+  try {
+    await Future.wait([
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]),
+      // Firebase is only used for push notifications (FCM) + crash reporting.
+      // All business data now flows through Supabase/Postgres.
+      _initializeFirebaseIfAvailable(),
+      Supabase.initialize(
+        url: SupabaseConfig.url,
+        anonKey: SupabaseConfig.anonKey,
+      ),
+      Hive.initFlutter(),
+      if (!kIsWeb) _initializeLocalDatabase(),
+    ]).timeout(const Duration(seconds: 10));
+  } catch (e) {
+    debugPrint('[main] Startup init did not fully complete (continuing to show the app anyway): $e');
+  }
 
   // Initialize app services (analytics, barcode, cloud storage, push/local
   // notifications, etc.) in the background so startup isn't blocked. None

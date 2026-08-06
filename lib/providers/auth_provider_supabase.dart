@@ -168,12 +168,23 @@ class AuthProvider with ChangeNotifier {
         debugPrint('[AuthProvider] Startup: supaUser=${supaUser?.id}, online=$online');
 
         if (supaUser == null) {
-          if (!online) {
-            await _restoreCachedUserForOfflineStartup(cached);
-          } else {
-            _status = AuthStatus.unauthenticated;
-            _currentUser = null;
-            notifyListeners();
+          // supabase_flutter restores its persisted session from disk
+          // asynchronously on startup - Supabase.initialize() completing
+          // doesn't guarantee auth.currentUser is populated yet by the time
+          // this runs. Treating a still-null session as "logged out" here
+          // was a real startup race: a device with a perfectly valid cached
+          // session and autoLogin=true would get hard-logged-out (clearing
+          // cached business/user state) purely because this check lost the
+          // race, sometimes multiple times in a row before finally
+          // catching the session once it settled. Restore the cached user
+          // optimistically instead - if the session has genuinely expired
+          // or been revoked, _refreshFromBackend below (or the next one
+          // that runs once online) already has its own deliberate
+          // _forceLogoutBecauseAccessChanged path for that, so nothing
+          // genuinely invalid stays silently logged in.
+          await _restoreCachedUserForOfflineStartup(cached);
+          if (online) {
+            _refreshFromBackend(cached.id);
           }
           return;
         }

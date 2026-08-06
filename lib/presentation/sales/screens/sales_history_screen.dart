@@ -681,7 +681,16 @@ class _SalesListState extends State<_SalesList> {
         final items = (sale['items'] as List?)?.length ??
             (sale['cartItems'] as List?)?.length ??
             1;
-        final orderId = sale['id'] ?? 'SALE-${index + 1}';
+        final rawOrderId = (sale['id'] ?? '').toString();
+        // The raw id is a full UUID (36 chars) - showing it in full made
+        // this card's title wrap/overflow. Reference numbers elsewhere in
+        // the app use the same "last 8 chars" shorthand for a sale with no
+        // dedicated short referenceId.
+        final orderId = sale['referenceId'] != null
+            ? 'Sale #${sale['referenceId']}'
+            : rawOrderId.isEmpty
+                ? 'SALE-${index + 1}'
+                : 'Sale #${rawOrderId.length > 8 ? rawOrderId.substring(rawOrderId.length - 8) : rawOrderId}';
         final customer = sale['customer'] ??
             sale['customerName'] ??
             sale['buyerName'] ??
@@ -972,7 +981,10 @@ class _SaleCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(orderId, style: AppTextStyles.subtitle1),
+                      Text(orderId,
+                          style: AppTextStyles.subtitle1,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
                       Text(customer, style: AppTextStyles.caption),
                       if (saleData['workerName'] != null &&
                           saleData['workerName'].toString().isNotEmpty)
