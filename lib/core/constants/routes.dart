@@ -18,6 +18,7 @@ class Routes {
   static const String sales = '/sales';
   static const String bakerySales = '/bakery/sales';
   static const String salesHistory = '/sales/history';
+  static const String refundHistory = '/sales/refund-history';
   static const String salesReceipt = '/sales/receipt';
   static const String cart = '/sales/cart';
   static const String checkout = '/sales/checkout';
@@ -211,6 +212,8 @@ class Routes {
   static const String hotelBilling = '/hotel/billing';
   static const String hotelHallBookings = '/hotel/hall-bookings';
   static const String hotelPoolBookings = '/hotel/pool-bookings';
+  static const String hotelAnalytics = '/hotel/analytics';
+  static const String hotelExpenses = '/hotel/expenses';
 
   // Industry-Specific Routes - Drink/Bar
   static const String drinkDashboard = '/drink';
@@ -289,5 +292,6 @@ class Routes {
   static const String marketerRegisterUser = '/marketer/register-user';
   static const String marketerRegisterBusiness = '/marketer/register-business';
   static const String marketerDashboard = '/marketer/dashboard';
+  static const String internalWorkerDashboard = '/internal-worker/dashboard';
 }
 

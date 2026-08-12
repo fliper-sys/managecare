@@ -30,6 +30,7 @@ import '../presentation/business/screens/business_switcher_screen.dart';
 import '../presentation/sales/screens/sales_screen.dart';
 import '../presentation/sales/screens/bakery_sales_screen.dart';
 import '../presentation/sales/screens/sales_history_screen.dart';
+import '../presentation/sales/screens/refund_history_screen.dart';
 import '../presentation/inventory/screens/inventory_list_screen.dart';
 import '../presentation/inventory/screens/inventory_expiry_tracker_screen.dart';
 import '../presentation/inventory/screens/distributor_sales_report_screen.dart';
@@ -140,6 +141,9 @@ import '../presentation/industry_specific/hotel/screens/create_room_screen.dart'
 import '../presentation/industry_specific/hotel/screens/bookings_screen.dart'
     as hotel_bookings;
 import '../presentation/industry_specific/hotel/screens/check_in_screen.dart';
+import '../presentation/industry_specific/hotel/screens/check_in_hub_screen.dart';
+import '../presentation/industry_specific/hotel/screens/hotel_analytics_screen.dart';
+import '../presentation/industry_specific/hotel/screens/hotel_expenses_screen.dart';
 import '../presentation/industry_specific/hotel/screens/check_out_screen.dart';
 import '../presentation/industry_specific/hotel/screens/front_desk_screen.dart';
 import '../presentation/industry_specific/hotel/screens/guest_management_screen.dart';
@@ -203,6 +207,7 @@ import '../presentation/marketer/marketer_forgot_password_screen.dart';
 import '../presentation/marketer/marketer_change_password_screen.dart';
 import '../presentation/marketer/register_user_screen.dart';
 import '../presentation/marketer/register_business_screen.dart';
+import '../presentation/internal_worker/internal_worker_dashboard_screen.dart';
 import '../presentation/workers/screens/add_worker_screen.dart';
 import '../presentation/workers/screens/worker_details_screen.dart';
 import '../presentation/workers/screens/attendance_screen.dart';
@@ -301,6 +306,9 @@ class AppRouter {
 
       case Routes.salesHistory:
         return _buildRoute(const SalesHistoryScreen());
+
+      case Routes.refundHistory:
+        return _buildRoute(const RefundHistoryScreen());
 
       case Routes.productInstallation:
         return _buildRoute(const ProductInstallationScreen());
@@ -540,6 +548,9 @@ class AppRouter {
 
       case Routes.marketerDashboard:
         return _buildRoute(const MarketerDashboardScreen());
+
+      case Routes.internalWorkerDashboard:
+        return _buildRoute(const InternalWorkerDashboardScreen());
 
       // Receipt Routes
       case Routes.receipt:
@@ -813,7 +824,10 @@ class AppRouter {
         return _buildRoute(const hotel_bookings.BookingsScreen());
 
       case Routes.hotelCheckIn:
-        return _buildRoute(const CheckInScreen());
+        // Points at the new central hub (3 tabs, dual FABs, countdown timers,
+        // history buttons). The old CheckInScreen is retained as a legacy
+        // import for now — safe to delete once all references are migrated.
+        return _buildRoute(const CheckInHubScreen());
 
       case Routes.hotelCheckOut:
         return _buildRoute(const CheckOutScreen());
@@ -854,6 +868,12 @@ class AppRouter {
 
       case Routes.hotelPoolBookings:
         return _buildRoute(const PoolBookingsScreen());
+
+      case Routes.hotelAnalytics:
+        return _buildRoute(const HotelAnalyticsScreen());
+
+      case Routes.hotelExpenses:
+        return _buildRoute(const HotelExpensesScreen());
 
       // Industry Specific Routes - Drink
       case Routes.drinkDashboard:
@@ -985,7 +1005,7 @@ class AppRouter {
 
       case Routes.petroleumDashboard:
         return _buildRoute(
-          const GasDashboardScreen(mode: FuelStationMode.petroleum),
+          const GasDashboardScreen(mode: FuelStationMode.gas),
         );
 
       case Routes.petroleumPump:

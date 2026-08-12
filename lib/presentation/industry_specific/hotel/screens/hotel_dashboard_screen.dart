@@ -7,18 +7,25 @@ import '../../../../core/utils/currency.dart';
 import '../../../../core/utils/whatsapp_utils.dart';
 
 import '../../../../core/constants/routes.dart';
+import '../../../../providers/business_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 
 class HotelDashboardScreen extends StatelessWidget {
 
-    // --- SUMMARY HEADER (Sales, Occupancy, Revenue) ---
-    Widget _buildSummaryHeader(HotelProvider provider) {
-      final occupancy = provider.occupancy;
-      final revenue = provider.revenue;
+    // --- SUMMARY HEADER (Revenue, Active Occupancy/Rooms, Customers, Workers) ---
+    // Per the requirements doc: swap "Sales" for "Revenue" (done previously),
+    // rename "Orders" / "Active Rooms" to "Active Occupancy/Rooms", keep
+    // "Customers", and ADD "Workers" so all four required tiles are present.
+    Widget _buildSummaryHeader(BuildContext context, HotelProvider provider) {
       return FutureBuilder<double>(
         future: provider.getTodaysSalesTotal(),
         builder: (context, snapshot) {
-          final sales = snapshot.data ?? 0.0;
+          final todaysRevenue = snapshot.data ?? 0.0;
+          final workersCount = context
+                  .watch<BusinessProvider>()
+                  .currentBusiness
+                  ?.totalWorkers ??
+              0;
           return Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
@@ -40,22 +47,28 @@ class HotelDashboardScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildSummaryTile(
-                  icon: Icons.attach_money,
-                  label: 'Sales (Today)',
-                  value: formatCurrency(sales, decimalDigits: 0),
+                  icon: Icons.payments_outlined,
+                  label: 'Revenue (Today)',
+                  value: formatCurrency(todaysRevenue, decimalDigits: 0),
                   color: Colors.greenAccent.shade100,
                 ),
                 _buildSummaryTile(
-                  icon: Icons.pie_chart,
-                  label: 'Occupancy',
-                  value: '${occupancy.toStringAsFixed(1)}%',
+                  icon: Icons.hotel_outlined,
+                  label: 'Active Occupancy',
+                  value: '${provider.occupiedRooms}/${provider.totalRooms}',
                   color: Colors.blue.shade100,
                 ),
                 _buildSummaryTile(
-                  icon: Icons.account_balance_wallet_outlined,
-                  label: 'Total Revenue',
-                  value: formatCurrency(revenue, decimalDigits: 0),
+                  icon: Icons.people_alt_outlined,
+                  label: 'Customers',
+                  value: '${provider.guestProfiles.length}',
                   color: Colors.amber.shade100,
+                ),
+                _buildSummaryTile(
+                  icon: Icons.badge_outlined,
+                  label: 'Workers',
+                  value: '$workersCount',
+                  color: Colors.purple.shade100,
                 ),
               ],
             ),
@@ -165,8 +178,8 @@ class HotelDashboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. SUMMARY HEADER (Sales, Occupancy, Revenue)
-                _buildSummaryHeader(provider),
+                // 1. SUMMARY HEADER (Revenue, Active Occupancy, Customers, Workers)
+                _buildSummaryHeader(context, provider),
                 const SizedBox(height: 24),
 
                 // 2. KPI GRID
@@ -185,8 +198,8 @@ class HotelDashboardScreen extends StatelessWidget {
                         child: _buildMetricTile(
                       context: context,
                       icon: Icons.bed_outlined,
-                      title: 'Total Rooms',
-                      value: '${provider.totalRooms}',
+                      title: 'Active Occupancy/Rooms',
+                      value: '${provider.occupiedRooms}/${provider.totalRooms}',
                       color: Colors.purple,
                     )),
                   ],
@@ -256,7 +269,7 @@ class HotelDashboardScreen extends StatelessWidget {
     return FutureBuilder<double>(
       future: provider.getTodaysSalesTotal(),
       builder: (context, snapshot) {
-        final sales = snapshot.data ?? 0.0;
+        final todaysRevenue = snapshot.data ?? 0.0;
         return Container(
           width: double.infinity,
           padding: const EdgeInsets.all(20),
@@ -285,7 +298,7 @@ class HotelDashboardScreen extends StatelessWidget {
                           color: Colors.white.withOpacity(0.9), fontSize: 14)),
                   const SizedBox(height: 8),
                   Text(
-                    formatCurrency(sales, decimalDigits: 0),
+                    formatCurrency(todaysRevenue, decimalDigits: 0),
                     style: const TextStyle(
                         color: Colors.white,
                         fontSize: 32,
@@ -510,7 +523,10 @@ class HotelDashboardScreen extends StatelessWidget {
         icon: Icons.login,
         label: 'Check-In / Guests',
         color: Colors.blue,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelBookings),
+        // Routes to the new CheckInHubScreen (Available / Reserved /
+        // Checked-In tabs with New Booking + Reserve Room FABs + history).
+        // Replaces the old bookings screen as the single reception hub.
+        onTap: () => Navigator.pushNamed(context, Routes.hotelCheckIn),
       ));
     }
 
@@ -548,6 +564,27 @@ class HotelDashboardScreen extends StatelessWidget {
         label: 'Billing',
         color: Colors.deepOrange,
         onTap: () => Navigator.pushNamed(context, Routes.hotelBilling),
+      ));
+
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.trending_down,
+        label: 'Expenses',
+        color: Colors.red,
+        // Routes to the hotel-specific expenses screen (Stage 4) with
+        // hospitality categories, MTD/week KPIs, and category breakdown.
+        onTap: () => Navigator.pushNamed(context, Routes.hotelExpenses),
+      ));
+
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.insights_outlined,
+        label: 'Analytics',
+        color: Colors.indigo,
+        // Routes to the hotel-specific analytics screen (Stage 3):
+        //   room revenue trend, room type comparison, top rooms leaderboard,
+        //   best day/week/month, booking source pie.
+        onTap: () => Navigator.pushNamed(context, Routes.hotelAnalytics),
       ));
 
       actions.add(_buildActionCard(

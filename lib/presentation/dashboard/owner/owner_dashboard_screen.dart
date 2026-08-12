@@ -31,7 +31,7 @@ import '../../../services/analytics_service.dart';
 import '../../../services/business_restriction_service.dart';
 import '../../../data/models/business_model.dart';
 import '../../../data/repositories/analytics_repository_impl.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../data/repositories/sales_repository_supabase.dart';
 import '../../../widgets/date_range_selector.dart';
 import '../../../widgets/business_switcher.dart';
 // App header is inlined via _buildUserHeader; no import required
@@ -643,28 +643,42 @@ class _HomeTabState extends State<_HomeTab> {
     }
   }
 
-  Future<void> _loadRetailMetrics(String businessId) async {
-    final repo = AnalyticsRepositoryImpl(
-      firestore: FirebaseFirestore.instance,
-    );
+Future<void> _loadRetailMetrics(String businessId) async {
+    final salesRepo = SalesRepositorySupabase();
 
-    // Use selected date range
-    final analytics = await repo.getSalesAnalytics(
-      businessId,
-      startDate: _selectedDateRange.start,
-      endDate: _selectedDateRange.end,
-    );
+    try {
+      final sales = await salesRepo.fetchSales(
+        businessId: businessId,
+        start: _selectedDateRange.start,
+        end: _selectedDateRange.end,
+      );
 
-    if (mounted) {
-      setState(() {
-        _todaySales = (analytics?['totalSales'] as num?)?.toDouble() ?? 0.0;
-        _todayTransactions =
-            (analytics?['totalTransactions'] as num?)?.toInt() ?? 0;
-        _todayRevenue = _todaySales;
-        _loadingSalesMetrics = false;
-        print(
-            '[Dashboard] Retail metrics loaded for range ${_selectedDateRange.start} - ${_selectedDateRange.end}: ₦$_todaySales, Transactions: $_todayTransactions');
-      });
+      double totalSales = 0;
+      for (final sale in sales) {
+        totalSales += ((sale['final_amount'] ??
+                sale['total_amount'] ??
+                sale['totalAmount'] ??
+                0) as num)
+            .toDouble();
+      }
+
+      if (mounted) {
+        setState(() {
+          _todaySales = totalSales;
+          _todayTransactions = sales.length;
+          _todayRevenue = totalSales;
+          _loadingSalesMetrics = false;
+          print(
+              '[Dashboard] Retail metrics loaded for range ${_selectedDateRange.start} - ${_selectedDateRange.end}: ₦$_todaySales, Transactions: $_todayTransactions');
+        });
+      }
+    } catch (e) {
+      print('[Dashboard] Error loading retail metrics via Supabase: $e');
+      if (mounted) {
+        setState(() {
+          _loadingSalesMetrics = false;
+        });
+      }
     }
   }
 
@@ -3155,13 +3169,9 @@ class _HomeTabState extends State<_HomeTab> {
             color: Colors.blue,
             route: Routes.hotelFrontDesk,
           ),
-          _QuickActionItem(
-            title: 'Rooms',
-            subtitle: 'Room management',
-            icon: Icons.meeting_room_rounded,
-            color: Colors.green,
-            route: Routes.hotelRooms,
-          ),
+          // Room Management removed from dashboard per requirements doc —
+          // it now lives under Settings → Room Management (a setup task,
+          // not a daily operation).
           _QuickActionItem(
             title: 'Bookings',
             subtitle: 'Manage reservations',
