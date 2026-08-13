@@ -88,6 +88,26 @@
     <div class="spinner"></div>
   </div>
 
+  <script>
+    // One-time cleanup: unregister any service worker + caches left over from
+    // builds before --pwa-strategy=none, so returning users don't get stuck
+    // on a stale cached app shell.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        registrations.forEach(function(registration) {
+          registration.unregister();
+        });
+      });
+    }
+    if ('caches' in window) {
+      caches.keys().then(function(keys) {
+        keys.forEach(function(key) {
+          caches.delete(key);
+        });
+      });
+    }
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
   <script type="module" src="js/web_usb_printer.js"></script>
 

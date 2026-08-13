@@ -315,22 +315,10 @@ class WhatsAppService {
 
     buffer.writeln('');
     buffer.writeln('REMAINING STOCK');
-    final fuelStockRows = inventoryRows.where((row) {
-      final text = [
-        row['category'],
-        row['name'],
-        row['unit'],
-      ].join(' ').toLowerCase();
-      return text.contains('fuel') ||
-          text.contains('petrol') ||
-          text.contains('diesel') ||
-          text.contains('kerosene') ||
-          text.contains('gas');
-    }).toList();
-    if (fuelStockRows.isEmpty) {
-      buffer.writeln('- No petroleum stock rows found.');
+    if (inventoryRows.isEmpty) {
+      buffer.writeln('- No stock rows found.');
     } else {
-      for (final row in fuelStockRows.take(12)) {
+      for (final row in inventoryRows) {
         final name = (row['name'] ?? 'Stock').toString();
         final quantity = _readDouble(row['quantity']);
         final unit = (row['unit'] ?? 'unit').toString();

@@ -246,7 +246,7 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                                                                         .body1,
                                                                   ),
                                                                 ),
-                                                                ...drug!.prescriptions
+                                                                ...drug.prescriptions
                                                                     .map((p) =>
                                                                         ListTile(
                                                                           title: Text(
@@ -326,9 +326,8 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                               child: Text('Walk-in / No patient'),
                             ),
                             ...provider.patients
-                                .where((p) => p != null)
                                 .map((p) => DropdownMenuItem<String>(
-                                      value: p!.id,
+                                      value: p.id,
                                       child: Text(p.name),
                                     )),
                           ],
@@ -337,7 +336,7 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                               _selectedPatientId = value;
                               if (value != null) {
                                 final match = provider.patients.firstWhereOrNull(
-                                  (p) => p?.id == value,
+                                  (p) => p.id == value,
                                 );
                                 controller.text = match?.name ?? '';
                               } else {

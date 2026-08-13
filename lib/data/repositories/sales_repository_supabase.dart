@@ -272,10 +272,17 @@ class SalesRepositorySupabase implements SalesRepository {
         ? requestedLimit.clamp(1, 500)
         : 500;
     final params = {...queryParams, 'limit': pageLimit};
+    // A large-volume business (2,000+ sales in a report's date range) can
+    // legitimately take longer per page than the client's default 15s
+    // receiveTimeout under real backend load, which surfaced as the Sales
+    // Report screen hard-failing with a timeout exception instead of just
+    // taking a bit longer to load. This path is a background report fetch,
+    // not a user-blocking action like checkout, so it can afford to wait.
+    final reportPageTimeout = Options(receiveTimeout: const Duration(seconds: 45));
     final first = await _http.get(
       '/sales/$businessId',
       queryParameters: {...params, 'page': 1},
-      options: Options(headers: _headers),
+      options: reportPageTimeout.copyWith(headers: _headers),
     );
     final items = <dynamic>[...(first.data['data'] as List? ?? [])];
     if (requestedLimit != null && requestedLimit > 0 && items.length >= requestedLimit) {
@@ -297,7 +304,7 @@ class SalesRepositorySupabase implements SalesRepository {
             _http.get(
               '/sales/$businessId',
               queryParameters: {...params, 'page': page},
-              options: Options(headers: _headers),
+              options: reportPageTimeout.copyWith(headers: _headers),
             ),
         ]);
         for (final response in batch) {

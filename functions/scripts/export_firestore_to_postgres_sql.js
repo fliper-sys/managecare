@@ -311,7 +311,7 @@ function saleInsert(id, legacyId, businessId, data, createdBy = null) {
   const total = num(data, ['total_amount', 'totalAmount', 'total', 'finalAmount'], 0);
   return `INSERT INTO sales (id, legacy_firestore_id, business_id, customer_id, worker_name, total_amount, discount_amount, tax_amount, final_amount, payment_method, status, notes, created_by, sale_type, created_at, updated_at)
 VALUES (${sql(id)}::uuid, ${sql(legacyId)}, ${sql(businessId)}::uuid, NULL, ${sql(text(data, ['workerName', 'cashierName']))}, ${sql(total)}, ${sql(num(data, ['discountAmount', 'discount_amount', 'discount'], 0))}, ${sql(num(data, ['taxAmount', 'tax_amount', 'tax'], 0))}, ${sql(num(data, ['finalAmount', 'final_amount', 'total'], total))}, ${sql(text(data, ['paymentMethod', 'payment_method'], 'cash'))}, ${sql(text(data, ['status'], 'completed'))}, ${sql(text(data, ['notes']))}, ${sql(createdBy)}::uuid, ${sql(text(data, ['saleType', 'sale_type'], 'retail'))}, COALESCE(${sql(dateValue(data.createdAt || data.created_at || data.timestamp || data.date))}::timestamptz, NOW()), COALESCE(${sql(dateValue(data.updatedAt || data.updated_at))}::timestamptz, NOW()))
-ON CONFLICT (id) DO UPDATE SET
+ON CONFLICT (business_id, (regexp_replace(legacy_firestore_id, '^.*/', ''))) DO UPDATE SET
   worker_name = COALESCE(EXCLUDED.worker_name, sales.worker_name),
   total_amount = EXCLUDED.total_amount,
   discount_amount = EXCLUDED.discount_amount,

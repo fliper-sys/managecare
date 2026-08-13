@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/theme/colors.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../core/theme/text_styles.dart';
@@ -96,6 +97,11 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
         backgroundColor: Colors.transparent,
         iconTheme: IconThemeData(color: Theme.of(context).iconTheme.color),
         actions: [
+          IconButton(
+            tooltip: 'Share via WhatsApp',
+            icon: const Icon(Icons.share_outlined),
+            onPressed: () => _shareViaWhatsApp(context),
+          ),
           IconButton(
             icon: const Icon(Icons.download),
             onPressed: () => _showExportOptions(context),
@@ -391,17 +397,30 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
     );
   }
 
+  // Rendering every row of a high-volume business's date range (e.g. a
+  // 2,000+ transaction month) as a DataTable froze the whole app ("Not
+  // Responding") - the row count, not the network fetch, is what made this
+  // screen unusable for those businesses. The summary cards/charts above
+  // still reflect every fetched sale (cheap aggregate math over a list);
+  // only this literal per-row table is bounded.
+  static const _maxDetailedRows = 200;
+
   Widget _buildDetailedTable(ReportsProvider reportsProvider) {
     // Filter sales based on search term (category, cashier, product names)
     final query = _searchController.text.toLowerCase();
-    final filteredReports = reportsProvider.salesReports.where((report) {
+    final matchingReports = reportsProvider.salesReports.where((report) {
       if (query.isEmpty) return true;
       if (report.category.toLowerCase().contains(query)) return true;
       if (report.cashier.toLowerCase().contains(query)) return true;
       if (report.productNames.any((p) => p.toLowerCase().contains(query)))
         return true;
       return false;
-    }).toList();
+    }).toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    final isTruncated = matchingReports.length > _maxDetailedRows;
+    final filteredReports = isTruncated
+        ? matchingReports.sublist(0, _maxDetailedRows)
+        : matchingReports;
 
     return Card(
       elevation: 2,
@@ -415,14 +434,21 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Detailed Report', style: AppTextStyles.heading2),
-                if (filteredReports.length !=
+                if (matchingReports.length !=
                     reportsProvider.salesReports.length)
                   Text(
-                    '${filteredReports.length} of ${reportsProvider.salesReports.length}',
+                    '${matchingReports.length} of ${reportsProvider.salesReports.length}',
                     style: AppTextStyles.caption,
                   ),
               ],
             ),
+            if (isTruncated) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Showing the most recent $_maxDetailedRows of ${matchingReports.length} sales. Narrow the date range or search to see others.',
+                style: AppTextStyles.caption.copyWith(color: AppColors.warning),
+              ),
+            ],
             const SizedBox(height: 16),
             if (filteredReports.isEmpty)
               const Padding(
@@ -530,6 +556,47 @@ class _SalesReportScreenState extends State<SalesReportScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Future<void> _shareViaWhatsApp(BuildContext context) async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id ??
+        context.read<AuthProvider>().currentUser?.businessId;
+    if (businessId == null || businessId.isEmpty) return;
+
+    final reportsProvider = context.read<ReportsProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    String message;
+    try {
+      message = await reportsProvider.buildWhatsAppSalesSummary(businessId);
+    } catch (e) {
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not build report: $e')),
+      );
+      return;
+    }
+    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+
+    // No phone number in the wa.me URL - this opens WhatsApp's own contact
+    // picker so the owner chooses who to send the report to (themselves,
+    // an accountant, a partner, ...) rather than it going to one fixed
+    // number.
+    final uri = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(message)}');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      return;
+    }
+    if (!context.mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Could not open WhatsApp.')),
     );
   }
 

@@ -120,6 +120,12 @@ module.exports = function(pool) {
     const { businessId } = req.params;
     const b = req.body;
 
+    const closingVolume = parseFloat(b.closing_volume) || 0;
+    const openingVolume = parseFloat(b.opening_volume) || 0;
+    if (closingVolume <= openingVolume) {
+      return res.status(400).json({ error: 'Closing volume must be greater than opening volume' });
+    }
+
     try {
       const result = await pool.query(
         `INSERT INTO pump_daily_uploads (
@@ -234,6 +240,10 @@ module.exports = function(pool) {
       }
 
       const digitalVolume = parseFloat(merged.closing_volume) - parseFloat(merged.opening_volume);
+      if (digitalVolume <= 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Closing volume must be greater than opening volume' });
+      }
       const shiftCashDifference = parseFloat(merged.shift_close_cash) - parseFloat(merged.shift_opening_cash);
       const expectedAmount = parseFloat(merged.sold_volume) * parseFloat(existing.product_price);
       const totalPaid = parseFloat(merged.cash_amount) + parseFloat(merged.pos_amount);
@@ -304,15 +314,39 @@ module.exports = function(pool) {
     }
   }));
 
-  // DELETE /:businessId/uploads/:id - owner-only hard delete
+  // DELETE /:businessId/uploads/:id - owner-only hard delete. The upload's
+  // sold_volume was already decremented from inventory when the matching
+  // sale was created, so deleting the upload without adding it back left
+  // the fuel stock permanently short by whatever that upload sold.
   router.delete('/:businessId/uploads/:id', requireBusinessOwner, asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
-    const result = await pool.query(
-      'DELETE FROM pump_daily_uploads WHERE id = $1 AND business_id = $2 RETURNING id',
-      [id, businessId]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Upload not found' });
-    res.json({ message: 'Upload deleted', id });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        'DELETE FROM pump_daily_uploads WHERE id = $1 AND business_id = $2 RETURNING id, product_id, sold_volume',
+        [id, businessId]
+      );
+      if (result.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Upload not found' });
+      }
+      const deleted = result.rows[0];
+      const soldVolume = parseFloat(deleted.sold_volume) || 0;
+      if (deleted.product_id && soldVolume > 0) {
+        await client.query(
+          'UPDATE inventory SET quantity = quantity + $1, updated_at = NOW() WHERE id = $2 AND business_id = $3',
+          [soldVolume, deleted.product_id, businessId]
+        );
+      }
+      await client.query('COMMIT');
+      res.json({ message: 'Upload deleted', id });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }));
 
   // ---------- Adjustment audit log ----------
