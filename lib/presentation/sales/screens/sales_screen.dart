@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import '../../../core/utils/decimal_input_formatter.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:intl/intl.dart';
@@ -24,10 +25,12 @@ import '../../../services/notification_and_email_service.dart';
 import '../../../services/barcode_service.dart';
 import '../../../services/analytics_service.dart';
 import '../../../core/utils/currency.dart';
+import '../../../core/utils/datetime_utils.dart';
 import '../../../widgets/custom_button.dart';
 import '../../../widgets/async_button.dart';
 import '../../../widgets/app_header.dart';
 import '../../../providers/retail_provider.dart';
+import '../../../providers/workers_provider.dart';
 import '../../../providers/connectivity_provider.dart';
 import '../../../providers/pharmacy_provider.dart';
 import '../../../providers/customer_provider.dart';
@@ -129,10 +132,12 @@ class _SalesScreenState extends State<SalesScreen>
           });
         });
         // Subscribe to realtime sales history updates
-        _retailProvider.subscribeToSalesHistory((sales) {
+        _retailProvider.subscribeToSalesHistory((sales) async {
+          if (!mounted) return;
+          final merged = await _mergeWithLocalPendingSales(sales);
           if (!mounted) return;
           setState(() {
-            _salesHistory = sales;
+            _salesHistory = merged;
             _hasMoreHistory = sales.length >= _historyLimit;
           });
           print('[SalesScreen] Realtime sales update: ${sales.length}');
@@ -312,6 +317,24 @@ class _SalesScreenState extends State<SalesScreen>
                   backgroundColor: AppColors.warning,
                 ),
               );
+
+              // Manually deduct stock from in-memory products for immediate UI update
+              // The sync service will handle the actual Firestore update later.
+              for (final item in items) {
+                final productId = item['productId'] as String?;
+                final quantitySold = (item['inventoryQuantity'] as num?)?.toDouble() ??
+                                     (item['quantity'] as num?)?.toDouble() ??
+                                     0.0;
+                if (productId != null && quantitySold > 0) { 
+                  try { 
+                    final product = retail.products.firstWhere((p) => p.id == productId); 
+                    final newStock = product.stock - quantitySold; 
+                    product.stock = newStock > 0 ? newStock : 0; 
+                  } catch (e) { 
+                    debugPrint('[SalesScreen] Could not find product $productId to update stock locally.'); 
+                  } 
+                }
+              }
             } else {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -756,6 +779,11 @@ class _SalesScreenState extends State<SalesScreen>
     }
   }
 
+  String _shortSaleRef(dynamic id) {
+    final s = (id ?? '').toString();
+    return s.length > 8 ? s.substring(s.length - 8) : s;
+  }
+
   Future<void> _loadSalesHistory() async {
     if (_loadingHistory) return;
 
@@ -766,10 +794,11 @@ class _SalesScreenState extends State<SalesScreen>
       final history = await retail.getSalesHistory(
         limit: _historyLimit,
       );
+      final merged = await _mergeWithLocalPendingSales(history);
 
       if (mounted) {
         setState(() {
-          _salesHistory = history;
+          _salesHistory = merged;
           _hasMoreHistory = history.length >= _historyLimit;
           _loadingHistory = false;
           print(
@@ -781,6 +810,54 @@ class _SalesScreenState extends State<SalesScreen>
       if (mounted) {
         setState(() => _loadingHistory = false);
       }
+    }
+  }
+
+  // Sales that were made while offline live only in the local DB until they
+  // sync, so a Firestore-only query never shows them. Merge them in here,
+  // normalizing their string `createdAt` to a Timestamp so the rest of the
+  // history UI (which expects a Timestamp) doesn't need to special-case them.
+  Future<List<Map<String, dynamic>>> _mergeWithLocalPendingSales(
+    List<Map<String, dynamic>> serverSales,
+  ) async {
+    try {
+      final retail = context.read<RetailProvider>();
+      final localPending = await retail.getLocalPendingSales();
+      if (localPending.isEmpty) return serverSales;
+
+      final existingIds = serverSales.map((s) => s['id']).toSet();
+      final normalizedLocal = localPending
+          .where((s) => !existingIds.contains(s['id']))
+          .map((s) {
+        final merged = Map<String, dynamic>.from(s);
+        final createdAtRaw = merged['createdAt'];
+        if (createdAtRaw is String) {
+          final parsed = DateTime.tryParse(createdAtRaw);
+          if (parsed != null) merged['createdAt'] = Timestamp.fromDate(parsed);
+        }
+        return merged;
+      }).toList();
+
+      if (normalizedLocal.isEmpty) return serverSales;
+
+      final combined = [...normalizedLocal, ...serverSales];
+      // parseTimestamp (already used elsewhere in this file) handles
+      // Timestamp/DateTime/String/num uniformly - the old millis() helper
+      // here only understood Timestamp and silently treated every other
+      // shape as epoch 0. Since server sales carry a plain ISO string
+      // `created_at` from Postgres (never a Firestore Timestamp - this app
+      // doesn't write sales to Firestore anymore), every server sale tied
+      // at 0 and any locally-pending sale (a real Timestamp) sorted above
+      // *all* of them regardless of true chronological order, mixing up
+      // the displayed order and time of sales whenever an offline-queued
+      // sale existed alongside already-synced ones.
+      int millis(dynamic v) => parseTimestamp(v).millisecondsSinceEpoch;
+      combined.sort(
+          (a, b) => millis(b['createdAt']).compareTo(millis(a['createdAt'])));
+      return combined;
+    } catch (e) {
+      print('[SalesScreen] Error merging local pending sales: $e');
+      return serverSales;
     }
   }
 
@@ -1779,10 +1856,15 @@ class _SalesScreenState extends State<SalesScreen>
                                           // refresh realtime subscription with new limit
                                           context
                                               .read<RetailProvider>()
-                                              .subscribeToSalesHistory((sales) {
+                                              .subscribeToSalesHistory(
+                                                  (sales) async {
+                                            if (!mounted) return;
+                                            final merged =
+                                                await _mergeWithLocalPendingSales(
+                                                    sales);
                                             if (!mounted) return;
                                             setState(() {
-                                              _salesHistory = sales;
+                                              _salesHistory = merged;
                                               _hasMoreHistory =
                                                   sales.length >= _historyLimit;
                                             });
@@ -1795,27 +1877,50 @@ class _SalesScreenState extends State<SalesScreen>
                       }
 
                       final sale = filtered[index];
-                      final createdAt = sale['createdAt'] as Timestamp?;
-                      final formattedTime = createdAt != null
+                      final formattedTime = sale['createdAt'] != null
                           ? DateFormat('dd/MM/yyyy HH:mm')
-                              .format(createdAt.toDate())
+                              .format(parseTimestamp(sale['createdAt']))
                           : 'Unknown time';
                         final amount = sale['totalAmount'] as num? ?? 0;
-                        final worker = sale['workerName'] ?? 'Unknown';
+                        var worker = sale['workerName'] as String? ?? '';
+                        if (worker.isEmpty) {
+                          final workerId = (sale['workerId'] as String?) ??
+                              (sale['createdBy'] as String?);
+                          if (workerId != null && workerId.isNotEmpty) {
+                            // Workers are scoped to the current business, unlike
+                            // AdminProvider's user list which is only populated
+                            // on admin screens and is empty here — looking it up
+                            // there always fell through to "Unknown".
+                            final workersProvider =
+                                context.read<WorkersProvider>();
+                            final match = workersProvider.workers.firstWhere(
+                              (w) => (w['id'] as String?) == workerId,
+                              orElse: () => <String, dynamic>{},
+                            );
+                            worker = (match['name'] ?? match['fullName'])
+                                    as String? ??
+                                '';
+                          }
+                        }
+                        if (worker.isEmpty) worker = 'Unknown';
                         final isRefunded = (sale['hasReturn'] == true) ||
                           (sale['saleStatus']?.toString().toLowerCase() ==
                             'refunded') ||
                           ((sale['status'] ?? '').toString().toLowerCase() ==
                             'refunded');
-                        final refundedAtTs = sale['returnedAt'] as Timestamp?;
-                        final refundedAtText = refundedAtTs != null
+                        final isPendingSync =
+                            sale['pendingSync'] as bool? ?? false;
+                        final refundedAtText = sale['returnedAt'] != null
                             ? DateFormat('dd/MM/yyyy HH:mm')
-                                .format(refundedAtTs.toDate())
+                                .format(parseTimestamp(sale['returnedAt']))
                             : null;
-                      final itemCount = (sale['items'] as List?)?.length ?? 0;
+                      final itemCount = (sale['items'] as List?)?.length ??
+                          (sale['cartItems'] as List?)?.length;
 
                       return InkWell(
-                        onTap: () => _showSaleDetails(context, sale),
+                        onTap: () {
+                          _showSaleDetails(context, sale);
+                        },
                         child: Card(
                           color: isRefunded
                               ? AppColors.warning.withOpacity(0.06)
@@ -1831,39 +1936,56 @@ class _SalesScreenState extends State<SalesScreen>
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Row(
-                                      children: [
-                                        Text(
-                                            'Sale #${sale['referenceId'] ?? sale['id']}',
-                                            style: AppTextStyles.body1.copyWith(
-                                                fontWeight:
-                                                    FontWeight.w600)),
-                                        if (isRefunded) ...[
-                                          const SizedBox(width: 8),
-                                          Tooltip(
-                                            message: refundedAtText != null
-                                                ? 'Refunded on $refundedAtText'
-                                                : 'Refunded',
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                  horizontal: 8, vertical: 4),
-                                              decoration: BoxDecoration(
-                                                color: AppColors.warning.withOpacity(0.12),
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                                border: Border.all(
-                                                    color: AppColors.warning.withOpacity(0.3)),
-                                              ),
-                                              child: Text('Refunded',
-                                                  style: AppTextStyles.body2.copyWith(
-                                                      color: AppColors.warning,
-                                                      fontWeight:
-                                                          FontWeight.w600)),
-                                            ),
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                                // referenceId is a short human
+                                                // reference when present; the
+                                                // fallback raw sale id is a
+                                                // full UUID (36 chars) which
+                                                // overflowed into the amount
+                                                // on the right with no
+                                                // truncation - shorten it to
+                                                // the last 8 chars, the same
+                                                // convention used for a quick
+                                                // human-readable reference.
+                                                'Sale #${sale['referenceId'] ?? _shortSaleRef(sale['id'])}',
+                                                overflow: TextOverflow.ellipsis,
+                                                maxLines: 1,
+                                                style: AppTextStyles.body1.copyWith(
+                                                    fontWeight:
+                                                        FontWeight.w600)),
                                           ),
+                                          if (isRefunded) ...[
+                                            const SizedBox(width: 8),
+                                            Tooltip(
+                                              message: refundedAtText != null
+                                                  ? 'Refunded on $refundedAtText'
+                                                  : 'Refunded',
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(
+                                                    horizontal: 8, vertical: 4),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.warning.withOpacity(0.12),
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  border: Border.all(
+                                                      color: AppColors.warning.withOpacity(0.3)),
+                                                ),
+                                                child: Text('Refunded',
+                                                    style: AppTextStyles.body2.copyWith(
+                                                        color: AppColors.warning,
+                                                        fontWeight:
+                                                            FontWeight.w600)),
+                                              ),
+                                            ),
+                                          ],
                                         ],
-                                      ],
+                                      ),
                                     ),
+                                    const SizedBox(width: 8),
                                     Text('\u20a6${amount.toStringAsFixed(2)}',
                                         style: AppTextStyles.heading4.copyWith(
                                             color: AppColors.primary)),
@@ -1874,9 +1996,27 @@ class _SalesScreenState extends State<SalesScreen>
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text(worker,
-                                        style: AppTextStyles.body2.copyWith(
-                                            fontWeight: FontWeight.w500)),
+                                    Row(
+                                      children: [
+                                        if (isPendingSync) ...[
+                                          const Icon(
+                                            Icons.cloud_off_outlined,
+                                            size: 16,
+                                            color: AppColors.textSecondary,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text('Pending Sync • ',
+                                              style: AppTextStyles.body2
+                                                  .copyWith(
+                                                      color: AppColors
+                                                          .textSecondary)),
+                                        ],
+                                        Text(worker,
+                                            style: AppTextStyles.body2
+                                                .copyWith(
+                                                    fontWeight: FontWeight.w500)),
+                                      ],
+                                    ),
                                     Text(formattedTime,
                                         style: AppTextStyles.body2.copyWith(
                                             color: AppColors.textSecondary)),
@@ -1986,6 +2126,7 @@ class _SalesScreenState extends State<SalesScreen>
   void _showSaleDetails(BuildContext context, Map<String, dynamic> sale) {
     final items = (sale['items'] as List<dynamic>?) ?? [];
     final retail = context.read<RetailProvider>();
+    final isPendingSync = sale['pendingSync'] as bool? ?? false;
 
     showModalBottomSheet(
       context: context,
@@ -2000,8 +2141,26 @@ class _SalesScreenState extends State<SalesScreen>
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Sale #${sale['referenceId'] ?? sale['id']}',
+              Text('Sale #${sale['referenceId'] ?? _shortSaleRef(sale['id'])}',
                   style: AppTextStyles.heading3),
+              if (isPendingSync) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.cloud_off_outlined,
+                      size: 18,
+                      color: AppColors.warning,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'This sale is pending synchronization.',
+                      style: AppTextStyles.body2
+                          .copyWith(color: AppColors.warning),
+                    ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 12),
               ...items.map((i) {
                 final item = i as Map<String, dynamic>;
@@ -2148,20 +2307,38 @@ class _ProductsGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final allProducts = context.watch<RetailProvider>().products;
+    // PharmacyRepositoryImpl.fetchDrugs() reads from the generic
+    // /inventory/:businessId endpoint with no pharmacy-specific filter, so
+    // PharmacyProvider ends up holding *every* business's full inventory
+    // relabeled as "drugs" - merging it in unconditionally meant a fuel or
+    // retail business's own products got shadowed by a "Pharmacy"-badged
+    // copy of themselves here. Only businesses that are actually a pharmacy
+    // should see pharmacy drugs folded into the sale screen's product list.
+    final businessType = context
+        .watch<BusinessProvider>()
+        .currentBusiness
+        ?.businessType
+        .toLowerCase();
     final pharmacyProvider = context.watch<PharmacyProvider>();
 
     // Convert pharmacy drugs to Product-like model and merge
-    final pharmacyProducts = pharmacyProvider.drugs.map((d) => Product(
-          id: 'pharmacy:${d.id}',
-          name: d.name,
-          price: d.price,
-          cost: 0.0,
-          stock: d.stock.toDouble(),
-          category: 'Pharmacy',
-          imageUrl: null,
-          barcode: null,
-          emoji: '💊',
-        ));
+    final normalizedBusinessType =
+        (businessType ?? '').toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final isPharmacyBusiness = normalizedBusinessType == 'pharmacy' ||
+        normalizedBusinessType == 'drugstore';
+    final pharmacyProducts = isPharmacyBusiness
+        ? pharmacyProvider.drugs.map((d) => Product(
+              id: 'pharmacy:${d.id}',
+              name: d.name,
+              price: d.price,
+              cost: 0.0,
+              stock: d.stock.toDouble(),
+              category: 'Pharmacy',
+              imageUrl: null,
+              barcode: null,
+              emoji: '💊',
+            ))
+        : const Iterable<Product>.empty();
 
     // Merge by name (case-insensitive), prefer inventory (allProducts)
     final merged = <String, Product>{};
@@ -2549,7 +2726,7 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
 
   // Per-item price overrides (keyed by product id)
   final Map<String, double> _priceOverrides = {};
-  final Map<String, TextEditingController> _priceControllers = {};
+  final Set<String> _manualPriceOverrideProductIds = {};
 
   ScrollController get _effectiveScrollController =>
       widget.scrollController ?? _internalScrollController!;
@@ -2902,13 +3079,21 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return entries.fold(0.0, (s, e) => s + _lineTotal(retail, e.key, e.value));
   }
 
-  String _pricingModeFor(Product product) {
-    final currentPrice = _priceOverrides[product.id] ?? product.price;
+  bool _isManualCustomPrice(Product product) {
+    if (!_manualPriceOverrideProductIds.contains(product.id)) return false;
+    final currentPrice = _priceOverrides[product.id];
+    if (currentPrice == null) return false;
+    if ((currentPrice - product.price).abs() < 0.0001) return false;
     if (product.wholesalePrice != null &&
         (currentPrice - product.wholesalePrice!).abs() < 0.0001) {
-      return 'wholesale';
+      return false;
     }
-    return 'retail';
+    return true;
+  }
+
+  String _pricingModeFor(RetailProvider retail, Product product) {
+    if (_isManualCustomPrice(product)) return 'custom';
+    return retail.getPricingModeForCartItem(product.id);
   }
 
   String _saleUnitSummary(Product product) {
@@ -2925,29 +3110,26 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     return 'Sold in ${inventoryUnitLabel(saleUnit)} • 1 ${saleUnit.isEmpty ? product.unit : saleUnit} = $multiplierLabel ${product.unit}';
   }
 
-  TextEditingController _getPriceController(
-    String productId,
-    double initialPrice,
-  ) {
-    return _priceControllers.putIfAbsent(
-      productId,
-      () => TextEditingController(text: initialPrice.toStringAsFixed(2)),
-    );
+  // The price field below is deliberately *uncontrolled* (initialValue, no
+  // TextEditingController) - see its `key:` for why. An earlier version
+  // used a persistent controller that build() rewrote on every rebuild
+  // (which fires on every keystroke anywhere in this sheet, every focus
+  // change, anything that calls setState), snapping the cursor to the end
+  // each time; a guard that skipped the rewrite when the text already
+  // matched still wasn't reliably enough to stop it. Not having a
+  // controller to fight with at all avoids the whole bug class.
+  void _setPriceOverrideValue(String productId, double price) {
+    _priceOverrides[productId] = price;
   }
 
-  void _setPriceOverrideValue(
-    String productId,
-    double price, {
-    bool updateController = true,
-  }) {
-    _priceOverrides[productId] = price;
-    if (!updateController) return;
-
-    final formattedPrice = price.toStringAsFixed(2);
-    final controller = _getPriceController(productId, price);
-    controller.value = TextEditingValue(
-      text: formattedPrice,
-      selection: TextSelection.collapsed(offset: formattedPrice.length),
+  void _applyModePrice(RetailProvider retail, Product product, String mode) {
+    retail.setPricingModeForCartItem(product.id, mode);
+    _manualPriceOverrideProductIds.remove(product.id);
+    _setPriceOverrideValue(
+      product.id,
+      mode == 'wholesale' && product.wholesalePrice != null
+          ? product.wholesalePrice!
+          : product.price,
     );
   }
 
@@ -2958,9 +3140,6 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     _customerNameController.dispose();
     _taxRateController.dispose();
     _discountController.dispose();
-    for (final controller in _priceControllers.values) {
-      controller.dispose();
-    }
     super.dispose();
   }
 
@@ -2978,21 +3157,16 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     _priceOverrides.removeWhere(
       (productId, _) => !currentProductIds.contains(productId),
     );
-    final removedControllerIds = _priceControllers.keys
-        .where((productId) => !currentProductIds.contains(productId))
-        .toList();
-    for (final productId in removedControllerIds) {
-      _priceControllers.remove(productId)?.dispose();
-    }
+    _manualPriceOverrideProductIds.removeWhere(
+      (productId) => !currentProductIds.contains(productId),
+    );
     for (final entry in entries) {
-      _priceOverrides.putIfAbsent(
-        entry.key.id,
-        () => retail.getEffectivePriceForCartItem(entry.key.id),
-      );
-      _getPriceController(
-        entry.key.id,
-        _priceOverrides[entry.key.id] ?? entry.key.price,
-      );
+      if (!_manualPriceOverrideProductIds.contains(entry.key.id)) {
+        _setPriceOverrideValue(
+          entry.key.id,
+          retail.getEffectivePriceForCartItem(entry.key.id),
+        );
+      }
     }
     final customerProvider = context.watch<CustomerProvider>();
     final theme = Theme.of(context);
@@ -3081,13 +3255,45 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                     SizedBox(
                                     width: 120,
                                     child: TextFormField(
-                                      controller: _getPriceController(
-                                        item.id,
-                                        _priceOverrides[item.id] ?? item.price,
-                                      ),
-                                      keyboardType:
-                                          const TextInputType.numberWithOptions(
-                                              decimal: true),
+                                      // Deliberately uncontrolled
+                                      // (initialValue, no
+                                      // TextEditingController) - once
+                                      // mounted, changing initialValue on a
+                                      // later rebuild does *not* touch the
+                                      // field's live text/cursor, which is
+                                      // exactly what's needed while the
+                                      // user is mid-edit. The key is scoped
+                                      // to the *stored* pricing mode
+                                      // (unaffected by ordinary typing -
+                                      // only retail.setPricingModeForCartItem
+                                      // changes it, i.e. tapping a
+                                      // Retail/Wholesale chip below), so
+                                      // typing a custom value never
+                                      // recreates this field, but toggling
+                                      // a chip correctly forces a fresh one
+                                      // showing the new price.
+                                      key: ValueKey(
+                                          'price_${item.id}_${retail.getPricingModeForCartItem(item.id)}'),
+                                      initialValue:
+                                          (_priceOverrides[item.id] ?? item.price)
+                                              .toStringAsFixed(2),
+                                      // This runs on Windows desktop (POS
+                                      // terminals), where a numeric
+                                      // keyboardType is meaningless for a
+                                      // physical keyboard but still changes
+                                      // how the engine tracks the cursor -
+                                      // TextInputType.numberWithOptions
+                                      // combined with no inputFormatters had
+                                      // a known cursor-tracking bug around
+                                      // the decimal point on desktop (typing
+                                      // before the decimal appeared to do
+                                      // nothing until the cursor was moved
+                                      // past it). Plain text + an explicit
+                                      // decimal formatter sidesteps it.
+                                      keyboardType: TextInputType.text,
+                                      inputFormatters: [
+                                        DecimalInputFormatter(),
+                                      ],
                                       decoration: InputDecoration(
                                         prefixText: '₦',
                                         isDense: true,
@@ -3124,6 +3330,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                             item.id,
                                             'retail',
                                           );
+                                          _manualPriceOverrideProductIds
+                                              .remove(item.id);
                                         } else if (item.hasWholesalePricing &&
                                             item.wholesalePrice != null &&
                                             (parsed - item.wholesalePrice!)
@@ -3133,13 +3341,14 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                             item.id,
                                             'wholesale',
                                           );
+                                          _manualPriceOverrideProductIds
+                                              .remove(item.id);
+                                        } else {
+                                          _manualPriceOverrideProductIds
+                                              .add(item.id);
                                         }
                                         setState(() {
-                                          _setPriceOverrideValue(
-                                            item.id,
-                                            parsed,
-                                            updateController: false,
-                                          );
+                                          _setPriceOverrideValue(item.id, parsed);
                                         });
                                       },
                                     ),
@@ -3165,17 +3374,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                       label: Text(
                                           'Retail ₦${item.price.toStringAsFixed(2)}'),
                                       selected:
-                                          _pricingModeFor(item) == 'retail',
+                                          _pricingModeFor(retail, item) ==
+                                              'retail',
                                       onSelected: (_) {
-                                        retail.setPricingModeForCartItem(
-                                          item.id,
-                                          'retail',
-                                        );
                                         setState(() {
-                                          _setPriceOverrideValue(
-                                            item.id,
-                                            item.price,
-                                          );
+                                          _applyModePrice(
+                                              retail, item, 'retail');
                                         });
                                       },
                                     ),
@@ -3184,17 +3388,12 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                         'Wholesale ₦${item.wholesalePrice!.toStringAsFixed(2)}',
                                       ),
                                       selected:
-                                          _pricingModeFor(item) == 'wholesale',
+                                          _pricingModeFor(retail, item) ==
+                                              'wholesale',
                                       onSelected: (_) {
-                                        retail.setPricingModeForCartItem(
-                                          item.id,
-                                          'wholesale',
-                                        );
                                         setState(() {
-                                          _setPriceOverrideValue(
-                                            item.id,
-                                            item.wholesalePrice!,
-                                          );
+                                          _applyModePrice(
+                                              retail, item, 'wholesale');
                                         });
                                       },
                                     ),
@@ -3232,7 +3431,11 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             IconButton(
                               icon: const Icon(Icons.add_circle_outline),
                               onPressed: () {
-                                retail.addToCart(item.id);
+                                retail.addToCart(
+                                  item.id,
+                                  pricingMode:
+                                      retail.getPricingModeForCartItem(item.id),
+                                );
                                 setState(() {});
                               },
                               tooltip: 'Increase quantity',
@@ -3494,9 +3697,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             width: 100,
                             child: TextFormField(
                               controller: _taxRateController,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
+                              keyboardType: TextInputType.text,
+                              inputFormatters: [
+                                DecimalInputFormatter(),
+                              ],
                               decoration: InputDecoration(
                                 hintText: '0',
                                 isDense: true,
@@ -3527,9 +3731,10 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             width: 100,
                             child: TextFormField(
                               controller: _discountController,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
+                              keyboardType: TextInputType.text,
+                              inputFormatters: [
+                                DecimalInputFormatter(),
+                              ],
                               decoration: InputDecoration(
                                 hintText: '0',
                                 isDense: true,

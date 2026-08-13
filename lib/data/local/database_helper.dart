@@ -31,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 8,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -64,7 +64,10 @@ class DatabaseHelper {
         warehouseId TEXT,
         syncAttempts INTEGER DEFAULT 0,
         lastSyncError TEXT,
-        lastSyncAttemptAt TEXT
+        lastSyncAttemptAt TEXT,
+        workerId TEXT,
+        workerName TEXT,
+        saleType TEXT
       )
     ''');
 
@@ -115,7 +118,12 @@ class DatabaseHelper {
         createdAt TEXT NOT NULL,
         updatedAt TEXT,
         syncStatus TEXT DEFAULT 'pending',
-        storeId TEXT
+        storeId TEXT,
+        wholesalePrice REAL,
+        distributorPrice REAL,
+        saleUnit TEXT,
+        saleUnitMultiplier REAL,
+        emoji TEXT
       )
     ''');
 
@@ -218,6 +226,33 @@ class DatabaseHelper {
         'syncAttempts': 'INTEGER DEFAULT 0',
         'lastSyncError': 'TEXT',
         'lastSyncAttemptAt': 'TEXT',
+      });
+    }
+    if (oldVersion < 5) {
+      // Offline sales only stored the worker under `createdBy`, which never
+      // made it to Firestore's `workerId`/`workerName` fields on sync — the
+      // worker's name showed as "Unknown" once the sale came back online.
+      await _addColumnsIfMissing(db, 'sales', {
+        'workerId': 'TEXT',
+        'workerName': 'TEXT',
+      });
+    }
+    if (oldVersion < 6) {
+      await _addColumnsIfMissing(db, 'sales', {
+        'saleType': 'TEXT',
+      });
+    }
+    if (oldVersion < 7) {
+      await _addColumnsIfMissing(db, 'inventory', {
+        'wholesalePrice': 'REAL',
+        'saleUnit': 'TEXT',
+        'saleUnitMultiplier': 'REAL',
+        'emoji': 'TEXT',
+      });
+    }
+    if (oldVersion < 8) {
+      await _addColumnsIfMissing(db, 'inventory', {
+        'distributorPrice': 'REAL',
       });
     }
   }

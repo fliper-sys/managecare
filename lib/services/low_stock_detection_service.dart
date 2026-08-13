@@ -1,13 +1,14 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
+import '../data/repositories/inventory_repository_supabase.dart';
 
 /// Unified low stock detection service for all business types
 /// Provides consistent detection logic across all screens and dashboards
 class LowStockDetectionService {
-  final FirebaseFirestore _firestore;
+  final InventoryRepositorySupabase _inventoryRepo;
 
-  LowStockDetectionService({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  LowStockDetectionService({InventoryRepositorySupabase? inventoryRepo})
+      : _inventoryRepo = inventoryRepo ?? InventoryRepositorySupabase();
 
   /// Helper method to get quantity from product document
   /// Supports both 'quantity' field (Salon, Agriculture) and 'stock' field (Retail)
@@ -15,43 +16,30 @@ class LowStockDetectionService {
     // Try 'quantity' field first (used by Salon, Agriculture, etc.)
     final qty = data['quantity'] as num?;
     if (qty != null) return qty.toInt();
-    
+
     // Try 'stock' field (used by Retail)
     final stock = data['stock'] as num?;
     if (stock != null) return stock.toInt();
-    
+
     // Default to 0 if neither field exists
     return 0;
   }
 
-  /// Fetch product documents from both `inventory` and `products` collections
-  /// Merges documents preferring `inventory` entries when IDs overlap.
-  Future<List<DocumentSnapshot>> _fetchAllProductDocs(String businessId) async {
-    final inventorySnap = await _firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('inventory')
-        .get();
-
-    final productsSnap = await _firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('products')
-        .get();
-
-    final Map<String, DocumentSnapshot> map = {};
-    for (final d in inventorySnap.docs) {
-      map[d.id] = d;
-    }
-    for (final d in productsSnap.docs) {
-      if (!map.containsKey(d.id)) map[d.id] = d;
-    }
-
-    return map.values.toList();
+  /// Fetch every inventory row for a business from the Postgres-backed API.
+  /// The `businesses/inventory/products` split that used to exist across
+  /// Firestore subcollections doesn't exist here - the backend already
+  /// unifies everything into a single `inventory` table per business.
+  Future<List<Map<String, dynamic>>> _fetchAllProducts(
+      String businessId) async {
+    final rows = await _inventoryRepo.getInventory(businessId);
+    return rows
+        .whereType<Map>()
+        .map((r) => Map<String, dynamic>.from(r))
+        .toList();
   }
 
   /// Detect low stock products with configurable threshold
-  /// 
+  ///
   /// Usage:
   /// ```dart
   /// final lowStockItems = await service.detectLowStockProducts(
@@ -68,30 +56,12 @@ class LowStockDetectionService {
       debugPrint('[LowStockService] Detecting low stock items...');
       debugPrint('[LowStockService] Business: $businessId, Threshold: $threshold');
 
-      // Fetch documents from inventory and products and merge
-      final docs = await _fetchAllProductDocs(businessId);
+      final rows = await _fetchAllProducts(businessId);
 
-      debugPrint('[LowStockService] Total products fetched: ${docs.length}');
+      debugPrint('[LowStockService] Total products fetched: ${rows.length}');
 
-      // Client-side filtering to avoid composite index requirement
-      final lowStockItems = docs
-          .map((doc) {
-            final data = doc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
-            final qty = _getProductQuantity(data);
-            return LowStockProduct(
-              id: doc.id,
-              name: data['name'] ?? 'Unknown',
-              quantity: qty,
-              unit: data['unit'] ?? 'units',
-              reorderLevel: (data['reorderLevel'] as num?)?.toInt() ?? threshold,
-              costPrice: (data['costPrice'] as num?)?.toDouble() ?? 0.0,
-              sellingPrice: (data['sellingPrice'] as num?)?.toDouble() ?? 0.0,
-              category: data['category'] ?? 'General',
-              supplier: data['supplier'] ?? 'Not specified',
-              lastRestocked: data['lastRestocked'] as Timestamp?,
-              minStockThreshold: threshold,
-            );
-          })
+      final lowStockItems = rows
+          .map((data) => _productFromRow(data, defaultThreshold: threshold))
           .where((product) => product.quantity <= threshold)
           .toList();
 
@@ -130,26 +100,10 @@ class LowStockDetectionService {
     required String businessId,
   }) async {
     try {
-      final docs = await _fetchAllProductDocs(businessId);
+      final rows = await _fetchAllProducts(businessId);
 
-      final criticalItems = docs
-          .map((doc) {
-            final data = doc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
-            final qty = _getProductQuantity(data);
-            return LowStockProduct(
-              id: doc.id,
-              name: data['name'] ?? 'Unknown',
-              quantity: qty,
-              unit: data['unit'] ?? 'units',
-              reorderLevel: (data['reorderLevel'] as num?)?.toInt() ?? 0,
-              costPrice: (data['costPrice'] as num?)?.toDouble() ?? 0.0,
-              sellingPrice: (data['sellingPrice'] as num?)?.toDouble() ?? 0.0,
-              category: data['category'] ?? 'General',
-              supplier: data['supplier'] ?? 'Not specified',
-              lastRestocked: data['lastRestocked'] as Timestamp?,
-              minStockThreshold: 0,
-            );
-          })
+      final criticalItems = rows
+          .map((data) => _productFromRow(data, defaultThreshold: 0))
           .where((product) => product.quantity == 0)
           .toList();
 
@@ -158,6 +112,33 @@ class LowStockDetectionService {
       debugPrint('[LowStockService] Error getting critical items: $e');
       return [];
     }
+  }
+
+  LowStockProduct _productFromRow(
+    Map<String, dynamic> data, {
+    required int defaultThreshold,
+  }) {
+    final qty = _getProductQuantity(data);
+    return LowStockProduct(
+      id: (data['id'] ?? '').toString(),
+      name: (data['name'] ?? 'Unknown').toString(),
+      quantity: qty,
+      unit: (data['unit'] ?? 'units').toString(),
+      reorderLevel: (data['reorderLevel'] as num?)?.toInt() ??
+          (data['min_stock_level'] as num?)?.toInt() ??
+          defaultThreshold,
+      costPrice: (data['costPrice'] as num?)?.toDouble() ??
+          (data['cost_price'] as num?)?.toDouble() ??
+          0.0,
+      sellingPrice: (data['sellingPrice'] as num?)?.toDouble() ??
+          (data['unit_price'] as num?)?.toDouble() ??
+          0.0,
+      category: (data['category'] ?? 'General').toString(),
+      supplier: (data['supplier'] ?? 'Not specified').toString(),
+      lastRestocked:
+          _parseExpiryDate(data['lastRestocked'] ?? data['updated_at']),
+      minStockThreshold: defaultThreshold,
+    );
   }
 
   /// Get stock status with severity level
@@ -181,7 +162,6 @@ class LowStockDetectionService {
   DateTime? _parseExpiryDate(dynamic raw) {
     if (raw == null) return null;
     if (raw is DateTime) return raw;
-    if (raw is Timestamp) return raw.toDate();
     if (raw is String) {
       try {
         return DateTime.parse(raw);
@@ -201,12 +181,12 @@ class LowStockDetectionService {
   }) async {
     try {
       final now = DateTime.now();
-      final docs = await _fetchAllProductDocs(businessId);
+      final rows = await _fetchAllProducts(businessId);
 
-      final expiringItems = docs
-          .map((doc) {
-            final data = doc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
-            final expiryDate = _parseExpiryDate(data['expiryDate']);
+      final expiringItems = rows
+          .map((data) {
+            final expiryDate =
+                _parseExpiryDate(data['expiryDate'] ?? data['expiry_date']);
             final qty = _getProductQuantity(data);
             if (expiryDate == null || qty <= 0) return null;
 
@@ -216,14 +196,14 @@ class LowStockDetectionService {
             if (!shouldInclude) return null;
 
             return ExpiringProduct(
-              id: doc.id,
-              name: data['name'] ?? 'Unknown',
+              id: (data['id'] ?? '').toString(),
+              name: (data['name'] ?? 'Unknown').toString(),
               quantity: qty,
-              unit: data['unit'] ?? 'units',
+              unit: (data['unit'] ?? 'units').toString(),
               expiryDate: expiryDate,
               daysUntilExpiry: daysUntilExpiry,
-              category: data['category'] ?? 'General',
-              supplier: data['supplier'] ?? 'Not specified',
+              category: (data['category'] ?? 'General').toString(),
+              supplier: (data['supplier'] ?? 'Not specified').toString(),
             );
           })
           .whereType<ExpiringProduct>()
@@ -291,58 +271,26 @@ class LowStockDetectionService {
     }
   }
 
-  /// Stream low stock products for real-time updates
+  /// Stream low stock products for near-real-time updates. The custom
+  /// backend is a plain REST API (no Firestore-style realtime protocol), so
+  /// this polls on an interval instead of subscribing - same approach as
+  /// InventoryRepositorySupabase.streamInventory.
+  static const _pollInterval = Duration(seconds: 15);
+
   Stream<List<LowStockProduct>> streamLowStockProducts({
     required String businessId,
     int threshold = 10,
-  }) {
-    try {
-      // Stream inventory snapshots (primary source) and merge with products collection
-      return _firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('inventory')
-          .snapshots()
-          .asyncMap((invSnapshot) async {
-        final productsSnap = await _firestore
-            .collection('businesses')
-            .doc(businessId)
-            .collection('products')
-            .get();
-
-        final Map<String, DocumentSnapshot> map = {};
-        for (final d in invSnapshot.docs) map[d.id] = d;
-        for (final d in productsSnap.docs) if (!map.containsKey(d.id)) map[d.id] = d;
-
-        final docs = map.values.toList();
-
-        final lowStockItems = docs
-            .map((doc) {
-              final data = doc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
-              final qty = _getProductQuantity(data);
-              return LowStockProduct(
-                id: doc.id,
-                name: data['name'] ?? 'Unknown',
-                quantity: qty,
-                unit: data['unit'] ?? 'units',
-                reorderLevel: (data['reorderLevel'] as num?)?.toInt() ?? threshold,
-                costPrice: (data['costPrice'] as num?)?.toDouble() ?? 0.0,
-                sellingPrice: (data['sellingPrice'] as num?)?.toDouble() ?? 0.0,
-                category: data['category'] ?? 'General',
-                supplier: data['supplier'] ?? 'Not specified',
-                lastRestocked: data['lastRestocked'] as Timestamp?,
-                minStockThreshold: threshold,
-              );
-            })
-            .where((product) => product.quantity <= threshold)
-            .toList();
-
-        lowStockItems.sort((a, b) => a.quantity.compareTo(b.quantity));
-        return lowStockItems;
-      });
-    } catch (e) {
-      debugPrint('[LowStockService] Error streaming low stock products: $e');
-      rethrow;
+  }) async* {
+    while (true) {
+      try {
+        yield await detectLowStockProducts(
+          businessId: businessId,
+          threshold: threshold,
+        );
+      } catch (e) {
+        debugPrint('[LowStockService] Error streaming low stock products: $e');
+      }
+      await Future.delayed(_pollInterval);
     }
   }
 
@@ -354,13 +302,15 @@ class LowStockDetectionService {
   }) async {
     try {
       final result = <String, bool>{};
-      final docs = await _fetchAllProductDocs(businessId);
+      final rows = await _fetchAllProducts(businessId);
 
-      final productMap = {for (var doc in docs) doc.id: doc};
+      final productMap = {
+        for (final row in rows) (row['id'] ?? '').toString(): row,
+      };
 
       for (final productId in productIds) {
         if (productMap.containsKey(productId)) {
-          final data = productMap[productId]!.data() as Map<String, dynamic>? ?? <String, dynamic>{};
+          final data = productMap[productId]!;
           final qty = _getProductQuantity(data);
           result[productId] = qty <= threshold;
         } else {
@@ -381,17 +331,18 @@ class LowStockDetectionService {
     int threshold = 10,
   }) async {
     try {
-        final docs = await _fetchAllProductDocs(businessId);
+      final rows = await _fetchAllProducts(businessId);
 
-        int totalProducts = docs.length;
+      int totalProducts = rows.length;
       int lowStockCount = 0;
       int criticalCount = 0;
       double potentialLoss = 0;
 
-      for (final doc in docs) {
-        final data = doc.data() as Map<String, dynamic>? ?? <String, dynamic>{};
+      for (final data in rows) {
         final qty = _getProductQuantity(data);
-        final costPrice = (data['costPrice'] as num?)?.toDouble() ?? 0.0;
+        final costPrice = (data['costPrice'] as num?)?.toDouble() ??
+            (data['cost_price'] as num?)?.toDouble() ??
+            0.0;
 
         if (qty == 0) {
           criticalCount++;
@@ -426,7 +377,7 @@ class LowStockProduct {
   final double sellingPrice;
   final String category;
   final String supplier;
-  final Timestamp? lastRestocked;
+  final DateTime? lastRestocked;
   final int minStockThreshold;
 
   LowStockProduct({
@@ -459,7 +410,7 @@ class LowStockProduct {
   /// Get formatted last restocked date
   String get formattedLastRestocked {
     if (lastRestocked == null) return 'Never';
-    final date = lastRestocked!.toDate();
+    final date = lastRestocked!;
     final now = DateTime.now();
     final difference = now.difference(date);
 

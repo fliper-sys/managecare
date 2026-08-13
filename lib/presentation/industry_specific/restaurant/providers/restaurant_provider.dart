@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../../../../providers/retail_provider.dart';
 import '../../../../services/business_notification_manager.dart';
 import '../../../../services/notification_and_email_service.dart';
+import '../../../../services/managecare_api_client.dart';
 
-// Helper to parse DateTime values from Firestore documents (strings, Timestamps, ints)
+// Helper to parse DateTime values from API responses (strings, ints)
 DateTime? _parseNullableDate(dynamic v) {
   if (v == null) return null;
   if (v is DateTime) return v;
   if (v is String) return DateTime.tryParse(v);
-  if (v is Timestamp) return v.toDate();
   if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
   return null;
 }
@@ -667,6 +666,7 @@ class RestaurantProvider extends ChangeNotifier {
       BusinessNotificationManager.instance;
   final NotificationAndEmailService _notificationLogger =
       NotificationAndEmailService();
+  final ManagecareApiClient _api = ManagecareApiClient.instance;
   // State
   List<MenuItem> _menuItems = [];
   List<RestaurantOrder> _orders = [];
@@ -805,24 +805,37 @@ class RestaurantProvider extends ChangeNotifier {
         order.status != 'cancelled';
   }
 
+  Map<String, dynamic> _tableRowToJson(Map<String, dynamic> row) => {
+        'id': row['id'],
+        'tableNumber': row['table_number'],
+        'capacity': row['capacity'],
+        'status': row['status'],
+        'assignedWaiterId': row['assigned_waiter_id'],
+        'assignedWaiterName': row['assigned_waiter_name'],
+        'reservedUntil': row['reserved_until'],
+      };
+
+  Map<String, dynamic> _tablePayload(TableInfo table) => {
+        'table_number': table.tableNumber,
+        'capacity': table.capacity,
+        'status': table.status,
+        'assigned_waiter_id': table.assignedWaiterId,
+        'assigned_waiter_name': table.assignedWaiterName,
+        'reserved_until': table.reservedUntil?.toIso8601String(),
+      };
+
   Future<void> _persistTableStatuses() async {
     await _persistTablesCache();
 
     if (_businessId.isEmpty) return;
-    final batch = FirebaseFirestore.instance.batch();
     for (final table in _tables) {
       if (table.id.isEmpty) continue;
-      final ref = FirebaseFirestore.instance.collection('tables').doc(table.id);
-      batch.set(
-        ref,
-        {
-          ...table.toJson(),
-          'businessId': _businessId,
-        },
-        SetOptions(merge: true),
-      );
+      try {
+        await _api.put('/api/restaurant/$_businessId/tables/${table.id}', body: _tablePayload(table));
+      } catch (e) {
+        debugPrint('[RestaurantProvider] _persistTableStatuses error for ${table.id}: $e');
+      }
     }
-    await batch.commit();
   }
 
   Future<void> _refreshDerivedTableStates() async {
@@ -920,6 +933,42 @@ class RestaurantProvider extends ChangeNotifier {
     }
   }
 
+  Map<String, dynamic> _menuRowToJson(Map<String, dynamic> row) => {
+        'id': row['id'],
+        'name': row['name'],
+        'category': row['category'],
+        'price': row['price'],
+        'cost': row['cost'],
+        'description': row['description'],
+        'available': row['available'],
+        'preparationTime': row['preparation_time'],
+        'imageUrl': row['image_url'],
+        'rating': row['rating'],
+        'reviewCount': row['review_count'],
+        'inventoryProductId': row['inventory_product_id'],
+        'inventoryStock': row['inventory_stock'],
+        'options': row['options'],
+        'ingredients': row['ingredients'],
+      };
+
+  Map<String, dynamic> _menuPayload(MenuItem item) => {
+        'id': item.id.isNotEmpty ? item.id : null,
+        'name': item.name,
+        'category': item.category,
+        'price': item.price,
+        'cost': item.cost,
+        'description': item.description,
+        'available': item.available,
+        'preparation_time': item.preparationTime,
+        'image_url': item.imageUrl,
+        'rating': item.rating,
+        'review_count': item.reviewCount,
+        'inventory_product_id': item.inventoryProductId,
+        'inventory_stock': item.inventoryStock,
+        'options': item.options.map((o) => o.toJson()).toList(),
+        'ingredients': item.ingredients.map((i) => i.toJson()).toList(),
+      };
+
   // Menu Management
   Future<void> initializeMenu({String? businessId}) async {
     _isLoading = true;
@@ -936,13 +985,9 @@ class RestaurantProvider extends ChangeNotifier {
           _menuItems = cached.map(MenuItem.fromJson).toList();
           notifyListeners();
         }
-        final snap = await FirebaseFirestore.instance
-            .collection('restaurant_menu')
-            .where('businessId', isEqualTo: bid)
-            .get();
-        final fetchedItems = snap.docs
-            .map((d) => MenuItem.fromJson({...d.data(), 'id': d.id}))
-            .toList();
+        final response = await _api.get('/api/restaurant/$bid/menu');
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        final fetchedItems = rows.map((r) => MenuItem.fromJson(_menuRowToJson(r))).toList();
         if (fetchedItems.isNotEmpty || !hadCachedItems) {
           _menuItems = fetchedItems;
         }
@@ -1006,10 +1051,8 @@ class RestaurantProvider extends ChangeNotifier {
 
   Future<void> addMenuItem(MenuItem item) async {
     if (_businessId.isNotEmpty) {
-      final data = item.toJson();
-      data['businessId'] = _businessId;
-      final docRef = await FirebaseFirestore.instance.collection('restaurant_menu').add(data);
-      final created = MenuItem.fromJson({...data, 'id': docRef.id});
+      final response = await _api.post('/api/restaurant/$_businessId/menu', body: _menuPayload(item));
+      final created = MenuItem.fromJson(_menuRowToJson(Map<String, dynamic>.from(response as Map)));
       _menuItems.add(created);
     } else {
       _menuItems.add(item);
@@ -1041,9 +1084,7 @@ class RestaurantProvider extends ChangeNotifier {
             )
           : updatedItem;
       if (_businessId.isNotEmpty) {
-        final data = itemToStore.toJson();
-        data['businessId'] = _businessId;
-        await FirebaseFirestore.instance.collection('restaurant_menu').doc(id).set(data, SetOptions(merge: true));
+        await _api.put('/api/restaurant/$_businessId/menu/$id', body: _menuPayload(itemToStore));
       }
       _menuItems[index] = itemToStore;
       await _persistMenuCache();
@@ -1054,7 +1095,7 @@ class RestaurantProvider extends ChangeNotifier {
   Future<void> deleteMenuItem(String id) async {
     _menuItems.removeWhere((item) => item.id == id);
     if (_businessId.isNotEmpty && id.isNotEmpty) {
-      await FirebaseFirestore.instance.collection('restaurant_menu').doc(id).delete();
+      await _api.delete('/api/restaurant/$_businessId/menu/$id');
     }
     await _persistMenuCache();
     notifyListeners();
@@ -1063,6 +1104,64 @@ class RestaurantProvider extends ChangeNotifier {
   List<MenuItem> getMenuByCategory(String category) {
     return _menuItems.where((item) => item.category == category).toList();
   }
+
+  Map<String, dynamic> _orderRowToJson(Map<String, dynamic> row) => {
+        'id': row['id'],
+        'businessId': row['business_id'],
+        'tableId': row['table_id'],
+        'tableNumber': row['table_number'],
+        'roomId': row['room_id'],
+        'guestId': row['guest_id'],
+        'orderTargetType': row['order_target_type'],
+        'orderTargetLabel': row['order_target_label'],
+        'customerId': row['customer_id'],
+        'customerName': row['customer_name'],
+        'customerPhone': row['customer_phone'],
+        'customerEmail': row['customer_email'],
+        'items': row['items'],
+        'subtotal': row['subtotal'],
+        'tax': row['tax'],
+        'discount': row['discount'],
+        'total': row['total'],
+        'status': row['status'],
+        'paymentStatus': row['payment_status'],
+        'assignedChefId': row['assigned_chef_id'],
+        'assignedWaiterId': row['assigned_waiter_id'],
+        'paymentMethods': row['payment_methods'],
+        'paymentBreakdown': row['payment_breakdown'],
+        'createdAt': row['created_at'],
+        'completedAt': row['completed_at'],
+        'notes': row['notes'],
+        'orderType': row['order_type'],
+      };
+
+  Map<String, dynamic> _orderPayload(RestaurantOrder order) => {
+        'id': order.id.isNotEmpty ? order.id : null,
+        'table_id': order.tableId,
+        'table_number': order.tableNumber,
+        'room_id': order.roomId,
+        'guest_id': order.guestId,
+        'order_target_type': order.orderTargetType,
+        'order_target_label': order.orderTargetLabel,
+        'customer_id': order.customerId,
+        'customer_name': order.customerName,
+        'customer_phone': order.customerPhone,
+        'customer_email': order.customerEmail,
+        'items': order.items.map((i) => i.toJson()).toList(),
+        'subtotal': order.subtotal,
+        'tax': order.tax,
+        'discount': order.discount,
+        'total': order.total,
+        'status': order.status,
+        'payment_status': order.paymentStatus,
+        'assigned_chef_id': order.assignedChefId,
+        'assigned_waiter_id': order.assignedWaiterId,
+        'payment_methods': order.paymentMethods,
+        'payment_breakdown': order.paymentBreakdown,
+        'notes': order.notes,
+        'order_type': order.orderType,
+        'completed_at': order.completedAt?.toIso8601String(),
+      };
 
   // Order Management
   Future<void> initializeOrders({String? businessId}) async {
@@ -1080,8 +1179,9 @@ class RestaurantProvider extends ChangeNotifier {
             ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
           notifyListeners();
         }
-        final snap = await FirebaseFirestore.instance.collection('restaurant_orders').where('businessId', isEqualTo: bid).get();
-        _orders = snap.docs.map((d) => RestaurantOrder.fromJson({...d.data(), 'id': d.id})).toList();
+        final response = await _api.get('/api/restaurant/$bid/orders');
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        _orders = rows.map((r) => RestaurantOrder.fromJson(_orderRowToJson(r))).toList();
         _orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
         await _persistOrdersCache();
         if (kDebugMode) print('[RestaurantProvider] initializeOrders: loaded ${_orders.length} orders for business $bid');
@@ -1102,22 +1202,14 @@ class RestaurantProvider extends ChangeNotifier {
     RestaurantOrder persistedOrder = order;
 
     if (_businessId.isNotEmpty) {
-      final data = order.toJson();
-      data['businessId'] = _businessId;
+      final response = await _api.post('/api/restaurant/$_businessId/orders', body: _orderPayload(order));
+      persistedOrder = RestaurantOrder.fromJson(_orderRowToJson(Map<String, dynamic>.from(response as Map)));
 
-      if (order.id.isEmpty) {
-        final docRef = await FirebaseFirestore.instance.collection('restaurant_orders').add(data);
-        persistedOrder = RestaurantOrder.fromJson({...data, 'id': docRef.id});
-        _orders.insert(0, persistedOrder);
+      final index = _orders.indexWhere((o) => o.id == persistedOrder.id);
+      if (index != -1) {
+        _orders[index] = persistedOrder;
       } else {
-        await FirebaseFirestore.instance.collection('restaurant_orders').doc(order.id).set(data, SetOptions(merge: true));
-        final index = _orders.indexWhere((o) => o.id == order.id);
-        if (index != -1) {
-          _orders[index] = order;
-        } else {
-          _orders.insert(0, order);
-        }
-        persistedOrder = order;
+        _orders.insert(0, persistedOrder);
       }
     } else {
       _orders.insert(0, order);
@@ -1182,11 +1274,11 @@ class RestaurantProvider extends ChangeNotifier {
       _orders[index] = updatedOrder;
 
       if (_businessId.isNotEmpty && order.id.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('restaurant_orders').doc(order.id).set({
+        await _api.put('/api/restaurant/$_businessId/orders/${order.id}', body: {
           'status': newStatus,
-          'completedAt': updatedOrder.completedAt?.toIso8601String(),
-          'paymentStatus': updatedOrder.paymentStatus,
-        }, SetOptions(merge: true));
+          'completed_at': updatedOrder.completedAt?.toIso8601String(),
+          'payment_status': updatedOrder.paymentStatus,
+        });
       }
 
       await _persistOrdersCache();
@@ -1272,16 +1364,13 @@ class RestaurantProvider extends ChangeNotifier {
     _orders[index] = updatedOrder;
 
     if (_businessId.isNotEmpty && order.id.isNotEmpty) {
-      await FirebaseFirestore.instance
-          .collection('restaurant_orders')
-          .doc(order.id)
-          .set({
-        'paymentStatus': updatedOrder.paymentStatus,
+      await _api.put('/api/restaurant/$_businessId/orders/${order.id}', body: {
+        'payment_status': updatedOrder.paymentStatus,
         'status': updatedOrder.status,
-        'paymentMethods': updatedOrder.paymentMethods,
-        'paymentBreakdown': updatedOrder.paymentBreakdown,
-        'completedAt': updatedOrder.completedAt?.toIso8601String(),
-      }, SetOptions(merge: true));
+        'payment_methods': updatedOrder.paymentMethods,
+        'payment_breakdown': updatedOrder.paymentBreakdown,
+        'completed_at': updatedOrder.completedAt?.toIso8601String(),
+      });
     }
 
     await _persistOrdersCache();
@@ -1336,8 +1425,9 @@ class RestaurantProvider extends ChangeNotifier {
             ..sort((a, b) => a.tableNumber.compareTo(b.tableNumber));
           notifyListeners();
         }
-        final snap = await FirebaseFirestore.instance.collection('tables').where('businessId', isEqualTo: bid).get();
-        _tables = snap.docs.map((d) => TableInfo.fromJson({...d.data(), 'id': d.id})).toList();
+        final response = await _api.get('/api/restaurant/$bid/tables');
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        _tables = rows.map((r) => TableInfo.fromJson(_tableRowToJson(r))).toList();
         _tables.sort((a, b) => a.tableNumber.compareTo(b.tableNumber));
         await _persistTablesCache();
         if (kDebugMode) print('[RestaurantProvider] initializeTables: loaded ${_tables.length} tables for business $bid');
@@ -1396,10 +1486,8 @@ class RestaurantProvider extends ChangeNotifier {
 
   Future<void> addTable(TableInfo table) async {
     if (_businessId.isNotEmpty) {
-      final data = table.toJson();
-      data['businessId'] = _businessId;
-      final docRef = await FirebaseFirestore.instance.collection('tables').add(data);
-      final created = TableInfo.fromJson({...data, 'id': docRef.id});
+      final response = await _api.post('/api/restaurant/$_businessId/tables', body: _tablePayload(table));
+      final created = TableInfo.fromJson(_tableRowToJson(Map<String, dynamic>.from(response as Map)));
       _tables.add(created);
     } else {
       _tables.add(table);
@@ -1412,9 +1500,7 @@ class RestaurantProvider extends ChangeNotifier {
     final index = _tables.indexWhere((t) => t.id == table.id);
     if (index != -1) {
       if (_businessId.isNotEmpty && table.id.isNotEmpty) {
-        final data = table.toJson();
-        data['businessId'] = _businessId;
-        await FirebaseFirestore.instance.collection('tables').doc(table.id).set(data, SetOptions(merge: true));
+        await _api.put('/api/restaurant/$_businessId/tables/${table.id}', body: _tablePayload(table));
       }
       _tables[index] = table;
       await _persistTablesCache();
@@ -1425,7 +1511,7 @@ class RestaurantProvider extends ChangeNotifier {
   Future<void> deleteTable(String id) async {
     _tables.removeWhere((t) => t.id == id);
     if (_businessId.isNotEmpty && id.isNotEmpty) {
-      await FirebaseFirestore.instance.collection('tables').doc(id).delete();
+      await _api.delete('/api/restaurant/$_businessId/tables/$id');
     }
     await _persistTablesCache();
     notifyListeners();
@@ -1453,8 +1539,9 @@ class RestaurantProvider extends ChangeNotifier {
             );
           notifyListeners();
         }
-        final snap = await FirebaseFirestore.instance.collection('restaurant_reservations').where('businessId', isEqualTo: bid).get();
-        _reservations = snap.docs.map((d) => Reservation.fromJson({...d.data(), 'id': d.id})).toList();
+        final response = await _api.get('/api/restaurant/$bid/reservations');
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        _reservations = rows.map((r) => Reservation.fromJson(_reservationRowToJson(r))).toList();
         _reservations.sort(
           (a, b) => a.reservationDateTime.compareTo(b.reservationDateTime),
         );
@@ -1471,12 +1558,40 @@ class RestaurantProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Map<String, dynamic> _reservationRowToJson(Map<String, dynamic> row) => {
+        'id': row['id'],
+        'businessId': row['business_id'],
+        'customerName': row['customer_name'],
+        'customerPhone': row['customer_phone'],
+        'guestCount': row['guest_count'],
+        'reservationDateTime': row['reservation_date_time'],
+        'status': row['status'],
+        'specialRequests': row['special_requests'],
+        'tableId': row['table_id'],
+        'tableNumber': row['table_number'],
+        'assignedWaiterId': row['assigned_waiter_id'],
+        'assignedWaiterName': row['assigned_waiter_name'],
+        'createdAt': row['created_at'],
+      };
+
+  Map<String, dynamic> _reservationPayload(Reservation reservation) => {
+        'id': reservation.id.isNotEmpty ? reservation.id : null,
+        'customer_name': reservation.customerName,
+        'customer_phone': reservation.customerPhone,
+        'guest_count': reservation.guestCount,
+        'reservation_date_time': reservation.reservationDateTime.toIso8601String(),
+        'status': reservation.status,
+        'special_requests': reservation.specialRequests,
+        'table_id': reservation.tableId,
+        'table_number': reservation.tableNumber,
+        'assigned_waiter_id': reservation.assignedWaiterId,
+        'assigned_waiter_name': reservation.assignedWaiterName,
+      };
+
   Future<void> createReservation(Reservation reservation) async {
     if (_businessId.isNotEmpty) {
-      final data = reservation.toJson();
-      data['businessId'] = _businessId;
-      final docRef = await FirebaseFirestore.instance.collection('restaurant_reservations').add(data);
-      final created = Reservation.fromJson({...data, 'id': docRef.id});
+      final response = await _api.post('/api/restaurant/$_businessId/reservations', body: _reservationPayload(reservation));
+      final created = Reservation.fromJson(_reservationRowToJson(Map<String, dynamic>.from(response as Map)));
       _reservations.add(created);
       // mark table reserved if provided
       if (created.tableId != null && created.tableId!.isNotEmpty) {
@@ -1524,7 +1639,7 @@ class RestaurantProvider extends ChangeNotifier {
       _reservations[index] = updated;
 
       if (_businessId.isNotEmpty && reservation.id.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('restaurant_reservations').doc(reservation.id).set({'status': newStatus}, SetOptions(merge: true));
+        await _api.put('/api/restaurant/$_businessId/reservations/${reservation.id}', body: {'status': newStatus});
       }
 
       // if confirmed, mark table reserved
@@ -1560,6 +1675,26 @@ class RestaurantProvider extends ChangeNotifier {
         .toList();
   }
 
+  Map<String, dynamic> _serverRowToJson(Map<String, dynamic> row) => {
+        'id': row['id'],
+        'name': row['name'],
+        'phone': row['phone'],
+        'role': row['role'],
+        'active': row['active'],
+        'sections': row['sections'],
+        'permissions': row['permissions'],
+      };
+
+  Map<String, dynamic> _serverPayload(Server server) => {
+        'id': server.id.isNotEmpty ? server.id : null,
+        'name': server.name,
+        'phone': server.phone,
+        'role': server.role,
+        'active': server.active,
+        'sections': server.sections,
+        'permissions': server.permissions,
+      };
+
   // Servers / Staff Management
   Future<void> initializeServers({String? businessId}) async {
     _isLoading = true;
@@ -1575,8 +1710,9 @@ class RestaurantProvider extends ChangeNotifier {
           _servers = cached.map(Server.fromJson).toList();
           notifyListeners();
         }
-        final snap = await FirebaseFirestore.instance.collection('restaurant_staff').where('businessId', isEqualTo: bid).get();
-        _servers = snap.docs.map((d) => Server.fromJson({...d.data(), 'id': d.id})).toList();
+        final response = await _api.get('/api/restaurant/$bid/staff');
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        _servers = rows.map((r) => Server.fromJson(_serverRowToJson(r))).toList();
         await _persistServersCache();
       } else {
         _servers = [];
@@ -1591,10 +1727,8 @@ class RestaurantProvider extends ChangeNotifier {
 
   Future<void> addServer(Server server) async {
     if (_businessId.isNotEmpty) {
-      final data = server.toJson();
-      data['businessId'] = _businessId;
-      final docRef = await FirebaseFirestore.instance.collection('restaurant_staff').add(data);
-      final created = Server.fromJson({...data, 'id': docRef.id});
+      final response = await _api.post('/api/restaurant/$_businessId/staff', body: _serverPayload(server));
+      final created = Server.fromJson(_serverRowToJson(Map<String, dynamic>.from(response as Map)));
       _servers.add(created);
     } else {
       _servers.add(server);
@@ -1607,9 +1741,7 @@ class RestaurantProvider extends ChangeNotifier {
     final index = _servers.indexWhere((s) => s.id == server.id);
     if (index != -1) {
       if (_businessId.isNotEmpty && server.id.isNotEmpty) {
-        final data = server.toJson();
-        data['businessId'] = _businessId;
-        await FirebaseFirestore.instance.collection('restaurant_staff').doc(server.id).set(data, SetOptions(merge: true));
+        await _api.put('/api/restaurant/$_businessId/staff/${server.id}', body: _serverPayload(server));
       }
       _servers[index] = server;
       await _persistServersCache();
@@ -1620,7 +1752,7 @@ class RestaurantProvider extends ChangeNotifier {
   Future<void> deleteServer(String id) async {
     _servers.removeWhere((s) => s.id == id);
     if (_businessId.isNotEmpty && id.isNotEmpty) {
-      await FirebaseFirestore.instance.collection('restaurant_staff').doc(id).delete();
+      await _api.delete('/api/restaurant/$_businessId/staff/$id');
     }
     await _persistServersCache();
     notifyListeners();
@@ -1642,18 +1774,10 @@ class RestaurantProvider extends ChangeNotifier {
           notifyListeners();
         }
 
-        final snap = await FirebaseFirestore.instance
-            .collection('businesses')
-            .doc(bid)
-            .collection('restaurant_waste')
-            .get();
-        _wasteRecords = snap.docs
-            .map(
-              (doc) => RestaurantWasteRecord.fromJson({
-                ...doc.data(),
-                'id': doc.id,
-              }),
-            )
+        final response = await _api.get('/api/restaurant/$bid/waste');
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        _wasteRecords = rows
+            .map((r) => RestaurantWasteRecord.fromJson(_wasteRowToJson(r)))
             .toList()
           ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
         await _persistWasteCache();
@@ -1668,6 +1792,25 @@ class RestaurantProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Map<String, dynamic> _wasteRowToJson(Map<String, dynamic> row) => {
+        'id': row['id'],
+        'businessId': row['business_id'],
+        'productId': row['product_id'],
+        'productName': row['product_name'],
+        'quantity': row['quantity'],
+        'unit': row['unit'],
+        'type': row['type'],
+        'reason': row['reason'],
+        'costImpact': row['cost_impact'],
+        'remainingQuantity': row['remaining_quantity'],
+        'recordedAt': row['recorded_at'],
+        'recordedById': row['recorded_by_id'],
+        'recordedByName': row['recorded_by_name'],
+      };
+
+  /// Records waste and atomically deducts the corresponding inventory
+  /// quantity server-side (same transaction pattern as the resupply/returns
+  /// routes other verticals use) - see POST /api/restaurant/:businessId/waste.
   Future<RestaurantWasteRecord> recordWaste({
     required String productId,
     required String productName,
@@ -1685,83 +1828,17 @@ class RestaurantProvider extends ChangeNotifier {
       throw Exception('Waste quantity must be greater than zero.');
     }
 
-    final inventoryRef = FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('inventory')
-        .doc(productId);
-    final wasteRef = FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('restaurant_waste')
-        .doc();
-
-    late RestaurantWasteRecord record;
-
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      final inventorySnap = await transaction.get(inventoryRef);
-      if (!inventorySnap.exists) {
-        throw Exception('Inventory item not found.');
-      }
-
-      final data = inventorySnap.data() ?? <String, dynamic>{};
-      final currentQuantity =
-          (data['quantity'] as num?)?.toDouble() ??
-              (data['stock'] as num?)?.toDouble() ??
-              0.0;
-      final currentCost = (data['cost'] as num?)?.toDouble() ?? 0.0;
-      if (currentQuantity < quantity) {
-        throw Exception('Not enough stock available to record this waste.');
-      }
-
-      final remainingQuantity = currentQuantity - quantity;
-      final now = DateTime.now();
-      record = RestaurantWasteRecord(
-        id: wasteRef.id,
-        businessId: _businessId,
-        productId: productId,
-        productName: productName,
-        quantity: quantity,
-        unit: unit,
-        type: type,
-        reason: reason,
-        costImpact: currentCost * quantity,
-        remainingQuantity: remainingQuantity,
-        recordedAt: now,
-        recordedById: recordedById,
-        recordedByName: recordedByName,
-      );
-
-      transaction.set(
-        inventoryRef,
-        {
-          'quantity': remainingQuantity,
-          'stock': remainingQuantity,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-      transaction.set(
-        wasteRef,
-        {
-          ...record.toJson(),
-          'recordedAt': FieldValue.serverTimestamp(),
-        },
-      );
-      transaction.set(
-        inventoryRef.collection('history').doc(),
-        {
-          'type': 'restaurant_waste',
-          'action': type,
-          'quantity': quantity,
-          'remainingQuantity': remainingQuantity,
-          'reason': reason,
-          'createdAt': FieldValue.serverTimestamp(),
-          'recordedById': recordedById,
-          'recordedByName': recordedByName,
-        },
-      );
+    final response = await _api.post('/api/restaurant/$_businessId/waste', body: {
+      'product_id': productId,
+      'product_name': productName,
+      'quantity': quantity,
+      'unit': unit,
+      'type': type,
+      'reason': reason,
+      'recorded_by_id': recordedById,
+      'recorded_by_name': recordedByName,
     });
+    final record = RestaurantWasteRecord.fromJson(_wasteRowToJson(Map<String, dynamic>.from(response as Map)));
 
     _wasteRecords = [record, ..._wasteRecords]
       ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));

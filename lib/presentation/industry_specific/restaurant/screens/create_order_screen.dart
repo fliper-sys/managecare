@@ -13,15 +13,13 @@ import '../../../../widgets/custom_button.dart';
 import '../providers/restaurant_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/auth_provider.dart';
-import '../../../../providers/connectivity_provider.dart';
 import '../../../../providers/hotel_provider.dart' as hotel;
 import '../../../../providers/retail_provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/utils/currency.dart';
 import '../../../../core/utils/connectivity_helper.dart';
 import '../../../../data/local/database_helper.dart';
-import '../../../../data/repositories/sales_repository_impl.dart';
-import '../../../../services/offline_sales_service.dart';
+import '../../../../data/repositories/sales_repository_supabase.dart';
 import '../../../../services/sync_service.dart';
 import '../../../../services/payment_service.dart';
 import '../../../../services/receipt_manager.dart';
@@ -734,7 +732,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           'category': 'Restaurant',
           if (order.customerName != null) 'customerName': order.customerName,
           if (order.customerEmail != null) 'customerEmail': order.customerEmail,
-          'createdAt': FieldValue.serverTimestamp(),
+          'createdAt': DateTime.now().toIso8601String(),
           if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
           if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
           if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
@@ -756,16 +754,31 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           isOfflineSale = true;
         } else {
           try {
-            final firestore = FirebaseFirestore.instance;
-            final docRef = await firestore
-                .collection('businesses')
-                .doc(order.businessId)
-                .collection('sales')
-                .add(saleData);
-            await docRef.update({'saleId': docRef.id});
-            saleId = docRef.id;
+            final created = await SalesRepositorySupabase().createSale({
+              'businessId': order.businessId,
+              'customer_id': null,
+              'store_id': saleData['storeId'],
+              'worker_id': saleData['workerId'],
+              'worker_name': saleData['workerName'],
+              'total_amount': order.subtotal,
+              'discount_amount': order.discount,
+              'tax_amount': order.tax,
+              'final_amount': order.total,
+              'payment_method': saleData['paymentMethod'],
+              'status': 'completed',
+              'sale_type': 'restaurant',
+              'items': itemsList.map((it) => {
+                    'product_id': it['menuItemId'],
+                    'product_name': it['menuItemName'],
+                    'quantity': it['quantity'],
+                    'unit_price': it['unitPrice'],
+                    'discount': 0,
+                    'total': it['total'],
+                  }).toList(),
+            });
+            saleId = (created is Map ? created['id']?.toString() : null) ?? '';
           } catch (e) {
-            debugPrint('[CreateOrderScreen] Firestore write failed, saving locally: $e');
+            debugPrint('[CreateOrderScreen] Remote sale write failed, saving locally: $e');
             saleId = await _saveRestaurantSaleOffline(saleData);
             isOfflineSale = true;
           }
@@ -948,14 +961,6 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         orderTargetLabel: _resolveOrderTargetLabel(),
       );
 
-      final firestore = FirebaseFirestore.instance;
-      final connectivityProvider = Provider.of<ConnectivityProvider>(context, listen: false);
-      final salesRepository = SalesRepositoryImpl(firestore: firestore);
-      final offlineSalesService = OfflineSalesService(
-        salesRepository: salesRepository,
-        connectivityProvider: connectivityProvider,
-      );
-
       final saleData = {
         'businessId': businessId,
         'orderId': order.id,
@@ -985,15 +990,43 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
       };
 
-      final result = await offlineSalesService.createSale(saleData);
-
-      if (!result['success']) {
-        throw Exception(result['error'] ?? 'Failed to save sale');
+      final hasNetwork = await ConnectivityHelper.hasInternetConnection();
+      String saleId;
+      bool isOffline;
+      if (!hasNetwork) {
+        saleId = await _saveRestaurantSaleOffline(saleData);
+        isOffline = true;
+      } else {
+        try {
+          final created = await SalesRepositorySupabase().createSale({
+            'businessId': businessId,
+            'store_id': saleData['storeId'],
+            'worker_id': saleData['workerId'],
+            'worker_name': saleData['workerName'],
+            'total_amount': _subtotal,
+            'discount_amount': _discount,
+            'tax_amount': tax,
+            'final_amount': total,
+            'payment_method': 'confirmed',
+            'status': 'completed',
+            'sale_type': 'restaurant',
+            'items': itemsList.map((it) => {
+                  'product_id': it['menuItemId'],
+                  'product_name': it['menuItemName'],
+                  'quantity': it['quantity'],
+                  'unit_price': it['unitPrice'],
+                  'discount': 0,
+                  'total': it['total'],
+                }).toList(),
+          });
+          saleId = (created is Map ? created['id']?.toString() : null) ?? '';
+          isOffline = false;
+        } catch (e) {
+          debugPrint('[CreateOrderScreen] Remote sale write failed, saving locally: $e');
+          saleId = await _saveRestaurantSaleOffline(saleData);
+          isOffline = true;
+        }
       }
-
-      final saleResult = result['data'] as Map<String, dynamic>;
-      final saleId = saleResult['id'].toString();
-      final isOffline = result['mode'] == 'offline';
 
       final receiptNumber = 'RCPT-${_safeIdSuffix(saleId)}';
 
@@ -1014,8 +1047,13 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         String ownerEmail = business?.email ?? '';
         if (ownerEmail.isEmpty && business?.ownerId != null && business!.ownerId.isNotEmpty) {
           try {
-            final ownerDoc = await firestore.collection('users').doc(business.ownerId).get();
-            ownerEmail = ownerDoc.exists ? (ownerDoc.data()?['email'] as String? ?? '') : '';
+            final ownerProfile = await Supabase.instance.client
+                    .from('profiles')
+                    .select('email')
+                    .eq('id', business.ownerId as Object)
+                    .maybeSingle() ??
+                <String, dynamic>{};
+            ownerEmail = (ownerProfile['email'] as String?) ?? '';
           } catch (e) {
             debugPrint('[RestaurantPOS] Failed to fetch owner email: $e');
           }

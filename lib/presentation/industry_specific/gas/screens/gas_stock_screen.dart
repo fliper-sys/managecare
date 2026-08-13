@@ -180,6 +180,15 @@ class _GasStockScreenState extends State<GasStockScreen> {
                           value: 'cyl',
                           child: Text('Cylinder'),
                         ),
+                        DropdownMenuItem(
+                          value: 'gal',
+                          child: Text('Gallons (gal)'),
+                        ),
+                        DropdownMenuItem(value: 'drum', child: Text('Drum')),
+                        DropdownMenuItem(
+                          value: 'kg',
+                          child: Text('Kilogram (kg)'),
+                        ),
                       ],
                       onChanged: (value) {
                         if (value != null) {

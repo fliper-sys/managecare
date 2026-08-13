@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 enum BookingStatus { pending, confirmed, checkedIn, checkedOut, cancelled }
 enum PaymentStatus { none, pending, paid, failed }
 
@@ -97,50 +95,64 @@ class Booking {
     this.reminderSentFlags,
   }) : createdAt = createdAt ?? DateTime.now();
 
-  factory Booking.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
-
+  factory Booking.fromMap(Map<String, dynamic> data) {
     return Booking(
-      id: doc.id,
-      unitId: data['unitId'] ?? '',
-      apartmentId: data['apartmentId'] ?? '',
-      tenantId: data['tenantId'] ?? '',
-      checkInDate: _parseDate(data['checkInDate']) ?? DateTime.now(),
-      checkOutDate: _parseDate(data['checkOutDate']) ?? DateTime.now(),
-      nights: (data['nights'] ?? 0) as int,
-      guests: (data['guests'] ?? 1) as int,
+      id: data['id']?.toString() ?? '',
+      unitId: data['unitId'] ?? data['unit_id'] ?? '',
+      apartmentId: data['apartmentId'] ?? data['apartment_id'] ?? '',
+      tenantId: data['tenantId'] ?? data['tenant_id'] ?? '',
+      checkInDate:
+          _parseDate(data['checkInDate'] ?? data['check_in_date']) ??
+              DateTime.now(),
+      checkOutDate:
+          _parseDate(data['checkOutDate'] ?? data['check_out_date']) ??
+              DateTime.now(),
+      nights: _readInt(data['nights']),
+      guests: _readInt(data['guests'], fallback: 1),
       status: _bookingStatusFromString(data['status'] ?? 'pending'),
-      createdAt: _parseDate(data['createdAt']) ?? DateTime.now(),
-      updatedAt: _parseDate(data['updatedAt']),
-      subtotal: (data['subtotal'] ?? 0.0).toDouble(),
-      depositAmount: (data['depositAmount'] ?? 0.0).toDouble(),
-      discount: (data['discount'] ?? 0.0).toDouble(),
-      total: (data['total'] ?? 0.0).toDouble(),
-      currency: data['currency'] ?? '₦',
-      paymentStatus: _paymentStatusFromString(data['paymentStatus'] ?? 'none'),
-      paymentMethod: data['paymentMethod'],
-      providerTransactionId: data['providerTransactionId'],
-      paidAt: _parseDate(data['paidAt']),
-      policySnapshot: PolicySnapshot.fromMap(data['policySnapshot'] ?? {}),
-      receiptUrl: data['receiptUrl'],
-      receiptPdfPath: data['receiptPdfPath'],
-      nextReminderAt: _parseDate(data['nextReminderAt']),
-      reminderSentFlags: (data['reminderSentFlags'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v as bool)),
+      createdAt:
+          _parseDate(data['createdAt'] ?? data['created_at']) ?? DateTime.now(),
+      updatedAt: _parseDate(data['updatedAt'] ?? data['updated_at']),
+      subtotal: _readDouble(data['subtotal']),
+      depositAmount: _readDouble(data['depositAmount'] ?? data['deposit_amount']),
+      discount: _readDouble(data['discount']),
+      total: _readDouble(data['total']),
+      currency: data['currency'] ?? 'â‚¦',
+      paymentStatus: _paymentStatusFromString(
+        data['paymentStatus'] ?? data['payment_status'] ?? 'none',
+      ),
+      paymentMethod: data['paymentMethod'] ?? data['payment_method'],
+      providerTransactionId:
+          data['providerTransactionId'] ?? data['provider_transaction_id'],
+      paidAt: _parseDate(data['paidAt'] ?? data['paid_at']),
+      policySnapshot: PolicySnapshot.fromMap(
+        data['policySnapshot'] ?? data['policy_snapshot'] ?? {},
+      ),
+      receiptUrl: data['receiptUrl'] ?? data['receipt_url'],
+      receiptPdfPath: data['receiptPdfPath'] ?? data['receipt_pdf_path'],
+      nextReminderAt:
+          _parseDate(data['nextReminderAt'] ?? data['next_reminder_at']),
+      reminderSentFlags:
+          (data['reminderSentFlags'] ?? data['reminder_sent_flags']) is Map
+              ? Map<String, bool>.from(
+                  data['reminderSentFlags'] ?? data['reminder_sent_flags'],
+                )
+              : null,
     );
   }
 
-  Map<String, dynamic> toFirestore() {
+  Map<String, dynamic> toApi() {
     return {
       'unitId': unitId,
       'apartmentId': apartmentId,
       'tenantId': tenantId,
-      'checkInDate': Timestamp.fromDate(checkInDate.toUtc()),
-      'checkOutDate': Timestamp.fromDate(checkOutDate.toUtc()),
+      'checkInDate': checkInDate.toUtc().toIso8601String(),
+      'checkOutDate': checkOutDate.toUtc().toIso8601String(),
       'nights': nights,
       'guests': guests,
       'status': status.toString().split('.').last,
-      'createdAt': Timestamp.fromDate(createdAt.toUtc()),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!.toUtc()) : FieldValue.serverTimestamp(),
+      'createdAt': createdAt.toUtc().toIso8601String(),
+      'updatedAt': updatedAt?.toUtc().toIso8601String(),
       'subtotal': subtotal,
       'depositAmount': depositAmount,
       'discount': discount,
@@ -149,22 +161,33 @@ class Booking {
       'paymentStatus': paymentStatus.toString().split('.').last,
       'paymentMethod': paymentMethod,
       'providerTransactionId': providerTransactionId,
-      'paidAt': paidAt != null ? Timestamp.fromDate(paidAt!.toUtc()) : null,
+      'paidAt': paidAt?.toUtc().toIso8601String(),
       'policySnapshot': policySnapshot.toMap(),
       'receiptUrl': receiptUrl,
       'receiptPdfPath': receiptPdfPath,
-      'nextReminderAt': nextReminderAt != null ? Timestamp.fromDate(nextReminderAt!.toUtc()) : null,
+      'nextReminderAt': nextReminderAt?.toUtc().toIso8601String(),
       'reminderSentFlags': reminderSentFlags,
     };
   }
 
   static DateTime? _parseDate(dynamic v) {
     if (v == null) return null;
-    if (v is Timestamp) return v.toDate();
     if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
     if (v is String) return DateTime.tryParse(v);
     if (v is DateTime) return v;
     return null;
+  }
+
+  static int _readInt(dynamic value, {int fallback = 0}) {
+    if (value is num) return value.toInt();
+    if (value == null) return fallback;
+    return int.tryParse(value.toString()) ?? fallback;
+  }
+
+  static double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value == null) return 0;
+    return double.tryParse(value.toString().replaceAll(',', '').trim()) ?? 0;
   }
 
   static BookingStatus _bookingStatusFromString(String s) {

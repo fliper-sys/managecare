@@ -1,12 +1,12 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/routes.dart';
 import '../../../core/theme/colors.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../services/managecare_api_client.dart';
 import '../../../services/subscription_service.dart';
 import 'worker_business_assignment_screen.dart';
 
@@ -36,7 +36,8 @@ class SubscriptionStatusScreen extends StatefulWidget {
 }
 
 class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
-  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _statusListener;
+  StreamSubscription<Map<String, dynamic>?>? _statusListener;
+  static const _pollInterval = Duration(seconds: 5);
   bool _subscriptionApproved = false;
   bool _checkingStatus = true;
   String _statusMessage = 'Checking subscription status...';
@@ -81,6 +82,19 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
     return null;
   }
 
+  Stream<Map<String, dynamic>?> _pollBusiness(String businessId) async* {
+    while (true) {
+      try {
+        final response =
+            await ManagecareApiClient.instance.get('/api/subscriptions/business/$businessId');
+        yield Map<String, dynamic>.from(response as Map);
+      } catch (_) {
+        yield null;
+      }
+      await Future.delayed(_pollInterval);
+    }
+  }
+
   Future<void> _startListening() async {
     final businessId = _resolveBusinessId();
     if (businessId == null || businessId.isEmpty) {
@@ -96,13 +110,9 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
 
     _resolvedBusinessId = businessId;
     await _statusListener?.cancel();
-    _statusListener = FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(businessId)
-        .snapshots()
-        .listen(
-      (snapshot) {
-        if (!snapshot.exists) {
+    _statusListener = _pollBusiness(businessId).listen(
+      (data) {
+        if (data == null) {
           if (!mounted) return;
           setState(() {
             _checkingStatus = false;
@@ -112,12 +122,11 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
           return;
         }
 
-        final data = snapshot.data() ?? <String, dynamic>{};
         final reviewStatus =
-            (data['subscriptionReviewStatus'] ?? data['subscriptionStatus'])
+            (data['subscription_review_status'] ?? data['subscription_status'])
                 ?.toString()
                 .toLowerCase();
-        final isActive = data['isSubscriptionActive'] as bool? ?? false;
+        final isActive = data['is_subscription_active'] as bool? ?? false;
 
         if (!mounted) return;
 
@@ -186,9 +195,7 @@ class _SubscriptionStatusScreenState extends State<SubscriptionStatusScreen> {
       _statusMessage = 'Checking subscription status...';
     });
 
-    await SubscriptionService(
-      firestore: FirebaseFirestore.instance,
-    ).validateAndUpdateBusinessSubscriptionStatus(
+    await SubscriptionService().validateAndUpdateBusinessSubscriptionStatus(
       businessId,
       userId: widget.userId,
     );

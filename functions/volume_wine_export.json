@@ -1,0 +1,2524 @@
+{
+  "exportedAt": "2026-08-02T14:55:44.973Z",
+  "matches": [
+    {
+      "business": {
+        "firestoreId": "bus_1779823912466",
+        "country": null,
+        "city": "JOS",
+        "postalCode": null,
+        "description": null,
+        "ownerId": "cz4mOgini2dHoi4YWlr2kGWzJVp2",
+        "isActive": true,
+        "photoUrl": null,
+        "createdAt": {
+          "_seconds": 1779823912,
+          "_nanoseconds": 466910000
+        },
+        "industrySpecificSettings": {
+          "sizeMetrics": {
+            "staff": 0,
+            "products": 60,
+            "monthlyIncome": 0
+          }
+        },
+        "currency": "NGN",
+        "state": "plateau state",
+        "subscriptionTier": "tier1",
+        "email": "VOLUMEB838@GMAIL.COM",
+        "website": null,
+        "address": "yingi rayfield road,jos south L.G.A",
+        "businessClass": "tier1",
+        "logoUrl": null,
+        "taxRate": 0,
+        "referralEmail": null,
+        "taxId": null,
+        "name": "VOLUME B",
+        "location": null,
+        "businessType": "retail",
+        "settings": {
+          "receipt": {
+            "headerNote": null,
+            "invoicePrefix": "INV-",
+            "paperWidth": 58,
+            "businessId": "bus_1779823912466",
+            "footerMessage": null,
+            "enableEmailReceipts": true,
+            "showQrCode": false,
+            "updatedAt": "2026-05-26T20:31:56.866581"
+          }
+        },
+        "totalCustomers": 0,
+        "subscriptionFamily": "standard",
+        "subscriptionSyncedAt": "2026-05-28T08:11:37.723",
+        "subscriptionReceiptUrl": "kora:ksub_cz4mOgini2_mppmpx48",
+        "subscriptionBusinessType": "retail",
+        "subscriptionEndDate": "2026-08-26T08:11:35.630",
+        "subscriptionPlan": "standard_tier1_3m",
+        "subscriptionAmount": 23750,
+        "subscriptionStatus": "approved",
+        "isSubscriptionActive": true,
+        "subscriptionReviewStatus": "approved",
+        "subscriptionStartDate": "2026-05-28T08:11:35.630",
+        "lastSkuNumber": 66,
+        "totalProducts": 66,
+        "ownerName": "",
+        "totalWorkers": 2,
+        "phone": "2348034568062",
+        "updatedAt": {
+          "_seconds": 1785475864,
+          "_nanoseconds": 214000000
+        }
+      },
+      "owner": {
+        "uid": "cz4mOgini2dHoi4YWlr2kGWzJVp2",
+        "email": "volumeb838@gmail.com",
+        "phoneNumber": null,
+        "displayName": "mr. jerry",
+        "disabled": false,
+        "creationTime": "Tue, 26 May 2026 19:29:04 GMT",
+        "lastSignInTime": "Fri, 31 Jul 2026 20:35:29 GMT"
+      },
+      "inventoryCount": 66,
+      "inventory": [
+        {
+          "firestoreId": "0P7mCoemtJl7xdiOxbRv",
+          "cost": 7200,
+          "quantity": 6,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005547,
+            "_nanoseconds": 220000000
+          },
+          "unit": "pcs",
+          "price": 10000,
+          "name": "nebrass",
+          "sku": "SKU-00042",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005547,
+            "_nanoseconds": 220000000
+          }
+        },
+        {
+          "firestoreId": "0Pv3R7hucDc2qDkHBQEb",
+          "cost": 6000,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004093,
+            "_nanoseconds": 188000000
+          },
+          "unit": "pcs",
+          "price": 9000,
+          "name": "9pm 50ml",
+          "sku": "SKU-00013",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "quantity": 5,
+          "stock": 5,
+          "updatedAt": {
+            "_seconds": 1782915305,
+            "_nanoseconds": 35000000
+          }
+        },
+        {
+          "firestoreId": "1lusSn3LGGnsT3Xxv3I0",
+          "cost": 7000,
+          "quantity": 5,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005247,
+            "_nanoseconds": 309000000
+          },
+          "unit": "pcs",
+          "price": 9500,
+          "name": "kaly",
+          "sku": "SKU-00035",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005247,
+            "_nanoseconds": 309000000
+          }
+        },
+        {
+          "firestoreId": "2Xi6jDgCLOR1XF6zk8IF",
+          "cost": 2375,
+          "quantity": 12,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780003952,
+            "_nanoseconds": 337000000
+          },
+          "unit": "pcs",
+          "price": 3000,
+          "name": "suger body spray",
+          "sku": "SKU-00011",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780003952,
+            "_nanoseconds": 337000000
+          }
+        },
+        {
+          "firestoreId": "2kJFUpFtbJqPDAgNo2uk",
+          "cost": 12000,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780006168,
+            "_nanoseconds": 403000000
+          },
+          "unit": "pcs",
+          "price": 15000,
+          "name": "50ml oil perfumes",
+          "sku": "SKU-00059",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "quantity": 20,
+          "stock": 20,
+          "updatedAt": {
+            "_seconds": 1783161920,
+            "_nanoseconds": 128000000
+          }
+        },
+        {
+          "firestoreId": "2xn7UqfdHObu4lVSupAD",
+          "cost": 3083,
+          "quantity": 4,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004991,
+            "_nanoseconds": 629000000
+          },
+          "unit": "pcs",
+          "price": 3500,
+          "name": "imperior prive 25ml",
+          "sku": "SKU-00032",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004991,
+            "_nanoseconds": 629000000
+          }
+        },
+        {
+          "firestoreId": "44X7rUcK7b7R1lqkPzb3",
+          "businessId": "bus_1779823912466",
+          "name": "Betres",
+          "sku": "SKU-00001",
+          "barcode": "6936829066412",
+          "description": "",
+          "category": "Cosmetics",
+          "price": 3500,
+          "cost": 2920,
+          "unit": "pcs",
+          "minStock": 10,
+          "trackExpiry": false,
+          "expiryDate": null,
+          "emoji": "📦",
+          "createdAt": {
+            "_seconds": 1779981518,
+            "_nanoseconds": 608000000
+          },
+          "unitPrice": 3500,
+          "reorderLevel": 10,
+          "sellingPrice": 3500,
+          "saleUnitMultiplier": 1,
+          "imageUrl": "",
+          "costPrice": 2920,
+          "batchLabel": "",
+          "wholesalePrice": 0,
+          "saleUnit": "pc",
+          "quantity": 8,
+          "stock": 8,
+          "updatedAt": {
+            "_seconds": 1781540733,
+            "_nanoseconds": 272000000
+          }
+        },
+        {
+          "firestoreId": "6vWbqFF271Fpl7NckG16",
+          "cost": 2250,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004057,
+            "_nanoseconds": 320000000
+          },
+          "unit": "pcs",
+          "price": 2500,
+          "name": "24k 30ml",
+          "sku": "SKU-00012",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "stock": 19,
+          "unitPrice": 2500,
+          "reorderLevel": 10,
+          "sellingPrice": 2500,
+          "quantity": 9,
+          "saleUnitMultiplier": 1,
+          "imageUrl": "",
+          "costPrice": 2250,
+          "batchLabel": "",
+          "saleUnit": "pcs",
+          "wholesalePrice": 0,
+          "minStock": 10,
+          "updatedAt": {
+            "_seconds": 1783172629,
+            "_nanoseconds": 233000000
+          }
+        },
+        {
+          "firestoreId": "7xFXK9cVKlhbGmMhOHOo",
+          "cost": 6000,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004131,
+            "_nanoseconds": 963000000
+          },
+          "unit": "pcs",
+          "price": 10000,
+          "name": "advance  collection",
+          "sku": "SKU-00014",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "quantity": 2,
+          "stock": 2,
+          "updatedAt": {
+            "_seconds": 1783178120,
+            "_nanoseconds": 271000000
+          }
+        },
+        {
+          "firestoreId": "8QeLeqxoLTwWGmSa9xgk",
+          "cost": 2100,
+          "quantity": 15,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780003584,
+            "_nanoseconds": 303000000
+          },
+          "unit": "pcs",
+          "price": 3000,
+          "name": "monogotas",
+          "sku": "SKU-00004",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780003584,
+            "_nanoseconds": 303000000
+          }
+        },
+        {
+          "firestoreId": "8YfYbUTW9VZ1eLYsSknW",
+          "cost": 21000,
+          "quantity": 2,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005661,
+            "_nanoseconds": 28000000
+          },
+          "unit": "pcs",
+          "price": 28000,
+          "name": "opulent dubai",
+          "sku": "SKU-00045",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005661,
+            "_nanoseconds": 28000000
+          }
+        },
+        {
+          "firestoreId": "8k73dvtrRmgZtQe8RNhb",
+          "businessId": "bus_1779823912466",
+          "name": "imperior way 25ml",
+          "sku": "SKU-00066",
+          "barcode": "",
+          "description": "",
+          "category": "Cosmetics",
+          "price": 3000,
+          "cost": 2100,
+          "unit": "pcs",
+          "minStock": 10,
+          "trackExpiry": false,
+          "expiryDate": null,
+          "emoji": "📦",
+          "createdAt": {
+            "_seconds": 1780330288,
+            "_nanoseconds": 219000000
+          },
+          "updatedAt": {
+            "_seconds": 1780330288,
+            "_nanoseconds": 219000000
+          },
+          "quantity": 0
+        },
+        {
+          "firestoreId": "9CzQZKZl9uIx7n430uQt",
+          "cost": 13000,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005478,
+            "_nanoseconds": 225000000
+          },
+          "unit": "pcs",
+          "price": 16000,
+          "name": "mosuf",
+          "sku": "SKU-00040",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005478,
+            "_nanoseconds": 225000000
+          },
+          "quantity": 11
+        },
+        {
+          "firestoreId": "A55a0QypNeLB6YRJeBce",
+          "cost": 2500,
+          "quantity": 2,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004736,
+            "_nanoseconds": 816000000
+          },
+          "unit": "pcs",
+          "price": 4000,
+          "name": "G K MEN",
+          "sku": "SKU-00026",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004736,
+            "_nanoseconds": 816000000
+          }
+        },
+        {
+          "firestoreId": "B5c5iJWowmQcOSNa3Jq3",
+          "businessId": "bus_1779823912466",
+          "name": "khamrah wardi",
+          "sku": "SKU-00063",
+          "barcode": "",
+          "description": "",
+          "category": "Cosmetics",
+          "price": 25000,
+          "cost": 18500,
+          "quantity": 2,
+          "unit": "pcs",
+          "minStock": 10,
+          "trackExpiry": false,
+          "expiryDate": null,
+          "emoji": "📦",
+          "createdAt": {
+            "_seconds": 1780322681,
+            "_nanoseconds": 229000000
+          },
+          "updatedAt": {
+            "_seconds": 1780322681,
+            "_nanoseconds": 230000000
+          }
+        },
+        {
+          "firestoreId": "Bjw5dbDTAMI2OZVXaoHT",
+          "cost": 24000,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780006048,
+            "_nanoseconds": 432000000
+          },
+          "unit": "pcs",
+          "price": 29000,
+          "name": "yara lattafa",
+          "sku": "SKU-00056",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "quantity": 4,
+          "updatedAt": {
+            "_seconds": 1780321869,
+            "_nanoseconds": 726000000
+          }
+        },
+        {
+          "firestoreId": "CLmaNfb77o1hjLMTrYYt",
+          "cost": 36000,
+          "quantity": 1,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005909,
+            "_nanoseconds": 843000000
+          },
+          "unit": "pcs",
+          "price": 41000,
+          "name": "tharwah gold",
+          "sku": "SKU-00052",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005909,
+            "_nanoseconds": 843000000
+          }
+        },
+        {
+          "firestoreId": "CtZwOU2OO5R6mXPxcfto",
+          "cost": 20000,
+          "quantity": 3,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004280,
+            "_nanoseconds": 394000000
+          },
+          "unit": "pcs",
+          "price": 25000,
+          "name": "ameer al oudh",
+          "sku": "SKU-00016",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004280,
+            "_nanoseconds": 394000000
+          }
+        },
+        {
+          "firestoreId": "Dq72tiR83SCjnkyFXPhK",
+          "cost": 36000,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004703,
+            "_nanoseconds": 805000000
+          },
+          "unit": "pcs",
+          "price": 41000,
+          "name": "eclaire lattafa",
+          "sku": "SKU-00025",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "quantity": 1,
+          "updatedAt": {
+            "_seconds": 1780321875,
+            "_nanoseconds": 87000000
+          }
+        },
+        {
+          "firestoreId": "E6YvBvnnhmq5XJ2PshKB",
+          "cost": 2500,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780003780,
+            "_nanoseconds": 837000000
+          },
+          "unit": "pcs",
+          "price": 3000,
+          "name": "mosuf body spray",
+          "sku": "SKU-00008",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780003780,
+            "_nanoseconds": 837000000
+          },
+          "quantity": 11
+        },
+        {
+          "firestoreId": "FEpKaHgmDmgx2EAHDLEt",
+          "cost": 5000,
+          "quantity": 3,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004529,
+            "_nanoseconds": 822000000
+          },
+          "unit": "pcs",
+          "price": 6500,
+          "name": "berries weekend",
+          "sku": "SKU-00021",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004529,
+            "_nanoseconds": 822000000
+          }
+        },
+        {
+          "firestoreId": "FFP9CdLw4y4yemM9Byxy",
+          "businessId": "bus_1779823912466",
+          "name": "nivea roll on",
+          "sku": "SKU-00061",
+          "barcode": "",
+          "description": "",
+          "category": "Cosmetics",
+          "unit": "pcs",
+          "trackExpiry": false,
+          "expiryDate": null,
+          "emoji": "📦",
+          "createdAt": {
+            "_seconds": 1780322484,
+            "_nanoseconds": 900000000
+          },
+          "unitPrice": 2000,
+          "cost": 1720,
+          "quantity": 8,
+          "saleUnitMultiplier": 1,
+          "costPrice": 1720,
+          "batchLabel": "",
+          "saleUnit": "pcs",
+          "minStock": 10,
+          "reorderLevel": 10,
+          "sellingPrice": 2000,
+          "price": 2000,
+          "imageUrl": "",
+          "wholesalePrice": 0,
+          "updatedAt": {
+            "_seconds": 1783172672,
+            "_nanoseconds": 32000000
+          }
+        },
+        {
+          "firestoreId": "FlINtjmqw6zijLM1hDZq",
+          "cost": 36000,
+          "quantity": 3,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005980,
+            "_nanoseconds": 851000000
+          },
+          "unit": "pcs",
+          "price": 41000,
+          "name": "victoria lattafa",
+          "sku": "SKU-00054",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005980,
+            "_nanoseconds": 851000000
+          }
+        },
+        {
+          "firestoreId": "Gc5iiVNMHJpNm2LYxEJ5",
+          "cost": 4600,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005343,
+            "_nanoseconds": 50000000
+          },
+          "unit": "pcs",
+          "price": 6000,
+          "name": "lunar",
+          "sku": "SKU-00037",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "quantity": 4,
+          "stock": 4,
+          "updatedAt": {
+            "_seconds": 1782395791,
+            "_nanoseconds": 250000000
+          }
+        },
+        {
+          "firestoreId": "Gooka1lSMhmb2bQumXX1",
+          "cost": 36000,
+          "quantity": 2,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780006016,
+            "_nanoseconds": 0
+          },
+          "unit": "pcs",
+          "price": 40000,
+          "name": "vintage radio",
+          "sku": "SKU-00055",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780006016,
+            "_nanoseconds": 0
+          }
+        },
+        {
+          "firestoreId": "GqJ9i58RIsmZR8HtL57k",
+          "cost": 22000,
+          "quantity": 3,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004607,
+            "_nanoseconds": 29000000
+          },
+          "unit": "pcs",
+          "price": 28000,
+          "name": "breed the boss",
+          "sku": "SKU-00023",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004607,
+            "_nanoseconds": 29000000
+          }
+        },
+        {
+          "firestoreId": "HpyyvrpjxA4Ts82sK1EB",
+          "businessId": "bus_1779823912466",
+          "name": "khamrah  waha",
+          "sku": "SKU-00064",
+          "barcode": "",
+          "description": "",
+          "category": "Cosmetics",
+          "price": 47000,
+          "cost": 40000,
+          "quantity": 3,
+          "unit": "pcs",
+          "minStock": 10,
+          "trackExpiry": false,
+          "expiryDate": null,
+          "emoji": "📦",
+          "createdAt": {
+            "_seconds": 1780322769,
+            "_nanoseconds": 152000000
+          },
+          "updatedAt": {
+            "_seconds": 1780322769,
+            "_nanoseconds": 152000000
+          }
+        },
+        {
+          "firestoreId": "IfVG9ymPuG8ftCYXy9mQ",
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780003899,
+            "_nanoseconds": 580000000
+          },
+          "unit": "pcs",
+          "name": "storm elixir body spray",
+          "sku": "SKU-00010",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "unitPrice": 3000,
+          "cost": 2291,
+          "saleUnitMultiplier": 1,
+          "costPrice": 2291,
+          "batchLabel": "",
+          "saleUnit": "pcs",
+          "minStock": 10,
+          "reorderLevel": 10,
+          "sellingPrice": 3000,
+          "price": 3000,
+          "imageUrl": "",
+          "wholesalePrice": 0,
+          "quantity": 11,
+          "stock": 11,
+          "updatedAt": {
+            "_seconds": 1781531223,
+            "_nanoseconds": 914000000
+          }
+        },
+        {
+          "firestoreId": "JOss53t09D7XgxJXeNaL",
+          "cost": 1500,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780003618,
+            "_nanoseconds": 792000000
+          },
+          "unit": "pcs",
+          "price": 2000,
+          "name": "sugar mist",
+          "sku": "SKU-00005",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780003618,
+            "_nanoseconds": 792000000
+          },
+          "quantity": 0
+        },
+        {
+          "firestoreId": "KHrCWkmO3jEwPilzKdVA",
+          "cost": 12500,
+          "quantity": 12,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005836,
+            "_nanoseconds": 112000000
+          },
+          "unit": "pcs",
+          "price": 15000,
+          "name": "suger",
+          "sku": "SKU-00050",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005836,
+            "_nanoseconds": 112000000
+          }
+        },
+        {
+          "firestoreId": "L2rnu68n7bIIck2ImBD6",
+          "businessId": "bus_1779823912466",
+          "name": "rexona sure",
+          "sku": "SKU-00062",
+          "barcode": "",
+          "description": "",
+          "category": "Cosmetics",
+          "price": 4000,
+          "cost": 3250,
+          "unit": "pcs",
+          "minStock": 10,
+          "trackExpiry": false,
+          "expiryDate": null,
+          "emoji": "📦",
+          "createdAt": {
+            "_seconds": 1780322537,
+            "_nanoseconds": 388000000
+          },
+          "quantity": 7,
+          "stock": 7,
+          "updatedAt": {
+            "_seconds": 1782915273,
+            "_nanoseconds": 985000000
+          }
+        },
+        {
+          "firestoreId": "Ls0LZay2kYyX4G7AS1Ek",
+          "cost": 3083,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004817,
+            "_nanoseconds": 648000000
+          },
+          "unit": "pcs",
+          "price": 3500,
+          "name": "genie secrets 25ml",
+          "sku": "SKU-00028",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004817,
+            "_nanoseconds": 648000000
+          },
+          "quantity": 5
+        },
+        {
+          "firestoreId": "P5GWR66IXUDZ8lf6gPZP",
+          "cost": 28500,
+          "quantity": 1,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004644,
+            "_nanoseconds": 297000000
+          },
+          "unit": "pcs",
+          "price": 35000,
+          "name": "dalal",
+          "sku": "SKU-00024",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004644,
+            "_nanoseconds": 297000000
+          }
+        },
+        {
+          "firestoreId": "QRdvR4BffLjsOG01xfOi",
+          "cost": 15400,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004894,
+            "_nanoseconds": 573000000
+          },
+          "unit": "pcs",
+          "price": 20000,
+          "name": "hayatti lattafa",
+          "sku": "SKU-00030",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004894,
+            "_nanoseconds": 573000000
+          },
+          "quantity": 2
+        },
+        {
+          "firestoreId": "S1EV26oJGPFQCnEFO2B1",
+          "cost": 1500,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780006208,
+            "_nanoseconds": 970000000
+          },
+          "unit": "pcs",
+          "price": 2000,
+          "name": "6ml oil perfumes",
+          "sku": "SKU-00060",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "stock": 8,
+          "unitPrice": 2000,
+          "reorderLevel": 10,
+          "sellingPrice": 2000,
+          "quantity": 7,
+          "saleUnitMultiplier": 1,
+          "imageUrl": "",
+          "costPrice": 1500,
+          "batchLabel": "",
+          "saleUnit": "pcs",
+          "wholesalePrice": 0,
+          "minStock": 10,
+          "updatedAt": {
+            "_seconds": 1783172707,
+            "_nanoseconds": 861000000
+          }
+        },
+        {
+          "firestoreId": "TtDLdjvRausO1k0dkrpR",
+          "cost": 2700,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780003843,
+            "_nanoseconds": 661000000
+          },
+          "unit": "pcs",
+          "price": 3500,
+          "name": "riggs body spray",
+          "sku": "SKU-00009",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "stock": 2,
+          "unitPrice": 3500,
+          "reorderLevel": 10,
+          "sellingPrice": 3500,
+          "quantity": 3,
+          "saleUnitMultiplier": 1,
+          "imageUrl": "",
+          "costPrice": 2700,
+          "batchLabel": "",
+          "saleUnit": "pcs",
+          "wholesalePrice": 0,
+          "minStock": 10,
+          "updatedAt": {
+            "_seconds": 1783172733,
+            "_nanoseconds": 677000000
+          }
+        },
+        {
+          "firestoreId": "UffcdM2bs88SDxHsk3ak",
+          "cost": 3000,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005941,
+            "_nanoseconds": 787000000
+          },
+          "unit": "pcs",
+          "price": 5000,
+          "name": "velita",
+          "sku": "SKU-00053",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005941,
+            "_nanoseconds": 787000000
+          },
+          "quantity": 10
+        },
+        {
+          "firestoreId": "WFzQXvqZK5Nd688smBjM",
+          "cost": 12000,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005393,
+            "_nanoseconds": 913000000
+          },
+          "unit": "pcs",
+          "price": 18000,
+          "name": "marshmallow myth avenue",
+          "sku": "SKU-00038",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005393,
+            "_nanoseconds": 913000000
+          },
+          "quantity": 2
+        },
+        {
+          "firestoreId": "XDRABcLVF5UnbdOawvtJ",
+          "cost": 36000,
+          "quantity": 1,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005315,
+            "_nanoseconds": 711000000
+          },
+          "unit": "pcs",
+          "price": 41000,
+          "name": "khamrah qahwa",
+          "sku": "SKU-00036",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005315,
+            "_nanoseconds": 711000000
+          }
+        },
+        {
+          "firestoreId": "XPoArcyJQI0QgPKaUHtT",
+          "cost": 12000,
+          "quantity": 3,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005695,
+            "_nanoseconds": 420000000
+          },
+          "unit": "pcs",
+          "price": 18000,
+          "name": "oud al layl",
+          "sku": "SKU-00046",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005695,
+            "_nanoseconds": 420000000
+          }
+        },
+        {
+          "firestoreId": "XhEAFlXym3o3Q9T7MRi9",
+          "cost": 14200,
+          "quantity": 3,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004492,
+            "_nanoseconds": 842000000
+          },
+          "unit": "pcs",
+          "price": 20000,
+          "name": "aventos blue 100ml",
+          "sku": "SKU-00020",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004492,
+            "_nanoseconds": 842000000
+          }
+        },
+        {
+          "firestoreId": "ZzIfpVQ6IaL0gqcawKsX",
+          "cost": 2000,
+          "quantity": 2,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004774,
+            "_nanoseconds": 121000000
+          },
+          "unit": "pcs",
+          "price": 3000,
+          "name": "genie collection",
+          "sku": "SKU-00027",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004774,
+            "_nanoseconds": 121000000
+          }
+        },
+        {
+          "firestoreId": "au4awznPeqP1h8CfQlDm",
+          "cost": 3350,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005037,
+            "_nanoseconds": 725000000
+          },
+          "unit": "pcs",
+          "price": 4000,
+          "name": "imperior way",
+          "sku": "SKU-00033",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005037,
+            "_nanoseconds": 725000000
+          },
+          "quantity": 11
+        },
+        {
+          "firestoreId": "bUf8M0aBWh1jB0bDeDu4",
+          "cost": 2500,
+          "quantity": 6,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005808,
+            "_nanoseconds": 184000000
+          },
+          "unit": "pcs",
+          "price": 4000,
+          "name": "royal oud 25ml",
+          "sku": "SKU-00049",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005808,
+            "_nanoseconds": 184000000
+          }
+        },
+        {
+          "firestoreId": "cajsNcYARS3zcY6LFh6P",
+          "cost": 1400,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780003499,
+            "_nanoseconds": 430000000
+          },
+          "unit": "pcs",
+          "price": 2000,
+          "name": "candy crush mist",
+          "sku": "SKU-00002",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "quantity": 12,
+          "stock": 12,
+          "updatedAt": {
+            "_seconds": 1781540733,
+            "_nanoseconds": 911000000
+          }
+        },
+        {
+          "firestoreId": "dKm1uymg9igNdmMJuWr6",
+          "cost": 22500,
+          "quantity": 3,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005450,
+            "_nanoseconds": 469000000
+          },
+          "unit": "pcs",
+          "price": 28000,
+          "name": "mayar cherry intense",
+          "sku": "SKU-00039",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005450,
+            "_nanoseconds": 469000000
+          }
+        },
+        {
+          "firestoreId": "dPUjFohZAquc66SCCyv7",
+          "cost": 7300,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004367,
+            "_nanoseconds": 920000000
+          },
+          "unit": "pcs",
+          "price": 12000,
+          "name": "athena",
+          "sku": "SKU-00017",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004367,
+            "_nanoseconds": 920000000
+          },
+          "quantity": 2
+        },
+        {
+          "firestoreId": "dsqmor63InLDbpgoPzA3",
+          "cost": 7500,
+          "quantity": 6,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005870,
+            "_nanoseconds": 918000000
+          },
+          "unit": "pcs",
+          "price": 10000,
+          "name": "supremacy",
+          "sku": "SKU-00051",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005870,
+            "_nanoseconds": 918000000
+          }
+        },
+        {
+          "firestoreId": "eLuYufH1lcUGPhWBGyYh",
+          "cost": 6200,
+          "quantity": 5,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005208,
+            "_nanoseconds": 772000000
+          },
+          "unit": "pcs",
+          "price": 10000,
+          "name": "intense noir",
+          "sku": "SKU-00034",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005208,
+            "_nanoseconds": 772000000
+          }
+        },
+        {
+          "firestoreId": "h8HIiTR8352znALrslBc",
+          "cost": 3500,
+          "quantity": 3,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780003540,
+            "_nanoseconds": 793000000
+          },
+          "unit": "pcs",
+          "price": 4000,
+          "name": "dear body mist",
+          "sku": "SKU-00003",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780003540,
+            "_nanoseconds": 793000000
+          }
+        },
+        {
+          "firestoreId": "ibL9eeIvjJ6nlZ2yhhRP",
+          "cost": 6300,
+          "quantity": 3,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004168,
+            "_nanoseconds": 747000000
+          },
+          "unit": "pcs",
+          "price": 10000,
+          "name": "amazon pride",
+          "sku": "SKU-00015",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004168,
+            "_nanoseconds": 747000000
+          }
+        },
+        {
+          "firestoreId": "jVovS1fBsyQ8K025i4JC",
+          "cost": 2500,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004399,
+            "_nanoseconds": 597000000
+          },
+          "unit": "pcs",
+          "price": 4000,
+          "name": "avanti",
+          "sku": "SKU-00018",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004399,
+            "_nanoseconds": 597000000
+          },
+          "quantity": 0
+        },
+        {
+          "firestoreId": "jswRoWADirVsNyWDmj6X",
+          "cost": 22000,
+          "quantity": 2,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005739,
+            "_nanoseconds": 970000000
+          },
+          "unit": "pcs",
+          "price": 30000,
+          "name": "qaed al fursan",
+          "sku": "SKU-00047",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005739,
+            "_nanoseconds": 970000000
+          }
+        },
+        {
+          "firestoreId": "k4TMOWLhuPSZXI5Xs3RO",
+          "cost": 7200,
+          "quantity": 6,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005584,
+            "_nanoseconds": 919000000
+          },
+          "unit": "pcs",
+          "price": 10000,
+          "name": "noir khajal",
+          "sku": "SKU-00043",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005584,
+            "_nanoseconds": 919000000
+          }
+        },
+        {
+          "firestoreId": "kDERPppWUW8igSULa7lw",
+          "cost": 3600,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005513,
+            "_nanoseconds": 145000000
+          },
+          "unit": "pcs",
+          "price": 5000,
+          "name": "mosuf 50ml",
+          "sku": "SKU-00041",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005513,
+            "_nanoseconds": 145000000
+          },
+          "quantity": 9
+        },
+        {
+          "firestoreId": "kEo7dHGYAKohoplQLg8f",
+          "cost": 5000,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780006123,
+            "_nanoseconds": 344000000
+          },
+          "unit": "pcs",
+          "price": 8500,
+          "name": "30ml oil perfumes",
+          "sku": "SKU-00058",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "quantity": 15,
+          "stock": 15,
+          "updatedAt": {
+            "_seconds": 1783178121,
+            "_nanoseconds": 15000000
+          }
+        },
+        {
+          "firestoreId": "nsCsE9m3wHD8aZZLtjcg",
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004566,
+            "_nanoseconds": 642000000
+          },
+          "unit": "pcs",
+          "name": "bozzs",
+          "sku": "SKU-00022",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "unitPrice": 4000,
+          "cost": 2500,
+          "saleUnitMultiplier": 1,
+          "costPrice": 2500,
+          "batchLabel": "",
+          "saleUnit": "pcs",
+          "reorderLevel": 10,
+          "sellingPrice": 4000,
+          "price": 4000,
+          "imageUrl": "",
+          "wholesalePrice": 0,
+          "quantity": 0,
+          "stock": 0,
+          "updatedAt": {
+            "_seconds": 1782463838,
+            "_nanoseconds": 938000000
+          }
+        },
+        {
+          "firestoreId": "q0K2wgGSCg8Qb20JC2JF",
+          "cost": 3200,
+          "quantity": 15,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780003690,
+            "_nanoseconds": 615000000
+          },
+          "unit": "pcs",
+          "price": 4000,
+          "name": "victoria secret body mist",
+          "sku": "SKU-00006",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780003690,
+            "_nanoseconds": 615000000
+          }
+        },
+        {
+          "firestoreId": "rs1Im767EoufDiFEsEGx",
+          "cost": 15800,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005775,
+            "_nanoseconds": 387000000
+          },
+          "unit": "pcs",
+          "price": 20000,
+          "name": "ramz lattafa",
+          "sku": "SKU-00048",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "quantity": 1,
+          "stock": 1,
+          "updatedAt": {
+            "_seconds": 1781542955,
+            "_nanoseconds": 49000000
+          }
+        },
+        {
+          "firestoreId": "u6fujNkUdJTVn2K6ueRr",
+          "cost": 2600,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004924,
+            "_nanoseconds": 889000000
+          },
+          "unit": "pcs",
+          "price": 4000,
+          "name": "izz-fra",
+          "sku": "SKU-00031",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004924,
+            "_nanoseconds": 889000000
+          },
+          "quantity": 5
+        },
+        {
+          "firestoreId": "uLvZRawR6rnq8JNmQ0NX",
+          "cost": 15400,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004862,
+            "_nanoseconds": 256000000
+          },
+          "unit": "pcs",
+          "price": 20000,
+          "name": "hayatti florence",
+          "sku": "SKU-00029",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004862,
+            "_nanoseconds": 256000000
+          },
+          "quantity": 3
+        },
+        {
+          "firestoreId": "wKQ0vdYCJAUzFvMyOfqb",
+          "cost": 4200,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780006081,
+            "_nanoseconds": 123000000
+          },
+          "unit": "pcs",
+          "price": 6000,
+          "name": "yum yum",
+          "sku": "SKU-00057",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780006081,
+            "_nanoseconds": 123000000
+          },
+          "quantity": 4
+        },
+        {
+          "firestoreId": "yOHUcc3zrJJTARpqlb0N",
+          "businessId": "bus_1779823912466",
+          "name": "mosuf 25ml",
+          "sku": "SKU-00065",
+          "barcode": "",
+          "description": "",
+          "category": "Cosmetics",
+          "price": 3000,
+          "cost": 2100,
+          "unit": "pcs",
+          "minStock": 10,
+          "trackExpiry": false,
+          "expiryDate": null,
+          "emoji": "📦",
+          "createdAt": {
+            "_seconds": 1780329309,
+            "_nanoseconds": 316000000
+          },
+          "updatedAt": {
+            "_seconds": 1780329309,
+            "_nanoseconds": 316000000
+          },
+          "quantity": 0
+        },
+        {
+          "firestoreId": "yqaBhnI2ieoExi8HkBry",
+          "cost": 2750,
+          "quantity": 6,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780003736,
+            "_nanoseconds": 154000000
+          },
+          "unit": "pcs",
+          "price": 3500,
+          "name": "confetti body spray",
+          "sku": "SKU-00007",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780003736,
+            "_nanoseconds": 154000000
+          }
+        },
+        {
+          "firestoreId": "zBmjtJ57CqYDlZGhrefv",
+          "cost": 19000,
+          "quantity": 4,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780005615,
+            "_nanoseconds": 764000000
+          },
+          "unit": "pcs",
+          "price": 25000,
+          "name": "now women",
+          "sku": "SKU-00044",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780005615,
+            "_nanoseconds": 764000000
+          }
+        },
+        {
+          "firestoreId": "zlgDACO2wiEAHvbBUYjk",
+          "cost": 5400,
+          "emoji": "📦",
+          "businessId": "bus_1779823912466",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1780004450,
+            "_nanoseconds": 341000000
+          },
+          "unit": "pcs",
+          "price": 8000,
+          "name": "aventos advance 50ml",
+          "sku": "SKU-00019",
+          "category": "Cosmetics",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1780004450,
+            "_nanoseconds": 341000000
+          },
+          "quantity": 5
+        }
+      ]
+    },
+    {
+      "business": {
+        "firestoreId": "bus_1785475772188",
+        "country": null,
+        "city": "jos",
+        "postalCode": null,
+        "description": null,
+        "isSubscriptionActive": true,
+        "ownerId": "cz4mOgini2dHoi4YWlr2kGWzJVp2",
+        "isActive": true,
+        "photoUrl": null,
+        "createdAt": {
+          "_seconds": 1785475772,
+          "_nanoseconds": 188702000
+        },
+        "industrySpecificSettings": {
+          "sizeMetrics": {
+            "staff": 2,
+            "products": 100,
+            "monthlyIncome": 0
+          }
+        },
+        "currency": "NGN",
+        "state": "plateau state",
+        "subscriptionStartDate": {
+          "_seconds": 1785475772,
+          "_nanoseconds": 188702000
+        },
+        "subscriptionTier": "tier1",
+        "email": "volumeb@gmail.com",
+        "website": null,
+        "address": "old airport road, besides mopol 8",
+        "subscriptionPlan": null,
+        "subscriptionEndDate": {
+          "_seconds": 1786080572,
+          "_nanoseconds": 188702000
+        },
+        "businessClass": "tier1",
+        "logoUrl": null,
+        "taxRate": 0,
+        "referralEmail": null,
+        "phone": "2348034568062",
+        "taxId": null,
+        "name": "Volume B Wine, Cocktails & Grills",
+        "location": null,
+        "businessType": "retail",
+        "settings": {
+          "receipt": {
+            "headerNote": null,
+            "invoicePrefix": "INV-",
+            "paperWidth": 58,
+            "businessId": "bus_1785475772188",
+            "enableEmailReceipts": true,
+            "showQrCode": false,
+            "footerMessage": null,
+            "updatedAt": "2026-07-31T06:29:39.654382"
+          }
+        },
+        "subscriptionTrialEndsAt": "2026-08-07T06:29:32.188702",
+        "subscriptionStatus": "trial",
+        "subscriptionReviewStatus": "trial",
+        "subscriptionTrialStartedAt": "2026-07-31T06:29:32.188702",
+        "subscriptionPaymentRequired": false,
+        "totalCustomers": 0,
+        "totalProducts": 0,
+        "totalWorkers": 0,
+        "updatedAt": {
+          "_seconds": 1785475871,
+          "_nanoseconds": 458000000
+        },
+        "lastSkuNumber": 25
+      },
+      "owner": {
+        "uid": "cz4mOgini2dHoi4YWlr2kGWzJVp2",
+        "email": "volumeb838@gmail.com",
+        "phoneNumber": null,
+        "displayName": "mr. jerry",
+        "disabled": false,
+        "creationTime": "Tue, 26 May 2026 19:29:04 GMT",
+        "lastSignInTime": "Fri, 31 Jul 2026 20:35:29 GMT"
+      },
+      "inventoryCount": 25,
+      "inventory": [
+        {
+          "firestoreId": "2rDPwmCUnfFzRYI0ON85",
+          "cost": 812,
+          "quantity": 48,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785531708,
+            "_nanoseconds": 431000000
+          },
+          "unit": "pcs",
+          "price": 1100,
+          "name": "budwiser",
+          "sku": "SKU-00002",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785531708,
+            "_nanoseconds": 431000000
+          }
+        },
+        {
+          "firestoreId": "38UBJQtoCFnVAYrdOi8x",
+          "cost": 646,
+          "quantity": 48,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785531925,
+            "_nanoseconds": 825000000
+          },
+          "unit": "pcs",
+          "price": 1000,
+          "name": "Goldberg",
+          "sku": "SKU-00003",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785531925,
+            "_nanoseconds": 825000000
+          }
+        },
+        {
+          "firestoreId": "3OLImhs4OE0El528oA3W",
+          "cost": 3085,
+          "quantity": 6,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785535293,
+            "_nanoseconds": 968000000
+          },
+          "unit": "pcs",
+          "price": 4500,
+          "name": "bar man wisky",
+          "sku": "SKU-00017",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785535293,
+            "_nanoseconds": 968000000
+          }
+        },
+        {
+          "firestoreId": "3W01Vok2xrHc8MEpJzie",
+          "cost": 2333,
+          "quantity": 6,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785535408,
+            "_nanoseconds": 563000000
+          },
+          "unit": "pcs",
+          "price": 3500,
+          "name": "big ben",
+          "sku": "SKU-00019",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785535408,
+            "_nanoseconds": 563000000
+          }
+        },
+        {
+          "firestoreId": "54Rj6jCf7XScijDPNBaA",
+          "cost": 959,
+          "quantity": 24,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785532309,
+            "_nanoseconds": 212000000
+          },
+          "unit": "pcs",
+          "price": 1500,
+          "name": "veleta can",
+          "sku": "SKU-00008",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785532309,
+            "_nanoseconds": 212000000
+          }
+        },
+        {
+          "firestoreId": "57dYwAQLhU8fLaEYimSh",
+          "cost": 6000,
+          "quantity": 1,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785538726,
+            "_nanoseconds": 164000000
+          },
+          "unit": "pcs",
+          "price": 8000,
+          "name": "8pm medium",
+          "sku": "SKU-00024",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785538726,
+            "_nanoseconds": 164000000
+          }
+        },
+        {
+          "firestoreId": "7KmRr5msb0s1VetwGegM",
+          "cost": 5208,
+          "quantity": 6,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785535361,
+            "_nanoseconds": 48000000
+          },
+          "unit": "pcs",
+          "price": 6000,
+          "name": "smirnoff X1",
+          "sku": "SKU-00018",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785535361,
+            "_nanoseconds": 48000000
+          }
+        },
+        {
+          "firestoreId": "CKUSAeeivY3WoCse5JlU",
+          "cost": 458,
+          "quantity": 24,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785533773,
+            "_nanoseconds": 389000000
+          },
+          "unit": "pcs",
+          "price": 600,
+          "name": "teezers",
+          "sku": "SKU-00013",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785533773,
+            "_nanoseconds": 389000000
+          }
+        },
+        {
+          "firestoreId": "Iz1qBu0YAWD9w9qLERJK",
+          "cost": 6000,
+          "quantity": 12,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785538656,
+            "_nanoseconds": 725000000
+          },
+          "unit": "pcs",
+          "price": 8500,
+          "name": "jack william",
+          "sku": "SKU-00023",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785538656,
+            "_nanoseconds": 725000000
+          }
+        },
+        {
+          "firestoreId": "LFmOyi7GEKFZYLZBzIkz",
+          "cost": 11666,
+          "quantity": 3,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785535454,
+            "_nanoseconds": 447000000
+          },
+          "unit": "pcs",
+          "price": 15000,
+          "name": "black and white",
+          "sku": "SKU-00020",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785535454,
+            "_nanoseconds": 447000000
+          }
+        },
+        {
+          "firestoreId": "MzcF76Pop2fIWeEL7tTN",
+          "cost": 7000,
+          "quantity": 2,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785538819,
+            "_nanoseconds": 46000000
+          },
+          "unit": "pcs",
+          "price": 9000,
+          "name": "captian morgan",
+          "sku": "SKU-00025",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785538819,
+            "_nanoseconds": 46000000
+          }
+        },
+        {
+          "firestoreId": "Qb2nuI3NLOYJxOBBeuvW",
+          "cost": 1188,
+          "quantity": 48,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785532244,
+            "_nanoseconds": 698000000
+          },
+          "unit": "pcs",
+          "price": 1500,
+          "name": "bullet",
+          "sku": "SKU-00007",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785532244,
+            "_nanoseconds": 698000000
+          }
+        },
+        {
+          "firestoreId": "RGjWOeambHxJYcjHk1q9",
+          "cost": 532,
+          "quantity": 48,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785532381,
+            "_nanoseconds": 809000000
+          },
+          "unit": "pcs",
+          "price": 700,
+          "name": "maltina  can",
+          "sku": "SKU-00009",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785532381,
+            "_nanoseconds": 809000000
+          }
+        },
+        {
+          "firestoreId": "RLBHVdtkSOuJRdTeQTzJ",
+          "cost": 6500,
+          "quantity": 1,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785538173,
+            "_nanoseconds": 399000000
+          },
+          "unit": "pcs",
+          "price": 8500,
+          "name": "8pm big",
+          "sku": "SKU-00022",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785538173,
+            "_nanoseconds": 399000000
+          }
+        },
+        {
+          "firestoreId": "ZgyDk6ufzYIBvHQqueOo",
+          "cost": 866,
+          "quantity": 24,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785533890,
+            "_nanoseconds": 663000000
+          },
+          "unit": "pcs",
+          "price": 1000,
+          "name": "origin palm",
+          "sku": "SKU-00014",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785533890,
+            "_nanoseconds": 663000000
+          }
+        },
+        {
+          "firestoreId": "aZHRBrJS8OjBcW2RNlJc",
+          "cost": 933,
+          "quantity": 24,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785532028,
+            "_nanoseconds": 46000000
+          },
+          "unit": "pcs",
+          "price": 1100,
+          "name": "Smirnoff white",
+          "sku": "SKU-00004",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785532028,
+            "_nanoseconds": 46000000
+          }
+        },
+        {
+          "firestoreId": "bTkParsgxBEzIwdfGTAU",
+          "cost": 729,
+          "quantity": 12,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785533719,
+            "_nanoseconds": 571000000
+          },
+          "unit": "pcs",
+          "price": 1000,
+          "name": "igboya",
+          "sku": "SKU-00012",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785533719,
+            "_nanoseconds": 571000000
+          }
+        },
+        {
+          "firestoreId": "c9HjhH1XCcUPqOhUXUkr",
+          "cost": 500,
+          "quantity": 48,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785531653,
+            "_nanoseconds": 951000000
+          },
+          "unit": "pcs",
+          "price": 700,
+          "name": "malta guiness",
+          "sku": "SKU-00001",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785531653,
+            "_nanoseconds": 951000000
+          }
+        },
+        {
+          "firestoreId": "eAM7b6aGvmU1qHe9JoYj",
+          "cost": 887,
+          "quantity": 24,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785535054,
+            "_nanoseconds": 368000000
+          },
+          "unit": "pcs",
+          "price": 1000,
+          "name": "legend can",
+          "sku": "SKU-00015",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785535054,
+            "_nanoseconds": 368000000
+          }
+        },
+        {
+          "firestoreId": "oDGTH4YD8jatq7WUOzNQ",
+          "cost": 937,
+          "quantity": 48,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785532459,
+            "_nanoseconds": 430000000
+          },
+          "unit": "pcs",
+          "price": 1200,
+          "name": "desperado",
+          "sku": "SKU-00010",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785532459,
+            "_nanoseconds": 430000000
+          }
+        },
+        {
+          "firestoreId": "qyjiEuR8ccoJgqwlYeu9",
+          "cost": 758,
+          "quantity": 48,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785532157,
+            "_nanoseconds": 146000000
+          },
+          "unit": "pcs",
+          "price": 1000,
+          "name": "heineken small",
+          "sku": "SKU-00006",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785532157,
+            "_nanoseconds": 146000000
+          }
+        },
+        {
+          "firestoreId": "skRVa1db51jpGfrmzFBB",
+          "cost": 3250,
+          "quantity": 6,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785535162,
+            "_nanoseconds": 289000000
+          },
+          "unit": "pcs",
+          "price": 4500,
+          "name": "origin bitters big",
+          "sku": "SKU-00016",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785535162,
+            "_nanoseconds": 289000000
+          }
+        },
+        {
+          "firestoreId": "tLWdhdREB1nDzmA9dCmU",
+          "cost": 937,
+          "quantity": 48,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785532520,
+            "_nanoseconds": 61000000
+          },
+          "unit": "pcs",
+          "price": 1500,
+          "name": "double black",
+          "sku": "SKU-00011",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785532520,
+            "_nanoseconds": 61000000
+          }
+        },
+        {
+          "firestoreId": "u8Y6DlBsTrq0NYYknlR1",
+          "cost": 7500,
+          "quantity": 3,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785535577,
+            "_nanoseconds": 540000000
+          },
+          "unit": "pcs",
+          "price": 9000,
+          "name": "korean rasp berry",
+          "sku": "SKU-00021",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785535577,
+            "_nanoseconds": 541000000
+          }
+        },
+        {
+          "firestoreId": "zuoUhIr8MMXbCMSJIJxV",
+          "cost": 895,
+          "quantity": 24,
+          "emoji": "📦",
+          "businessId": "bus_1785475772188",
+          "description": "",
+          "minStock": 10,
+          "expiryDate": null,
+          "createdAt": {
+            "_seconds": 1785532066,
+            "_nanoseconds": 728000000
+          },
+          "unit": "pcs",
+          "price": 1200,
+          "name": "monster",
+          "sku": "SKU-00005",
+          "category": "Beverages",
+          "barcode": "",
+          "trackExpiry": false,
+          "updatedAt": {
+            "_seconds": 1785532066,
+            "_nanoseconds": 728000000
+          }
+        }
+      ]
+    }
+  ]
+}

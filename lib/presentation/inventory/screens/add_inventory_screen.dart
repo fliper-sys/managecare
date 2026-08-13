@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../../../services/email_service.dart';
@@ -10,7 +9,7 @@ import '../../../widgets/custom_button.dart';
 import '../../../widgets/custom_text_field.dart';
 import '../../../widgets/loading_indicator.dart';
 import '../../../widgets/lottie_dialog.dart';
-import '../../../data/repositories/inventory_repository_impl.dart';
+import '../../../data/repositories/inventory_repository_supabase.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/retail_provider.dart';
 import '../../../providers/auth_provider.dart';
@@ -167,28 +166,25 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
     try {
       final businessProvider = context.read<BusinessProvider>();
       final businessId = businessProvider.currentBusiness?.id;
-      
+
       if (businessId == null) return;
-      
-      final snapshot = await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('products')
-          .get();
-      
-      final names = snapshot.docs
-          .map((doc) => (doc['name'] as String?)?.trim())
+
+      final items = await InventoryRepositorySupabase().getInventory(businessId);
+
+      final names = items
+          .map((row) => (Map<String, dynamic>.from(row as Map)['name'] as String?)
+              ?.trim())
           .where((name) => name != null && name.isNotEmpty)
           .cast<String>()
           .toList();
-      
+
       // Remove duplicates and sort
       final uniqueNames = names.toSet().toList();
       uniqueNames.sort();
-      
-      setState(() => _productNameSuggestions = uniqueNames);
+
+      if (mounted) setState(() => _productNameSuggestions = uniqueNames);
     } catch (e) {
-      print('[AddInventory] Error loading product suggestions: $e');
+      debugPrint('[AddInventory] Error loading product suggestions: $e');
     }
   }
 
@@ -303,8 +299,7 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
         return;
       }
 
-      final repository =
-          InventoryRepositoryImpl(firestore: FirebaseFirestore.instance);
+      final repository = InventoryRepositorySupabase();
       final isBakery = _isBakeryBusiness();
       final shelfLifeDays = isBakery ? _bakeryShelfLifeDays(_selectedCategory) : null;
 
@@ -316,24 +311,28 @@ class _AddInventoryScreenState extends State<AddInventoryScreen> {
         'barcode': _barcodeController.text.trim(),
         'description': _descriptionController.text.trim(),
         'category': _selectedCategory,
-        if (_selectedCategory == 'Ingredient') 'isIngredient': true,
         'price': _selectedCategory == 'Ingredient'
             ? 0.0
             : double.tryParse(_unitPriceController.text) ?? 0.0,
         'cost': double.tryParse(_costPriceController.text) ?? 0.0,
         'quantity': int.tryParse(_quantityController.text) ?? 0,
         'unit': _selectedUnit,
-        'minStock': int.tryParse(_minStockController.text) ?? 10,
-        'trackExpiry': _trackExpiry,
-        'expiryDate': _expiryDate, // store as DateTime (Firestore will save as Timestamp)
-        if (isBakery) 'businessSection': 'bakery',
-        if (shelfLifeDays != null) 'shelfLifeDays': shelfLifeDays,
-        if (isBakery)
-          'batchLabel':
-              '${_selectedCategory}_${DateTime.now().millisecondsSinceEpoch}',
-        'emoji': _emojiController.text.isEmpty ? '📦' : _emojiController.text,
-        'createdAt': DateTime.now().toIso8601String(),
-        if (_selectedUnit == 'bag') 'bagWeightKg': double.tryParse(_bagWeightController.text) ?? 0.0,
+        'minStockLevel': int.tryParse(_minStockController.text) ?? 10,
+        'expiryDate': _expiryDate?.toIso8601String(),
+        // None of these have a dedicated Postgres column - they go in the
+        // jsonb metadata catch-all instead of just being dropped.
+        'metadata': {
+          if (_selectedCategory == 'Ingredient') 'isIngredient': true,
+          'trackExpiry': _trackExpiry,
+          if (isBakery) 'businessSection': 'bakery',
+          if (shelfLifeDays != null) 'shelfLifeDays': shelfLifeDays,
+          if (isBakery)
+            'batchLabel':
+                '${_selectedCategory}_${DateTime.now().millisecondsSinceEpoch}',
+          'emoji': _emojiController.text.isEmpty ? '📦' : _emojiController.text,
+          if (_selectedUnit == 'bag')
+            'bagWeightKg': double.tryParse(_bagWeightController.text) ?? 0.0,
+        },
       };
 
       final result = await repository.addInventory(inventoryData);

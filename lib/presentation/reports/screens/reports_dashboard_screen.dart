@@ -82,6 +82,11 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
         businessType.contains('petroleum') ||
         businessType.contains('petrol') ||
         businessType.contains('filling');
+    final normalizedBusinessType =
+        businessType.replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final isBakery = normalizedBusinessType == 'bakery' ||
+        normalizedBusinessType == 'bakeryshop' ||
+        normalizedBusinessType == 'bakeshop';
     if (currentBusinessId == null || currentBusinessId.isEmpty) {
       return Scaffold(
         appBar: AppBar(
@@ -374,6 +379,19 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
             if (isFuelStation) ...[
               const SizedBox(height: 12),
               _FuelStationReportSplitCard(businessId: currentBusinessId),
+            ],
+            if (isBakery) ...[
+              const SizedBox(height: 12),
+              _ReportCategoryCard(
+                title: 'Bakery Performance',
+                description: 'Baker output and product profitability ranking',
+                icon: Icons.bakery_dining,
+                color: const Color(0xFFD97706),
+                onTap: () => Navigator.pushNamed(
+                  context,
+                  Routes.bakeryBakerPerformanceReport,
+                ),
+              ),
             ],
             const SizedBox(height: 24),
 

@@ -422,9 +422,15 @@ class _AppState extends State<App> {
       return;
     }
 
-    final valid = await SubscriptionService(
-      firestore: FirebaseFirestore.instance,
-    ).validateAndUpdateBusinessSubscriptionStatus(
+    final connectivity = _connectivityProviderRef;
+    if (connectivity != null && !connectivity.isConnected) {
+      debugPrint(
+        '[App] Skipping subscription enforcement while offline for $businessId',
+      );
+      return;
+    }
+
+    final valid = await SubscriptionService().validateAndUpdateBusinessSubscriptionStatus(
       businessId,
       userId: userId,
     );
@@ -644,7 +650,13 @@ class _ConnectivityBanner extends StatelessWidget {
                           final result = await sync.syncNow();
                           final messenger = scaffoldMessengerKey.currentState;
                           if (messenger != null) {
-                            messenger.showSnackBar(SnackBar(content: Text(result)));
+                            // No Scaffold may be mounted under the
+                            // messenger at this exact moment (e.g. mid
+                            // page-transition) - showSnackBar asserts in
+                            // that case rather than failing gracefully.
+                            try {
+                              messenger.showSnackBar(SnackBar(content: Text(result)));
+                            } catch (_) {}
                           }
                         }
                       : null,

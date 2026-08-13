@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,6 +23,7 @@ class BakeryProcurementHistoryScreen extends StatefulWidget {
 
 class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistoryScreen> {
   final _searchController = TextEditingController();
+  final _repo = ProcurementRepository();
   DateTimeRange? _range;
 
   @override
@@ -32,28 +32,16 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
     super.dispose();
   }
 
-  Map<String, dynamic> _safeData(DocumentSnapshot doc) {
-    final d = doc.data();
-    if (d is Map) return Map<String, dynamic>.from(d);
-    return <String, dynamic>{};
-  }
+  Future<List<Map<String, dynamic>>> _filteredDocs(String businessId) async {
+    final procurements = await _repo.fetchProcurements(businessId: businessId, sourceType: 'bakery');
 
-  Future<List<QueryDocumentSnapshot>> _filteredDocs(String businessId) async {
-    final snap = await FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(businessId)
-        .collection('procurements')
-        .where('sourceType', isEqualTo: 'bakery')
-        .get();
-
-    final docs = snap.docs.where((d) {
-      final data = _safeData(d);
+    final docs = procurements.where((data) {
       final searchText = _searchController.text.toLowerCase();
       final createdAt = parseTimestamp(data['createdAt'] ?? DateTime.now());
       final dateOk = _range == null || (!createdAt.isBefore(_range!.start) && !createdAt.isAfter(_range!.end));
 
       final queryFields = [
-        d.id.toLowerCase(),
+        (data['id'] ?? '').toString().toLowerCase(),
         (data['supplierName'] ?? '').toString().toLowerCase(),
         (data['bakerName'] ?? '').toString().toLowerCase(),
         (data['salesRepName'] ?? '').toString().toLowerCase(),
@@ -64,8 +52,8 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
     }).toList();
 
     docs.sort((a, b) {
-      final aCreatedAt = parseTimestamp(_safeData(a)['createdAt'] ?? DateTime.now());
-      final bCreatedAt = parseTimestamp(_safeData(b)['createdAt'] ?? DateTime.now());
+      final aCreatedAt = parseTimestamp(a['createdAt'] ?? DateTime.now());
+      final bCreatedAt = parseTimestamp(b['createdAt'] ?? DateTime.now());
       return bCreatedAt.compareTo(aCreatedAt);
     });
 
@@ -88,7 +76,7 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
 
   Future<void> _exportVisibleAsCsv(String businessId) async {
     final docs = await _filteredDocs(businessId);
-    final csv = ProcurementRepository().procurementsToCsv(docs);
+    final csv = _repo.procurementsToCsv(docs);
     await Clipboard.setData(ClipboardData(text: csv));
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bakery procurements CSV copied to clipboard')));
@@ -96,7 +84,7 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
 
   Future<void> _downloadVisibleCsv(String businessId) async {
     final docs = await _filteredDocs(businessId);
-    final csv = ProcurementRepository().procurementsToCsv(docs);
+    final csv = _repo.procurementsToCsv(docs);
     final dir = await getTemporaryDirectory();
     final filePath = '${dir.path}/bakery_procurements_${DateTime.now().millisecondsSinceEpoch}.csv';
     await File(filePath).writeAsString(csv);
@@ -106,10 +94,9 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
 
   Future<void> _exportVisibleAsPdf(String businessId) async {
     final docs = await _filteredDocs(businessId);
-    final procurements = docs.map((d) {
-      final data = _safeData(d);
+    final procurements = docs.map((data) {
       return {
-        'id': d.id,
+        'id': data['id'],
         'createdAt': parseTimestamp(data['createdAt'] ?? DateTime.now()),
         'supplierName': data['supplierName']?.toString() ?? '',
         'invoiceRef': data['invoiceRef']?.toString() ?? '',
@@ -205,13 +192,8 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
             ),
           ),
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('businesses')
-                  .doc(businessId)
-                  .collection('procurements')
-                  .where('sourceType', isEqualTo: 'bakery')
-                  .snapshots(),
+            child: StreamBuilder<List<Map<String, dynamic>>>(
+              stream: _repo.procurementsStream(businessId: businessId, sourceType: 'bakery'),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return const Center(child: Text('Error loading bakery procurements'));
@@ -219,13 +201,12 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                final docs = snapshot.data!.docs.where((d) {
-                  final data = _safeData(d);
+                final docs = snapshot.data!.where((data) {
                   final searchText = _searchController.text.toLowerCase();
                   final createdAt = parseTimestamp(data['createdAt'] ?? DateTime.now());
                   final dateOk = _range == null || (!createdAt.isBefore(_range!.start) && !createdAt.isAfter(_range!.end));
                   final queryFields = [
-                    d.id.toLowerCase(),
+                    (data['id'] ?? '').toString().toLowerCase(),
                     (data['supplierName'] ?? '').toString().toLowerCase(),
                     (data['bakerName'] ?? '').toString().toLowerCase(),
                     (data['salesRepName'] ?? '').toString().toLowerCase(),
@@ -236,8 +217,8 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
                 }).toList();
 
                 docs.sort((a, b) {
-                  final aCreatedAt = parseTimestamp(_safeData(a)['createdAt'] ?? DateTime.now());
-                  final bCreatedAt = parseTimestamp(_safeData(b)['createdAt'] ?? DateTime.now());
+                  final aCreatedAt = parseTimestamp(a['createdAt'] ?? DateTime.now());
+                  final bCreatedAt = parseTimestamp(b['createdAt'] ?? DateTime.now());
                   return bCreatedAt.compareTo(aCreatedAt);
                 });
 
@@ -248,8 +229,8 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
                 return ListView.builder(
                   itemCount: docs.length,
                   itemBuilder: (context, index) {
-                    final doc = docs[index];
-                    final data = _safeData(doc);
+                    final data = docs[index];
+                    final id = (data['id'] ?? '').toString();
                     final createdAt = parseTimestamp(data['createdAt'] ?? DateTime.now());
                     final totalCost = (data['totalCost'] as num?)?.toDouble() ?? 0.0;
                     final itemCount = (data['items'] as List?)?.length ?? 0;
@@ -258,7 +239,7 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
                     return Card(
                       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       child: ListTile(
-                        title: Text('Procurement ${doc.id}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                        title: Text('Procurement $id', style: const TextStyle(fontWeight: FontWeight.w700)),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -268,7 +249,7 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
                           ],
                         ),
                         trailing: Text('₦${totalCost.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                        onTap: () => _showProcurementDetails(context, doc),
+                        onTap: () => _showProcurementDetails(context, data),
                       ),
                     );
                   },
@@ -281,15 +262,15 @@ class _BakeryProcurementHistoryScreenState extends State<BakeryProcurementHistor
     );
   }
 
-  void _showProcurementDetails(BuildContext context, QueryDocumentSnapshot doc) {
-    final data = _safeData(doc);
+  void _showProcurementDetails(BuildContext context, Map<String, dynamic> data) {
+    final id = (data['id'] ?? '').toString();
     final createdAt = parseTimestamp(data['createdAt'] ?? DateTime.now());
     final items = (data['items'] as List?) ?? [];
 
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text('Procurement ${doc.id}'),
+        title: Text('Procurement $id'),
         content: SizedBox(
           width: double.maxFinite,
           child: SingleChildScrollView(

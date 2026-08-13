@@ -1,61 +1,70 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/user_model.dart';
-import '../../core/config/firebase_config.dart';
 import 'auth_repository.dart';
 
-/// Auth service implementation
+/// Auth repository implementation, backed by the self-hosted Supabase stack.
 class AuthRepositoryImpl implements AuthRepository {
-  final FirebaseAuth _firebaseAuth;
+  final GoTrueClient _auth;
+  final SupabaseClient _db;
 
-  AuthRepositoryImpl({required FirebaseAuth firebaseAuth})
-      : _firebaseAuth = firebaseAuth;
-
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  AuthRepositoryImpl({GoTrueClient? auth})
+      : _auth = auth ?? Supabase.instance.client.auth,
+        _db = Supabase.instance.client;
 
   @override
   Future<String> login(
       {required String email, required String password}) async {
     try {
-      final result = await _firebaseAuth.signInWithEmailAndPassword(
+      final result = await _auth.signInWithPassword(
         email: email,
         password: password,
       );
-      return result.user?.uid ?? '';
+      return result.user?.id ?? '';
     } catch (e) {
       rethrow;
     }
   }
 
+  /// Business self-registration: creates the auth user, then the business +
+  /// owner membership atomically via the create_business_with_owner RPC.
   @override
   Future<void> registerBusiness(
       {required Map<String, dynamic> businessData}) async {
     try {
       final email = businessData['email'] as String;
       final password = businessData['password'] as String;
+      final businessName = businessData['businessName'] as String?;
+      final businessType = businessData['businessType'] as String?;
 
-      final result = await _firebaseAuth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      final result = await _auth.signUp(email: email, password: password);
+      if (result.user == null) {
+        throw Exception('Failed to create authentication account');
+      }
 
-      final displayName = businessData['businessName'] as String?;
-      if (displayName != null && result.user != null) {
-        await result.user!.updateDisplayName(displayName);
+      if (businessName != null && businessType != null) {
+        await _db.rpc('create_business_with_owner', params: {
+          'p_name': businessName,
+          'p_business_type': businessType,
+        });
+      }
+
+      final fullName = businessData['fullName'] as String?;
+      if (fullName != null) {
+        await _db
+            .from('profiles')
+            .update({'full_name': fullName}).eq('id', result.user!.id);
       }
     } catch (e) {
       rethrow;
     }
   }
 
-  /// Persist a new user document in Firestore users collection
+  /// No-op: profiles are created automatically via a Postgres trigger on
+  /// auth.users insert (see handle_new_user in the tenancy backbone schema).
   @override
   Future<void> createUser(UserModel user) async {
     try {
-      await _firestore
-          .collection(FirebaseConfig.usersCollection)
-          .doc(user.id)
-          .set(user.toJson());
+      await updateUser(user);
     } catch (e) {
       rethrow;
     }
@@ -64,7 +73,7 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<void> logout() async {
     try {
-      await _firebaseAuth.signOut();
+      await _auth.signOut();
     } catch (e) {
       rethrow;
     }
@@ -73,7 +82,7 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<void> resetPassword(String email) async {
     try {
-      await _firebaseAuth.sendPasswordResetEmail(email: email);
+      await _auth.resetPasswordForEmail(email);
     } catch (e) {
       rethrow;
     }
@@ -82,41 +91,38 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<UserModel?> getCurrentUser(String uid) async {
     try {
-      // Attempt to fetch user document from Firestore users collection
-      final doc = await _firestore
-          .collection(FirebaseConfig.usersCollection)
-          .doc(uid)
-          .get();
-      if (doc.exists && doc.data() != null) {
-        final data = doc.data() as Map<String, dynamic>;
-        // Always trust the document id as the canonical user id. Some legacy
-        // records were created without an `id` field, which leaves the app with
-        // an empty `currentUser.id` after sign-in.
-        if ((data['id']?.toString().trim().isEmpty ?? true)) {
-          try {
-            await doc.reference.set({'id': doc.id}, SetOptions(merge: true));
-          } catch (_) {
-            // Non-fatal: the in-memory user can still be repaired even if the
-            // backfill write fails.
-          }
-        }
-        return UserModel.fromJson({
-          ...data,
-          'id': doc.id,
-        });
-      }
+      final profile = await _db
+          .from('profiles')
+          .select('id, email, full_name, phone_number, photo_url, created_at, updated_at')
+          .eq('id', uid)
+          .maybeSingle();
 
-      // Fallback to Firebase Auth basic mapping
-      final firebaseUser = _firebaseAuth.currentUser;
-      if (firebaseUser != null) {
+      if (profile != null) {
         return UserModel(
-          id: firebaseUser.uid,
-          email: firebaseUser.email ?? '',
-          fullName: firebaseUser.displayName ?? '',
-          phoneNumber: firebaseUser.phoneNumber ?? '',
+          id: profile['id'] as String,
+          email: (profile['email'] as String?) ?? '',
+          fullName: (profile['full_name'] as String?) ?? '',
+          phoneNumber: profile['phone_number'] as String?,
+          photoUrl: profile['photo_url'] as String?,
           role: 'owner',
           businessId: '',
-          createdAt: firebaseUser.metadata.creationTime ?? DateTime.now(),
+          createdAt:
+              DateTime.tryParse(profile['created_at'] as String? ?? '') ?? DateTime.now(),
+          updatedAt:
+              DateTime.tryParse(profile['updated_at'] as String? ?? '') ?? DateTime.now(),
+          isActive: true,
+        );
+      }
+
+      final authUser = _auth.currentUser;
+      if (authUser != null && authUser.id == uid) {
+        return UserModel(
+          id: authUser.id,
+          email: authUser.email ?? '',
+          fullName: (authUser.userMetadata?['full_name'] as String?) ?? '',
+          role: 'owner',
+          businessId: '',
+          createdAt: DateTime.tryParse(authUser.createdAt) ?? DateTime.now(),
           updatedAt: DateTime.now(),
           isActive: true,
         );
@@ -127,49 +133,20 @@ class AuthRepositoryImpl implements AuthRepository {
     }
   }
 
-  Future<void> createOrUpdateUser(UserModel user) async {
-    try {
-      // Save user document to Firestore
-      await _firestore
-          .collection(FirebaseConfig.usersCollection)
-          .doc(user.id)
-          .set(user.toJson(), SetOptions(merge: true));
-      // Also update Firebase Auth profile if current user matches
-      final firebaseUser = _firebaseAuth.currentUser;
-      if (firebaseUser != null && firebaseUser.uid == user.id) {
-        await firebaseUser.updateDisplayName(user.fullName);
-      }
-    } catch (e) {
-      rethrow;
-    }
-  }
+  Future<void> createOrUpdateUser(UserModel user) => updateUser(user);
 
   @override
   Future<void> updateUser(UserModel user) async {
     try {
-      // Update user document in Firestore. If the document doesn't exist,
-      // fallback to set() with merge to create it (this avoids silent
-      // failures when update() throws on missing docs).
-      final docRef = _firestore.collection(FirebaseConfig.usersCollection).doc(user.id);
-      try {
-        await docRef.update(user.toJson());
-      } catch (e) {
-        // If update fails (e.g., document missing), use set with merge
-        await docRef.set(user.toJson(), SetOptions(merge: true));
-      }
-
-      // Keep FirebaseAuth profile in sync if possible
-      final firebaseUser = _firebaseAuth.currentUser;
-      if (firebaseUser != null && firebaseUser.uid == user.id) {
-        try {
-          await firebaseUser.updateDisplayName(user.fullName);
-        } catch (_) {
-          // non-fatal
-        }
-      }
+      await _db.from('profiles').update({
+        'email': user.email,
+        'full_name': user.fullName,
+        'phone_number': user.phoneNumber,
+        'photo_url': user.photoUrl,
+        'pin': user.pin,
+      }).eq('id', user.id);
     } catch (e) {
       rethrow;
     }
   }
 }
-

@@ -6,7 +6,8 @@ abstract class SalesRepository {
   Future<List<dynamic>> getSales(String businessId,
       {Map<String, dynamic>? filters});
   Future<dynamic> getSaleById(String saleId);
-  Future<List<Map<String, dynamic>>> fetchSales({String? businessId, String? storeId});
+  Future<List<Map<String, dynamic>>> fetchSales(
+      {String? businessId, String? storeId, DateTime? start, DateTime? end, int? limit});
   Future<void> syncSales();
   Future<Map<String, dynamic>?> getReceipt(String id);
   Future<void> syncSaleToFirestore(Map<String, dynamic> saleData);

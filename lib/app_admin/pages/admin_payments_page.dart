@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:provider/provider.dart';
 import '../../services/subscription_service.dart';
 import '../../core/utils/datetime_utils.dart';
+import '../../data/repositories/admin_repository.dart';
 import '../../providers/marketer_provider.dart';
 import '../admin_theme.dart';
 
@@ -61,55 +61,12 @@ class SubscriptionPayment {
     if (isKoraPayment) return 'Kora';
     if (isLegacyGatewayPayment) return 'Legacy Gateway';
     final method = (paymentMethod ?? '').trim();
-    if (method.isEmpty) return 'Manual';
+    if (method.isEmpty) return 'Direct Transfer';
     return method
         .split('_')
         .where((part) => part.isNotEmpty)
         .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
         .join(' ');
-  }
-
-  factory SubscriptionPayment.fromFirestore(
-    DocumentSnapshot doc,
-    Map<String, dynamic> userData,
-    Map<String, dynamic> businessData,
-  ) {
-    final isLegacyGateway = (doc['subscriptionReceiptUrl'] ?? '')
-        .toString()
-        .toLowerCase()
-        .startsWith('flutterwave:');
-    final isKora = (doc['subscriptionReceiptUrl'] ?? '')
-        .toString()
-        .toLowerCase()
-        .startsWith('kora:');
-    
-    return SubscriptionPayment(
-      requestId: doc.id,
-      userId: doc.id,
-      userName: userData['fullName'] ?? userData['name'] ?? 'Unknown',
-      userEmail: userData['email'] ?? '',
-      businessId: userData['currentBusinessId'] ?? '',
-      businessName: businessData['name'] ?? 'Unknown Business',
-      planId: doc['subscriptionPlan'] ?? '',
-      planName: _getPlanName(doc['subscriptionPlan'] ?? ''),
-      amount: (doc['subscriptionAmount'] ?? 0).toDouble(),
-      currency: (doc['currency'] ?? 'NGN').toString(),
-      receiptUrl: doc['subscriptionReceiptUrl'] ?? '',
-      requestDate: parseTimestamp(doc['subscriptionRequestDate'] ?? doc['createdAt']),
-      status: doc['subscriptionStatus'] ?? 'pending',
-      receiptPath: doc['receiptPath'],
-      businessTier: businessData['tier'],
-      businessClass: businessData['businessClass'],
-      paymentMethod: doc['paymentMethod'],
-      transactionId: isLegacyGateway
-          ? (doc['subscriptionReceiptUrl'] as String)
-              .replaceFirst('flutterwave:', '')
-          : isKora
-              ? (doc['subscriptionReceiptUrl'] as String).replaceFirst('kora:', '')
-              : null,
-      isLegacyGatewayPayment: isLegacyGateway,
-      isKoraPayment: isKora,
-    );
   }
 
   static String _getPlanName(String planId) {
@@ -158,6 +115,9 @@ class PaymentTransaction {
   final String email;
   final String method;
   final String status;
+  final String businessCategory;
+  final String businessTier;
+  final double marketerRevenue;
   final Map<String, dynamic>? processorResponse;
   final DateTime? createdAt;
 
@@ -171,33 +131,56 @@ class PaymentTransaction {
     required this.email,
     required this.method,
     required this.status,
+    this.businessCategory = 'Unclassified',
+    this.businessTier = 'Unknown',
+    this.marketerRevenue = 0,
     this.processorResponse,
     this.createdAt,
   });
 
-  factory PaymentTransaction.fromFirestore(
-      String id, Map<String, dynamic> data) {
-    DateTime? created;
-    if (data['createdAt'] is Timestamp) {
-      created = (data['createdAt'] as Timestamp).toDate();
-    } else if (data['createdAt'] is String) {
-      created = DateTime.tryParse(data['createdAt']);
-    }
+  static double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value == null) return 0;
+    return double.tryParse(value.toString().replaceAll(',', '').trim()) ?? 0;
+  }
 
+  factory PaymentTransaction.fromMap(Map<String, dynamic> data) {
     return PaymentTransaction(
-      id: id,
-      transactionId: data['transactionId'] ?? id,
-      businessId: data['businessId'] ?? '',
-      businessName: data['businessName'] ?? data['businessId'] ?? 'Unknown',
-      amount: (data['amount'] ?? 0).toDouble(),
-      currency: data['currency'] ?? 'NGN',
-      email: data['email'] ?? '',
-      method: data['method'] ?? '',
-      status: data['status'] ?? 'pending',
-      processorResponse: data['processorResponse'] != null
-          ? Map<String, dynamic>.from(data['processorResponse'])
-          : null,
-      createdAt: created,
+      id: (data['id'] ?? data['transactionId'] ?? '').toString(),
+      transactionId:
+          (data['transactionId'] ?? data['transaction_id'] ?? data['id'] ?? '')
+              .toString(),
+      businessId: (data['businessId'] ?? data['business_id'] ?? '').toString(),
+      businessName: (data['businessName'] ?? data['business_name'])?.toString(),
+      amount: _readDouble(data['amount']),
+      currency: (data['currency'] ?? 'NGN').toString(),
+      email: (data['email'] ?? '').toString(),
+      method: (data['method'] ??
+              data['paymentMethod'] ??
+              data['payment_method'] ??
+              '')
+          .toString(),
+      status: (data['status'] ?? 'pending').toString(),
+      businessCategory: (data['businessCategory'] ??
+              data['business_category'] ??
+              'Unclassified')
+          .toString(),
+      businessTier:
+          (data['businessTier'] ?? data['business_tier'] ?? 'Unknown')
+              .toString(),
+      marketerRevenue: _readDouble(
+        data['marketerRevenue'] ??
+            data['marketer_revenue'] ??
+            data['marketerCommission'] ??
+            data['marketer_commission'],
+      ),
+      processorResponse: data['processorResponse'] is Map
+          ? Map<String, dynamic>.from(data['processorResponse'] as Map)
+          : data['processor_response'] is Map
+              ? Map<String, dynamic>.from(data['processor_response'] as Map)
+              : null,
+      createdAt:
+          data['createdAt'] == null ? null : parseTimestamp(data['createdAt']),
     );
   }
 
@@ -215,12 +198,11 @@ class AdminPaymentsPage extends StatefulWidget {
 }
 
 class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final AdminRepository _adminRepository = AdminRepository();
   final List<SubscriptionPayment> _pendingPayments = [];
   final List<SubscriptionPayment> _approvedPayments = [];
   final List<SubscriptionPayment> _declinedPayments = [];
-  StreamSubscription<QuerySnapshot>? _subscriptionRequestsSub;
-  StreamSubscription<QuerySnapshot>? _approvalsSub;
+  Timer? _refreshTimer;
   bool _isLoading = true;
   int _selectedTabIndex = 0;
   String _paymentsSearch = '';
@@ -295,22 +277,14 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
     super.initState();
     _loadPayments();
 
-    // Listen for realtime changes to subscription requests and approvals
-    _subscriptionRequestsSub = _firestore
-        .collection('subscription_requests')
-        .snapshots()
-        .listen((_) => _loadPayments());
-
-    _approvalsSub = _firestore
-        .collection('subscription_approvals')
-        .snapshots()
-        .listen((_) => _loadPayments());
+    // The backend doesn't push realtime updates, so poll instead - same
+    // pattern used across every other migrated screen this session.
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) => _loadPayments());
   }
 
   @override
   void dispose() {
-    _subscriptionRequestsSub?.cancel();
-    _approvalsSub?.cancel();
+    _refreshTimer?.cancel();
     super.dispose();
   }
 
@@ -322,68 +296,21 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
       _approvedPayments.clear();
       _declinedPayments.clear();
 
-      // PRIMARY SOURCE: Load all subscription_requests documents (this is the source of truth)
-      final allReqSnapshot = await _firestore
-          .collection('subscription_requests')
-          .get();
+      final rows = await _adminRepository.fetchSubscriptionRequests();
 
-      print('[AdminPaymentsPage] Found ${allReqSnapshot.docs.length} subscription_requests documents');
-
-      for (final reqDoc in allReqSnapshot.docs) {
+      for (final data in rows) {
         try {
-          final data = reqDoc.data();
-          final uid = data['userId'] as String? ?? '';
-          final status = (data['status'] as String? ?? 'pending').toLowerCase();
-          
-          if (uid.isEmpty) {
-            print('[AdminPaymentsPage] Skipping subscription_requests ${reqDoc.id} - no userId');
-            continue;
-          }
+          final uid = (data['user_id'] ?? '').toString();
+          final status = (data['status'] ?? 'pending').toString().toLowerCase();
 
-          // Fetch user document for fuller context
-          final userDoc = await _firestore.collection('users').doc(uid).get();
-          if (!userDoc.exists) {
-            print('[AdminPaymentsPage] User ${uid} not found for subscription_requests ${reqDoc.id}');
-            continue;
-          }
-          
-          final userData = userDoc.data() ?? {};
-          final businessId = (data['businessId'] as String? ??
-              userData['currentBusinessId'] as String? ??
-              '').trim();
-
-          // Fetch business document for tier and class information
-          String businessName = 'Unknown Business';
-          String? businessTier;
-          String? businessClass;
-          
-          if (businessId.isNotEmpty) {
-            try {
-              final bdoc = await _firestore.collection('businesses').doc(businessId).get();
-              if (bdoc.exists) {
-                final bdata = bdoc.data() ?? {};
-                businessName = (bdata['name'] as String?) ?? 'Unknown Business';
-                businessTier = bdata['subscriptionTier'] as String? ?? bdata['tier'] as String?;
-                businessClass = bdata['businessClass'] as String?;
-              }
-            } catch (e) {
-              print('[AdminPaymentsPage] Error fetching business $businessId: $e');
-            }
-          }
-
-          // Extract plan information from subscription_requests document
-          final planId = (data['planId'] as String? ?? '').trim();
-          final planName = (data['planName'] as String?) ?? 
+          final planId = (data['plan_id'] ?? '').toString().trim();
+          final planName = (data['plan_name'] as String?) ??
               (planId.isNotEmpty ? SubscriptionPayment._getPlanName(planId) : 'Unknown Plan');
-          final amount = (data['amount'] ?? 0).toDouble();
-          final receiptUrl = (data['receiptUrl'] as String? ?? '').trim();
+          final amount = (data['amount'] is num)
+              ? (data['amount'] as num).toDouble()
+              : double.tryParse(data['amount']?.toString() ?? '') ?? 0.0;
+          final receiptUrl = '';
 
-          // Check if it is a gateway-backed payment.
-          final normalizedReceiptUrl = receiptUrl.toLowerCase();
-          final isFlutterwave = normalizedReceiptUrl.startsWith('flutterwave:');
-          final isKora = normalizedReceiptUrl.startsWith('kora:');
-
-          // Determine status for display
           String displayStatus = 'pending';
           if (status == 'approved') {
             displayStatus = 'approved';
@@ -392,37 +319,27 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
           }
 
           final payment = SubscriptionPayment(
-            requestId: reqDoc.id,
+            requestId: (data['id'] ?? '').toString(),
             userId: uid,
-            userName: (userData['fullName'] as String?) ?? 
-                (userData['name'] as String?) ?? 
-                'Unknown',
-            userEmail: (userData['email'] as String?) ?? '',
-            businessId: businessId,
-            businessName: businessName,
+            userName: (data['user_name'] as String?) ?? 'Unknown',
+            userEmail: (data['user_email'] as String?) ?? '',
+            businessId: (data['business_id'] ?? '').toString(),
+            businessName: (data['business_name'] as String?) ?? 'Unknown Business',
             planId: planId,
             planName: planName,
             amount: amount,
             currency: (data['currency'] as String?) ?? 'NGN',
             receiptUrl: receiptUrl,
-            requestDate: data['createdAt'] != null
-                ? (data['createdAt'] as Timestamp).toDate()
+            requestDate: data['created_at'] != null
+                ? DateTime.tryParse(data['created_at'].toString()) ?? DateTime.now()
                 : DateTime.now(),
             status: displayStatus,
-            businessTier: businessTier,
-            businessClass: businessClass,
-            paymentMethod: data['paymentMethod'] as String?,
-            transactionId: isFlutterwave
-                ? receiptUrl.replaceFirst('flutterwave:', '')
-                : isKora
-                    ? receiptUrl.replaceFirst('kora:', '')
-                    : ((data['processorTransactionId'] ??
-                            data['transactionId']) as String?),
-            isLegacyGatewayPayment: isFlutterwave,
-            isKoraPayment: isKora,
+            businessTier: data['business_tier'] as String?,
+            businessClass: data['business_class'] as String?,
+            paymentMethod: data['payment_method'] as String?,
+            transactionId: data['transaction_id'] as String?,
           );
 
-          // Add payment to appropriate list
           if (displayStatus == 'pending') {
             _pendingPayments.add(payment);
           } else if (displayStatus == 'approved') {
@@ -430,15 +347,11 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
           } else if (displayStatus == 'declined') {
             _declinedPayments.add(payment);
           }
-
-          print('[AdminPaymentsPage] ✓ Loaded ${payment.userName} - ${payment.planName} (${displayStatus})');
         } catch (e) {
-          print('[AdminPaymentsPage] Error processing subscription_requests ${reqDoc.id}: $e');
+          print('[AdminPaymentsPage] Error processing subscription request ${data['id']}: $e');
           continue;
         }
       }
-
-      print('[AdminPaymentsPage] Loaded ${_pendingPayments.length} pending, ${_approvedPayments.length} approved, ${_declinedPayments.length} declined');
 
       // Also load last payment transactions for admin view
       await _loadTransactions();
@@ -464,25 +377,20 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
   Future<void> _loadTransactions({int limit = 100}) async {
     try {
       _transactions.clear();
-      Query query = _firestore.collection('payment_transactions');
-      if (_filterStartDate != null)
-        query =
-            query.where('createdAt', isGreaterThanOrEqualTo: _filterStartDate);
-      if (_filterEndDate != null)
-        query = query.where('createdAt', isLessThanOrEqualTo: _filterEndDate);
-      final snapshot =
-          await query.orderBy('createdAt', descending: true).limit(limit).get();
-      for (final doc in snapshot.docs) {
-        final data = doc.data() as Map<String, dynamic>;
-        final tx = PaymentTransaction.fromFirestore(doc.id, data);
-        // Apply simple client-side search. If search empty, include all.
+      final rows = await _adminRepository.fetchPayments(
+        startDate: _filterStartDate,
+        endDate: _filterEndDate,
+      );
+      for (final row in rows.take(limit)) {
+        final tx = PaymentTransaction.fromMap(row);
         if (_transactionsSearch.isEmpty) {
           _transactions.add(tx);
           continue;
         }
         final searchLower = _transactionsSearch.toLowerCase();
         if (tx.transactionId.toLowerCase().contains(searchLower) ||
-            tx.email.toLowerCase().contains(searchLower)) {
+            tx.email.toLowerCase().contains(searchLower) ||
+            (tx.businessName ?? '').toLowerCase().contains(searchLower)) {
           _transactions.add(tx);
         }
       }
@@ -493,125 +401,15 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
 
   Future<void> _approveSubscription(SubscriptionPayment payment) async {
     try {
-      // Update user subscription status
       final plan = SubscriptionService.getPlanById(payment.planId);
       final now = DateTime.now();
-      final endDate = now.add(Duration(days: plan?.durationInDays ?? 30));
-      final updatedRequestIds = <String>[];
-      
-      // 1. Update user document with subscription details
-      await _firestore.collection('users').doc(payment.userId).update({
-        'subscriptionStatus': 'approved',
-        'hasActiveSubscription': true,
-        'subscriptionApprovedAt': now.toIso8601String(),
-        'subscriptionApprovedBy': 'admin',
-        'subscriptionPlan': payment.planId,
-        'subscriptionStartDate': now.toIso8601String(),
-        'subscriptionEndDate': endDate.toIso8601String(),
-        'subscriptionAmount': payment.amount,
-        'subscriptionReceiptUrl': payment.receiptUrl,
-        'paymentMethod': payment.paymentMethod,
-        'updatedAt': now.toIso8601String(),
-      });
 
-      // 2. Update subscription_requests document to mark as approved
-      if (payment.transactionId != null || payment.planId.isNotEmpty) {
-        try {
-          if (payment.requestId.isNotEmpty) {
-            await _firestore
-                .collection('subscription_requests')
-                .doc(payment.requestId)
-                .set({
-              'status': 'approved',
-              'subscriptionStatus': 'approved',
-              'approvedAt': now.toIso8601String(),
-              'approvedBy': 'admin',
-              'revenueRecognized': true,
-              'revenueRecognizedAt': now.toIso8601String(),
-              'revenueRecognizedBy': 'admin',
-              'updatedAt': now.toIso8601String(),
-            }, SetOptions(merge: true));
-            updatedRequestIds.add(payment.requestId);
-          } else {
-            final reqQuery = await _firestore
-                .collection('subscription_requests')
-                .where('userId', isEqualTo: payment.userId)
-                .where('planId', isEqualTo: payment.planId)
-                .where('status', isEqualTo: 'pending')
-                .get();
+      await _adminRepository.approveSubscriptionRequest(
+        payment.requestId,
+        durationDays: plan?.durationInDays ?? 30,
+      );
 
-            for (final doc in reqQuery.docs) {
-              await doc.reference.update({
-                'status': 'approved',
-                'subscriptionStatus': 'approved',
-                'approvedAt': now.toIso8601String(),
-                'approvedBy': 'admin',
-                'revenueRecognized': true,
-                'revenueRecognizedAt': now.toIso8601String(),
-                'revenueRecognizedBy': 'admin',
-                'updatedAt': now.toIso8601String(),
-              });
-              updatedRequestIds.add(doc.id);
-            }
-          }
-        } catch (e) {
-          print('[AdminPaymentsPage] Warning: Could not update subscription_requests: $e');
-        }
-      }
-
-      // 3. Log the approval action to audit trail
-      await _firestore.collection('subscription_approvals').add({
-        'userId': payment.userId,
-        'userName': payment.userName,
-        'userEmail': payment.userEmail,
-        'businessId': payment.businessId,
-        'businessName': payment.businessName,
-        'planId': payment.planId,
-        'planName': payment.planName,
-        'amount': payment.amount,
-        'currency': payment.currency,
-        'receiptUrl': payment.receiptUrl,
-        'transactionId': payment.transactionId,
-        'paymentMethod': payment.paymentMethod,
-        'isFlutterwavePayment': payment.isLegacyGatewayPayment,
-        'isKoraPayment': payment.isKoraPayment,
-        'businessTier': payment.businessTier,
-        'businessClass': payment.businessClass,
-        'approvedAt': now.toIso8601String(),
-        'approvedBy': 'admin',
-        'subscriptionStartDate': now.toIso8601String(),
-        'subscriptionEndDate': endDate.toIso8601String(),
-        'subscriptionDurationDays': plan?.durationInDays ?? 30,
-        'approvalSource':
-            payment.isGatewayPayment ? 'gateway_transaction' : 'subscription_request',
-        'revenueRecognized': true,
-        'revenueRecognizedAt': now.toIso8601String(),
-        'status': 'approved',
-      });
-
-      if (payment.transactionId != null && payment.transactionId!.isNotEmpty) {
-        final matchingTransactions = await _firestore
-            .collection('payment_transactions')
-            .where('transactionId', isEqualTo: payment.transactionId)
-            .get();
-
-        for (final doc in matchingTransactions.docs) {
-          await doc.reference.update({
-            'status': 'processed',
-            'approvalStatus': 'approved',
-            'approvedAt': now.toIso8601String(),
-            'approvedBy': 'admin',
-            'revenueRecognized': true,
-            'revenueRecognizedAt': now.toIso8601String(),
-            'updatedAt': now.toIso8601String(),
-          });
-        }
-      }
-
-      // 4. Apply subscription details to the related business(es)
-      await _applySubscriptionToBusiness(payment);
-
-      // 5. Credit the referring marketer for new activations and renewals.
+      // Credit the referring marketer for new activations and renewals.
       await context.read<MarketerProvider>().creditMarketerRewardForSubscription(
             userId: payment.userId,
             businessId: payment.businessId,
@@ -619,9 +417,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
             userEmail: payment.userEmail,
             planId: payment.planId,
             amount: payment.amount,
-            requestId: updatedRequestIds.isNotEmpty
-                ? updatedRequestIds.first
-                : payment.requestId,
+            requestId: payment.requestId,
             transactionId: payment.transactionId,
             approvedAt: now,
             approvedBy: 'admin',
@@ -636,7 +432,6 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
         );
       }
 
-      // 6. Reload payments to refresh the UI
       await _loadPayments();
     } catch (e) {
       if (mounted) {
@@ -647,113 +442,15 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
     }
   }
 
-  Future<void> _applySubscriptionToBusiness(SubscriptionPayment payment) async {
-    try {
-      final subscriptionService =
-          SubscriptionService(firestore: FirebaseFirestore.instance);
-      final plan = SubscriptionService.getPlanById(payment.planId);
-      final now = DateTime.now();
-      final endDate = now.add(Duration(days: plan?.durationInDays ?? 30));
-
-      // Update the business subscription fields
-      final synced = await subscriptionService.syncSubscriptionToBusiness(
-        businessId: payment.businessId,
-        planId: payment.planId,
-        startDate: now,
-        endDate: endDate,
-      );
-
-      if (!synced) {
-        print(
-            '[AdminPaymentsPage] Warning: Failed to sync subscription to business ${payment.businessId}');
-      }
-
-      await _firestore.collection('businesses').doc(payment.businessId).set({
-        'subscriptionStatus': 'approved',
-        'subscriptionReviewStatus': 'approved',
-        'subscriptionApprovedAt': now.toIso8601String(),
-        'subscriptionApprovedBy': 'admin',
-        'subscriptionDeclineReason': FieldValue.delete(),
-      }, SetOptions(merge: true));
-    } catch (e) {
-      print('[AdminPaymentsPage] Error applying subscription to business: $e');
-    }
-  }
-
   Future<void> _declineSubscription(
     SubscriptionPayment payment,
     String reason,
   ) async {
     try {
-      // Update user subscription status
-      await _firestore.collection('users').doc(payment.userId).update({
-        'subscriptionStatus': 'declined',
-        'hasActiveSubscription': false,
-        'subscriptionDeclinedAt': DateTime.now().toIso8601String(),
-        'subscriptionDeclinedBy': 'admin',
-        'subscriptionDeclineReason': reason,
-      });
-
-      await _firestore.collection('businesses').doc(payment.businessId).set({
-        'isSubscriptionActive': false,
-        'subscriptionStatus': 'declined',
-        'subscriptionReviewStatus': 'declined',
-        'subscriptionDeclinedAt': DateTime.now().toIso8601String(),
-        'subscriptionDeclineReason': reason,
-        'subscriptionDeclinedBy': 'admin',
-      }, SetOptions(merge: true));
-
-      // Log the decline action
-      await _firestore.collection('subscription_approvals').add({
-        'userId': payment.userId,
-        'userName': payment.userName,
-        'userEmail': payment.userEmail,
-        'planId': payment.planId,
-        'amount': payment.amount,
-        'currency': payment.currency,
-        'receiptUrl': payment.receiptUrl,
-        'declinedAt': DateTime.now().toIso8601String(),
-        'declinedBy': 'admin',
-        'declineReason': reason,
-        'revenueRecognized': false,
-        'status': 'declined',
-      });
-
-      // Also update any matching pending subscription_requests to rejected
-      final query = await _firestore
-          .collection('subscription_requests')
-          .where('userId', isEqualTo: payment.userId)
-          .where('planId', isEqualTo: payment.planId)
-          .where('status', isEqualTo: 'pending')
-          .get();
-
-      for (final doc in query.docs) {
-        await doc.reference.update({
-          'status': 'rejected',
-          'rejectedAt': DateTime.now().toIso8601String(),
-          'rejectedBy': 'admin',
-          'rejectedReason': reason,
-          'revenueRecognized': false,
-        });
-      }
-
-      if (payment.transactionId != null && payment.transactionId!.isNotEmpty) {
-        final matchingTransactions = await _firestore
-            .collection('payment_transactions')
-            .where('transactionId', isEqualTo: payment.transactionId)
-            .get();
-        for (final doc in matchingTransactions.docs) {
-          await doc.reference.update({
-            'status': 'declined',
-            'approvalStatus': 'declined',
-            'declinedAt': DateTime.now().toIso8601String(),
-            'declinedBy': 'admin',
-            'declineReason': reason,
-            'revenueRecognized': false,
-            'updatedAt': DateTime.now().toIso8601String(),
-          });
-        }
-      }
+      await _adminRepository.declineSubscriptionRequest(
+        payment.requestId,
+        reason: reason,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -798,7 +495,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Subscription Approvals',
+                        'Revenue',
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
@@ -850,6 +547,15 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                                       _transactions.length,
                                       Colors.blue,
                                     ),
+                                    const SizedBox(width: 8),
+                                    _buildTabButton(
+                                      'Revenue Report',
+                                      4,
+                                      _transactions
+                                          .where(_isTransactionRecognized)
+                                          .length,
+                                      Colors.purple,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -880,7 +586,8 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                                   ),
                                 ],
                               ),
-                              if (_selectedTabIndex != 3) ...[
+                              if (_selectedTabIndex != 3 &&
+                                  _selectedTabIndex != 4) ...[
                                 const SizedBox(height: 16),
                                 TextField(
                                   onChanged: (value) => setState(
@@ -926,8 +633,9 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
     return GestureDetector(
       onTap: () async {
         setState(() => _selectedTabIndex = index);
-        if (index == 3) {
+        if (index == 3 || index == 4) {
           await _loadTransactions();
+          if (!mounted) return;
           setState(() {});
         }
       },
@@ -1174,6 +882,9 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
 
     if (_selectedTabIndex == 3) {
       return _buildStyledTransactionsList();
+    }
+    if (_selectedTabIndex == 4) {
+      return _buildRevenueReport();
     }
 
     final filteredPayments = payments.where((payment) {
@@ -1501,7 +1212,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                           Border.all(color: Colors.orange.withOpacity(0.35)),
                     ),
                     child: const Text(
-                      'Legacy manual request without proof. New subscriptions should be paid through Kora checkout.',
+                      'Legacy direct-transfer request without proof. New subscriptions should be paid through Kora checkout.',
                       style:
                           TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                     ),
@@ -2029,6 +1740,297 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
     );
   }
 
+  Widget _buildRevenueReport() {
+    final recognized = _transactions.where(_isTransactionRecognized).toList();
+    final totalRevenue = recognized.fold<double>(
+      0,
+      (sum, tx) => sum + tx.amount,
+    );
+    final marketerRevenue = recognized.fold<double>(
+      0,
+      (sum, tx) => sum + tx.marketerRevenue,
+    );
+    final methodTotals = _aggregateTransactions(
+      recognized,
+      (tx) => _paymentMethodLabel(tx.method),
+    );
+    final categoryTotals = _aggregateTransactions(
+      recognized,
+      (tx) => tx.businessCategory.trim().isEmpty
+          ? 'Unclassified'
+          : tx.businessCategory,
+    );
+
+    if (recognized.isEmpty) {
+      return Center(
+        child: Text(
+          'No recognized revenue in this period',
+          style: TextStyle(color: context.adminTextSecondary),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration:
+              context.adminCardDecoration(borderRadius: BorderRadius.circular(22)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildMetricTile(
+                      icon: Icons.payments_rounded,
+                      label: 'Generated Revenue',
+                      value: _formatMoney(totalRevenue),
+                      accent: const Color(0xFF10B981),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildMetricTile(
+                      icon: Icons.campaign_rounded,
+                      label: 'From Marketers',
+                      value: _formatMoney(marketerRevenue),
+                      accent: const Color(0xFF6366F1),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final picked = await showDateRangePicker(
+                    context: context,
+                    firstDate: DateTime.now().subtract(const Duration(days: 730)),
+                    lastDate: DateTime.now().add(const Duration(days: 365)),
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      _filterStartDate = picked.start;
+                      _filterEndDate = picked.end;
+                    });
+                    await _loadTransactions(limit: 500);
+                    setState(() {});
+                  }
+                },
+                icon: const Icon(Icons.date_range_rounded),
+                label: Text(
+                  _filterStartDate == null && _filterEndDate == null
+                      ? 'Choose Period'
+                      : '${DateFormat('dd MMM yyyy').format(_filterStartDate!)} - ${DateFormat('dd MMM yyyy').format(_filterEndDate!)}',
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _breakdownCard(
+          title: 'Payment Method',
+          icon: Icons.credit_card_rounded,
+          totals: methodTotals,
+          totalRevenue: totalRevenue,
+        ),
+        const SizedBox(height: 16),
+        _categoryBreakdownCard(
+          recognized,
+          categoryTotals,
+          totalRevenue,
+        ),
+      ],
+    );
+  }
+
+  Map<String, double> _aggregateTransactions(
+    List<PaymentTransaction> transactions,
+    String Function(PaymentTransaction tx) keyBuilder,
+  ) {
+    final totals = <String, double>{};
+    for (final tx in transactions) {
+      final rawKey = keyBuilder(tx).trim();
+      final key = rawKey.isEmpty ? 'Unclassified' : rawKey;
+      totals[key] = (totals[key] ?? 0) + tx.amount;
+    }
+    return Map.fromEntries(
+      totals.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value)),
+    );
+  }
+
+  String _paymentMethodLabel(String method) {
+    final normalized = method.trim().toLowerCase();
+    if (normalized.contains('bank')) return 'Direct Bank Transfer';
+    if (normalized.contains('kora') ||
+        normalized.contains('flutterwave') ||
+        normalized.contains('gateway') ||
+        normalized.contains('card')) {
+      return 'Payment Gateway';
+    }
+    if (normalized.isEmpty) return 'Unspecified';
+    return normalized
+        .split('_')
+        .where((part) => part.isNotEmpty)
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .join(' ');
+  }
+
+  Widget _breakdownCard({
+    required String title,
+    required IconData icon,
+    required Map<String, double> totals,
+    required double totalRevenue,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration:
+          context.adminCardDecoration(borderRadius: BorderRadius.circular(22)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  color: context.adminTextPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...totals.entries.map(
+            (entry) => _breakdownRow(
+              entry.key,
+              entry.value,
+              totalRevenue <= 0 ? 0 : entry.value / totalRevenue,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _categoryBreakdownCard(
+    List<PaymentTransaction> transactions,
+    Map<String, double> categoryTotals,
+    double totalRevenue,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration:
+          context.adminCardDecoration(borderRadius: BorderRadius.circular(22)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.storefront_rounded,
+                  color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Business Category Revenue',
+                style: TextStyle(
+                  color: context.adminTextPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...categoryTotals.entries.map((entry) {
+            final tierTotals = _aggregateTransactions(
+              transactions
+                  .where((tx) => tx.businessCategory == entry.key)
+                  .toList(),
+              (tx) => tx.businessTier,
+            );
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _breakdownRow(
+                    entry.key,
+                    entry.value,
+                    totalRevenue <= 0 ? 0 : entry.value / totalRevenue,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 10, top: 8),
+                    child: Column(
+                      children: tierTotals.entries
+                          .map(
+                            (tier) => _breakdownRow(
+                              tier.key,
+                              tier.value,
+                              entry.value <= 0 ? 0 : tier.value / entry.value,
+                              compact: true,
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _breakdownRow(
+    String label,
+    double amount,
+    double percent, {
+    bool compact = false,
+  }) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: compact ? 4 : 7),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: compact
+                        ? context.adminTextSecondary
+                        : context.adminTextPrimary,
+                    fontWeight: compact ? FontWeight.w600 : FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                _formatMoney(amount),
+                style: TextStyle(
+                  color: compact
+                      ? context.adminTextSecondary
+                      : const Color(0xFF10B981),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          LinearProgressIndicator(
+            value: percent.clamp(0, 1).toDouble(),
+            minHeight: compact ? 4 : 6,
+            backgroundColor: context.adminBorder,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStyledPaymentCard(SubscriptionPayment payment) {
     final statusColor = _paymentStatusColor(payment.status);
     final statusLabel = _paymentStatusLabel(payment.status);
@@ -2201,7 +2203,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                             ? payment.transactionId!
                             : (paymentMethod.isNotEmpty
                                 ? paymentMethod
-                                : 'Manual review'),
+                                : 'Direct transfer'),
                         accent: statusColor,
                       ),
                     ),
@@ -2299,7 +2301,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                         ),
                       ),
                       child: Text(
-                        'Legacy manual request without proof. Ask the owner to retry through Kora checkout.',
+                        'Legacy direct-transfer request without proof. Ask the owner to retry through Kora checkout.',
                         style: TextStyle(
                           color: context.adminTextPrimary,
                           fontWeight: FontWeight.w700,
@@ -2956,22 +2958,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
 
   Future<void> _declineTransaction(PaymentTransaction tx, String reason) async {
     try {
-      // Update transaction status
-      final query = await _firestore
-          .collection('payment_transactions')
-          .where('transactionId', isEqualTo: tx.transactionId)
-          .limit(1)
-          .get();
-      if (query.docs.isNotEmpty) {
-        await query.docs.first.reference.update({
-          'status': 'declined',
-          'approvalStatus': 'declined',
-          'declinedAt': DateTime.now().toIso8601String(),
-          'declinedBy': 'admin',
-          'declineReason': reason,
-          'revenueRecognized': false,
-        });
-      }
+      await _adminRepository.declinePaymentTransaction(tx.id, reason: reason);
 
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Transaction declined')));
@@ -2985,126 +2972,29 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
 
   Future<void> _approveTransaction(PaymentTransaction tx) async {
     try {
-      // Try to locate a subscription request matching this transaction
-      final reqQuery = await _firestore
-          .collection('subscription_requests')
-          .where('transactionId', isEqualTo: tx.transactionId)
-          .limit(1)
-          .get();
-      if (reqQuery.docs.isNotEmpty) {
-        final req = reqQuery.docs.first.data();
-        final uid = req['userId'] as String? ?? '';
-        if (uid.isNotEmpty) {
-          final userDoc = await _firestore.collection('users').doc(uid).get();
-          if (userDoc.exists) {
-            final userData = userDoc.data() as Map<String, dynamic>;
-            final payment = SubscriptionPayment(
-              requestId: reqQuery.docs.first.id,
-              userId: uid,
-              userName: userData['fullName'] ?? userData['name'] ?? 'Unknown',
-              userEmail: userData['email'] ?? '',
-              businessId:
-                  req['businessId'] ?? userData['currentBusinessId'] ?? '',
-              businessName: (await _firestore
-                          .collection('businesses')
-                          .doc(req['businessId'])
-                          .get())
-                      .data()?['name'] ??
-                  'Business',
-              planId: req['planId'] ?? '',
-              planName: req['planName'] ??
-                  SubscriptionPayment._getPlanName(req['planId'] ?? ''),
-              amount: (req['amount'] ?? 0).toDouble(),
-              currency: (req['currency'] as String?) ?? tx.currency,
-              receiptUrl: req['receiptUrl'] ??
-                  tx.processorResponse?['receiptUrl'] ??
-                  '',
-              requestDate: req['createdAt'] != null
-                  ? (req['createdAt'] as Timestamp).toDate()
-                  : DateTime.now(),
-              status: 'pending',
-            );
+      // The backend resolves the target business/user from the transaction
+      // row itself; the only thing it needs from the client is which plan
+      // to grant. Infer it from a matching subscription request already
+      // loaded on this page (matching the original auto-detection), falling
+      // back to 'basic' if no match is found.
+      final allPayments = [..._pendingPayments, ..._approvedPayments, ..._declinedPayments];
+      final matching = allPayments.where(
+        (p) => p.transactionId != null && p.transactionId == tx.transactionId,
+      );
+      final planId = matching.isNotEmpty ? matching.first.planId : 'basic';
+      final plan = SubscriptionService.getPlanById(planId);
 
-            await _approveSubscription(payment);
-            // Update transaction status as processed
-            final qTx = await _firestore
-                .collection('payment_transactions')
-                .where('transactionId', isEqualTo: tx.transactionId)
-                .limit(1)
-                .get();
-            if (qTx.docs.isNotEmpty) {
-              await qTx.docs.first.reference.update({
-                'status': 'processed',
-                'approvalStatus': 'approved',
-                'approvedBy': 'admin',
-                'processedAt': DateTime.now().toIso8601String(),
-                'revenueRecognized': true,
-                'revenueRecognizedAt': DateTime.now().toIso8601String(),
-              });
-            }
+      await _adminRepository.approvePaymentTransaction(
+        tx.id,
+        planId: planId,
+        planTier: plan?.tierId,
+        durationDays: plan?.durationInDays ?? 30,
+      );
 
-            await _loadTransactions();
-            setState(() {});
-            return;
-          }
-        }
-      }
-
-      // Fallback: try to find user by email
-      final userQuery = await _firestore
-          .collection('users')
-          .where('email', isEqualTo: tx.email)
-          .limit(1)
-          .get();
-      if (userQuery.docs.isNotEmpty) {
-        final uid = userQuery.docs.first.id;
-        final userData = userQuery.docs.first.data();
-        final businessId = userData['currentBusinessId'] ?? '';
-        const planId = 'basic';
-        final payment = SubscriptionPayment(
-          userId: uid,
-          userName: userData['fullName'] ?? userData['name'] ?? 'Unknown',
-          userEmail: tx.email,
-          businessId: businessId,
-          businessName:
-              (await _firestore.collection('businesses').doc(businessId).get())
-                      .data()?['name'] ??
-                  'Business',
-          planId: planId,
-          planName: SubscriptionPayment._getPlanName(planId),
-          amount: tx.amount,
-          currency: tx.currency,
-          receiptUrl: tx.processorResponse?['receiptUrl'] ?? '',
-          requestDate: tx.createdAt ?? DateTime.now(),
-          status: 'pending',
-        );
-
-        await _approveSubscription(payment);
-        final qTx = await _firestore
-            .collection('payment_transactions')
-            .where('transactionId', isEqualTo: tx.transactionId)
-            .limit(1)
-            .get();
-        if (qTx.docs.isNotEmpty) {
-          await qTx.docs.first.reference.update({
-            'status': 'processed',
-            'approvalStatus': 'approved',
-            'approvedBy': 'admin',
-            'processedAt': DateTime.now().toIso8601String(),
-            'revenueRecognized': true,
-            'revenueRecognizedAt': DateTime.now().toIso8601String(),
-          });
-        }
-
-        await _loadTransactions();
-        setState(() {});
-        return;
-      }
-
-      // If we could not match to a user, notify admin
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-              'No matching subscription or user found for this transaction')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Transaction approved')));
+      await _loadTransactions();
+      setState(() {});
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error approving transaction: $e')));

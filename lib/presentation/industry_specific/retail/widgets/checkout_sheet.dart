@@ -81,8 +81,14 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   }
 
   bool _canApplyDiscount(AuthProvider auth) {
-    final role = auth.currentUser?.role ?? '';
-    return auth.isOwnerUser || WorkerPermissions.canApplyDiscount(role);
+    final user = auth.currentUser;
+    final role = user?.role ?? '';
+    return auth.isOwnerUser ||
+        WorkerPermissions.hasEffectivePermission(
+          role,
+          user?.permissions ?? const [],
+          'apply_discount',
+        );
   }
 
   double _calculateSubtotal(RetailProvider provider) {
@@ -230,7 +236,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       final cartItems = provider.cartItems.entries.map((e) {
         final product = e.key;
         final qty = e.value;
-        final price = product.price;
+        final price = provider.getEffectivePriceForCartItem(product.id);
+        final pricingMode = provider.getPricingModeForCartItem(product.id);
         subtotal += price * qty;
         return {
           'name': product.name,
@@ -238,6 +245,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
           'quantity': qty,
           'price': price,
           'unitPrice': price,
+          'pricingMode': pricingMode,
           'subtotal': price * qty,
           'total': price * qty,
           'specialInstructions': null,
@@ -1128,18 +1136,32 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                         final saleItems = provider.cartItems.entries.map((e) {
                           final product = e.key;
                           final qty = e.value;
-                          final price = product.price;
+                          final price =
+                              provider.getEffectivePriceForCartItem(product.id);
+                          final pricingMode =
+                              provider.getPricingModeForCartItem(product.id);
+                          final saleUnit =
+                              provider.getEffectiveSaleUnitForCartItem(product.id);
+                          final saleUnitMultiplier = provider
+                              .getEffectiveSaleUnitMultiplierForCartItem(
+                                  product.id);
                           subtotal += price * qty;
                           return {
                             'productId': product.id,
                             'name': product.name,
                             'quantity': qty,
                             'price': price,
-                            'unit': product.resolvedSaleUnit,
-                            'saleUnit': product.resolvedSaleUnit,
+                            'unit': saleUnit,
+                            'pricingMode': pricingMode,
+                            'saleUnit': saleUnit,
+                            'saleUnitMultiplier': saleUnitMultiplier,
                             'inventoryUnit': product.unit,
                           };
                         }).toList();
+                        final saleType = saleItems.any((item) =>
+                                item['pricingMode'] == 'wholesale')
+                            ? 'wholesale'
+                            : 'retail';
                         final taxAmt = subtotal * (_taxPercent / 100.0);
                         final discountAmt = canApplyDiscount
                             ? _discountAmount.clamp(0.0, subtotal)
@@ -1157,6 +1179,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                           'totalAmount': total,
                           'finalAmount': total,
                           'paymentMethod': _selectedPaymentMethod,
+                          'saleType': saleType,
                           'paymentBreakdown': [
                             {'method': _selectedPaymentMethod, 'amount': total}
                           ],

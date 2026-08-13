@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/theme/text_styles.dart';
@@ -22,13 +21,13 @@ class ProductProcurementsScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text('Procurements for ${productName.isNotEmpty ? productName : productId}'),
       ),
-      body: StreamBuilder<QuerySnapshot>(
+      body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: repo.productProcurementsStream(businessId: businessId, productId: productId),
         builder: (context, snap) {
           if (snap.hasError) return const Center(child: Text('Error loading procurements'));
           if (!snap.hasData) return const Center(child: CircularProgressIndicator());
 
-          final docs = snap.data!.docs;
+          final docs = snap.data!;
           if (docs.isEmpty) return Center(child: Text('No procurement records for this product', style: AppTextStyles.subtitle1));
 
           return ListView.separated(
@@ -76,7 +75,7 @@ class _ProcurementDetailViewer extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text('Procurement $procurementId')),
-      body: FutureBuilder<DocumentSnapshot>(
+      body: FutureBuilder<Map<String, dynamic>?>(
         future: repo.getProcurementById(businessId: businessId, procurementId: procurementId),
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());

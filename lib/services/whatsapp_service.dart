@@ -1,24 +1,36 @@
 import 'dart:convert';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:business_manager/core/utils/datetime_utils.dart';
 import 'package:business_manager/core/utils/formatters.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
 
 import 'notification_and_email_service.dart';
+import 'managecare_api_client.dart';
 import '../core/config.dart';
-import 'email_service.dart'; 
+import 'email_service.dart';
 
 /// Simple WhatsApp messaging helper using the WhatsApp Cloud API (Meta)
 ///
 /// Usage:
-/// - Store `whatsappPhoneNumberId` and `whatsappAccessToken` on the
-///   `businesses/{businessId}` document (recommended).
+/// - Store `whatsappPhoneNumberId` and `whatsappAccessToken` in the
+///   `businesses.settings` JSONB column (recommended).
 /// - Optionally store `ownerWhatsappNumber` as the recipient number.
 ///
 class WhatsAppService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final NotificationAndEmailService _logger = NotificationAndEmailService();
+
+  /// Fetches a business row from the backend. Returns null if not found
+  /// or unreachable (callers already treat a missing business as a no-op).
+  Future<Map<String, dynamic>?> _fetchBusiness(String businessId) async {
+    try {
+      final response =
+          await ManagecareApiClient.instance.get('/api/businesses/$businessId');
+      return Map<String, dynamic>.from(response as Map);
+    } catch (e) {
+      return null;
+    }
+  }
 
   double _readDouble(dynamic value) {
     if (value is num) return value.toDouble();
@@ -80,29 +92,11 @@ class WhatsAppService {
 
     if (inventoryId!.isNotEmpty) {
       try {
-        final invDoc = await _firestore
-            .collection('businesses')
-            .doc(businessId)
-            .collection('inventory')
-            .doc(inventoryId)
-            .get();
-        if (invDoc.exists) {
-          final inv = invDoc.data();
-          final nestedCandidates = [
-            inv?['costPrice'],
-            inv?['cost'],
-            inv?['unitCost'],
-            inv?['purchasePrice'],
-            inv?['inventoryCost'],
-            (inv?['product'] as Map<String, dynamic>?)?['costPrice'],
-            (inv?['product'] as Map<String, dynamic>?)?['cost'],
-            (inv?['product'] as Map<String, dynamic>?)?['unitCost'],
-          ];
-          for (final candidate in nestedCandidates) {
-            final value = _readDouble(candidate);
-            if (value > 0) return value;
-          }
-        }
+        final response = await ManagecareApiClient.instance
+            .get('/api/inventory/$businessId/$inventoryId');
+        final inv = Map<String, dynamic>.from(response as Map);
+        final value = _readDouble(inv['cost_price']);
+        if (value > 0) return value;
       } catch (_) {}
     }
 
@@ -110,7 +104,9 @@ class WhatsAppService {
   }
 
   bool _isFuelStationBusiness(Map<String, dynamic> businessData) {
-    final businessType = (businessData['businessType'] ?? '')
+    final businessType = (businessData['business_type'] ??
+            businessData['businessType'] ??
+            '')
         .toString()
         .toLowerCase()
         .trim();
@@ -129,66 +125,81 @@ class WhatsAppService {
     final start = DateTime(date.year, date.month, date.day);
     final end = DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
 
-    final pumpConfigSnapshot = await _firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('pump_configurations')
-        .where('isActive', isEqualTo: true)
-        .get();
+    final pumpsResponse = await ManagecareApiClient.instance
+        .get('/api/pumps/$businessId/pumps', query: {'isActive': 'true'});
+    final pumpConfigRows =
+        ((pumpsResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
 
-    final pumpUploadsSnapshot = await _firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('pump_daily_uploads')
-        .where('uploadedAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where('uploadedAt', isLessThanOrEqualTo: Timestamp.fromDate(end))
-        .orderBy('uploadedAt', descending: true)
-        .get();
+    final uploadsResponse = await ManagecareApiClient.instance.get(
+      '/api/pumps/$businessId/uploads',
+      query: {
+        'from': start.toIso8601String(),
+        'to': end.toIso8601String(),
+        'limit': '500',
+      },
+    );
+    final uploadRows =
+        ((uploadsResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
 
-    final salesSnapshot = await _firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('sales')
-        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(end))
-        .orderBy('createdAt', descending: true)
-        .get();
+    final salesResponse = await ManagecareApiClient.instance.get(
+      '/api/sales/$businessId',
+      query: {
+        'startDate': start.toIso8601String(),
+        'endDate': end.toIso8601String(),
+        'limit': '500',
+      },
+    );
+    final saleRows =
+        ((salesResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+
+    final inventoryResponse = await ManagecareApiClient.instance.get(
+      '/api/inventory/$businessId',
+      query: {'limit': '100'},
+    );
+    final inventoryRows =
+        ((inventoryResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
 
     final pumpEntries = <Map<String, dynamic>>[];
-    for (final doc in pumpConfigSnapshot.docs) {
-      final data = doc.data();
+    for (final data in pumpConfigRows) {
       pumpEntries.add({
-        'id': doc.id,
-        'pumpNumber': data['pumpNumber']?.toString() ?? '',
-        'productName': data['productName']?.toString() ?? 'Fuel',
+        'id': data['id']?.toString() ?? '',
+        'pumpNumber': data['pump_number']?.toString() ?? '',
+        'productName': data['product_name']?.toString() ?? 'Fuel',
       });
     }
 
     final uploadsByPumpKey = <String, List<Map<String, dynamic>>>{};
-    for (final doc in pumpUploadsSnapshot.docs) {
-      final data = doc.data();
-      final pumpNumber = data['pumpNumber']?.toString() ?? '';
-      final pumpId = data['pumpId']?.toString() ?? '';
+    for (final data in uploadRows) {
+      final pumpNumber = data['pump_number']?.toString() ?? '';
+      final pumpId = data['pump_id']?.toString() ?? '';
       final key = pumpId.isNotEmpty
           ? pumpId
           : (pumpNumber.isNotEmpty ? 'number:$pumpNumber' : 'unknown');
-      uploadsByPumpKey.putIfAbsent(key, () => []).add(data);
+      uploadsByPumpKey.putIfAbsent(key, () => []).add({
+        'soldVolume': data['sold_volume'],
+        'expectedAmount': data['expected_amount'],
+        'workerName': data['worker_name'],
+        'workerId': data['worker_id'],
+      });
     }
 
+    // The `sales` table has no fuel/category or pump linkage - a POS retail
+    // sale can't be attributed to a specific pump. Pump revenue is captured
+    // entirely by pump_daily_uploads (above); this stays empty rather than
+    // guessing, so the section honestly reads "no pump sales recorded".
     final fuelSalesByPumpKey = <String, List<Map<String, dynamic>>>{};
-    for (final doc in salesSnapshot.docs) {
-      final data = doc.data();
-      final category = (data['category'] ?? '').toString().toLowerCase();
-      final pumpNumber = data['pumpNumber']?.toString() ?? '';
-      final pumpId = data['pumpId']?.toString() ?? '';
-      if (category != 'fuel' && category != 'petrol' && category != 'gas') {
-        continue;
-      }
-      final key = pumpId.isNotEmpty
-          ? pumpId
-          : (pumpNumber.isNotEmpty ? 'number:$pumpNumber' : 'unknown');
-      fuelSalesByPumpKey.putIfAbsent(key, () => []).add(data);
-    }
+
+    final normalizedSales = saleRows
+        .map((data) => {
+              'totalAmount': data['total_amount'],
+              'finalAmount': data['final_amount'],
+              'paymentMethod': data['payment_method'],
+              'workerName': data['worker_name'],
+              'workerId': data['worker_id'],
+              'items': data['items'],
+              'createdAt': data['created_at'],
+            })
+        .toList();
 
     final sortedPumpEntries = List<Map<String, dynamic>>.from(pumpEntries)
       ..sort((a, b) {
@@ -303,6 +314,31 @@ class WhatsAppService {
     }
 
     buffer.writeln('');
+    buffer.writeln('REMAINING STOCK');
+    final fuelStockRows = inventoryRows.where((row) {
+      final text = [
+        row['category'],
+        row['name'],
+        row['unit'],
+      ].join(' ').toLowerCase();
+      return text.contains('fuel') ||
+          text.contains('petrol') ||
+          text.contains('diesel') ||
+          text.contains('kerosene') ||
+          text.contains('gas');
+    }).toList();
+    if (fuelStockRows.isEmpty) {
+      buffer.writeln('- No petroleum stock rows found.');
+    } else {
+      for (final row in fuelStockRows.take(12)) {
+        final name = (row['name'] ?? 'Stock').toString();
+        final quantity = _readDouble(row['quantity']);
+        final unit = (row['unit'] ?? 'unit').toString();
+        buffer.writeln('- $name: ${quantity.toStringAsFixed(3)} $unit');
+      }
+    }
+
+    buffer.writeln('');
     buffer.writeln('PUMP SALES');
 
     if (sortedPumpEntries.isEmpty && fuelSalesByPumpKey.isEmpty) {
@@ -326,11 +362,11 @@ class WhatsAppService {
         }
 
         final totalAmount = sales.fold<double>(0.0, (sum, sale) {
-          return sum + _readDouble(sale['totalAmount']) > 0
+          return sum + (_readDouble(sale['totalAmount']) > 0
               ? _readDouble(sale['totalAmount'])
               : _readDouble(sale['finalAmount']) > 0
                   ? _readDouble(sale['finalAmount'])
-                  : _readDouble(sale['total']);
+                  : _readDouble(sale['total']));
         });
         buffer.writeln('- $pumpLabel: ${formatCurrency(totalAmount)}');
 
@@ -391,15 +427,10 @@ class WhatsAppService {
     buffer.writeln('');
     buffer.writeln('MINI MART SALES');
 
-    final miniMartSales = <Map<String, dynamic>>[];
-    for (final doc in salesSnapshot.docs) {
-      final data = doc.data();
-      final category = (data['category'] ?? '').toString().toLowerCase();
-      if (category == 'fuel' || category == 'petrol' || category == 'gas') {
-        continue;
-      }
-      miniMartSales.add(data);
-    }
+    // The `sales` table has no fuel/category distinction, and fuel revenue
+    // is tracked separately via pump_daily_uploads (above) - so every POS
+    // sale for the day is a mini-mart sale here.
+    final miniMartSales = normalizedSales;
 
     double miniMartTotal = 0.0;
     for (final sale in miniMartSales) {
@@ -428,7 +459,7 @@ class WhatsAppService {
             ? 'No item details'
             : items.take(3).map((item) {
                 if (item is Map) {
-                  final product = (item['productName'] ?? item['name'] ?? 'Item').toString();
+                  final product = (item['productName'] ?? item['product_name'] ?? item['name'] ?? 'Item').toString();
                   final qty = _readDouble(item['quantity']).toStringAsFixed(0);
                   return '$product x$qty';
                 }
@@ -454,9 +485,8 @@ class WhatsAppService {
     required List<Map<String, dynamic>> items,
   }) async {
     try {
-      final doc =
-          await _firestore.collection('businesses').doc(businessId).get();
-      if (!doc.exists) {
+      final data = await _fetchBusiness(businessId);
+      if (data == null) {
         await _logger.logNotificationEvent(
             businessId: businessId,
             type: 'order',
@@ -464,11 +494,10 @@ class WhatsAppService {
             recipient: 'unknown',
             success: false,
             orderId: orderId,
-            errorMessage: 'business document not found');
+            errorMessage: 'business not found');
         return false;
       }
 
-      final data = doc.data() ?? {};
       // Support storing credentials at top-level or inside `settings` map
       final settings = (data['settings'] as Map<String, dynamic>?) ?? {};
       var phoneNumberId = (data['whatsappPhoneNumberId'] as String?) ??
@@ -612,9 +641,8 @@ class WhatsAppService {
     required String message,
   }) async {
     try {
-      final doc = await _firestore.collection('businesses').doc(businessId).get();
-      if (!doc.exists) return false;
-      final data = doc.data() ?? {};
+      final data = await _fetchBusiness(businessId);
+      if (data == null) return false;
       final settings = (data['settings'] as Map<String, dynamic>?) ?? {};
       var phoneNumberId = (data['whatsappPhoneNumberId'] as String?) ?? (settings['whatsappPhoneNumberId'] as String?);
       var accessToken = (data['whatsappAccessToken'] as String?) ?? (settings['whatsappAccessToken'] as String?);
@@ -678,9 +706,8 @@ class WhatsAppService {
   /// back to AppConfig.ownerWhatsappNumber.
   Future<bool> sendTextToOwners({required String businessId, required String message}) async {
     try {
-      final doc = await _firestore.collection('businesses').doc(businessId).get();
-      if (!doc.exists) return false;
-      final data = doc.data() ?? {};
+      final data = await _fetchBusiness(businessId);
+      if (data == null) return false;
       final settings = (data['settings'] as Map<String, dynamic>?) ?? {};
       List<String> recipients = [];
       if (settings['ownerWhatsappNumbers'] != null && settings['ownerWhatsappNumbers'] is List) {
@@ -706,20 +733,19 @@ class WhatsAppService {
     String? webhookUrl,
   }) async {
     try {
-      final doc = await _firestore.collection('businesses').doc(businessId).get();
-      if (!doc.exists) {
+      final data = await _fetchBusiness(businessId);
+      if (data == null) {
         await _logger.logNotificationEvent(
           businessId: businessId,
           type: 'transactions_summary',
           channel: 'whatsapp',
           recipient: to ?? 'unknown',
           success: false,
-          errorMessage: 'Business document not found',
+          errorMessage: 'Business not found',
         );
         return false;
       }
 
-      final data = doc.data() ?? {};
       final settings = (data['settings'] as Map<String, dynamic>?) ?? {};
       var phoneNumberId = (data['whatsappPhoneNumberId'] as String?) ??
           (settings['whatsappPhoneNumberId'] as String?);
@@ -760,24 +786,57 @@ class WhatsAppService {
         return false;
       }
 
-      final txQuery = await _firestore
-          .collection('payment_transactions')
-          .where('businessId', isEqualTo: businessId)
-          .orderBy('createdAt', descending: true)
-          .limit(limit)
-          .get();
-
       final List<Map<String, dynamic>> txs = [];
-      for (final tdoc in txQuery.docs) {
-        final td = tdoc.data();
-        final created = parseTimestamp(td['createdAt']);
-        txs.add({
-          'transactionId': td['transactionId'] ?? tdoc.id,
-          'amount': (td['amount'] ?? 0).toString(),
-          'status': td['status'] ?? '',
-          'createdAt': created.toIso8601String(),
-          'email': td['email'] ?? '',
-        });
+      try {
+        final start = DateTime.now();
+        final dayStart = DateTime(start.year, start.month, start.day);
+        final salesResponse = await ManagecareApiClient.instance.get(
+          '/api/sales/$businessId',
+          query: {
+            'startDate': dayStart.toIso8601String(),
+            'endDate': DateTime(start.year, start.month, start.day, 23, 59, 59)
+                .toIso8601String(),
+            'limit': limit.toString(),
+          },
+        );
+        final saleRows =
+            ((salesResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        for (final sale in saleRows) {
+          final created = parseTimestamp(sale['created_at']);
+          txs.add({
+            'transactionId': sale['id'],
+            'amount': (sale['final_amount'] ?? sale['total_amount'] ?? 0).toString(),
+            'status': sale['status'] ?? '',
+            'createdAt': created.toIso8601String(),
+            'cashier': sale['worker_name'] ?? sale['workerName'] ?? '',
+            'paymentMethod': sale['payment_method'] ?? sale['paymentMethod'] ?? '',
+            'items': (sale['items'] as List<dynamic>? ?? [])
+                .whereType<Map>()
+                .map((item) => Map<String, dynamic>.from(item))
+                .toList(),
+          });
+        }
+      } catch (_) {}
+
+      if (txs.isEmpty) {
+        final txRows = await Supabase.instance.client
+            .from('payment_transactions')
+            .select()
+            .eq('business_id', businessId)
+            .order('created_at', ascending: false)
+            .limit(limit);
+
+        for (final td in txRows) {
+          final created = parseTimestamp(td['created_at']);
+          txs.add({
+            'transactionId': td['transaction_id'] ?? td['id'],
+            'amount': (td['amount'] ?? 0).toString(),
+            'status': td['status'] ?? '',
+            'createdAt': created.toIso8601String(),
+            'email': td['email'] ?? '',
+            'items': const <Map<String, dynamic>>[],
+          });
+        }
       }
 
       final businessName = data['name'] ?? 'Your business';
@@ -804,27 +863,23 @@ class WhatsAppService {
         double sampledCostTotal = 0.0;
         int wholesaleLineCount = 0;
         try {
-          final salesSnapshot = await _firestore
-              .collection('businesses')
-              .doc(businessId)
-              .collection('sales')
-              .orderBy('createdAt', descending: true)
-              .limit(limit)
-              .get();
+          final salesResponse = await ManagecareApiClient.instance.get(
+            '/api/sales/$businessId',
+            query: {'limit': limit.toString()},
+          );
+          final saleRowsForProfit =
+              ((salesResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
 
-          for (final sDoc in salesSnapshot.docs) {
-            final sale = sDoc.data();
+          for (final sale in saleRowsForProfit) {
             final items = (sale['items'] as List<dynamic>?) ?? [];
-            final saleTotal = _readDouble(sale['totalAmount']) > 0
-                ? _readDouble(sale['totalAmount'])
-                : _readDouble(sale['finalAmount']) > 0
-                    ? _readDouble(sale['finalAmount'])
-                    : _readDouble(sale['total']);
+            final saleTotal = _readDouble(sale['total_amount']) > 0
+                ? _readDouble(sale['total_amount'])
+                : _readDouble(sale['final_amount']);
             sampledSalesTotal += saleTotal;
 
             for (final rawItem in items) {
               if (rawItem is! Map) continue;
-              final item = Map<String, dynamic>.from(rawItem as Map);
+              final item = Map<String, dynamic>.from(rawItem);
               final quantity = _saleItemQuantity(item);
               final costPerUnit = await _saleItemCostPerUnit(businessId, item);
               sampledCostTotal += costPerUnit * quantity;
@@ -852,7 +907,20 @@ class WhatsAppService {
           final who = (tx['cashier'] as String?)?.toString() ??
               (tx['email'] as String?)?.toString() ??
               '';
-          lines.add('${i + 1}. \u20A6${amt.toStringAsFixed(2)} \u2022 ${tx['status']} \u2022 $dateStr${who.isNotEmpty ? ' \u2022 $who' : ''}');
+          final items = (tx['items'] as List<dynamic>? ?? [])
+              .whereType<Map>()
+              .map((item) {
+                final name = (item['productName'] ??
+                        item['product_name'] ??
+                        item['name'] ??
+                        'Item')
+                    .toString();
+                final qty = _saleItemQuantity(Map<String, dynamic>.from(item));
+                return '$name x${qty.toStringAsFixed(qty % 1 == 0 ? 0 : 2)}';
+              })
+              .take(4)
+              .join(', ');
+          lines.add('${i + 1}. \u20A6${amt.toStringAsFixed(2)} \u2022 ${tx['status']} \u2022 $dateStr${who.isNotEmpty ? ' \u2022 $who' : ''}${items.isNotEmpty ? ' \u2022 $items' : ''}');
         }
 
         final statusSummary = statusCounts.entries
@@ -948,13 +1016,16 @@ class WhatsAppService {
 
       try {
         String? ownerEmail;
+        final ownerId = data['owner_id'] ?? data['ownerId'];
         if (data['ownerEmail'] != null && data['ownerEmail'].toString().isNotEmpty) {
           ownerEmail = data['ownerEmail'].toString();
-        } else if (data['ownerId'] != null) {
-          final ownerDoc = await _firestore.collection('users').doc(data['ownerId']).get();
-          if (ownerDoc.exists) {
-            ownerEmail = (ownerDoc.data() as Map<String, dynamic>)['email'] as String?;
-          }
+        } else if (ownerId != null) {
+          final ownerRow = await Supabase.instance.client
+              .from('profiles')
+              .select('email')
+              .eq('id', ownerId.toString())
+              .maybeSingle();
+          ownerEmail = ownerRow?['email'] as String?;
         }
 
         if (ownerEmail != null && ownerEmail.isNotEmpty) {

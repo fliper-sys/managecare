@@ -1,5 +1,4 @@
 import 'package:business_manager/core/extensions/list_extensions.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../providers/retail_provider.dart';
@@ -7,6 +6,7 @@ import '../../../../core/constants/routes.dart';
 import '../../../../services/receipt_manager.dart';
 import '../../../../services/web_email_receipt_service.dart';
 import '../../../../services/email_service.dart';
+import '../../../../services/managecare_api_client.dart';
 import '../../../../services/notification_and_email_service.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/auth_provider.dart';
@@ -14,6 +14,7 @@ import '../../../../providers/connectivity_provider.dart';
 import '../../../../core/utils/receipt_utility.dart';
 import '../../../shared/payment_method_sheet.dart';
 import '../utils/pump_config_cache.dart';
+import '../utils/pump_row_mapper.dart';
 
 class GasPumpScreen extends StatefulWidget {
   const GasPumpScreen({super.key});
@@ -36,6 +37,8 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
   final _amountController = TextEditingController();
   final _qtyController = TextEditingController();
   bool _processing = false;
+
+  static const _pollInterval = Duration(seconds: 15);
 
   @override
   void initState() {
@@ -74,13 +77,8 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
     });
   }
 
-  void _syncCacheFromSnapshot(
-    String businessId,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final remotePumps = PumpConfigCache.sort(
-      docs.map(PumpConfigCache.fromDoc).toList(),
-    );
+  void _syncCacheFromRows(String businessId, List<Map<String, dynamic>> rows) {
+    final remotePumps = PumpConfigCache.sort(rows);
     if (remotePumps.isEmpty || PumpConfigCache.same(remotePumps, _cachedPumps)) {
       return;
     }
@@ -95,18 +93,37 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
     });
   }
 
+  Stream<List<Map<String, dynamic>>> _pumpsStream(String businessId) async* {
+    while (true) {
+      try {
+        final response = await ManagecareApiClient.instance
+            .get('/api/pumps/$businessId/pumps', query: {'isActive': 'true'});
+        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        yield rows.map(pumpRowToJson).toList();
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_pollInterval);
+    }
+  }
+
   Future<void> _loadAssignedPumps() async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     final user = context.read<AuthProvider>().currentUser;
-    if (user == null || user.id.isEmpty) {
+    if (businessId == null ||
+        businessId.isEmpty ||
+        user == null ||
+        user.id.isEmpty) {
       if (mounted) setState(() => _assignmentLoaded = true);
       return;
     }
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('workers')
-          .doc(user.id)
-          .get();
-      final ids = ((doc.data()?['assignedPumpIds'] as List<dynamic>?) ?? [])
+      final response = await ManagecareApiClient.instance
+          .get('/api/workers/$businessId/${user.id}');
+      final permissions = response == null
+          ? const <String, dynamic>{}
+          : Map<String, dynamic>.from(response['permissions'] as Map? ?? {});
+      final ids = ((permissions['assignedPumpIds'] as List<dynamic>?) ?? [])
           .map((id) => id.toString())
           .where((id) => id.isNotEmpty);
       if (!mounted) return;
@@ -132,19 +149,12 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
       );
     }
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('pump_configurations')
-          .where('isActive', isEqualTo: true)
-          .snapshots(includeMetadataChanges: true),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _pumpsStream(businessId),
       builder: (context, snapshot) {
-        final pumpDocs = snapshot.data?.docs ?? [];
-        _syncCacheFromSnapshot(businessId, pumpDocs);
-        final remotePumps = PumpConfigCache.sort(
-          pumpDocs.map(PumpConfigCache.fromDoc).toList(),
-        );
+        final pumpRows = snapshot.data ?? [];
+        _syncCacheFromRows(businessId, pumpRows);
+        final remotePumps = PumpConfigCache.sort(pumpRows);
         final allPumps = remotePumps.isNotEmpty ? remotePumps : _cachedPumps;
         final pumps = isPumpOperator && _assignedPumpIds.isNotEmpty
             ? allPumps

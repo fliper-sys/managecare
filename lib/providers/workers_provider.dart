@@ -1,14 +1,8 @@
 import 'package:flutter/foundation.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import '../data/repositories/worker_repository_impl.dart';
-import '../firebase_options.dart';
 
 class WorkersProvider with ChangeNotifier {
   final WorkerRepositoryImpl _repository;
-  final FirebaseFirestore? _firestore;
   List<Map<String, dynamic>> _workers = [];
   bool _isLoading = false;
   String? _error;
@@ -17,10 +11,7 @@ class WorkersProvider with ChangeNotifier {
   WorkersProvider({
     required String businessId,
     WorkerRepositoryImpl? repository,
-    FirebaseFirestore? firestore,
-  })  : _repository = repository ??
-            WorkerRepositoryImpl(firestore: firestore),
-        _firestore = firestore {
+  }) : _repository = repository ?? WorkerRepositoryImpl() {
     // initial load
     if (businessId.isNotEmpty) {
       loadWorkers(businessId);
@@ -31,160 +22,12 @@ class WorkersProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
-  Future<FirebaseFirestore> _resolveFirestore() async {
-    if (_firestore != null) return _firestore!;
-
-    if (Firebase.apps.isEmpty) {
-      try {
-        await Firebase.initializeApp(
-          options: DefaultFirebaseOptions.currentPlatform,
-        );
-      } on FirebaseException catch (e) {
-        if (e.code != 'duplicate-app') {
-          rethrow;
-        }
-      }
-    }
-
-    return FirebaseFirestore.instance;
-  }
-
-  Future<void> _ensureAuthenticatedSession() async {
-    final firebaseAuth = FirebaseAuth.instance;
-    var firebaseUser = firebaseAuth.currentUser;
-    if (firebaseUser == null) {
-      throw StateError(
-        'Your session has expired. Please sign in again before deleting a worker.',
-      );
-    }
-
-    try {
-      await firebaseUser.reload();
-    } on FirebaseAuthException catch (e) {
-      // `requires-recent-login` is not expected for reload, but if Firebase has
-      // already invalidated the session we want to surface a clean message.
-      if (e.code == 'user-token-expired' ||
-          e.code == 'user-disabled' ||
-          e.code == 'user-not-found') {
-        throw StateError(
-          'Your session has expired. Please sign in again before deleting a worker.',
-        );
-      }
-      rethrow;
-    }
-
-    firebaseUser = firebaseAuth.currentUser;
-    if (firebaseUser == null) {
-      throw StateError(
-        'Your session has expired. Please sign in again before deleting a worker.',
-      );
-    }
-
-    try {
-      final token = await firebaseUser.getIdToken(true);
-      if (token == null || token.isEmpty) {
-        throw StateError(
-          'Your session has expired. Please sign in again before deleting a worker.',
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'network-request-failed') {
-        throw StateError(
-          'Unable to verify your session right now. Check your connection and try again.',
-        );
-      }
-
-      if (e.code == 'user-token-expired' ||
-          e.code == 'invalid-user-token' ||
-          e.code == 'user-disabled' ||
-          e.code == 'user-not-found') {
-        throw StateError(
-          'Your session has expired. Please sign in again before deleting a worker.',
-        );
-      }
-
-      rethrow;
-    }
-  }
-
-  Future<void> _syncBusinessWorkerCount(String businessId) async {
-    try {
-      final firestore = await _resolveFirestore();
-      final activeWorkers = await _repository.getWorkers(businessId);
-      await firestore
-          .collection('businesses')
-          .doc(businessId)
-          .set(
-        {
-          'totalWorkers': activeWorkers.length,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-    } catch (e) {
-      print('[WorkersProvider] Failed to sync worker count: $e');
-    }
-  }
-
   Future<void> _refreshBusinessScopeAfterMutation(String? businessId) async {
     final targetBusinessId = (businessId ?? _businessId ?? '').trim();
     if (targetBusinessId.isEmpty) return;
 
     _businessId = targetBusinessId;
     await refreshForBusiness(targetBusinessId);
-    await _syncBusinessWorkerCount(targetBusinessId);
-  }
-
-  Future<String?> _resolveWorkerEmail(String workerId) async {
-    final firestore = await _resolveFirestore();
-
-    String? readEmail(Map<String, dynamic>? data) {
-      if (data == null) return null;
-      final value = data['emailLowercase'] ?? data['email'];
-      final email = value?.toString().trim();
-      if (email == null || email.isEmpty) return null;
-      return email.toLowerCase();
-    }
-
-    try {
-      final workerDoc = await firestore.collection('workers').doc(workerId).get();
-      final email = readEmail(workerDoc.data());
-      if (email != null) return email;
-    } catch (_) {}
-
-    try {
-      final userDoc = await firestore.collection('users').doc(workerId).get();
-      final email = readEmail(userDoc.data());
-      if (email != null) return email;
-    } catch (_) {}
-
-    return null;
-  }
-
-  Future<void> _deleteMatchingWorkerDocsByEmail(
-    String collection,
-    String email,
-    String? businessId,
-  ) async {
-    final firestore = await _resolveFirestore();
-    final trimmedBusinessId = businessId?.trim() ?? '';
-    final normalizedEmail = email.trim().toLowerCase();
-    if (normalizedEmail.isEmpty) return;
-
-    for (final field in const ['emailLowercase', 'email']) {
-      try {
-        Query query = firestore.collection(collection).where(field, isEqualTo: normalizedEmail);
-        if (trimmedBusinessId.isNotEmpty) {
-          query = query.where('businessId', isEqualTo: trimmedBusinessId);
-        }
-        final snapshot = await query.get();
-        for (final doc in snapshot.docs) {
-          await doc.reference.delete();
-        }
-      } catch (e) {
-        print('[WorkersProvider] Failed to delete matching $collection docs by email: $e');
-      }
-    }
   }
 
   Future<void> loadWorkers(String businessId) async {
@@ -229,94 +72,33 @@ class WorkersProvider with ChangeNotifier {
     }
   }
 
-  /// Update worker document and related business-scoped copies (barbers/stylists)
-  Future<void> updateWorker(String workerId, Map<String, dynamic> data, {String? businessId, List<String>? roles}) async {
+  /// Update a worker's profile fields (name, phone, role, permissions, pin, ...).
+  Future<void> updateWorker(String workerId, Map<String, dynamic> data,
+      {String? businessId, List<String>? roles}) async {
     try {
-      final firestore = await _resolveFirestore();
-      try {
-        await _repository.updateWorker(workerId, data);
-      } catch (e) {
-        await firestore.collection('workers').doc(workerId).set(
-          {
-            ...data,
-            'updatedAt': DateTime.now(),
-          },
-          SetOptions(merge: true),
-        );
+      final targetBusinessId = (businessId ?? _businessId ?? '').trim();
+      if (targetBusinessId.isEmpty) {
+        throw ArgumentError('businessId is required to update a worker');
       }
 
-      // Update business-specific collections where appropriate
-      if (businessId != null && businessId.isNotEmpty) {
-        final rolesSet = (roles ?? []).map((r) => r.toLowerCase()).toSet();
-        final docRefBarber = firestore.collection('businesses').doc(businessId).collection('barbers').doc(workerId);
-        final docRefStylist = firestore.collection('businesses').doc(businessId).collection('stylists').doc(workerId);
-
-        // Ensure merged updates where role present
-        if (rolesSet.contains('barber')) {
-          await docRefBarber.set(data, SetOptions(merge: true));
-        } else {
-          try { await docRefBarber.delete(); } catch (_) {}
-        }
-
-        if (rolesSet.contains('hairstylist') || rolesSet.contains('stylist')) {
-          await docRefStylist.set(data, SetOptions(merge: true));
-        } else {
-          try { await docRefStylist.delete(); } catch (_) {}
-        }
+      final payload = Map<String, dynamic>.from(data);
+      if (roles != null && roles.isNotEmpty) {
+        payload['role'] = roles.first;
       }
+      payload['businessId'] = targetBusinessId;
 
-      // If a PIN was included in the update, also sync it to the users collection
-      final Map<String, dynamic> usersMerge = {};
-      final normalizedRoles = (data['roles'] as List<dynamic>? ?? [])
-          .map((role) => role.toString().trim())
-          .where((role) => role.isNotEmpty)
-          .toList();
-
-      if (data.containsKey('pin')) usersMerge['pin'] = data['pin'];
-      if (data.containsKey('permissions')) {
-        usersMerge['permissions'] = data['permissions'];
-      }
-      if (data.containsKey('customPermissions')) {
-        usersMerge['permissions'] = data['customPermissions'];
-      }
-      // Map common worker profile fields to user document keys
-      if (data.containsKey('name')) usersMerge['fullName'] = data['name'];
-      if (data.containsKey('email')) usersMerge['email'] = data['email'];
-      if (data.containsKey('phoneNumber')) usersMerge['phoneNumber'] = data['phoneNumber'];
-      if (data.containsKey('isActive')) usersMerge['isActive'] = data['isActive'];
-      if (data.containsKey('role')) {
-        final providedRole = data['role'].toString().trim();
-        if (providedRole.isNotEmpty) {
-          usersMerge['role'] = providedRole;
-        }
-      } else if (normalizedRoles.isNotEmpty) {
-        usersMerge['role'] = normalizedRoles.first;
-      }
-      if (data.containsKey('roles')) {
-        usersMerge['roles'] = normalizedRoles.isNotEmpty
-            ? normalizedRoles
-            : data['roles'];
-      }
-
-      if (usersMerge.isNotEmpty) {
-        try {
-          usersMerge['updatedAt'] = DateTime.now();
-          await firestore.collection('users').doc(workerId).set(usersMerge, SetOptions(merge: true));
-        } catch (e) {
-          print('[WorkersProvider] Failed to sync profile to users collection: $e');
-        }
-      }
-
-      await _refreshBusinessScopeAfterMutation(businessId);
+      await _repository.updateWorker(workerId, payload);
+      await _refreshBusinessScopeAfterMutation(targetBusinessId);
     } catch (e) {
-      print('[WorkersProvider] updateWorker failed: $e');
+      debugPrint('[WorkersProvider] updateWorker failed: $e');
       rethrow;
     }
   }
 
-  /// Soft-remove a worker from a business without deleting the record entirely.
-  /// This is used by owner management flows that detach a worker from the business
-  /// but may keep a historical worker document for audit/reference purposes.
+  /// Deactivate a worker: keeps the worker record (and their business
+  /// membership row) but marks both inactive, so they lose access to the
+  /// business while the record stays around for historical/audit reference
+  /// (sales, attendance, etc. still reference their id).
   Future<void> removeWorkerFromBusiness(
     String workerId, {
     required String businessId,
@@ -327,145 +109,32 @@ class WorkersProvider with ChangeNotifier {
     }
 
     try {
-      await _ensureAuthenticatedSession();
-
-      final now = FieldValue.serverTimestamp();
-      final workerDocRef =
-          FirebaseFirestore.instance.collection('workers').doc(workerId);
-      final userDocRef =
-          FirebaseFirestore.instance.collection('users').doc(workerId);
-
-      // Detach the worker from the business in both collections so all worker
-      // count paths stop treating the record as an active slot.
-      try {
-        await workerDocRef.set({
-          'isActive': false,
-          'businessId': FieldValue.delete(),
-          'role': FieldValue.delete(),
-          'roles': FieldValue.delete(),
-          'updatedAt': now,
-          'removedAt': now,
-        }, SetOptions(merge: true));
-      } catch (e) {
-        print('[WorkersProvider] Failed to detach worker doc: $e');
-        rethrow;
-      }
-
-      try {
-        await userDocRef.set({
-          'isActive': false,
-          'businessId': FieldValue.delete(),
-          'role': FieldValue.delete(),
-          'roles': FieldValue.delete(),
-          'updatedAt': now,
-          'removedAt': now,
-        }, SetOptions(merge: true));
-      } catch (e) {
-        print('[WorkersProvider] Failed to detach user doc: $e');
-      }
-
-      final businessDocRef = FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(targetBusinessId);
-
-      for (final collection in const ['barbers', 'stylists']) {
-        try {
-          await businessDocRef.collection(collection).doc(workerId).delete();
-        } catch (e) {
-          print(
-            '[WorkersProvider] Failed to delete worker from $collection collection: $e',
-          );
-        }
-      }
-
+      await _repository.updateWorker(workerId, {
+        'businessId': targetBusinessId,
+        'isActive': false,
+      });
       await _refreshBusinessScopeAfterMutation(targetBusinessId);
     } catch (e) {
-      print('[WorkersProvider] removeWorkerFromBusiness failed: $e');
+      debugPrint('[WorkersProvider] removeWorkerFromBusiness failed: $e');
       rethrow;
     }
   }
 
-  /// Delete worker from Firestore collections (users, workers, and business-specific collections)
-  /// Note: Firebase Auth account deletion cannot be performed from client-side code for security reasons.
-  /// This requires server-side implementation (Cloud Functions) to delete the Auth user.
+  /// Permanently delete a worker record. The backend also deactivates their
+  /// business_members row atomically as part of this call
+  /// (routes/workers.js), so membership/access checks stop treating them as
+  /// part of the business.
   Future<void> deleteWorker(String workerId, {String? businessId}) async {
+    final targetBusinessId = (businessId ?? _businessId ?? '').trim();
+    if (targetBusinessId.isEmpty) {
+      throw ArgumentError('businessId is required to delete a worker');
+    }
+
     try {
-      await _ensureAuthenticatedSession();
-
-      final workerEmail = await _resolveWorkerEmail(workerId);
-      final firestore = await _resolveFirestore();
-      final functions = FirebaseFunctions.instance;
-
-      final callable = functions.httpsCallable('deleteWorkerCompletely');
-      await callable.call(<String, dynamic>{
-        'workerId': workerId,
-        if (businessId != null && businessId.isNotEmpty) 'businessId': businessId,
-        if (workerEmail != null && workerEmail.isNotEmpty) 'workerEmail': workerEmail,
-      });
-
-      // Also remove any lingering duplicates by email so recreation with the
-      // same email works even if older records used a different document id.
-      if (workerEmail != null && workerEmail.isNotEmpty) {
-        await _deleteMatchingWorkerDocsByEmail('workers', workerEmail, businessId);
-        await _deleteMatchingWorkerDocsByEmail('users', workerEmail, businessId);
-      }
-
-      // Delete from business-specific collections if businessId is provided
-      if (businessId != null && businessId.isNotEmpty) {
-        final businessDocRef = firestore.collection('businesses').doc(businessId);
-
-        // Delete from barbers collection
-        try {
-          await businessDocRef.collection('barbers').doc(workerId).delete();
-          print('[WorkersProvider] Deleted worker from barbers collection: $workerId');
-        } catch (e) {
-          print('[WorkersProvider] Failed to delete from barbers collection: $e');
-        }
-
-        // Delete from stylists collection
-        try {
-          await businessDocRef.collection('stylists').doc(workerId).delete();
-          print('[WorkersProvider] Deleted worker from stylists collection: $workerId');
-        } catch (e) {
-          print('[WorkersProvider] Failed to delete from stylists collection: $e');
-        }
-
-        for (final collection in const [
-          'mechanics',
-          'electricians',
-          'body_technicians',
-          'painters',
-          'valucnizers',
-          'vulcanizers',
-          'staff',
-          'managers',
-        ]) {
-          try {
-            await businessDocRef.collection(collection).doc(workerId).delete();
-          } catch (_) {}
-        }
-
-        if (workerEmail != null && workerEmail.isNotEmpty) {
-          for (final collection in const [
-            'barbers',
-            'stylists',
-            'mechanics',
-            'electricians',
-            'body_technicians',
-            'painters',
-            'valucnizers',
-            'vulcanizers',
-            'staff',
-            'managers',
-          ]) {
-            await _deleteMatchingWorkerDocsByEmail(collection, workerEmail, businessId);
-          }
-        }
-      }
-
-      await _refreshBusinessScopeAfterMutation(businessId);
+      await _repository.deleteWorkerForBusiness(targetBusinessId, workerId);
+      await _refreshBusinessScopeAfterMutation(targetBusinessId);
     } catch (e) {
-      print('[WorkersProvider] deleteWorker failed: $e');
+      debugPrint('[WorkersProvider] deleteWorker failed: $e');
       rethrow;
     }
   }

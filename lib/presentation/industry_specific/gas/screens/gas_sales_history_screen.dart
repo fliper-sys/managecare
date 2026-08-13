@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -10,7 +9,9 @@ import '../../../../core/theme/text_styles.dart';
 import '../../../../core/utils/amount_formatter.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
+import '../../../../services/managecare_api_client.dart';
 import '../../../../services/receipt_manager.dart';
+import '../utils/pump_row_mapper.dart';
 
 class GasSalesHistoryScreen extends StatefulWidget {
   const GasSalesHistoryScreen({super.key});
@@ -32,10 +33,43 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
   StreamSubscription<List<Map<String, dynamic>>>? _historySubscription;
 
   DateTime? _readDate(dynamic value) {
-    if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
     if (value is num) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
     return DateTime.tryParse(value?.toString() ?? '');
+  }
+
+  static const _pollInterval = Duration(seconds: 15);
+
+  Stream<List<Map<String, dynamic>>> _dailyUploadsStream(
+      String businessId) async* {
+    while (true) {
+      try {
+        final response = await ManagecareApiClient.instance.get(
+          '/api/pumps/$businessId/uploads',
+          query: {'limit': '100'},
+        );
+        final rows =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        yield rows.map(pumpUploadRowToJson).toList();
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_pollInterval);
+    }
+  }
+
+  Stream<List<Map<String, dynamic>>> _miniMartSalesStream(
+      String businessId) async* {
+    while (true) {
+      try {
+        final sales =
+            await context.read<RetailProvider>().getSalesHistory(limit: 150);
+        yield sales.where((sale) => !_isFuelSale(sale)).toList();
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      await Future.delayed(_pollInterval);
+    }
   }
 
   double _readDouble(dynamic value) {
@@ -363,30 +397,23 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
     if (businessId == null || businessId.isEmpty) {
       return const Center(child: Text('No business selected'));
     }
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('sales')
-          .orderBy('createdAt', descending: true)
-          .limit(150)
-          .snapshots(includeMetadataChanges: true),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _miniMartSalesStream(businessId),
       builder: (context, snapshot) {
-        final docs = (snapshot.data?.docs ?? [])
-            .where((doc) => !_isFuelSale(doc.data()))
-            .toList();
-        if (snapshot.connectionState == ConnectionState.waiting && docs.isEmpty) {
+        final sales = snapshot.data ?? [];
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            sales.isEmpty) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (docs.isEmpty) {
+        if (sales.isEmpty) {
           return const Center(child: Text('No minimart sales yet'));
         }
         return ListView.separated(
-          itemCount: docs.length,
+          itemCount: sales.length,
           separatorBuilder: (_, __) => const Divider(),
           itemBuilder: (context, index) {
-            final doc = docs[index];
-            final data = doc.data();
+            final data = sales[index];
+            final id = (data['id'] ?? '').toString();
             final createdAt =
                 _readDate(data['createdAt']) ?? _readDate(data['timestamp']);
             final amount = _readDouble(
@@ -400,13 +427,13 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
               onTap: () => Navigator.pushNamed(
                 context,
                 Routes.salesReceipt,
-                arguments: doc.id,
+                arguments: id,
               ),
               leading: PopupMenuButton<String>(
                 onSelected: (value) => _handleReceiptAction(
                   context,
                   value,
-                  doc.id,
+                  id,
                 ),
                 itemBuilder: (context) => const [
                   PopupMenuItem(
@@ -420,7 +447,7 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
                 ],
                 child: const CircleAvatar(child: Icon(Icons.storefront)),
               ),
-              title: Text('Mini mart sale - ${doc.id}'),
+              title: Text('Mini mart sale - $id'),
               subtitle: Text(
                 '${createdAt == null ? '' : DateFormat.yMd().add_jm().format(createdAt)}\n'
                 'Items: $itemCount',
@@ -444,17 +471,12 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
     if (businessId == null || businessId.isEmpty) {
       return const Center(child: Text('No business selected'));
     }
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('pump_daily_uploads')
-          .orderBy('uploadedAt', descending: true)
-          .limit(100)
-          .snapshots(includeMetadataChanges: true),
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _dailyUploadsStream(businessId),
       builder: (context, snapshot) {
-        final docs = snapshot.data?.docs ?? [];
-        if (snapshot.connectionState == ConnectionState.waiting && docs.isEmpty) {
+        final docs = snapshot.data ?? [];
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            docs.isEmpty) {
           return const Center(child: CircularProgressIndicator());
         }
         if (docs.isEmpty) {
@@ -464,11 +486,17 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
           itemCount: docs.length,
           separatorBuilder: (_, __) => const Divider(),
           itemBuilder: (context, index) {
-            final data = docs[index].data();
+            final data = docs[index];
             final uploadedAt =
                 _readDate(data['uploadedAt']) ?? _readDate(data['createdAt']);
             final soldVolume = _readDouble(data['soldVolume']);
             final expectedAmount = _readDouble(data['expectedAmount']);
+            final digitalVolume = data['digitalVolume'] == null
+                ? null
+                : _readDouble(data['digitalVolume']);
+            final analogClosingVolume = data['analogClosingVolume'] == null
+                ? null
+                : _readDouble(data['analogClosingVolume']);
             return ListTile(
               leading: const CircleAvatar(child: Icon(Icons.cloud_upload)),
               title: Text(
@@ -476,7 +504,9 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
               ),
               subtitle: Text(
                 '${uploadedAt == null ? '' : DateFormat.yMd().add_jm().format(uploadedAt)}\n'
-                'Operator: ${data['workerName'] ?? 'N/A'}',
+                'Operator: ${data['workerName'] ?? 'N/A'}'
+                '${digitalVolume == null ? '' : '\nDigital: ${formatAmount(digitalVolume, decimalDigits: 3)} L'}'
+                '${analogClosingVolume == null ? '' : ' · Analog: ${formatAmount(analogClosingVolume, decimalDigits: 3)} L'}',
               ),
               isThreeLine: true,
               trailing: Column(

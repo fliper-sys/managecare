@@ -13,8 +13,20 @@ class SalesRepositoryImpl implements SalesRepository {
     required String businessId,
     required Map<String, dynamic> item,
   }) async {
-    final inventory = _firestore.collection('businesses').doc(businessId).collection('inventory');
-    final productId = (item['productId'] ?? item['id'] ?? item['product_id'] ?? item['inventoryProductId'] ?? item['inventory_product_id'] ?? item['menuItemId'] ?? item['menu_item_id'] ?? '').toString().trim();
+    final inventory = _firestore
+        .collection('businesses')
+        .doc(businessId)
+        .collection('inventory');
+    final productId = (item['productId'] ??
+            item['id'] ??
+            item['product_id'] ??
+            item['inventoryProductId'] ??
+            item['inventory_product_id'] ??
+            item['menuItemId'] ??
+            item['menu_item_id'] ??
+            '')
+        .toString()
+        .trim();
     if (productId.isNotEmpty) {
       final docRef = inventory.doc(productId);
       final snap = await docRef.get();
@@ -23,13 +35,21 @@ class SalesRepositoryImpl implements SalesRepository {
 
     final barcode = (item['barcode'] ?? item['sku'] ?? '').toString().trim();
     if (barcode.isNotEmpty) {
-      final barcodeSnap = await inventory.where('barcode', isEqualTo: barcode).limit(1).get();
+      final barcodeSnap =
+          await inventory.where('barcode', isEqualTo: barcode).limit(1).get();
       if (barcodeSnap.docs.isNotEmpty) return barcodeSnap.docs.first.reference;
     }
 
-    final name = (item['name'] ?? item['productName'] ?? item['itemName'] ?? item['menuItemName'] ?? '').toString().trim();
+    final name = (item['name'] ??
+            item['productName'] ??
+            item['itemName'] ??
+            item['menuItemName'] ??
+            '')
+        .toString()
+        .trim();
     if (name.isNotEmpty) {
-      final nameSnap = await inventory.where('name', isEqualTo: name).limit(1).get();
+      final nameSnap =
+          await inventory.where('name', isEqualTo: name).limit(1).get();
       if (nameSnap.docs.isNotEmpty) return nameSnap.docs.first.reference;
     }
 
@@ -37,25 +57,56 @@ class SalesRepositoryImpl implements SalesRepository {
   }
 
   double _readQuantity(Map<String, dynamic> item) {
-    final quantityValue = item['quantity'] ?? item['qty'] ?? item['quantitySold'] ?? item['soldQty'] ?? 0;
+    final quantityValue = item['quantity'] ??
+        item['qty'] ??
+        item['quantitySold'] ??
+        item['soldQty'] ??
+        0;
     if (quantityValue is num) return quantityValue.toDouble();
     return double.tryParse(quantityValue.toString()) ?? 0.0;
   }
 
   double _readSaleUnitMultiplier(Map<String, dynamic> item) {
-    final multiplierValue = item['saleUnitMultiplier'] ?? item['inventoryQuantity'] ?? 1;
+    final multiplierValue =
+        item['saleUnitMultiplier'] ?? item['inventoryQuantity'] ?? 1;
     if (multiplierValue is num) return multiplierValue.toDouble();
     return double.tryParse(multiplierValue.toString()) ?? 1.0;
   }
 
   double _readInventoryDeductionQuantity(Map<String, dynamic> item) {
-    final directValue = item['inventoryQuantity'] ?? item['stockReduction'] ?? item['stockDeduction'];
+    final directValue = item['inventoryQuantity'] ??
+        item['stockReduction'] ??
+        item['stockDeduction'];
     if (directValue is num) return directValue.toDouble();
 
     final directParsed = double.tryParse(directValue?.toString() ?? '');
     if (directParsed != null) return directParsed;
 
     return _readQuantity(item) * _readSaleUnitMultiplier(item);
+  }
+
+  double _readSaleAmount(Map<String, dynamic> saleData) {
+    final value = saleData['finalAmount'] ??
+        saleData['totalAmount'] ??
+        saleData['total'] ??
+        0;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString()) ?? 0.0;
+  }
+
+  DateTime _readSaleCreatedAt(Map<String, dynamic> saleData) {
+    final value = saleData['createdAt'];
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) return parsed;
+    }
+    return DateTime.now();
+  }
+
+  String _salesSummaryDayKey(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -100,13 +151,19 @@ class SalesRepositoryImpl implements SalesRepository {
           final List<Map<String, dynamic>> _deleteErrors = [];
           for (final raw in items) {
             if (raw is! Map<String, dynamic>) continue;
-            final pid = (raw['productId'] ?? raw['id'] ?? raw['product_id'] ?? '').toString();
+            final pid =
+                (raw['productId'] ?? raw['id'] ?? raw['product_id'] ?? '')
+                    .toString();
             final qty = _readInventoryDeductionQuantity(raw);
 
             if (pid.isEmpty || qty <= 0) continue;
 
             try {
-              final invRef = _firestore.collection('businesses').doc(bid).collection('inventory').doc(pid);
+              final invRef = _firestore
+                  .collection('businesses')
+                  .doc(bid)
+                  .collection('inventory')
+                  .doc(pid);
               final invSnap = await tx.get(invRef);
               if (invSnap.exists) {
                 tx.update(invRef, {
@@ -127,14 +184,23 @@ class SalesRepositoryImpl implements SalesRepository {
           }
 
           // delete business-level sale doc if present
-          final businessSaleRef = _firestore.collection('businesses').doc(bid).collection('sales').doc(saleId);
+          final businessSaleRef = _firestore
+              .collection('businesses')
+              .doc(bid)
+              .collection('sales')
+              .doc(saleId);
           final bSnap = await tx.get(businessSaleRef);
           if (bSnap.exists) tx.delete(businessSaleRef);
 
-          final saleType = (data['saleType'] ?? '').toString().trim().toLowerCase();
+          final saleType =
+              (data['saleType'] ?? '').toString().trim().toLowerCase();
           final distributorId = (data['distributorId'] ?? '').toString().trim();
           if (saleType == 'distributor' && distributorId.isNotEmpty) {
-            final distributorSaleRef = _firestore.collection('businesses').doc(bid).collection('distributor_sales').doc(saleId);
+            final distributorSaleRef = _firestore
+                .collection('businesses')
+                .doc(bid)
+                .collection('distributor_sales')
+                .doc(saleId);
             final distributorSaleSnap = await tx.get(distributorSaleRef);
             if (distributorSaleSnap.exists) tx.delete(distributorSaleRef);
 
@@ -150,7 +216,11 @@ class SalesRepositoryImpl implements SalesRepository {
           }
 
           // log audit
-          final auditRef = _firestore.collection('businesses').doc(bid).collection('sale_deletions').doc();
+          final auditRef = _firestore
+              .collection('businesses')
+              .doc(bid)
+              .collection('sale_deletions')
+              .doc();
           tx.set(auditRef, {
             'saleId': saleId,
             'deletedBy': 'system',
@@ -173,23 +243,35 @@ class SalesRepositoryImpl implements SalesRepository {
       {Map<String, dynamic>? filters}) async {
     try {
       // Try root collection 'sales' and nested 'businesses/{businessId}/sales'
-      var rootQuery = _firestore.collection('sales').where('businessId', isEqualTo: businessId) as dynamic;
-      var nestedQuery = _firestore.collection('businesses').doc(businessId).collection('sales') as dynamic;
+      var rootQuery = _firestore
+          .collection('sales')
+          .where('businessId', isEqualTo: businessId) as dynamic;
+      var nestedQuery = _firestore
+          .collection('businesses')
+          .doc(businessId)
+          .collection('sales') as dynamic;
 
       if (filters != null) {
         // Apply additional filters if provided
-        if (filters.containsKey('storeId') && filters['storeId'] != null && (filters['storeId'] as String).isNotEmpty) {
+        if (filters.containsKey('storeId') &&
+            filters['storeId'] != null &&
+            (filters['storeId'] as String).isNotEmpty) {
           rootQuery = rootQuery.where('storeId', isEqualTo: filters['storeId']);
-          nestedQuery = nestedQuery.where('storeId', isEqualTo: filters['storeId']);
+          nestedQuery =
+              nestedQuery.where('storeId', isEqualTo: filters['storeId']);
         }
-        if (filters.containsKey('workerId') && filters['workerId'] != null && (filters['workerId'] as String).isNotEmpty) {
-          rootQuery = rootQuery.where('workerId', isEqualTo: filters['workerId']);
-          nestedQuery = nestedQuery.where('workerId', isEqualTo: filters['workerId']);
+        if (filters.containsKey('workerId') &&
+            filters['workerId'] != null &&
+            (filters['workerId'] as String).isNotEmpty) {
+          rootQuery =
+              rootQuery.where('workerId', isEqualTo: filters['workerId']);
+          nestedQuery =
+              nestedQuery.where('workerId', isEqualTo: filters['workerId']);
         }
       }
 
       final rootSnapshot = await rootQuery.get();
-      final nestedSnapshot = await nestedQuery.get(); 
+      final nestedSnapshot = await nestedQuery.get();
 
       final List<Map<String, dynamic>> listRoot = rootSnapshot.docs
           .map((doc) => {...doc.data(), 'id': doc.id})
@@ -226,7 +308,12 @@ class SalesRepositoryImpl implements SalesRepository {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> fetchSales({String? businessId, String? storeId, DateTime? start, DateTime? end}) async {
+  Future<List<Map<String, dynamic>>> fetchSales(
+      {String? businessId,
+      String? storeId,
+      DateTime? start,
+      DateTime? end,
+      int? limit}) async {
     try {
       // Start with base query - businessId is critical for filtering
       if (businessId == null || businessId.isEmpty) {
@@ -236,27 +323,27 @@ class SalesRepositoryImpl implements SalesRepository {
       var query = _firestore
           .collection('sales')
           .where('businessId', isEqualTo: businessId) as dynamic;
-      
+
       // Add optional store filter
       if (storeId != null && storeId.isNotEmpty) {
         query = query.where('storeId', isEqualTo: storeId);
       }
-      
+
       // Add date range filters - Firebase will use the index efficiently
       if (start != null) {
         query = query.where('createdAt', isGreaterThanOrEqualTo: start);
       }
-      
+
       if (end != null) {
         query = query.where('createdAt', isLessThanOrEqualTo: end);
       }
 
       // Order by most recent first for better UX
       query = query.orderBy('createdAt', descending: true);
-      
+
       // Limit to prevent loading massive datasets - can be paginated if needed
-      query = query.limit(500);
-      
+      query = query.limit(limit ?? 500);
+
       final snapshot = await query.get();
       return snapshot.docs
           .map((doc) => {...(doc.data() as Map<String, dynamic>), 'id': doc.id})
@@ -316,7 +403,8 @@ class SalesRepositoryImpl implements SalesRepository {
             where: 'saleId = ?',
             whereArgs: [saleId],
           );
-          items.addAll(saleItems.map((item) => Map<String, dynamic>.from(item)));
+          items
+              .addAll(saleItems.map((item) => Map<String, dynamic>.from(item)));
         } catch (_) {}
       }
 
@@ -350,19 +438,28 @@ class SalesRepositoryImpl implements SalesRepository {
       if (saleId != null && saleId.isNotEmpty) {
         final rootRef = _firestore.collection('sales').doc(saleId);
         final businessSaleRef = businessId.isNotEmpty
-            ? _firestore.collection('businesses').doc(businessId).collection('sales').doc(saleId)
+            ? _firestore
+                .collection('businesses')
+                .doc(businessId)
+                .collection('sales')
+                .doc(saleId)
             : null;
 
         await _firestore.runTransaction((tx) async {
           final rootSnap = await tx.get(rootRef);
           final rootData = rootSnap.data() ?? {};
-          final inventoryAlreadyApplied = rootData['inventorySyncApplied'] == true;
-          final shouldApplyInventory = !inventoryAlreadyApplied && inventoryTargets.isNotEmpty;
+          final inventoryAlreadyApplied =
+              rootData['inventorySyncApplied'] == true;
+          final shouldApplyInventory =
+              !inventoryAlreadyApplied && inventoryTargets.isNotEmpty;
+          final summaryAlreadyApplied = rootData['salesSummaryApplied'] == true;
+          final shouldApplySummary = !summaryAlreadyApplied;
 
           final saleWrite = Map<String, dynamic>.from(saleData);
           saleWrite['id'] = saleId;
           saleWrite['updatedAt'] = FieldValue.serverTimestamp();
-          saleWrite['inventorySyncApplied'] = inventoryAlreadyApplied || !shouldApplyInventory;
+          saleWrite['inventorySyncApplied'] =
+              inventoryAlreadyApplied || !shouldApplyInventory;
           // The local sale row doesn't carry an `items` column — line items
           // live in the separate `sale_items` table and were fetched above.
           // Without this, a synced offline sale becomes an item-less,
@@ -379,25 +476,69 @@ class SalesRepositoryImpl implements SalesRepository {
             final parsed = DateTime.tryParse(localCreatedAt);
             if (parsed != null) saleWrite['createdAt'] = parsed;
           }
+          if (shouldApplySummary) {
+            saleWrite['salesSummaryApplied'] = true;
+          }
+
+          final inventoryUpdates = <Map<String, dynamic>>[];
+          if (shouldApplyInventory) {
+            for (final target in inventoryTargets) {
+              final docRef =
+                  target['ref'] as DocumentReference<Map<String, dynamic>>;
+              final quantity = (target['quantity'] as num).toDouble();
+
+              final snap = await tx.get(docRef);
+              final currentQuantity = ((snap.data()?['quantity'] ??
+                      snap.data()?['stock'] ??
+                      0) as num)
+                  .toDouble();
+              final newQuantity =
+                  (currentQuantity - quantity).clamp(0.0, 999999.0);
+              inventoryUpdates.add({
+                'ref': docRef,
+                'quantity': newQuantity,
+              });
+            }
+          }
 
           tx.set(rootRef, saleWrite, SetOptions(merge: true));
           if (businessSaleRef != null) {
             tx.set(businessSaleRef, saleWrite, SetOptions(merge: true));
           }
 
-          if (shouldApplyInventory) {
-            for (final target in inventoryTargets) {
-              final docRef = target['ref'] as DocumentReference<Map<String, dynamic>>;
-              final quantity = (target['quantity'] as num).toDouble();
+          if (shouldApplySummary && businessId.isNotEmpty) {
+            final saleDate = _readSaleCreatedAt(saleData);
+            final dayKey = _salesSummaryDayKey(saleDate);
+            final summaryRef = _firestore
+                .collection('businesses')
+                .doc(businessId)
+                .collection('salesSummaries')
+                .doc(dayKey);
+            tx.set(
+              summaryRef,
+              {
+                'date': dayKey,
+                'totalSales': FieldValue.increment(_readSaleAmount(saleData)),
+                'totalTransactions': FieldValue.increment(1),
+                'lastUpdated': FieldValue.serverTimestamp(),
+              },
+              SetOptions(merge: true),
+            );
+          }
 
-              final snap = await tx.get(docRef);
-              final currentQuantity = ((snap.data()?['quantity'] ?? snap.data()?['stock'] ?? 0) as num).toDouble();
-              final newQuantity = (currentQuantity - quantity).clamp(0.0, 999999.0);
-              tx.set(docRef, {
-                'quantity': newQuantity,
-                'stock': newQuantity,
-                'updatedAt': FieldValue.serverTimestamp(),
-              }, SetOptions(merge: true));
+          if (shouldApplyInventory) {
+            for (final update in inventoryUpdates) {
+              final docRef =
+                  update['ref'] as DocumentReference<Map<String, dynamic>>;
+              final newQuantity = update['quantity'] as double;
+              tx.set(
+                  docRef,
+                  {
+                    'quantity': newQuantity,
+                    'stock': newQuantity,
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  },
+                  SetOptions(merge: true));
             }
 
             final appliedAt = {
@@ -445,7 +586,11 @@ class SalesRepositoryImpl implements SalesRepository {
 
       double totalSales = 0.0;
       for (final doc in snapshot.docs) {
-        final amount = ((doc['finalAmount'] ?? doc['totalAmount'] ?? doc['total'] ?? 0) as num).toDouble();
+        final amount = ((doc['finalAmount'] ??
+                doc['totalAmount'] ??
+                doc['total'] ??
+                0) as num)
+            .toDouble();
         totalSales += amount;
       }
 
@@ -453,9 +598,11 @@ class SalesRepositoryImpl implements SalesRepository {
     } catch (e) {
       // Handle Firestore composite index requirement by falling back to a date-only query
       final msg = e.toString();
-      if (msg.contains('requires an index') || msg.contains('FAILED_PRECONDITION')) {
+      if (msg.contains('requires an index') ||
+          msg.contains('FAILED_PRECONDITION')) {
         try {
-          print('[SalesRepositoryImpl] Composite index required for completed filter; falling back to date-only query for today');
+          print(
+              '[SalesRepositoryImpl] Composite index required for completed filter; falling back to date-only query for today');
           final fallback = await _firestore
               .collection('businesses')
               .doc(businessId)
@@ -466,8 +613,13 @@ class SalesRepositoryImpl implements SalesRepository {
 
           double totalSales = 0.0;
           for (final doc in fallback.docs) {
-            if ((doc['status'] as String?)?.toLowerCase() != 'completed') continue;
-            final amount = ((doc['finalAmount'] ?? doc['totalAmount'] ?? doc['total'] ?? 0) as num).toDouble();
+            if ((doc['status'] as String?)?.toLowerCase() != 'completed')
+              continue;
+            final amount = ((doc['finalAmount'] ??
+                    doc['totalAmount'] ??
+                    doc['total'] ??
+                    0) as num)
+                .toDouble();
             totalSales += amount;
           }
 
@@ -500,16 +652,22 @@ class SalesRepositoryImpl implements SalesRepository {
 
       double totalSales = 0.0;
       for (final doc in snapshot.docs) {
-        final amount = ((doc['finalAmount'] ?? doc['totalAmount'] ?? doc['total'] ?? 0) as num).toDouble();
+        final amount = ((doc['finalAmount'] ??
+                doc['totalAmount'] ??
+                doc['total'] ??
+                0) as num)
+            .toDouble();
         totalSales += amount;
       }
 
       return totalSales;
     } catch (e) {
       final msg = e.toString();
-      if (msg.contains('requires an index') || msg.contains('FAILED_PRECONDITION')) {
+      if (msg.contains('requires an index') ||
+          msg.contains('FAILED_PRECONDITION')) {
         try {
-          print('[SalesRepositoryImpl] Composite index required for completed filter; falling back to date-only query for range');
+          print(
+              '[SalesRepositoryImpl] Composite index required for completed filter; falling back to date-only query for range');
           final fallback = await _firestore
               .collection('businesses')
               .doc(businessId)
@@ -520,8 +678,13 @@ class SalesRepositoryImpl implements SalesRepository {
 
           double totalSales = 0.0;
           for (final doc in fallback.docs) {
-            if ((doc['status'] as String?)?.toLowerCase() != 'completed') continue;
-            final amount = ((doc['finalAmount'] ?? doc['totalAmount'] ?? doc['total'] ?? 0) as num).toDouble();
+            if ((doc['status'] as String?)?.toLowerCase() != 'completed')
+              continue;
+            final amount = ((doc['finalAmount'] ??
+                    doc['totalAmount'] ??
+                    doc['total'] ??
+                    0) as num)
+                .toDouble();
             totalSales += amount;
           }
 
@@ -540,13 +703,18 @@ class SalesRepositoryImpl implements SalesRepository {
   Future<String> createSaleOffline(Map<String, dynamic> saleData) async {
     try {
       final dbHelper = DatabaseHelper.instance;
-      final saleId = saleData['id']?.toString() ?? 'SALE-${DateTime.now().millisecondsSinceEpoch}';
+      final saleId = saleData['id']?.toString() ??
+          'SALE-${DateTime.now().millisecondsSinceEpoch}';
       final businessId = saleData['businessId']?.toString() ?? '';
       final customerId = saleData['customerId']?.toString();
-      final paymentMethod = saleData['paymentMethod']?.toString() ?? saleData['payment_method']?.toString() ?? 'Cash';
+      final paymentMethod = saleData['paymentMethod']?.toString() ??
+          saleData['payment_method']?.toString() ??
+          'Cash';
       final status = saleData['status']?.toString() ?? 'completed';
       final notes = saleData['notes']?.toString();
-      final createdBy = saleData['createdBy']?.toString() ?? saleData['createdById']?.toString() ?? '';
+      final createdBy = saleData['createdBy']?.toString() ??
+          saleData['createdById']?.toString() ??
+          '';
       final createdAt = DateTime.now().toIso8601String();
       final updatedAt = DateTime.now().toIso8601String();
 
@@ -554,11 +722,24 @@ class SalesRepositoryImpl implements SalesRepository {
         'id': saleId,
         'businessId': businessId,
         'customerId': customerId,
-        'totalAmount': (saleData['totalAmount'] ?? saleData['finalAmount'] ?? saleData['total'] ?? 0).toString(),
-        'discountAmount': (saleData['discountAmount'] ?? saleData['discount'] ?? 0).toString(),
+        'totalAmount': (saleData['totalAmount'] ??
+                saleData['finalAmount'] ??
+                saleData['total'] ??
+                0)
+            .toString(),
+        'discountAmount':
+            (saleData['discountAmount'] ?? saleData['discount'] ?? 0)
+                .toString(),
         'taxAmount': (saleData['taxAmount'] ?? saleData['tax'] ?? 0).toString(),
-        'finalAmount': (saleData['finalAmount'] ?? saleData['total'] ?? saleData['totalAmount'] ?? 0).toString(),
+        'finalAmount': (saleData['finalAmount'] ??
+                saleData['total'] ??
+                saleData['totalAmount'] ??
+                0)
+            .toString(),
         'paymentMethod': paymentMethod,
+        'saleType': saleData['saleType']?.toString() ??
+            saleData['sale_type']?.toString() ??
+            'retail',
         'status': status,
         'notes': notes,
         'createdBy': createdBy,
@@ -567,36 +748,58 @@ class SalesRepositoryImpl implements SalesRepository {
         'syncStatus': 'pending',
       };
 
-      await dbHelper.insert('sales', localSale);
+      try {
+        await dbHelper.insert('sales', localSale);
 
-      if (saleData['items'] is List) {
-        final items = List.from(saleData['items'] as List);
-        for (final rawItem in items) {
-          if (rawItem is! Map) continue;
-          final itemMap = Map<String, dynamic>.from(rawItem);
-          final itemId = itemMap['id']?.toString() ?? 'SI-${DateTime.now().millisecondsSinceEpoch}-${businessId.hashCode}';
-          final quantity = (itemMap['quantity'] is num)
-              ? (itemMap['quantity'] as num).toDouble()
-              : double.tryParse(itemMap['quantity']?.toString() ?? '0') ?? 0.0;
-          final unitPrice = (itemMap['unitPrice'] is num)
-              ? (itemMap['unitPrice'] as num).toDouble()
-              : double.tryParse(itemMap['unitPrice']?.toString() ?? itemMap['price']?.toString() ?? '0') ?? 0.0;
-          final total = (itemMap['total'] is num)
-              ? (itemMap['total'] as num).toDouble()
-              : double.tryParse(itemMap['total']?.toString() ?? (unitPrice * quantity).toString()) ?? (unitPrice * quantity);
+        if (saleData['items'] is List) {
+          final items = List.from(saleData['items'] as List);
+          for (var index = 0; index < items.length; index++) {
+            final rawItem = items[index];
+            if (rawItem is! Map) continue;
+            final itemMap = Map<String, dynamic>.from(rawItem);
+            final itemId = itemMap['id']?.toString() ??
+                'SI-$saleId-$index-${DateTime.now().microsecondsSinceEpoch}';
+            final quantity = (itemMap['quantity'] is num)
+                ? (itemMap['quantity'] as num).toDouble()
+                : double.tryParse(itemMap['quantity']?.toString() ?? '0') ??
+                    0.0;
+            final unitPrice = (itemMap['unitPrice'] is num)
+                ? (itemMap['unitPrice'] as num).toDouble()
+                : double.tryParse(itemMap['unitPrice']?.toString() ??
+                        itemMap['price']?.toString() ??
+                        '0') ??
+                    0.0;
+            final total = (itemMap['total'] is num)
+                ? (itemMap['total'] as num).toDouble()
+                : double.tryParse(itemMap['total']?.toString() ??
+                        (unitPrice * quantity).toString()) ??
+                    (unitPrice * quantity);
 
-          final localItem = {
-            'id': itemId,
-            'saleId': saleId,
-            'productId': itemMap['productId']?.toString() ?? itemMap['inventoryProductId']?.toString() ?? itemMap['menuItemId']?.toString() ?? itemMap['id']?.toString() ?? '',
-            'productName': itemMap['productName']?.toString() ?? itemMap['menuItemName']?.toString() ?? itemMap['name']?.toString() ?? '',
-            'quantity': quantity,
-            'unitPrice': unitPrice,
-            'discount': (itemMap['discount'] ?? 0).toString(),
-            'total': total,
-          };
-          await dbHelper.insert('sale_items', localItem);
+            final localItem = {
+              'id': itemId,
+              'saleId': saleId,
+              'productId': itemMap['productId']?.toString() ??
+                  itemMap['inventoryProductId']?.toString() ??
+                  itemMap['menuItemId']?.toString() ??
+                  itemMap['id']?.toString() ??
+                  '',
+              'productName': itemMap['productName']?.toString() ??
+                  itemMap['menuItemName']?.toString() ??
+                  itemMap['name']?.toString() ??
+                  '',
+              'quantity': quantity,
+              'unitPrice': unitPrice,
+              'discount': (itemMap['discount'] ?? 0).toString(),
+              'total': total,
+            };
+            await dbHelper.insert('sale_items', localItem);
+          }
         }
+      } catch (_) {
+        await dbHelper
+            .delete('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
+        await dbHelper.delete('sales', where: 'id = ?', whereArgs: [saleId]);
+        rethrow;
       }
 
       return saleId;
@@ -620,9 +823,12 @@ class SalesRepositoryImpl implements SalesRepository {
       // Three separate equality queries (rather than one IN/OR query)
       // because the web/Hive fallback in DatabaseHelper.query only
       // understands a single `col = ?` clause.
-      final pending = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['pending']);
-      final failed = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['failed']);
-      final errored = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['error']);
+      final pending = await dbHelper
+          .query('sales', where: 'syncStatus = ?', whereArgs: ['pending']);
+      final failed = await dbHelper
+          .query('sales', where: 'syncStatus = ?', whereArgs: ['failed']);
+      final errored = await dbHelper
+          .query('sales', where: 'syncStatus = ?', whereArgs: ['error']);
       return [...pending, ...failed, ...errored];
     } catch (e) {
       rethrow;
@@ -633,7 +839,8 @@ class SalesRepositoryImpl implements SalesRepository {
   Future<void> markSaleAsSynced(String saleId) async {
     try {
       final dbHelper = DatabaseHelper.instance;
-      await dbHelper.update('sales', {'syncStatus': 'synced'}, where: 'id = ?', whereArgs: [saleId]);
+      await dbHelper.update('sales', {'syncStatus': 'synced'},
+          where: 'id = ?', whereArgs: [saleId]);
     } catch (e) {
       rethrow;
     }
@@ -649,4 +856,3 @@ class SalesRepositoryImpl implements SalesRepository {
     }
   }
 }
-

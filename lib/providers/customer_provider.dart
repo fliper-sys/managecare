@@ -1,10 +1,10 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../data/models/customer_model.dart';
+import '../services/managecare_api_client.dart';
 
 class CustomerProvider extends ChangeNotifier {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final ManagecareApiClient _api = ManagecareApiClient.instance;
 
   String? _businessId;
   List<CustomerModel> _customers = [];
@@ -25,19 +25,6 @@ class CustomerProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String get errorMessage => _errorMessage;
 
-  CollectionReference<Map<String, dynamic>>? get _businessCustomersRef {
-    final businessId = _businessId?.trim();
-    if (businessId == null || businessId.isEmpty) return null;
-
-    return _firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('customers');
-  }
-
-  CollectionReference<Map<String, dynamic>> get _rootCustomersRef =>
-      _firestore.collection('customers');
-
   void setBusinessId(String businessId) {
     if (_businessId != businessId) {
       _businessId = businessId;
@@ -51,10 +38,10 @@ class CustomerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Load all customers for the business and normalize older Firestore shapes.
+  /// Load all customers for the business.
   Future<void> loadCustomers({bool forceRefresh = false}) async {
-    final customerRef = _businessCustomersRef;
-    if (customerRef == null) return;
+    final businessId = _businessId;
+    if (businessId == null || businessId.isEmpty) return;
 
     // ── Quota optimisation: TTL cache ────────────────────────────────
     // Return immediately if we already have customers and the cache is
@@ -63,7 +50,7 @@ class CustomerProvider extends ChangeNotifier {
         _customers.isNotEmpty &&
         _lastCustomerFetch != null &&
         DateTime.now().difference(_lastCustomerFetch!) < _customerCacheTtl) {
-      return; // Serve from in-memory cache — zero Firestore reads
+      return; // Serve from in-memory cache — zero network calls
     }
     // ─────────────────────────────────────────────────────────────────
 
@@ -71,11 +58,16 @@ class CustomerProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final snapshot = await customerRef.get();
+      // limit=1000: the backend paginates by default; customer lists are
+      // small enough per business that a single page covers real usage.
+      final response = await _api.get(
+        '/api/customers/$businessId',
+        query: {'isActive': 'true', 'limit': 1000},
+      );
+      final rows = (response['data'] as List<dynamic>? ?? const []);
 
-      _customers = snapshot.docs
-          .map(CustomerModel.fromFirestore)
-          .where((customer) => customer.isActive)
+      _customers = rows
+          .map((row) => CustomerModel.fromJson(row as Map<String, dynamic>))
           .toList();
 
       _sortCustomers();
@@ -93,7 +85,7 @@ class CustomerProvider extends ChangeNotifier {
     }
   }
 
-  /// Search customers by name or phone
+  /// Search customers by name or phone (in-memory, from the loaded cache).
   Future<List<CustomerModel>> searchCustomers(String query) async {
     if (_businessId == null || query.isEmpty) return _customers;
 
@@ -122,9 +114,9 @@ class CustomerProvider extends ChangeNotifier {
     String phone,
     String name,
   ) async {
-    final customerRef = _businessCustomersRef;
+    final businessId = _businessId;
     final trimmedPhone = _cleanNullable(phone);
-    if (customerRef == null || trimmedPhone == null) return null;
+    if (businessId == null || trimmedPhone == null) return null;
 
     try {
       await _ensureCustomersLoaded();
@@ -136,23 +128,13 @@ class CustomerProvider extends ChangeNotifier {
         return existingCustomer;
       }
 
-      final now = DateTime.now();
-      final newCustomer = CustomerModel(
-        id: customerRef.doc().id,
-        businessId: _businessId!,
-        name: _cleanNullable(name) ?? trimmedPhone,
-        phone: trimmedPhone,
-        totalSpent: 0.0,
-        totalTransactions: 0,
-        averageOrderValue: 0.0,
-        firstPurchaseDate: now,
-        lastPurchaseDate: now,
-        createdAt: now,
-        updatedAt: now,
-        isActive: true,
+      final created = await _api.post(
+        '/api/customers/$businessId',
+        body: {'name': _cleanNullable(name) ?? trimmedPhone, 'phone': trimmedPhone},
       );
+      final newCustomer =
+          CustomerModel.fromJson(created as Map<String, dynamic>);
 
-      await _persistCustomer(newCustomer);
       _upsertLocalCustomer(newCustomer, selectCustomer: true);
       notifyListeners();
 
@@ -169,12 +151,12 @@ class CustomerProvider extends ChangeNotifier {
     String? phone,
     String? email,
   }) async {
-    final customerRef = _businessCustomersRef;
+    final businessId = _businessId;
     final trimmedName = name.trim();
     final trimmedPhone = _cleanNullable(phone);
     final trimmedEmail = _cleanNullable(email);
 
-    if (customerRef == null || trimmedName.isEmpty) return null;
+    if (businessId == null || trimmedName.isEmpty) return null;
 
     try {
       await _ensureCustomersLoaded();
@@ -189,24 +171,17 @@ class CustomerProvider extends ChangeNotifier {
         return existingCustomer;
       }
 
-      final now = DateTime.now();
-      final newCustomer = CustomerModel(
-        id: customerRef.doc().id,
-        businessId: _businessId!,
-        name: trimmedName,
-        phone: trimmedPhone,
-        email: trimmedEmail,
-        totalSpent: 0.0,
-        totalTransactions: 0,
-        averageOrderValue: 0.0,
-        firstPurchaseDate: now,
-        lastPurchaseDate: now,
-        createdAt: now,
-        updatedAt: now,
-        isActive: true,
+      final created = await _api.post(
+        '/api/customers/$businessId',
+        body: {
+          'name': trimmedName,
+          if (trimmedPhone != null) 'phone': trimmedPhone,
+          if (trimmedEmail != null) 'email': trimmedEmail,
+        },
       );
+      final newCustomer =
+          CustomerModel.fromJson(created as Map<String, dynamic>);
 
-      await _persistCustomer(newCustomer);
       _upsertLocalCustomer(newCustomer, selectCustomer: true);
       notifyListeners();
       return newCustomer;
@@ -217,68 +192,21 @@ class CustomerProvider extends ChangeNotifier {
     }
   }
 
-  /// Update customer after purchase
+  /// Update customer after purchase - atomic server-side increment.
   Future<void> updateCustomerAfterPurchase(
     String customerId,
     double purchaseAmount,
   ) async {
-    final businessCustomersRef = _businessCustomersRef;
-    if (businessCustomersRef == null) return;
+    final businessId = _businessId;
+    if (businessId == null) return;
 
     try {
-      final customerRef = businessCustomersRef.doc(customerId);
-      final currentDoc = await customerRef.get();
-
-      Map<String, dynamic>? existingData;
-      if (currentDoc.exists) {
-        existingData = currentDoc.data();
-      } else {
-        final rootDoc = await _rootCustomersRef.doc(customerId).get();
-        if (rootDoc.exists) {
-          existingData = rootDoc.data();
-        }
-      }
-
-      if (existingData == null) return;
-
-      final currentCustomer =
-          CustomerModel.fromJson(existingData, documentId: customerId);
-      final newTransactionCount = currentCustomer.totalTransactions + 1;
-      final newTotalSpent = currentCustomer.totalSpent + purchaseAmount;
-      final newAverageOrderValue = newTotalSpent / newTransactionCount;
-      final now = DateTime.now();
-
-      final updates = {
-        'totalTransactions': newTransactionCount,
-        'totalOrders': newTransactionCount,
-        'totalSpent': newTotalSpent,
-        'totalPurchases': newTotalSpent,
-        'averageOrderValue': newAverageOrderValue,
-        'lastPurchaseDate': now,
-        'updatedAt': now,
-      };
-
-      final batch = _firestore.batch();
-      batch.set(customerRef, updates, SetOptions(merge: true));
-      batch.set(
-        _rootCustomersRef.doc(customerId),
-        {
-          ...updates,
-          'businessId': currentCustomer.businessId.isNotEmpty
-              ? currentCustomer.businessId
-              : _businessId,
-        },
-        SetOptions(merge: true),
+      final updated = await _api.patch(
+        '/api/customers/$businessId/$customerId/purchase',
+        body: {'amount': purchaseAmount},
       );
-      await batch.commit();
-
-      final updatedCustomer = currentCustomer.copyWith(
-        totalTransactions: newTransactionCount,
-        totalSpent: newTotalSpent,
-        averageOrderValue: newAverageOrderValue,
-        lastPurchaseDate: now,
-        updatedAt: now,
-      );
+      final updatedCustomer =
+          CustomerModel.fromJson(updated as Map<String, dynamic>);
 
       _upsertLocalCustomer(
         updatedCustomer,
@@ -286,7 +214,7 @@ class CustomerProvider extends ChangeNotifier {
       );
       notifyListeners();
 
-      print(
+      debugPrint(
         '[CustomerProvider] Customer $customerId updated after purchase: +NGN $purchaseAmount',
       );
     } catch (e) {
@@ -297,37 +225,40 @@ class CustomerProvider extends ChangeNotifier {
 
   /// Get top customers by spending
   Future<List<CustomerModel>> getTopCustomers({int limit = 10}) async {
-    final customerRef = _businessCustomersRef;
-    if (customerRef == null) return [];
+    final businessId = _businessId;
+    if (businessId == null) return [];
 
     try {
-      final snapshot = await customerRef
-          .orderBy('totalSpent', descending: true)
-          .limit(limit)
-          .get();
-
-      return snapshot.docs.map(CustomerModel.fromFirestore).toList();
+      final response = await _api.get(
+        '/api/customers/$businessId/top',
+        query: {'limit': limit},
+      );
+      final rows = (response as List<dynamic>? ?? const []);
+      return rows
+          .map((row) => CustomerModel.fromJson(row as Map<String, dynamic>))
+          .toList();
     } catch (e) {
       debugPrint('[CustomerProvider] Error getting top customers: $e');
       return [];
     }
   }
 
-  /// Get customers by date range
+  /// Get customers by date range (in-memory, from the loaded cache - the
+  /// business-level customer count is small enough that this doesn't need
+  /// a dedicated server-side query).
   Future<List<CustomerModel>> getCustomersByDateRange(
     DateTime startDate,
     DateTime endDate,
   ) async {
-    final customerRef = _businessCustomersRef;
-    if (customerRef == null) return [];
+    if (_businessId == null) return [];
 
     try {
-      final snapshot = await customerRef
-          .where('firstPurchaseDate', isGreaterThanOrEqualTo: startDate)
-          .where('firstPurchaseDate', isLessThanOrEqualTo: endDate)
-          .get();
-
-      return snapshot.docs.map(CustomerModel.fromFirestore).toList();
+      await _ensureCustomersLoaded();
+      return _customers
+          .where((customer) =>
+              !customer.firstPurchaseDate.isBefore(startDate) &&
+              !customer.firstPurchaseDate.isAfter(endDate))
+          .toList();
     } catch (e) {
       debugPrint(
         '[CustomerProvider] Error getting customers by date range: $e',
@@ -336,22 +267,20 @@ class CustomerProvider extends ChangeNotifier {
     }
   }
 
-  /// Get customer purchase history
+  /// Get customer purchase history (their sales records).
   Future<List<Map<String, dynamic>>> getCustomerPurchaseHistory(
     String customerId,
   ) async {
-    final customerRef = _businessCustomersRef;
-    if (customerRef == null) return [];
+    final businessId = _businessId;
+    if (businessId == null) return [];
 
     try {
-      final snapshot = await customerRef
-          .doc(customerId)
-          .collection('purchases')
-          .orderBy('createdAt', descending: true)
-          .limit(50)
-          .get();
-
-      return snapshot.docs.map((doc) => doc.data()).toList();
+      final response = await _api.get(
+        '/api/sales/$businessId',
+        query: {'customerId': customerId, 'limit': 50},
+      );
+      final rows = (response['data'] as List<dynamic>? ?? const []);
+      return rows.cast<Map<String, dynamic>>();
     } catch (e) {
       debugPrint('[CustomerProvider] Error getting purchase history: $e');
       return [];
@@ -381,21 +310,6 @@ class CustomerProvider extends ChangeNotifier {
     if (_customers.isEmpty && !_isLoading) {
       await loadCustomers();
     }
-  }
-
-  Future<void> _persistCustomer(CustomerModel customer) async {
-    final customerRef = _businessCustomersRef;
-    if (customerRef == null) return;
-
-    final payload = customer.toJson();
-    final batch = _firestore.batch();
-    batch.set(customerRef.doc(customer.id), payload, SetOptions(merge: true));
-    batch.set(
-      _rootCustomersRef.doc(customer.id),
-      payload,
-      SetOptions(merge: true),
-    );
-    await batch.commit();
   }
 
   void _upsertLocalCustomer(
@@ -429,8 +343,8 @@ class CustomerProvider extends ChangeNotifier {
     final currentSelection = _selectedCustomer;
     if (currentSelection == null) return;
 
-    final index =
-        _customers.indexWhere((customer) => customer.id == currentSelection.id);
+    final index = _customers
+        .indexWhere((customer) => customer.id == currentSelection.id);
     if (index == -1) {
       _selectedCustomer = null;
       return;

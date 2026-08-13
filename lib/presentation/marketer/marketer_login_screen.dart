@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/constants/routes.dart';
+import '../../data/repositories/admin_repository.dart';
 import '../../providers/marketer_provider.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -32,32 +34,62 @@ class _MarketerLoginScreenState extends State<MarketerLoginScreen> {
     super.dispose();
   }
 
+  bool _isInternalWorkerLoading = false;
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
     final provider = context.read<MarketerProvider>();
     provider.clearError();
 
-    final marketer = await provider.loginMarketer(
-      _emailController.text.trim(),
-      _passwordController.text,
-    );
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    final marketer = await provider.loginMarketer(email, password);
 
     if (!mounted) return;
 
-    if (marketer == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(provider.errorMessage ?? 'Unable to sign in'),
-        ),
+    if (marketer != null) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        Routes.marketerDashboard,
+        (route) => false,
       );
       return;
     }
 
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      Routes.marketerDashboard,
-      (route) => false,
-    );
+    // Don't surface the marketer-specific rejection reason (e.g. "Marketer
+    // not found") - it would leak which of the two identity systems the
+    // credentials were checked against before falling through.
+    provider.clearError();
+    await _tryInternalWorkerLogin(email, password);
+  }
+
+  Future<void> _tryInternalWorkerLogin(String email, String password) async {
+    setState(() => _isInternalWorkerLoading = true);
+    try {
+      final authResponse = await Supabase.instance.client.auth
+          .signInWithPassword(email: email, password: password);
+      if (authResponse.session == null) {
+        throw Exception('No session');
+      }
+      final worker = await AdminRepository().fetchMyWorkerProfile();
+      if (worker['id'] == null) {
+        throw Exception('Not an internal worker');
+      }
+      if (!mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        Routes.internalWorkerDashboard,
+        (route) => false,
+      );
+    } catch (_) {
+      await Supabase.instance.client.auth.signOut();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid credentials')),
+      );
+    } finally {
+      if (mounted) setState(() => _isInternalWorkerLoading = false);
+    }
   }
 
   @override
@@ -312,9 +344,13 @@ class _MarketerLoginScreenState extends State<MarketerLoginScreen> {
                                 CustomButton(
                                   text: 'Sign In To Marketer Hub',
                                   icon: Icons.login_rounded,
-                                  isLoading: provider.isLoading,
+                                  isLoading: provider.isLoading ||
+                                      _isInternalWorkerLoading,
                                   onPressed:
-                                      provider.isLoading ? null : _submit,
+                                      (provider.isLoading ||
+                                              _isInternalWorkerLoading)
+                                          ? null
+                                          : _submit,
                                   backgroundColor: const Color(0xFF0F766E),
                                 ),
                                 const SizedBox(height: 14),

@@ -53,7 +53,14 @@ class ReceiptService {
       final paymentMethod = saleData['paymentMethod'] ?? 'Cash';
 
       // Use simple receipt text instead of bytes
-      final cashier = saleData['cashier'] ?? saleData['createdBy'] ?? 'Cashier';
+      // `createdBy` is a raw user ID, not a display name — only fall back
+      // to it if none of the actual name fields are populated.
+      final cashier = saleData['cashier'] ??
+          saleData['cashierName'] ??
+          saleData['workerName'] ??
+          saleData['soldBy'] ??
+          saleData['createdBy'] ??
+          'Cashier';
       final receiptText = ThermalPrintingService.createCompleteReceipt(
         businessName: businessName,
         paperWidth: 58,

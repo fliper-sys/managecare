@@ -1,13 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
 import '../core/utils/datetime_utils.dart';
 import '../core/utils/connectivity_helper.dart';
 import '../services/business_notification_manager.dart';
 import '../services/notification_and_email_service.dart';
+import '../services/managecare_api_client.dart';
 import '../data/local/database_helper.dart';
+import '../data/repositories/sales_repository_supabase.dart';
+import '../data/repositories/inventory_repository_supabase.dart';
 import '../services/sync_service.dart';
 
 class Product {
@@ -29,6 +32,7 @@ class Product {
   final String? batchLabel;
   final int? shelfLifeDays;
   final double distributorDiscountPercent;
+  final double? distributorPrice;
 
   Product({
     required this.id,
@@ -49,71 +53,100 @@ class Product {
     this.batchLabel,
     this.shelfLifeDays,
     this.distributorDiscountPercent = 0.0,
+    this.distributorPrice,
   });
 
   String get resolvedSaleUnit => saleUnit.trim().isEmpty ? unit : saleUnit;
   double get resolvedSaleUnitMultiplier =>
       saleUnitMultiplier <= 0 ? 1.0 : saleUnitMultiplier;
   bool get hasWholesalePricing =>
-      (wholesalePrice ?? 0) > 0 &&
-      (wholesalePrice! - price).abs() > 0.0001;
+      (wholesalePrice ?? 0) > 0 && (wholesalePrice! - price).abs() > 0.0001;
 
-  factory Product.fromFirestore(DocumentSnapshot doc) {
-    final raw = doc.data();
-    if (raw is! Map<String, dynamic>) {
-      debugPrint('[RetailProvider] Product.fromFirestore: unexpected data type ${raw.runtimeType} for doc ${doc.id}');
+  static double? _toDouble(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final cleaned = value.replaceAll(',', '').trim();
+      if (cleaned.isEmpty) return null;
+      return double.tryParse(cleaned);
     }
-    final data = raw is Map<String, dynamic> ? raw : <String, dynamic>{};
+    return null;
+  }
+
+  factory Product.fromJson(Map<String, dynamic> data) {
+    final metadata = data['metadata'] is Map
+        ? Map<String, dynamic>.from(data['metadata'] as Map)
+        : const <String, dynamic>{};
     return Product(
-      id: doc.id,
+      id: (data['id'] ?? '').toString(),
       name: data['name'] ?? '',
-      price: (data['price'] ?? 0.0).toDouble(),
-      cost: (data['cost'] ?? 0.0).toDouble(),
-      wholesalePrice: (data['wholesalePrice'] as num?)?.toDouble(),
-      stock: (data['quantity'] as num?)?.toDouble() ??
-          (data['stock'] as num?)?.toDouble() ??
-          0.0,
+      price: _toDouble(data['price'] ?? data['unit_price']) ?? 0.0,
+      cost: _toDouble(data['cost'] ?? data['cost_price']) ?? 0.0,
+      wholesalePrice: _toDouble(data['wholesalePrice'] ??
+          data['wholesale_price'] ??
+          metadata['wholesalePrice'] ??
+          metadata['wholesale_price']),
+      stock: _toDouble(data['quantity']) ?? _toDouble(data['stock']) ?? 0.0,
       category: data['category'] ?? 'Uncategorized',
-      imageUrl: data['imageUrl'],
+      imageUrl: data['imageUrl'] ?? data['image_url'],
       barcode: data['barcode'],
-      emoji: data['emoji'] ?? '📦',
+      emoji: data['emoji'] ?? metadata['emoji'] ?? '📦',
       unit: (data['unit'] ?? 'pc').toString(),
-      saleUnit: (data['saleUnit'] ?? data['unit'] ?? 'pc').toString(),
-      saleUnitMultiplier:
-          (data['saleUnitMultiplier'] as num?)?.toDouble() ?? 1.0,
-      trackExpiry: data['trackExpiry'] == true,
-      expiryDate: parseTimestamp(
-        data['expiryDate'] ?? data['expiry'] ?? data['bestBeforeDate'],
-      ),
-      batchLabel: data['batchLabel']?.toString(),
-      shelfLifeDays: (data['shelfLifeDays'] as num?)?.toInt(),
-      distributorDiscountPercent: (data['distributorDiscountPercent'] as num?)?.toDouble() ??
-          (data['discountPercent'] as num?)?.toDouble() ??
+      saleUnit: (data['saleUnit'] ??
+              data['sale_unit'] ??
+              metadata['saleUnit'] ??
+              metadata['sale_unit'] ??
+              data['unit'] ??
+              'pc')
+          .toString(),
+      saleUnitMultiplier: _toDouble(data['saleUnitMultiplier'] ??
+              data['sale_unit_multiplier'] ??
+              metadata['saleUnitMultiplier'] ??
+              metadata['sale_unit_multiplier']) ??
+          1.0,
+      trackExpiry: data['trackExpiry'] == true || data['track_expiry'] == true,
+      expiryDate: (data['expiryDate'] ?? data['expiry_date']) == null
+          ? null
+          : parseTimestamp(data['expiryDate'] ?? data['expiry_date']),
+      batchLabel: (data['batchLabel'] ?? data['batch_label'])?.toString(),
+      shelfLifeDays: _toDouble(data['shelfLifeDays'] ??
+              data['shelf_life_days'] ??
+              metadata['shelfLifeDays'] ??
+              metadata['shelf_life_days'])
+          ?.toInt(),
+      distributorDiscountPercent: _toDouble(data['distributorDiscountPercent'] ??
+              data['distributor_discount_percent'] ??
+              metadata['distributorDiscountPercent'] ??
+              metadata['distributor_discount_percent']) ??
           0.0,
+      distributorPrice: _toDouble(data['distributorPrice'] ??
+          data['distributor_price'] ??
+          metadata['distributorPrice'] ??
+          metadata['distributor_price']),
     );
   }
 
-  Map<String, dynamic> toFirestore() {
+  Map<String, dynamic> toJson() {
     return {
       'name': name,
       'price': price,
       'cost': cost,
       'quantity': stock,
       'category': category,
-      'imageUrl': imageUrl,
+      'image_url': imageUrl,
       'barcode': barcode,
       'emoji': emoji,
       'unit': unit,
-      'wholesalePrice': wholesalePrice,
-      'saleUnit': resolvedSaleUnit,
-      'saleUnitMultiplier': resolvedSaleUnitMultiplier,
-      'trackExpiry': trackExpiry,
-      if (expiryDate != null) 'expiryDate': expiryDate,
+      'wholesale_price': wholesalePrice,
+      'sale_unit': resolvedSaleUnit,
+      'sale_unit_multiplier': resolvedSaleUnitMultiplier,
+      'track_expiry': trackExpiry,
+      if (expiryDate != null) 'expiry_date': expiryDate!.toIso8601String(),
       if (batchLabel != null && batchLabel!.trim().isNotEmpty)
-        'batchLabel': batchLabel!.trim(),
-      if (shelfLifeDays != null) 'shelfLifeDays': shelfLifeDays,
-      'distributorDiscountPercent': distributorDiscountPercent,
-      'updatedAt': FieldValue.serverTimestamp(),
+        'batch_label': batchLabel!.trim(),
+      if (shelfLifeDays != null) 'shelf_life_days': shelfLifeDays,
+      'distributor_discount_percent': distributorDiscountPercent,
+      'distributor_price': distributorPrice,
     };
   }
 }
@@ -133,10 +166,9 @@ class Supplier {
     this.address,
   });
 
-  factory Supplier.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+  factory Supplier.fromJson(Map<String, dynamic> data) {
     return Supplier(
-      id: doc.id,
+      id: (data['id'] ?? '').toString(),
       name: data['name'] ?? '',
       contact: data['contact'] ?? '',
       email: data['email'] ?? '',
@@ -144,13 +176,12 @@ class Supplier {
     );
   }
 
-  Map<String, dynamic> toFirestore() {
+  Map<String, dynamic> toJson() {
     return {
       'name': name,
       'contact': contact,
       'email': email,
       'address': address,
-      'updatedAt': FieldValue.serverTimestamp(),
     };
   }
 }
@@ -170,10 +201,9 @@ class StoreLocation {
     this.phone,
   });
 
-  factory StoreLocation.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+  factory StoreLocation.fromJson(Map<String, dynamic> data) {
     return StoreLocation(
-      id: doc.id,
+      id: (data['id'] ?? '').toString(),
       name: data['name'] ?? '',
       location: data['location'] ?? '',
       address: data['address'],
@@ -181,13 +211,12 @@ class StoreLocation {
     );
   }
 
-  Map<String, dynamic> toFirestore() {
+  Map<String, dynamic> toJson() {
     return {
       'name': name,
       'location': location,
       'address': address,
       'phone': phone,
-      'updatedAt': FieldValue.serverTimestamp(),
     };
   }
 }
@@ -209,26 +238,26 @@ class Promotion {
     required this.endDate,
   });
 
-  factory Promotion.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+  factory Promotion.fromJson(Map<String, dynamic> data) {
     return Promotion(
-      id: doc.id,
+      id: (data['id'] ?? '').toString(),
       name: data['name'] ?? '',
       description: data['description'] ?? '',
-      discountPercentage: (data['discountPercentage'] ?? 0.0).toDouble(),
-      startDate: parseTimestamp(data['startDate']),
-      endDate: parseTimestamp(data['endDate']),
+      discountPercentage:
+          (data['discountPercentage'] ?? data['discount_percentage'] ?? 0.0)
+              .toDouble(),
+      startDate: parseTimestamp(data['startDate'] ?? data['start_date']),
+      endDate: parseTimestamp(data['endDate'] ?? data['end_date']),
     );
   }
 
-  Map<String, dynamic> toFirestore() {
+  Map<String, dynamic> toJson() {
     return {
       'name': name,
       'description': description,
-      'discountPercentage': discountPercentage,
-      'startDate': Timestamp.fromDate(startDate),
-      'endDate': Timestamp.fromDate(endDate),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'discount_percentage': discountPercentage,
+      'start_date': startDate.toIso8601String(),
+      'end_date': endDate.toIso8601String(),
     };
   }
 }
@@ -248,8 +277,11 @@ class CartSessionSummary {
 }
 
 class RetailProvider extends ChangeNotifier {
-  final FirebaseFirestore _firestore;
   final NotificationAndEmailService _notificationEmailService;
+  final ManagecareApiClient _api = ManagecareApiClient.instance;
+  final SalesRepositorySupabase _salesRepo = SalesRepositorySupabase();
+  final InventoryRepositorySupabase _inventoryRepo =
+      InventoryRepositorySupabase();
 
   List<Product> _products = [];
   List<Supplier> _suppliers = [];
@@ -279,7 +311,7 @@ class RetailProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
   String? _businessId;
-  
+
   // Initialization tracking to prevent redundant loads
   bool _isInitialized = false;
   DateTime? _lastInitTime;
@@ -298,13 +330,15 @@ class RetailProvider extends ChangeNotifier {
     if (businessId == null || businessId.isEmpty) return 0;
     return (await _loadPendingPumpSales(businessId)).length;
   }
+
   String get activeCartLabel => _cartLabels[_activeCartId] ?? 'Cart 1';
   String get activeCartPricingMode =>
       _cartDefaultPricingModes[_activeCartId] ?? 'retail';
 
   List<CartSessionSummary> get cartSessions {
     return _cartSessions.entries.map((entry) {
-      final itemCount = entry.value.values.fold<int>(0, (sum, qty) => sum + qty);
+      final itemCount =
+          entry.value.values.fold<int>(0, (sum, qty) => sum + qty);
       return CartSessionSummary(
         id: entry.key,
         label: _cartLabels[entry.key] ?? 'Cart',
@@ -349,11 +383,9 @@ class RetailProvider extends ChangeNotifier {
   // final dynamic _printerService; // accepts any object implementing PrinterService for testability - UNUSED
 
   RetailProvider(
-      {FirebaseFirestore? firestore,
-      NotificationAndEmailService? notificationEmailService,
+      {NotificationAndEmailService? notificationEmailService,
       dynamic printerService})
-      : _firestore = firestore ?? FirebaseFirestore.instance,
-        _notificationEmailService =
+      : _notificationEmailService =
             notificationEmailService ?? NotificationAndEmailService() {
     _ensureActiveCart();
     // printerService parameter unused - for future implementation
@@ -488,9 +520,8 @@ class RetailProvider extends ChangeNotifier {
           final value = entry.value;
           if (value is! Map) continue;
           restoredPricingModes[cartId] = value.map<String, String>((key, mode) {
-            final normalized = mode.toString() == 'wholesale'
-                ? 'wholesale'
-                : 'retail';
+            final normalized =
+                mode.toString() == 'wholesale' ? 'wholesale' : 'retail';
             return MapEntry(key.toString(), normalized);
           });
         }
@@ -560,7 +591,8 @@ class RetailProvider extends ChangeNotifier {
     _syncActiveCartSnapshot();
   }
 
-  Future<void> createCartSession({String? label, bool switchToNew = true}) async {
+  Future<void> createCartSession(
+      {String? label, bool switchToNew = true}) async {
     final seedPricingMode = activeCartPricingMode;
     _syncActiveCartSnapshot();
     _cartSessionCounter += 1;
@@ -581,137 +613,11 @@ class RetailProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  double _readStockQuantity(Map<String, dynamic> data) {
-    final quantityValue = data['quantity'];
-    if (quantityValue is num) return quantityValue.toDouble();
-    final stockValue = data['stock'];
-    if (stockValue is num) return stockValue.toDouble();
-    return double.tryParse(
-          quantityValue?.toString() ?? stockValue?.toString() ?? '',
-        ) ??
-        0.0;
-  }
-
-  Future<DocumentReference<Map<String, dynamic>>?> _resolveInventoryDocRef(
-    Product product, {
-    String? storeId,
-  }) async {
-    if (_businessId == null || _businessId!.isEmpty) return null;
-
-    final inventory = _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('inventory');
-
-    Future<DocumentReference<Map<String, dynamic>>?> tryDoc(String docId) async {
-      if (docId.isEmpty) return null;
-      final ref = inventory.doc(docId);
-      final snap = await ref.get();
-      if (snap.exists) return ref;
-      return null;
-    }
-
-    final direct = await tryDoc(product.id);
-    if (direct != null) return direct;
-
-    final barcode = (product.barcode ?? '').trim();
-    if (barcode.isNotEmpty) {
-      try {
-        final snap = await inventory.where('barcode', isEqualTo: barcode).limit(1).get();
-        if (snap.docs.isNotEmpty) return snap.docs.first.reference;
-      } catch (_) {}
-    }
-
-    final name = product.name.trim();
-    if (name.isNotEmpty) {
-      try {
-        final snap = await inventory.where('name', isEqualTo: name).limit(1).get();
-        if (snap.docs.isNotEmpty) return snap.docs.first.reference;
-      } catch (_) {}
-    }
-
-    if (storeId != null && storeId.isNotEmpty) {
-      try {
-        final snap = await inventory
-            .where('storeId', isEqualTo: storeId)
-            .where('name', isEqualTo: name)
-            .limit(1)
-            .get();
-        if (snap.docs.isNotEmpty) return snap.docs.first.reference;
-      } catch (_) {}
-    }
-
-    return null;
-  }
-
-  Future<void> _writeInventoryStock(
-    Product product,
-    double newStock, {
-    String? storeId,
-  }) async {
-    final ref = await _resolveInventoryDocRef(product, storeId: storeId);
-    if (ref == null) {
-      throw Exception('Inventory record not found for ${product.name}');
-    }
-
-    await ref.update({
-      'quantity': newStock,
-      'stock': newStock,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
   DateTime _readTimestamp(dynamic value) {
-    if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
     if (value is num) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
     return DateTime.tryParse(value?.toString() ?? '') ??
         DateTime.fromMillisecondsSinceEpoch(0);
-  }
-
-  Product _productFromData(String id, Map<String, dynamic> data) {
-    return Product(
-      id: id,
-      name: data['name'] ?? data['item'] ?? '',
-      price: (data['price'] as num?)?.toDouble() ?? 0.0,
-      cost: (data['cost'] as num?)?.toDouble() ?? 0.0,
-      wholesalePrice: (data['wholesalePrice'] as num?)?.toDouble(),
-      stock: _readStockQuantity(data),
-      category: data['category'] ?? 'Uncategorized',
-      imageUrl: data['imageUrl'],
-      barcode: data['barcode'],
-      emoji: data['emoji'] ?? '📦',
-      unit: (data['unit'] ?? 'pc').toString(),
-      saleUnit: (data['saleUnit'] ?? data['unit'] ?? 'pc').toString(),
-      saleUnitMultiplier:
-          (data['saleUnitMultiplier'] as num?)?.toDouble() ?? 1.0,
-    );
-  }
-
-  Product _pickPreferredProduct(
-    Product current,
-    Product candidate, {
-    DateTime? currentUpdatedAt,
-    DateTime? candidateUpdatedAt,
-  }) {
-    final currentHasStock = current.stock > 0;
-    final candidateHasStock = candidate.stock > 0;
-    if (currentHasStock != candidateHasStock) {
-      return candidateHasStock ? candidate : current;
-    }
-    if ((candidate.stock - current.stock).abs() > 0.0001) {
-      return candidate.stock > current.stock ? candidate : current;
-    }
-    if ((candidate.price > 0) != (current.price > 0)) {
-      return candidate.price > 0 ? candidate : current;
-    }
-    if ((candidate.cost > 0) != (current.cost > 0)) {
-      return candidate.cost > 0 ? candidate : current;
-    }
-    final currentStamp = currentUpdatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-    final candidateStamp =
-        candidateUpdatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-    return candidateStamp.isAfter(currentStamp) ? candidate : current;
   }
 
   void switchCart(String cartId) {
@@ -784,19 +690,27 @@ class RetailProvider extends ChangeNotifier {
     _businessId = businessId;
     _ensureActiveCart();
     unawaited(syncPendingPumpSales());
-    
-    // Check if we should skip initialization (already initialized recently)
-    if (!isBusinessSwitch && _isInitialized && _lastInitTime != null) {
+
+    // Check if we should skip initialization (already initialized recently).
+    // Only honor this if the previous init actually produced products -
+    // otherwise a single failed/empty fetch (e.g. a transient network blip)
+    // would get "locked in" as the sales screen's product list for the
+    // next 10 minutes, showing zero items despite real inventory existing.
+    if (!isBusinessSwitch &&
+        _isInitialized &&
+        _products.isNotEmpty &&
+        _lastInitTime != null) {
       final elapsed = DateTime.now().difference(_lastInitTime!);
       if (elapsed < _initMinInterval) {
-        print('[RetailProvider] ⏭️ Skipping initialization - last init was ${elapsed.inSeconds}s ago');
+        print(
+            '[RetailProvider] ⏭️ Skipping initialization - last init was ${elapsed.inSeconds}s ago');
         return;
       }
     }
-    
+
     _isInitialized = true;
     _lastInitTime = DateTime.now();
-    
+
     await Future.wait([
       loadProducts(),
       loadSuppliers(),
@@ -814,39 +728,9 @@ class RetailProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Generate receipt text for printing
-  String _generateReceiptText({
-    required String businessName,
-    required String businessAddress,
-    required String businessPhone,
-    required String orderId,
-    required List<Map<String, dynamic>> items,
-    required double subtotal,
-    required double tax,
-    required double discount,
-    required double total,
-    required String paymentMethod,
-  }) {
-    final buffer = StringBuffer();
-    buffer.writeln(businessName);
-    buffer.writeln('RECEIPT');
-    buffer.writeln('Order: $orderId');
-    buffer.writeln('');
-    for (var item in items) {
-      buffer.writeln('${item['name']} x${item['quantity']}');
-      buffer.writeln('  \$${(item['price'] as num).toStringAsFixed(2)}');
-    }
-    buffer.writeln('─' * 40);
-    buffer.writeln('Subtotal: \$${subtotal.toStringAsFixed(2)}');
-    if (tax > 0) buffer.writeln('Tax: \$${tax.toStringAsFixed(2)}');
-    if (discount > 0) buffer.writeln('Discount: \$${discount.toStringAsFixed(2)}');
-    buffer.writeln('TOTAL: \$${total.toStringAsFixed(2)}');
-    buffer.writeln('Payment: $paymentMethod');
-    return buffer.toString();
-  }
-
-  // Load products from Firestore inventory
-  Future<void> loadProducts({String? storeId, bool forceRefresh = false}) async {
+  // Load products from the inventory API
+  Future<void> loadProducts(
+      {String? storeId, bool forceRefresh = false}) async {
     if (_businessId == null) return;
 
     // ── Quota optimisation: TTL cache ────────────────────────────────
@@ -864,132 +748,14 @@ class RetailProvider extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
-      // Load from inventory collection (official product storage)
-      Query query = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory');
-      if (storeId != null && storeId.isNotEmpty) {
-        query = query.where('storeId', isEqualTo: storeId);
-      }
+      final items = await _inventoryRepo.getInventory(
+        _businessId!,
+        storeId: storeId,
+      );
 
-      final snapshot = await query.get();
-
-      _products = snapshot.docs.map((doc) {
-        final raw = doc.data();
-        if (raw is! Map<String, dynamic>) {
-          debugPrint('[RetailProvider] Unexpected doc.data() type (${raw.runtimeType}) for doc ${doc.id} - using defaults');
-          return Product(
-            id: doc.id,
-            name: '',
-            price: 0.0,
-            cost: 0.0,
-            stock: 0.0,
-            category: 'Uncategorized',
-          );
-        }
-        final data = raw;
-        return Product(
-          id: doc.id,
-          name: data['name'] ?? '',
-          price: (data['price'] as num?)?.toDouble() ?? 0.0,
-          cost: (data['cost'] as num?)?.toDouble() ?? 0.0,
-          wholesalePrice: (data['wholesalePrice'] as num?)?.toDouble(),
-          stock: _readStockQuantity(data),
-          category: data['category'] ?? 'Uncategorized',
-          imageUrl: data['imageUrl'],
-          barcode: data['barcode'],
-          emoji: data['emoji'] ?? '📦',
-          unit: (data['unit'] ?? 'pc').toString(),
-          saleUnit: (data['saleUnit'] ?? data['unit'] ?? 'pc').toString(),
-          saleUnitMultiplier:
-              (data['saleUnitMultiplier'] as num?)?.toDouble() ?? 1.0,
-        );
-      }).toList();
-
-      // Also check business documents for inventory-like items (e.g., uploaded sheets)
-      final docsSnapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('documents')
-          .get();
-
-      final documentProducts = <Product>[];
-      for (final d in docsSnapshot.docs) {
-        final ddata = d.data();
-        Iterable<dynamic>? items;
-        if (ddata.containsKey('items') && ddata['items'] is List) {
-          items = ddata['items'] as List;
-        } else if (ddata.containsKey('inventory') && ddata['inventory'] is List)
-          items = ddata['inventory'] as List;
-        else if ((ddata['name'] ?? '')
-                .toString()
-                .toLowerCase()
-                .contains('inventory') &&
-            ddata.containsKey('data') &&
-            ddata['data'] is List) items = ddata['data'] as List;
-
-        if (items != null) {
-          var i = 0;
-          for (final raw in items) {
-            if (raw is Map<String, dynamic>) {
-              final prod = Product(
-                id: '${d.id}_$i',
-                name: raw['name'] ?? raw['item'] ?? '',
-                price: (raw['price'] as num?)?.toDouble() ?? 0.0,
-                cost: (raw['cost'] as num?)?.toDouble() ?? 0.0,
-                wholesalePrice:
-                    (raw['wholesalePrice'] as num?)?.toDouble(),
-                stock: _readStockQuantity(raw),
-                category: raw['category'] ?? 'Uncategorized',
-                imageUrl: raw['imageUrl'],
-                barcode: raw['barcode'],
-                emoji: raw['emoji'] ?? '📦',
-                unit: (raw['unit'] ?? 'pc').toString(),
-                saleUnit:
-                    (raw['saleUnit'] ?? raw['unit'] ?? 'pc').toString(),
-                saleUnitMultiplier:
-                    (raw['saleUnitMultiplier'] as num?)?.toDouble() ?? 1.0,
-              );
-              documentProducts.add(prod);
-            }
-            i++;
-          }
-        }
-      }
-
-      // Merge and dedupe using SKU or name. Prefer records with live stock and
-      // richer inventory data so quick sale does not surface stale zero-stock
-      // duplicates ahead of the active product.
-      final merged = <String, Product>{};
-      final mergedUpdatedAt = <String, DateTime>{};
-      for (final p in documentProducts) {
-        final key = (p.barcode ?? '').isNotEmpty
-            ? 'sku:${p.barcode}'
-            : 'name:${p.name.toLowerCase()}';
-        if (!merged.containsKey(key)) {
-          merged[key] = p;
-          mergedUpdatedAt[key] = DateTime.fromMillisecondsSinceEpoch(0);
-        }
-      }
-      for (final p in _products) {
-        final key = (p.barcode ?? '').isNotEmpty
-            ? 'sku:${p.barcode}'
-            : 'name:${p.name.toLowerCase()}';
-        if (!merged.containsKey(key)) {
-          merged[key] = p;
-          mergedUpdatedAt[key] = DateTime.now();
-          continue;
-        }
-        merged[key] = _pickPreferredProduct(
-          merged[key]!,
-          p,
-          currentUpdatedAt: mergedUpdatedAt[key],
-          candidateUpdatedAt: DateTime.now(),
-        );
-      }
-
-      _products = merged.values.toList();
+      _products = items
+          .map((raw) => Product.fromJson(raw as Map<String, dynamic>))
+          .toList();
 
       // ── Quota optimisation: stamp cache timestamp ──────────────────
       _lastProductFetch = DateTime.now();
@@ -1006,20 +772,14 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
-  // Load suppliers from Firestore
+  // Suppliers: no backend support yet.
+  // TODO(migration): add a suppliers table + /api/suppliers routes on the
+  // custom backend, then wire this up like loadProducts/loadStores.
   Future<void> loadSuppliers() async {
     if (_businessId == null) return;
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('suppliers')
-          .get();
-
-      _suppliers =
-          snapshot.docs.map((doc) => Supplier.fromFirestore(doc)).toList();
-
+      _suppliers = [];
       notifyListeners();
     } catch (e) {
       debugPrint('Error loading suppliers: $e');
@@ -1027,7 +787,7 @@ class RetailProvider extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>> _calculateFuelMetricsSnapshot(
-    QuerySnapshot<Map<String, dynamic>> snapshot,
+    List<Map<String, dynamic>> sales,
   ) async {
     if (_products.isEmpty && _businessId != null) {
       await loadProducts();
@@ -1041,17 +801,15 @@ class RetailProvider extends ChangeNotifier {
       for (var p in _products) p.id: p.category.toLowerCase()
     };
 
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
+    for (final data in sales) {
       final items = (data['items'] as List<dynamic>?) ?? [];
       bool hasFuel = false;
       double saleFuelVolume = 0.0;
-      double saleAmount =
-          (data['totalAmount'] as num?)?.toDouble() ??
-          (data['total'] as num?)?.toDouble() ??
+      double saleAmount = (data['final_amount'] as num?)?.toDouble() ??
+          (data['total_amount'] as num?)?.toDouble() ??
           0.0;
 
-      final saleCategory = (data['category'] as String?)?.toLowerCase() ?? '';
+      final saleCategory = (data['sale_type'] as String?)?.toLowerCase() ?? '';
       if (saleCategory.contains('fuel') ||
           saleCategory.contains('petrol') ||
           saleCategory.contains('gas')) {
@@ -1060,7 +818,7 @@ class RetailProvider extends ChangeNotifier {
 
       for (final it in items) {
         if (it is! Map<String, dynamic>) continue;
-        final pid = (it['productId'] as String?) ?? '';
+        final pid = (it['product_id'] as String?) ?? '';
         final qtyNum = it['quantity'];
         double qty = 0.0;
         if (qtyNum is num) {
@@ -1105,7 +863,7 @@ class RetailProvider extends ChangeNotifier {
   }
 
   Future<List<Map<String, dynamic>>> _calculateFuelSalesHistorySnapshot(
-    QuerySnapshot<Map<String, dynamic>> snapshot,
+    List<Map<String, dynamic>> sales,
   ) async {
     if (_products.isEmpty && _businessId != null) {
       await loadProducts();
@@ -1116,17 +874,16 @@ class RetailProvider extends ChangeNotifier {
     };
 
     final results = <Map<String, dynamic>>[];
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
+    for (final data in sales) {
       final items = (data['items'] as List<dynamic>?) ?? [];
       double fuelVolume = 0.0;
       bool hasFuel = _isFuelText(data['category']?.toString() ?? '') ||
-          _isFuelText(data['saleType']?.toString() ?? '') ||
+          _isFuelText(data['sale_type']?.toString() ?? '') ||
           _isFuelText(data['order_type']?.toString() ?? '') ||
-          (data['pumpId']?.toString().isNotEmpty == true);
+          (data['pump_id']?.toString().isNotEmpty == true);
       for (final it in items) {
         if (it is! Map<String, dynamic>) continue;
-        final pid = (it['productId'] as String?) ?? '';
+        final pid = (it['product_id'] as String?) ?? '';
         final qtyNum = it['quantity'];
         double qty = 0.0;
         if (qtyNum is num) {
@@ -1138,7 +895,7 @@ class RetailProvider extends ChangeNotifier {
         final category = productCategory[pid] ?? '';
         if (_isFuelText(category) ||
             _isFuelText(it['category']?.toString() ?? '') ||
-            _isFuelText(it['productName']?.toString() ?? '') ||
+            _isFuelText(it['product_name']?.toString() ?? '') ||
             _isFuelText(it['name']?.toString() ?? '')) {
           hasFuel = true;
           fuelVolume += qty;
@@ -1146,17 +903,17 @@ class RetailProvider extends ChangeNotifier {
       }
 
       if (hasFuel) {
-        final createdAt = _readTimestamp(data['createdAt']);
+        final createdAt = _readTimestamp(data['created_at']);
         results.add({
-          'id': doc.id,
+          'id': data['id'],
           'createdAt': createdAt,
-          'createdAtRaw': data['createdAt'],
-          'customerName': data['customerName'] ?? data['customer'] ?? 'Walk-in',
-          'totalAmount': (data['totalAmount'] as num?)?.toDouble() ??
-              (data['total'] as num?)?.toDouble() ??
+          'createdAtRaw': data['created_at'],
+          'customerName': data['customer_name'] ?? 'Walk-in',
+          'totalAmount': (data['final_amount'] as num?)?.toDouble() ??
+              (data['total_amount'] as num?)?.toDouble() ??
               0.0,
           'fuelVolume': fuelVolume,
-          'paymentMethod': data['paymentMethod'] ?? 'Cash',
+          'paymentMethod': data['payment_method'] ?? 'Cash',
           'items': items,
         });
       }
@@ -1167,84 +924,64 @@ class RetailProvider extends ChangeNotifier {
 
   /// Returns aggregated fuel metrics for the business within an optional date range.
   /// If no range provided it uses today as default.
-  Future<Map<String, dynamic>> getFuelMetrics({DateTime? start, DateTime? end}) async {
-    if (_businessId == null) return {'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0};
+  Future<Map<String, dynamic>> getFuelMetrics(
+      {DateTime? start, DateTime? end}) async {
+    if (_businessId == null)
+      return {'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0};
 
     final now = DateTime.now();
     final s = start ?? DateTime(now.year, now.month, now.day);
     final e = end ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .where('createdAt', isGreaterThanOrEqualTo: s)
-          .where('createdAt', isLessThanOrEqualTo: e)
-          .get();
-
-      return await _calculateFuelMetricsSnapshot(snapshot);
+      final sales = await _salesRepo.fetchSales(
+        businessId: _businessId,
+        start: s,
+        end: e,
+      );
+      return await _calculateFuelMetricsSnapshot(sales);
     } catch (e) {
       debugPrint('Error computing fuel metrics: $e');
       return {'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0};
     }
   }
 
-  Stream<Map<String, dynamic>> watchFuelMetrics({DateTime? start, DateTime? end}) {
+  // No realtime push from the custom backend - polled like the inventory
+  // streams (InventoryRepositorySupabase.streamInventory).
+  static const _fuelMetricsPollInterval = Duration(seconds: 15);
+
+  Stream<Map<String, dynamic>> watchFuelMetrics(
+      {DateTime? start, DateTime? end}) async* {
     if (_businessId == null) {
-      return Stream.value({'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0});
+      yield {'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0};
+      return;
     }
 
-    final now = DateTime.now();
-    final s = start ?? DateTime(now.year, now.month, now.day);
-    final e = end ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
-
-    return _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('sales')
-        .where('createdAt', isGreaterThanOrEqualTo: s)
-        .where('createdAt', isLessThanOrEqualTo: e)
-        .snapshots()
-        .asyncMap((snapshot) => _calculateFuelMetricsSnapshot(snapshot));
+    while (true) {
+      yield await getFuelMetrics(start: start, end: end);
+      await Future.delayed(_fuelMetricsPollInterval);
+    }
   }
 
   /// Returns a list of sales that include fuel items, with computed fuelVolume for each sale.
   ///
   /// If `start` and `end` are not provided, this will return the most recent `limit`
   /// sales regardless of date (useful for viewing recent history for a gas station).
-  Future<List<Map<String, dynamic>>> getFuelSalesHistory({DateTime? start, DateTime? end, int limit = 100}) async {
+  Future<List<Map<String, dynamic>>> getFuelSalesHistory(
+      {DateTime? start, DateTime? end, int limit = 100}) async {
     if (_businessId == null) return [];
 
-    // If no date range provided, fetch the most recent `limit` sales (no date filter).
-    final useDateRange = start != null || end != null;
-    DateTime? s;
-    DateTime? e;
-    if (useDateRange) {
-      final now = DateTime.now();
-      s = start ?? DateTime(now.year, now.month, now.day);
-      e = end ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
-    }
-
     try {
-      var query = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .orderBy('createdAt', descending: true) as dynamic;
-
-      if (useDateRange) {
-        query = _firestore
-            .collection('businesses')
-            .doc(_businessId)
-            .collection('sales')
-            .where('createdAt', isGreaterThanOrEqualTo: s)
-            .where('createdAt', isLessThanOrEqualTo: e)
-            .orderBy('createdAt', descending: true);
+      final sales = await _salesRepo.fetchSales(
+        businessId: _businessId,
+        start: start,
+        end: end,
+      );
+      final history = await _calculateFuelSalesHistorySnapshot(sales);
+      if (history.length > limit) {
+        return history.sublist(0, limit);
       }
-
-      final snapshot = await query.limit(limit).get();
-      return await _calculateFuelSalesHistorySnapshot(snapshot);
+      return history;
     } catch (e) {
       debugPrint('Error fetching fuel sales history: $e');
       return [];
@@ -1255,54 +992,28 @@ class RetailProvider extends ChangeNotifier {
     DateTime? start,
     DateTime? end,
     int limit = 100,
-  }) {
+  }) async* {
     if (_businessId == null) {
-      return Stream.value([]);
+      yield [];
+      return;
     }
 
-    final useDateRange = start != null || end != null;
-    DateTime? s;
-    DateTime? e;
-    if (useDateRange) {
-      final now = DateTime.now();
-      s = start ?? DateTime(now.year, now.month, now.day);
-      e = end ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
+    while (true) {
+      yield await getFuelSalesHistory(start: start, end: end, limit: limit);
+      await Future.delayed(_fuelMetricsPollInterval);
     }
-
-    Query<Map<String, dynamic>> query = _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('sales')
-        .orderBy('createdAt', descending: true);
-
-    if (useDateRange) {
-      query = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .where('createdAt', isGreaterThanOrEqualTo: s)
-          .where('createdAt', isLessThanOrEqualTo: e)
-          .orderBy('createdAt', descending: true);
-    }
-
-    return query.limit(limit).snapshots().asyncMap(
-          (snapshot) => _calculateFuelSalesHistorySnapshot(snapshot),
-        );
   }
 
-  // Load stores from Firestore
+  // Load stores from the stores API
   Future<void> loadStores() async {
     if (_businessId == null) return;
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('stores')
-          .get();
-
-      _stores =
-          snapshot.docs.map((doc) => StoreLocation.fromFirestore(doc)).toList();
+      final data = await _api.get('/api/stores/$_businessId');
+      final list = (data as List?) ?? [];
+      _stores = list
+          .map((raw) => StoreLocation.fromJson(raw as Map<String, dynamic>))
+          .toList();
 
       notifyListeners();
     } catch (e) {
@@ -1310,21 +1021,14 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
-  // Load promotions from Firestore
+  // Promotions: no backend support yet.
+  // TODO(migration): add a promotions table + /api/promotions routes on the
+  // custom backend, then wire this up like loadStores.
   Future<void> loadPromotions() async {
     if (_businessId == null) return;
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('promotions')
-          .where('endDate', isGreaterThan: Timestamp.now())
-          .get();
-
-      _promotions =
-          snapshot.docs.map((doc) => Promotion.fromFirestore(doc)).toList();
-
+      _promotions = [];
       notifyListeners();
     } catch (e) {
       debugPrint('Error loading promotions: $e');
@@ -1333,41 +1037,48 @@ class RetailProvider extends ChangeNotifier {
 
   // Store Management
   // Add store to Firestore
-  Future<void> addStore({required String name, required String location, String? address, String? phone}) async {
+  Future<void> addStore(
+      {required String name,
+      required String location,
+      String? address,
+      String? phone}) async {
     if (_businessId == null) return;
 
     try {
       // Enforce Tier 1 businesses can only have one store
       try {
-        final businessDoc = await _firestore.collection('businesses').doc(_businessId).get();
-        final subscriptionTier = (businessDoc.data()?['subscriptionTier'] ?? '').toString().toLowerCase();
-        if (subscriptionTier == 'tier1' || subscriptionTier == 'basic' || subscriptionTier == 'standard') {
-          final storesSnapshot = await _firestore.collection('businesses').doc(_businessId).collection('stores').get();
-          if (storesSnapshot.docs.length >= 1) {
-            _errorMessage = 'Your subscription allows only one store. Upgrade to add more stores.';
+        final business = await Supabase.instance.client
+            .from('businesses')
+            .select('subscription_tier')
+            .eq('id', _businessId as Object)
+            .maybeSingle();
+        final subscriptionTier =
+            (business?['subscription_tier'] ?? '').toString().toLowerCase();
+        if (subscriptionTier == 'tier1' ||
+            subscriptionTier == 'basic' ||
+            subscriptionTier == 'standard') {
+          if (_stores.isEmpty) {
+            await loadStores();
+          }
+          if (_stores.isNotEmpty) {
+            _errorMessage =
+                'Your subscription allows only one store. Upgrade to add more stores.';
             notifyListeners();
             return;
           }
         }
       } catch (e) {
         // If we cannot determine subscription tier, fall back to permissive behavior
-        debugPrint('Warning: could not verify subscription tier before adding store: $e');
+        debugPrint(
+            'Warning: could not verify subscription tier before adding store: $e');
       }
 
-      final data = {
+      await _api.post('/api/stores/$_businessId', body: {
         'name': name,
         'location': location,
         'address': address,
         'phone': phone,
-        'createdAt': DateTime.now().toIso8601String(),
-        'updatedAt': DateTime.now().toIso8601String(),
-      };
-
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('stores')
-          .add(data);
+      });
 
       await loadStores();
     } catch (e) {
@@ -1377,25 +1088,21 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
-  // Update store in Firestore
-  Future<void> updateStore(String storeId, {required String name, required String location, String? address, String? phone}) async {
+  // Update store via the stores API
+  Future<void> updateStore(String storeId,
+      {required String name,
+      required String location,
+      String? address,
+      String? phone}) async {
     if (_businessId == null) return;
 
     try {
-      final updateData = {
+      await _api.put('/api/stores/$_businessId/$storeId', body: {
         'name': name,
         'location': location,
         'address': address,
         'phone': phone,
-        'updatedAt': DateTime.now().toIso8601String(),
-      };
-
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('stores')
-          .doc(storeId)
-          .update(updateData);
+      });
 
       await loadStores();
     } catch (e) {
@@ -1405,17 +1112,12 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
-  // Delete store from Firestore
+  // Delete store via the stores API
   Future<void> deleteStore(String storeId) async {
     if (_businessId == null) return;
 
     try {
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('stores')
-          .doc(storeId)
-          .delete();
+      await _api.delete('/api/stores/$_businessId/$storeId');
 
       await loadStores();
     } catch (e) {
@@ -1425,45 +1127,20 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
-  // Add product to Firestore
+  // Add product via the inventory API
   Future<void> addProduct(Product product, {String? storeId}) async {
     if (_businessId == null) return;
 
     try {
-      // Save to inventory collection (official product storage)
-      final data = {
-        'name': product.name,
-        'price': product.price,
-        'cost': product.cost,
-        'wholesalePrice': product.wholesalePrice,
-        'quantity': product.stock,
-        'category': product.category,
-        'unit': product.unit,
-        'saleUnit': product.resolvedSaleUnit,
-        'saleUnitMultiplier': product.resolvedSaleUnitMultiplier,
-        'barcode': product.barcode,
-        'emoji': product.emoji,
-        'imageUrl': product.imageUrl,
-        'trackExpiry': product.trackExpiry,
-        if (product.expiryDate != null) 'expiryDate': product.expiryDate,
-        if (product.batchLabel != null &&
-            product.batchLabel!.trim().isNotEmpty)
-          'batchLabel': product.batchLabel!.trim(),
-        if (product.shelfLifeDays != null)
-          'shelfLifeDays': product.shelfLifeDays,
-        'createdAt': DateTime.now().toIso8601String(),
-        'updatedAt': DateTime.now().toIso8601String(),
-      };
-      if (storeId != null && storeId.isNotEmpty) data['storeId'] = storeId;
+      final data = product.toJson();
+      data['businessId'] = _businessId;
+      if (storeId != null && storeId.isNotEmpty) data['store_id'] = storeId;
 
-      final docRef = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory')
-          .add(data);
+      final created = await _inventoryRepo.addInventory(data);
+      final newId = (created is Map ? created['id'] : null)?.toString() ?? '';
 
       await _logProductActivity(
-        productId: docRef.id,
+        productId: newId,
         action: 'created',
         productName: product.name,
         changes: data,
@@ -1478,42 +1155,19 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
-  // Update product in Firestore
-  Future<void> updateProduct(String productId, Product product, {String? storeId}) async {
+  // Update product via the inventory API
+  Future<void> updateProduct(String productId, Product product,
+      {String? storeId}) async {
     if (_businessId == null) return;
 
     try {
-      // Update in inventory collection (official product storage)
-      final updateData = {
-        'name': product.name,
-        'price': product.price,
-        'cost': product.cost,
-        'wholesalePrice': product.wholesalePrice,
-        'quantity': product.stock,
-        'category': product.category,
-        'unit': product.unit,
-        'saleUnit': product.resolvedSaleUnit,
-        'saleUnitMultiplier': product.resolvedSaleUnitMultiplier,
-        'barcode': product.barcode,
-        'emoji': product.emoji,
-        'imageUrl': product.imageUrl,
-        'trackExpiry': product.trackExpiry,
-        if (product.expiryDate != null) 'expiryDate': product.expiryDate,
-        if (product.batchLabel != null &&
-            product.batchLabel!.trim().isNotEmpty)
-          'batchLabel': product.batchLabel!.trim(),
-        if (product.shelfLifeDays != null)
-          'shelfLifeDays': product.shelfLifeDays,
-        'updatedAt': DateTime.now().toIso8601String(),
-      };
-      if (storeId != null && storeId.isNotEmpty) updateData['storeId'] = storeId;
+      final updateData = product.toJson();
+      updateData['businessId'] = _businessId;
+      if (storeId != null && storeId.isNotEmpty) {
+        updateData['store_id'] = storeId;
+      }
 
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory')
-          .doc(productId)
-          .update(updateData);
+      await _inventoryRepo.updateInventory(productId, updateData);
 
       await _logProductActivity(
         productId: productId,
@@ -1531,7 +1185,7 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
-  // Delete product from Firestore
+  // Delete product via the inventory API
   Future<void> deleteProduct(String productId, {String? storeId}) async {
     if (_businessId == null) return;
 
@@ -1547,13 +1201,7 @@ class RetailProvider extends ChangeNotifier {
         ),
       );
 
-      // Delete from inventory collection (official product storage)
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory')
-          .doc(productId)
-          .delete();
+      await _inventoryRepo.deleteInventoryForBusiness(_businessId!, productId);
 
       await _logProductActivity(
         productId: productId,
@@ -1581,39 +1229,26 @@ class RetailProvider extends ChangeNotifier {
       return;
     }
 
-    final payload = <String, dynamic>{
-      'productId': productId,
-      'productName': productName,
-      'action': action,
-      'changes': changes ?? const <String, dynamic>{},
-      'storeId': storeId,
-      'createdAt': FieldValue.serverTimestamp(),
-    };
-
     try {
-      final businessRef = _firestore.collection('businesses').doc(_businessId);
-      await businessRef
-          .collection('inventory')
-          .doc(productId)
-          .collection('activity')
-          .add(payload);
-      await businessRef.collection('product_activity').add(payload);
+      await _inventoryRepo.addHistoryEntry(_businessId!, productId, {
+        'change_type': action,
+        'notes': productName,
+        'product_name': productName,
+        'changes': changes ?? const <String, dynamic>{},
+        'store_id': storeId,
+      });
     } catch (e) {
       debugPrint('[RetailProvider] Product activity log failed: $e');
     }
   }
 
-  // Add supplier to Firestore
+  // Suppliers: no backend support yet.
+  // TODO(migration): add a suppliers table + /api/suppliers routes on the
+  // custom backend, then wire this up like addProduct.
   Future<void> addSupplier(Supplier supplier) async {
     if (_businessId == null) return;
 
     try {
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('suppliers')
-          .add(supplier.toFirestore());
-
       await loadSuppliers();
     } catch (e) {
       _errorMessage = 'Failed to add supplier: $e';
@@ -1622,17 +1257,13 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
-  // Add promotion to Firestore
+  // Promotions: no backend support yet.
+  // TODO(migration): add a promotions table + /api/promotions routes on the
+  // custom backend, then wire this up like addProduct.
   Future<void> addPromotion(Promotion promotion) async {
     if (_businessId == null) return;
 
     try {
-      await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('promotions')
-          .add(promotion.toFirestore());
-
       await loadPromotions();
     } catch (e) {
       _errorMessage = 'Failed to add promotion: $e';
@@ -1646,10 +1277,9 @@ class RetailProvider extends ChangeNotifier {
     if (qty <= 0) return;
     _ensureActiveCart();
     final existingMode = _activePricingModes()[productId];
-    final resolvedMode =
-        pricingMode == 'wholesale' || pricingMode == 'retail'
-            ? pricingMode!
-            : (existingMode ?? activeCartPricingMode);
+    final resolvedMode = pricingMode == 'wholesale' || pricingMode == 'retail'
+        ? pricingMode!
+        : (existingMode ?? activeCartPricingMode);
     _cart.update(productId, (v) => v + qty, ifAbsent: () => qty);
     _activePricingModes()[productId] = resolvedMode;
     _syncActiveCartSnapshot();
@@ -1676,7 +1306,8 @@ class RetailProvider extends ChangeNotifier {
     } catch (_) {
       // Fallback: try matching by id or exact name
       try {
-        return _products.firstWhere((p) => p.id == code || p.name.toLowerCase() == code.toLowerCase());
+        return _products.firstWhere(
+            (p) => p.id == code || p.name.toLowerCase() == code.toLowerCase());
       } catch (_) {
         return null;
       }
@@ -1767,12 +1398,14 @@ class RetailProvider extends ChangeNotifier {
     );
 
     final mode = getPricingModeForCartItem(productId);
-    
+
     // If wholesale mode is selected and product has wholesale pricing, use it
-    if (mode == 'wholesale' && product.hasWholesalePricing && product.wholesalePrice != null) {
+    if (mode == 'wholesale' &&
+        product.hasWholesalePricing &&
+        product.wholesalePrice != null) {
       return product.wholesalePrice!;
     }
-    
+
     // Otherwise use retail price
     return product.price;
   }
@@ -1813,7 +1446,6 @@ class RetailProvider extends ChangeNotifier {
     }
     return 1.0;
   }
-  
 
   // Checkout with Firestore updates
   // Returns true if the sale was stored offline (queued), false when successfully uploaded
@@ -1840,20 +1472,26 @@ class RetailProvider extends ChangeNotifier {
         final stockReduction =
             getEffectiveSaleUnitMultiplierForCartItem(entry.key) * entry.value;
         if (product.stock < stockReduction) {
-          throw Exception('Insufficient stock for ${product.name}. Available: ${product.stock}, Required: $stockReduction');
+          throw Exception(
+              'Insufficient stock for ${product.name}. Available: ${product.stock}, Required: $stockReduction');
         }
       }
 
       // Compute subtotal applying any price overrides and pricing modes
       double subtotal = 0.0;
       for (final entry in activeCartEntries.entries) {
-        final product = _findProductForCart(entry.key);
         // Use price overrides first, otherwise use effective price based on pricing mode
-        final unitPrice = priceOverrides != null && priceOverrides.containsKey(entry.key)
-            ? priceOverrides[entry.key]!
-            : getEffectivePriceForCartItem(entry.key);
+        final unitPrice =
+            priceOverrides != null && priceOverrides.containsKey(entry.key)
+                ? priceOverrides[entry.key]!
+                : getEffectivePriceForCartItem(entry.key);
         subtotal += unitPrice * entry.value;
       }
+      final saleType = activeCartEntries.keys.any(
+        (productId) => getPricingModeForCartItem(productId) == 'wholesale',
+      )
+          ? 'wholesale'
+          : 'retail';
 
       final taxAmount = subtotal * (tax / 100);
       double totalAmount = subtotal + taxAmount - discount;
@@ -1864,9 +1502,10 @@ class RetailProvider extends ChangeNotifier {
         'cartLabel': activeCartLabel,
         'items': activeCartEntries.entries.map((e) {
           final product = _findProductForCart(e.key);
-          final unitPrice = priceOverrides != null && priceOverrides.containsKey(e.key)
-              ? priceOverrides[e.key]!
-              : getEffectivePriceForCartItem(e.key);
+          final unitPrice =
+              priceOverrides != null && priceOverrides.containsKey(e.key)
+                  ? priceOverrides[e.key]!
+                  : getEffectivePriceForCartItem(e.key);
           final pricingMode = getPricingModeForCartItem(e.key);
           final saleUnit = getEffectiveSaleUnitForCartItem(e.key);
           final saleUnitMultiplier =
@@ -1895,9 +1534,11 @@ class RetailProvider extends ChangeNotifier {
         'totalAmount': totalAmount,
         'finalAmount': totalAmount,
         'paymentMethod': paymentMethod,
+        'saleType': saleType,
         'category': 'General',
-        'createdAt': FieldValue.serverTimestamp(),
-        if (customerId != null && customerId.isNotEmpty) 'customerId': customerId,
+        'createdAt': DateTime.now().toIso8601String(),
+        if (customerId != null && customerId.isNotEmpty)
+          'customerId': customerId,
         if (customerEmail != null) 'customerEmail': customerEmail,
         if (customerName != null) 'customerName': customerName,
         if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
@@ -1911,11 +1552,9 @@ class RetailProvider extends ChangeNotifier {
             '[Checkout] Recording sale for worker: $workerName (ID: $workerId)');
       }
 
-      // Check connectivity up front. Firestore's own offline persistence
-      // would otherwise resolve a write locally without throwing even with
-      // no network — safe for the data, but it means we could never
-      // reliably tell the cashier "this sale is offline and pending sync".
-      // Checking first makes that signal trustworthy.
+      // Check connectivity up front so we can reliably tell the cashier
+      // "this sale is offline and pending sync" instead of guessing from a
+      // failed request later.
       final hasNetwork = await ConnectivityHelper.hasInternetConnection();
       if (!hasNetwork) {
         debugPrint('[Checkout] No network detected, saving sale offline');
@@ -1927,73 +1566,115 @@ class RetailProvider extends ChangeNotifier {
           paymentMethod: paymentMethod,
           customerId: customerId,
           workerId: workerId,
+          workerName: workerName,
           storeId: storeId,
+          saleType: saleType,
           priceOverrides: priceOverrides,
         );
       }
 
-      // Try to write to Firestore first
+      // Try to write to the backend first
       try {
-        final saleRef = await _firestore
-            .collection('businesses')
-            .doc(_businessId)
-            .collection('sales')
-            .add(saleData);
-        final orderId = saleRef.id;
-        // Save orderId back to the sale document for tracking
-        await saleRef.update({'orderId': orderId});
+        final saleId = 'SALE-${DateTime.now().millisecondsSinceEpoch}';
+        final createdBy = workerId?.isNotEmpty == true
+            ? workerId!
+            : (Supabase.instance.client.auth.currentUser?.id ?? '');
 
-        // ── Quota optimisation: update daily sales summary ─────────────
-        // One atomic increment per sale so the dashboard can read a single
-        // summary doc instead of fetching every sale in the date range.
+        final apiItems = (saleData['items'] as List).map((raw) {
+          final item = raw as Map<String, dynamic>;
+          return {
+            'product_id': item['productId'],
+            'product_name': item['productName'],
+            'quantity': item['quantity'],
+            'unit_price': item['unitPrice'],
+            'discount': 0,
+            'total': item['total'],
+            'pricing_mode': item['pricingMode'],
+            'inventory_unit': item['inventoryUnit'],
+            'sale_unit': item['saleUnit'],
+            'sale_unit_multiplier': item['saleUnitMultiplier'],
+          };
+        }).toList();
+
+        Map<String, dynamic> created;
         try {
-          final now = DateTime.now();
-          final dayKey =
-              '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-          await _firestore
-              .collection('businesses')
-              .doc(_businessId)
-              .collection('salesSummaries')
-              .doc(dayKey)
-              .set({
-            'date': dayKey,
-            'totalSales': FieldValue.increment(totalAmount),
-            'totalTransactions': FieldValue.increment(1),
-            'lastUpdated': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+          created = await _salesRepo.createSale({
+            'id': saleId,
+            'businessId': _businessId,
+            'customer_id': customerId,
+            'store_id': storeId,
+            'worker_id': workerId,
+            'worker_name': workerName,
+            'total_amount': subtotal,
+            'discount_amount': discount,
+            'tax_amount': taxAmount,
+            'final_amount': totalAmount,
+            'payment_method': paymentMethod,
+            'status': 'completed',
+            'created_by': createdBy,
+            'sale_type': saleType,
+            'items': apiItems,
+          }) as Map<String, dynamic>;
         } catch (e) {
-          // Non-fatal — dashboard falls back gracefully if summary is absent.
-          debugPrint('[Checkout] salesSummaries update failed: $e');
+          // createSale itself failed — nothing was written server-side, so
+          // this is the only failure that should fall back to saving the
+          // sale offline.
+          debugPrint('[Checkout] Backend write failed, saving locally: $e');
+          return await _saveSaleOffline(
+            activeCartEntries: activeCartEntries,
+            totalAmount: totalAmount,
+            taxAmount: taxAmount,
+            discount: discount,
+            paymentMethod: paymentMethod,
+            customerId: customerId,
+            workerId: workerId,
+            workerName: workerName,
+            storeId: storeId,
+            saleType: saleType,
+            priceOverrides: priceOverrides,
+          );
         }
-        // ────────────────────────────────────────────────────────────────
 
-        // Update product stock in inventory collection
-        for (final entry in activeCartEntries.entries) {
-          final product = _findProductForCart(entry.key);
+        // The sale (and its server-side inventory deduction) is already
+        // committed at this point. Everything below is best-effort
+        // UI/side-effect work — a failure here must NEVER fall through to
+        // _saveSaleOffline, which would create a duplicate sale and
+        // double-apply the stock deduction (once server-side just now, once
+        // again locally). Every step below is its own try/catch instead of
+        // one that rethrows.
+        final orderId = created['id']?.toString() ?? saleId;
 
-          final stockReduction =
-              getEffectiveSaleUnitMultiplierForCartItem(entry.key) *
-                  entry.value;
-          final newQuantity =
-              (product.stock - stockReduction).clamp(0.0, 999999.0);
-          await _writeInventoryStock(product, newQuantity, storeId: storeId);
+        try {
+          // The backend's sale-creation route already decrements inventory
+          // atomically server-side (routes/sales.js), so only mirror the
+          // reduction into the in-memory product list here for immediate POS
+          // UI feedback — writing it again client-side would double-decrement.
+          for (final entry in activeCartEntries.entries) {
+            final product = _findProductForCart(entry.key);
 
-          // Update in-memory stock immediately so the POS grid shows the
-          // correct quantity without waiting for the next loadProducts call.
-          final idx = _products.indexWhere((p) => p.id == product.id);
-          if (idx != -1) {
-            _products[idx].stock = newQuantity;
+            final stockReduction =
+                getEffectiveSaleUnitMultiplierForCartItem(entry.key) *
+                    entry.value;
+            final newQuantity =
+                (product.stock - stockReduction).clamp(0.0, 999999.0);
+
+            final idx = _products.indexWhere((p) => p.id == product.id);
+            if (idx != -1) {
+              _products[idx].stock = newQuantity;
+            }
+
+            // Notify if stock is low (use integer for notifications)
+            if (newQuantity < 10) {
+              await BusinessNotificationManager.instance.notifyLowStock(
+                businessId: _businessId!,
+                itemName: product.name,
+                currentStock: newQuantity.toInt(),
+                reorderPoint: 10,
+              );
+            }
           }
-
-          // Notify if stock is low (use integer for notifications)
-          if (newQuantity < 10) {
-            await BusinessNotificationManager.instance.notifyLowStock(
-              businessId: _businessId!,
-              itemName: product.name,
-              currentStock: newQuantity.toInt(),
-              reorderPoint: 10,
-            );
-          }
+        } catch (e) {
+          debugPrint('[Checkout] Post-sale UI stock mirror failed: $e');
         }
 
         if (customerId != null && customerId.isNotEmpty) {
@@ -2019,38 +1700,36 @@ class RetailProvider extends ChangeNotifier {
           }
         }
 
-        _resetActiveCartState();
-        _queueCartCacheSave();
-        await loadProducts(); // Refresh products
-        notifyListeners();
+        try {
+          _resetActiveCartState();
+          _queueCartCacheSave();
+          await loadProducts(); // Refresh products
+          notifyListeners();
 
-        // Send sale completed notification
-        await BusinessNotificationManager.instance.notifySaleCompleted(
-          businessId: _businessId!,
-          customerName: 'Customer',
-          amount: totalAmount,
-          paymentMethod: paymentMethod,
-        );
-
-        // Send notification for large sales
-        if (totalAmount > 100) {
-          await BusinessNotificationManager.instance.notifyLargeSale(
+          // Send sale completed notification
+          await BusinessNotificationManager.instance.notifySaleCompleted(
             businessId: _businessId!,
             customerName: 'Customer',
             amount: totalAmount,
+            paymentMethod: paymentMethod,
           );
-        }
 
-        // Clear cart and refresh
-        _resetActiveCartState();
-        _queueCartCacheSave();
-        await loadProducts();
-        notifyListeners();
+          // Send notification for large sales
+          if (totalAmount > 100) {
+            await BusinessNotificationManager.instance.notifyLargeSale(
+              businessId: _businessId!,
+              customerName: 'Customer',
+              amount: totalAmount,
+            );
+          }
+        } catch (e) {
+          debugPrint('[Checkout] Post-sale refresh/notify failed: $e');
+        }
 
         return false; // uploaded successfully
       } catch (e) {
-        // Firestore write failed — fall back to local DB and queue for sync
-        debugPrint('[Checkout] Firestore write failed, saving locally: $e');
+        // Backend write failed — fall back to local DB and queue for sync
+        debugPrint('[Checkout] Backend write failed, saving locally: $e');
         return await _saveSaleOffline(
           activeCartEntries: activeCartEntries,
           totalAmount: totalAmount,
@@ -2059,7 +1738,9 @@ class RetailProvider extends ChangeNotifier {
           paymentMethod: paymentMethod,
           customerId: customerId,
           workerId: workerId,
+          workerName: workerName,
           storeId: storeId,
+          saleType: saleType,
           priceOverrides: priceOverrides,
         );
       }
@@ -2080,7 +1761,9 @@ class RetailProvider extends ChangeNotifier {
     required String paymentMethod,
     String? customerId,
     String? workerId,
+    String? workerName,
     String? storeId,
+    String saleType = 'retail',
     Map<String, double>? priceOverrides,
   }) async {
     final dbHelper = DatabaseHelper.instance;
@@ -2095,11 +1778,15 @@ class RetailProvider extends ChangeNotifier {
       'taxAmount': taxAmount,
       'finalAmount': totalAmount,
       'paymentMethod': paymentMethod,
+      'saleType': saleType,
       'status': 'completed',
       'notes': null,
       'createdBy': workerId ?? '',
       'createdAt': DateTime.now().toIso8601String(),
       'syncStatus': 'pending',
+      if (workerId != null && workerId.isNotEmpty) 'workerId': workerId,
+      if (workerId != null && workerId.isNotEmpty)
+        'workerName': workerName ?? 'Unknown',
       if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
     };
 
@@ -2120,16 +1807,22 @@ class RetailProvider extends ChangeNotifier {
       // remove the half-written record and surface the failure clearly so
       // the cashier knows to retry, rather than silently queue something
       // broken.
-      debugPrint('[Checkout] Offline item save failed, rolling back local sale $saleId: $e');
+      debugPrint(
+          '[Checkout] Offline item save failed, rolling back local sale $saleId: $e');
       try {
-        await dbHelper.delete('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
+        await dbHelper
+            .delete('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
         await dbHelper.delete('sales', where: 'id = ?', whereArgs: [saleId]);
       } catch (_) {}
       rethrow;
     }
 
     // Add to sync queue
-    await dbHelper.addToSyncQueue(entityType: 'sale', entityId: saleId, action: 'create', data: localSale);
+    await dbHelper.addToSyncQueue(
+        entityType: 'sale',
+        entityId: saleId,
+        action: 'create',
+        data: localSale);
 
     // Try to trigger a background sync (no-op if still offline)
     try {
@@ -2180,7 +1873,15 @@ class RetailProvider extends ChangeNotifier {
       };
       await dbHelper.insert('sale_items', item);
 
-      // Update local inventory record
+      // Update local inventory record. The baseline for the new quantity
+      // always comes from product.stock (the in-memory value from the last
+      // real Postgres fetch) - never from whatever's already in the local
+      // SQLite `inventory` cache. That cache is frequently absent entirely
+      // (this app is Postgres-first) and, worse, can hold a previously
+      // wrong value from an earlier bug or an earlier sale this same
+      // session - reading a stale/zeroed row back as "current stock" just
+      // re-applies whatever was wrong before. product.stock is the single
+      // source of truth here; SQLite is only ever a write target.
       final inv = await dbHelper.query(
         'inventory',
         where: '(id = ? OR barcode = ? OR name = ?) AND businessId = ?',
@@ -2192,15 +1893,15 @@ class RetailProvider extends ChangeNotifier {
         ],
         limit: 1,
       );
+      final newQtyForUi = (product.stock - (saleUnitMultiplier * e.value))
+          .clamp(0, 999999)
+          .toDouble();
       if (inv.isNotEmpty) {
-        final currentQty = (inv.first['quantity'] as num).toDouble();
-        final newQty = (currentQty - (saleUnitMultiplier * e.value))
-            .clamp(0, 999999);
         await dbHelper.update(
           'inventory',
           {
-            'quantity': newQty,
-            'stock': newQty,
+            'quantity': newQtyForUi,
+            'stock': newQtyForUi,
             'syncStatus': 'pending',
             'updatedAt': DateTime.now().toIso8601String(),
           },
@@ -2219,15 +1920,22 @@ class RetailProvider extends ChangeNotifier {
           'name': product.name,
           'unitPrice': product.price,
           'barcode': product.barcode,
-          'quantity': (0 - (saleUnitMultiplier * e.value))
-              .toDouble()
-              .clamp(0, 999999),
-          'stock': (0 - (saleUnitMultiplier * e.value))
-              .toDouble()
-              .clamp(0, 999999),
+          'quantity': newQtyForUi,
+          'stock': newQtyForUi,
           'createdAt': DateTime.now().toIso8601String(),
           'syncStatus': 'pending',
         });
+      }
+
+      // loadProducts() (called after the offline save completes) hits the
+      // network and silently no-ops while offline, so the SQLite decrement
+      // above never reached the UI's in-memory product list - stock looked
+      // unchanged on the sales screen even though it actually was deducted.
+      // Mirror it into _products directly, same as the online checkout path
+      // already does for its own (server-confirmed) decrement.
+      final idx = _products.indexWhere((p) => p.id == product.id);
+      if (idx != -1) {
+        _products[idx].stock = newQtyForUi;
       }
     }
   }
@@ -2273,18 +1981,13 @@ class RetailProvider extends ChangeNotifier {
     await _savePendingPumpSales(businessId, pending);
   }
 
-  Map<String, dynamic> _serverPumpSaleData(Map<String, dynamic> pendingSale) {
-    final data = Map<String, dynamic>.from(
-      pendingSale['saleData'] as Map<String, dynamic>? ?? {},
-    );
-    data['createdAt'] = FieldValue.serverTimestamp();
-    data['updatedAt'] = FieldValue.serverTimestamp();
-    data['offlineSyncedAt'] = FieldValue.serverTimestamp();
-    data['offlineQueued'] = false;
-    data['orderId'] = pendingSale['orderId'];
-    return data;
-  }
-
+  // The backend's sale-creation route accepts an optional client-supplied
+  // id and, if a sale with that id already exists, returns it as-is instead
+  // of re-inserting (see routes/sales.js) — and it decrements inventory
+  // atomically as part of creating the sale. That makes this retry safe to
+  // call repeatedly: a sale that already synced (and already had its
+  // inventory decremented) on a previous attempt is just returned again,
+  // never re-applied.
   Future<void> _syncPendingPumpSale(
     String businessId,
     Map<String, dynamic> pendingSale,
@@ -2296,48 +1999,43 @@ class RetailProvider extends ChangeNotifier {
       throw Exception('Invalid pending pump sale');
     }
 
-    final saleRef = _firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('sales')
-        .doc(orderId);
-    final inventoryRef = _firestore
-        .collection('businesses')
-        .doc(businessId)
-        .collection('inventory')
-        .doc(productId);
+    final saleData = Map<String, dynamic>.from(
+      pendingSale['saleData'] as Map<String, dynamic>? ?? {},
+    );
+    final items = (saleData['items'] as List<dynamic>?) ?? [];
+    final apiItems = items.map((raw) {
+      final item = raw as Map<String, dynamic>;
+      return {
+        'product_id': item['productId'],
+        'product_name': item['productName'],
+        'quantity': item['quantity'],
+        'unit_price': item['unitPrice'],
+        'discount': 0,
+        'total': item['total'],
+        'sale_unit_multiplier': 1,
+      };
+    }).toList();
 
-    await _firestore.runTransaction((transaction) async {
-      final existingSale = await transaction.get(saleRef);
-      final existingSaleData = existingSale.data() ?? <String, dynamic>{};
-      final shouldApplyInventory = !existingSale.exists ||
-          (pendingSale['saleWrittenOnline'] == true &&
-              existingSaleData['offlineInventorySynced'] != true);
-      final inventorySnapshot =
-          shouldApplyInventory ? await transaction.get(inventoryRef) : null;
-      final serverSaleData = _serverPumpSaleData(pendingSale);
-      if (shouldApplyInventory) {
-        serverSaleData['offlineInventorySynced'] = true;
-      }
-      transaction.set(saleRef, serverSaleData, SetOptions(merge: true));
-      if (!shouldApplyInventory) return;
-      if (inventorySnapshot == null) return;
+    final workerId = saleData['workerId']?.toString() ?? '';
+    final createdBy = workerId.isNotEmpty
+        ? workerId
+        : (Supabase.instance.client.auth.currentUser?.id ?? '');
 
-      final inventoryData = inventorySnapshot.data() ?? <String, dynamic>{};
-      final currentStock =
-          (inventoryData['quantity'] as num?)?.toDouble() ??
-              (inventoryData['stock'] as num?)?.toDouble() ??
-              0.0;
-      final nextStock = (currentStock - quantity).clamp(0.0, 999999999.0);
-      transaction.set(
-        inventoryRef,
-        {
-          'quantity': nextStock,
-          'stock': nextStock,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+    await _salesRepo.createSale({
+      'id': orderId,
+      'businessId': businessId,
+      'store_id': saleData['storeId'],
+      'worker_id': saleData['workerId'],
+      'worker_name': saleData['workerName'],
+      'total_amount': saleData['subtotal'] ?? saleData['totalAmount'] ?? 0,
+      'discount_amount': saleData['discount'] ?? 0,
+      'tax_amount': saleData['tax'] ?? 0,
+      'final_amount': saleData['totalAmount'] ?? saleData['total'] ?? 0,
+      'payment_method': saleData['paymentMethod'] ?? 'Cash',
+      'status': 'completed',
+      'created_by': createdBy,
+      'sale_type': 'fuel',
+      'items': apiItems,
     });
   }
 
@@ -2387,7 +2085,12 @@ class RetailProvider extends ChangeNotifier {
     // Find product info
     final product = _products.firstWhere(
       (p) => p.id == productId,
-      orElse: () => Product(id: productId, name: 'Unknown', price: 0, stock: 0, category: 'Unknown'),
+      orElse: () => Product(
+          id: productId,
+          name: 'Unknown',
+          price: 0,
+          stock: 0,
+          category: 'Unknown'),
     );
 
     final unitPrice = (product.price).toDouble();
@@ -2455,11 +2158,10 @@ class RetailProvider extends ChangeNotifier {
       'paymentMethod': paymentMethod,
       'customerEmail': customerEmail,
       'customerName': customerName,
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': DateTime.now().toIso8601String(),
       if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
       if (pumpId != null && pumpId.isNotEmpty) 'pumpId': pumpId,
-      if (pumpNumber != null && pumpNumber.isNotEmpty)
-        'pumpNumber': pumpNumber,
+      if (pumpNumber != null && pumpNumber.isNotEmpty) 'pumpNumber': pumpNumber,
       if (pumpName != null && pumpName.isNotEmpty) 'pumpName': pumpName,
       'category': 'Fuel',
     };
@@ -2470,12 +2172,7 @@ class RetailProvider extends ChangeNotifier {
       saleData['workerName'] = workerName ?? 'Unknown';
     }
 
-    final saleRef = _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('sales')
-        .doc();
-    final orderId = saleRef.id;
+    final orderId = 'SALE-${DateTime.now().millisecondsSinceEpoch}';
     saleData['id'] = orderId;
     saleData['orderId'] = orderId;
     saleData['status'] = 'completed';
@@ -2526,10 +2223,8 @@ class RetailProvider extends ChangeNotifier {
       };
     }
 
-    // Check connectivity up front rather than relying on the Firestore write
-    // to throw — with offline persistence enabled, writes resolve locally
-    // without an exception even with no network, which would otherwise make
-    // "offlineQueued" almost never trigger for genuinely offline sales.
+    // Check connectivity up front so a genuinely offline sale reliably
+    // queues instead of only finding out via a failed request later.
     final hasNetwork = await ConnectivityHelper.hasInternetConnection();
     if (!hasNetwork) {
       debugPrint(
@@ -2538,9 +2233,49 @@ class RetailProvider extends ChangeNotifier {
     }
 
     try {
-      await saleRef.set(saleData);
+      final createdBy = (workerId?.isNotEmpty == true)
+          ? workerId!
+          : (Supabase.instance.client.auth.currentUser?.id ?? '');
+      // The backend decrements inventory atomically as part of creating the
+      // sale (routes/sales.js), so no separate _writeInventoryStock call is
+      // needed here.
+      final createdSale = await _salesRepo.createSale({
+        'id': orderId,
+        'businessId': _businessId,
+        'store_id': storeId,
+        'worker_id': workerId,
+        'worker_name': workerName,
+        'total_amount': paid,
+        'discount_amount': 0,
+        'tax_amount': 0,
+        'final_amount': paid,
+        'payment_method': paymentMethod,
+        'status': 'completed',
+        'created_by': createdBy,
+        'sale_type': 'fuel',
+        'items': [
+          {
+            'product_id': product.id,
+            'product_name': product.name,
+            'quantity': qty,
+            'unit_price': unitPrice,
+            'discount': 0,
+            'total': paid,
+            'sale_unit_multiplier': 1,
+          },
+        ],
+      });
       saleWrittenOnline = true;
-      await _writeInventoryStock(product, newQty);
+      // The client-generated `orderId` ('SALE-<timestamp>') is only a local
+      // bookkeeping placeholder - the backend rejects it as a real uuid and
+      // assigns its own, returned here. Callers (e.g. the pump upload
+      // screen, which posts this as a uuid `sale_id` column) need the real
+      // one, not the placeholder still sitting in saleData.
+      final realSaleId = (createdSale is Map ? createdSale['id'] : null)?.toString();
+      if (realSaleId != null && realSaleId.isNotEmpty) {
+        saleData['id'] = realSaleId;
+        saleData['orderId'] = realSaleId;
+      }
       final productIndex = _products.indexWhere((p) => p.id == product.id);
       if (productIndex != -1) {
         _products[productIndex].stock = newQty;
@@ -2579,8 +2314,12 @@ class RetailProvider extends ChangeNotifier {
 
     // Attempt to email owner
     try {
-      final businessDoc = await _firestore.collection('businesses').doc(_businessId).get();
-      final businessData = businessDoc.data() ?? <String, dynamic>{};
+      final businessData = await Supabase.instance.client
+              .from('businesses')
+              .select('name, email, address, phone')
+              .eq('id', _businessId as Object)
+              .maybeSingle() ??
+          <String, dynamic>{};
       final ownerEmail = (businessData['email'] as String?) ?? '';
       final businessName = (businessData['name'] as String?) ?? 'Your Business';
 
@@ -2593,7 +2332,8 @@ class RetailProvider extends ChangeNotifier {
           };
         }).toList();
 
-        final ownerSuccess = await _notificationEmailService.sendSalesNotification(
+        final ownerSuccess =
+            await _notificationEmailService.sendSalesNotification(
           ownerEmail: ownerEmail,
           businessName: businessName,
           customerName: customerName ?? 'Customer',
@@ -2625,54 +2365,11 @@ class RetailProvider extends ChangeNotifier {
       debugPrint('[RetailProvider] Error sending owner email: $e');
     }
 
-    // Attempt automatic receipt printing for pump/gas sales when enabled
-    try {
-      final businessDoc = await _firestore.collection('businesses').doc(_businessId).get();
-      final businessData = businessDoc.data() ?? <String, dynamic>{};
-      final receiptEnabled = (businessData['industrySpecificSettings'] ?? {})['receiptPrinting'] ?? false;
-
-      if (receiptEnabled == true) {
-        // load thermal preferences
-        await _firestore
-            .collection('businesses')
-            .doc(_businessId)
-            .collection('receipt_settings')
-            .doc('thermalPreferences')
-            .get();
-        // Note: prefDoc could be used for future printer preference configuration
-
-        // Build a receipt using the enhanced formatter and send to printer
-        final itemsForPrint = (saleData['items'] as List<dynamic>).map((it) {
-          return {
-            'name': it['productName'] ?? it['name'] ?? 'Item',
-            'quantity': it['quantity'] ?? 0,
-            'price': it['unitPrice'] ?? it['price'] ?? 0,
-            'total': it['total'] ?? 0,
-          };
-
-        }).toList();
-
-        final businessName = businessData['name'] ?? 'Your Business';
-
-        // Format receipt as simple text
-        final receiptText = _generateReceiptText(
-          businessName: businessName,
-          businessAddress: businessData['address'] ?? '',
-          businessPhone: businessData['phone'] ?? '',
-          orderId: orderId,
-          items: itemsForPrint.cast<Map<String, dynamic>>(),
-          subtotal: paid,
-          tax: 0.0,
-          discount: 0.0,
-          total: paid,
-          paymentMethod: paymentMethod,
-        );
-
-        debugPrint('[RetailProvider] Auto-print receipt generated: ${receiptText.length} chars');
-      }
-    } catch (e) {
-      debugPrint('[RetailProvider] Error during automatic receipt printing: $e');
-    }
+    // TODO(migration): automatic receipt printing was gated by a
+    // per-business `industrySpecificSettings.receiptPrinting` flag and a
+    // `receipt_settings/thermalPreferences` doc, neither of which exist on
+    // the custom backend's schema yet. Deferred until that settings surface
+    // is rebuilt server-side.
 
     // Refresh local products and notify listeners
     await loadProducts();
@@ -2692,33 +2389,26 @@ class RetailProvider extends ChangeNotifier {
       'paymentStatus': 'paid',
     };
     return result;
-    }  
-
+  }
 
   // Get total sales for a specific worker
   Future<double> getWorkerTotalSales(String workerId, {String? storeId}) async {
     if (_businessId == null) return 0.0;
 
     try {
-      var query = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .where('workerId', isEqualTo: workerId) as dynamic;
-      if (storeId != null && storeId.isNotEmpty) {
-        query = query.where('storeId', isEqualTo: storeId);
-      }
-
-      final snapshot = await query.get();
+      final sales = await _salesRepo.getSales(_businessId!, filters: {
+        'workerId': workerId,
+        if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
+      });
 
       double totalSales = 0.0;
-      for (final doc in snapshot.docs) {
-        final amount = (doc['totalAmount'] as num?)?.toDouble() ?? 0.0;
+      for (final sale in sales) {
+        final amount = (sale['final_amount'] as num?)?.toDouble() ?? 0.0;
         totalSales += amount;
       }
 
       debugPrint(
-          '[RetailProvider] Worker $workerId total sales: \u20a6$totalSales');
+          '[RetailProvider] Worker $workerId total sales: $totalSales');
       return totalSales;
     } catch (e) {
       debugPrint('[RetailProvider] Error fetching worker sales: $e');
@@ -2731,18 +2421,14 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return 0;
 
     try {
-      var query = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .where('workerId', isEqualTo: workerId) as dynamic;
-      if (storeId != null && storeId.isNotEmpty) query = query.where('storeId', isEqualTo: storeId);
-
-      final snapshot = await query.get();
+      final sales = await _salesRepo.getSales(_businessId!, filters: {
+        'workerId': workerId,
+        if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
+      });
 
       debugPrint(
-          '[RetailProvider] Worker $workerId sales count: ${snapshot.docs.length}');
-      return snapshot.docs.length;
+          '[RetailProvider] Worker $workerId sales count: ${sales.length}');
+      return sales.length;
     } catch (e) {
       debugPrint('[RetailProvider] Error fetching worker sales count: $e');
       return 0;
@@ -2758,24 +2444,21 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return 0.0;
 
     try {
-      var query = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .where('createdAt', isGreaterThanOrEqualTo: startDate)
-          .where('createdAt', isLessThanOrEqualTo: endDate) as dynamic;
-      if (storeId != null && storeId.isNotEmpty) query = query.where('storeId', isEqualTo: storeId);
-
-      final snapshot = await query.get();
+      final sales = await _salesRepo.fetchSales(
+        businessId: _businessId,
+        storeId: storeId,
+        start: startDate,
+        end: endDate,
+      );
 
       double totalSales = 0.0;
-      for (final doc in snapshot.docs) {
-        final amount = (doc['totalAmount'] as num?)?.toDouble() ?? 0.0;
+      for (final sale in sales) {
+        final amount = (sale['final_amount'] as num?)?.toDouble() ?? 0.0;
         totalSales += amount;
       }
 
       debugPrint(
-          '[RetailProvider] Total sales from ${startDate.toIso8601String()} to ${endDate.toIso8601String()}: ₦$totalSales');
+          '[RetailProvider] Total sales from ${startDate.toIso8601String()} to ${endDate.toIso8601String()}: $totalSales');
       return totalSales;
     } catch (e) {
       debugPrint('[RetailProvider] Error fetching sales for period: $e');
@@ -2783,10 +2466,42 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
+  // The backend returns sale rows with snake_case columns (final_amount,
+  // created_at, ...), but the UI (and the locally-queued offline sales built
+  // in _saveSaleOffline) were written against the old Firestore camelCase
+  // shape. Rather than rewrite every screen, mirror the fields it reads
+  // under their camelCase aliases too.
+  Map<String, dynamic> _normalizeSaleForUi(Map<String, dynamic> sale) {
+    final normalized = Map<String, dynamic>.from(sale);
+    normalized['totalAmount'] ??= sale['final_amount'] ?? sale['total_amount'];
+    normalized['finalAmount'] ??= sale['final_amount'];
+    normalized['discountAmount'] ??= sale['discount_amount'];
+    normalized['taxAmount'] ??= sale['tax_amount'];
+    normalized['paymentMethod'] ??= sale['payment_method'];
+    normalized['customerName'] ??= sale['customer_name'];
+    normalized['workerName'] ??= sale['worker_name'];
+    normalized['storeId'] ??= sale['store_id'];
+    normalized['createdAt'] ??= sale['created_at'];
+    normalized['returnAmount'] ??= sale['return_amount'];
+    normalized['returnedQuantities'] ??= sale['returned_quantities'];
+    normalized['hasReturn'] ??= sale['has_return'];
+
+    final items = sale['items'];
+    if (items is List) {
+      normalized['items'] = items.map((raw) {
+        if (raw is! Map) return raw;
+        final item = Map<String, dynamic>.from(raw);
+        item['productId'] ??= item['product_id'];
+        item['productName'] ??= item['product_name'];
+        item['unitPrice'] ??= item['unit_price'];
+        item['price'] ??= item['unit_price'];
+        return item;
+      }).toList();
+    }
+    return normalized;
+  }
+
   // Get sales history with optional limit and range. This is a simple convenience method (non-paged).
-  // NOTE: Sales may exist both in the business subcollection and in the root "sales" collection
-  // (some modules write to root). We combine both sources, dedupe by id (nested takes precedence),
-  // sort by createdAt desc, and return up to `limit` records.
   Future<List<Map<String, dynamic>>> getSalesHistory({
     int limit = 50,
     String? storeId,
@@ -2797,90 +2512,56 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return [];
 
     try {
-      // Nested (business) query
-      var nestedQuery = _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .orderBy('createdAt', descending: true) as dynamic;
-      if (storeId != null && storeId.isNotEmpty) nestedQuery = nestedQuery.where('storeId', isEqualTo: storeId);
-      if (status != null && status.isNotEmpty && status != 'all') nestedQuery = nestedQuery.where('status', isEqualTo: status);
-      if (start != null) nestedQuery = nestedQuery.where('createdAt', isGreaterThanOrEqualTo: start);
-      if (end != null) nestedQuery = nestedQuery.where('createdAt', isLessThanOrEqualTo: end);
+      final sales = await _salesRepo.getSales(_businessId!, filters: {
+        'limit': limit,
+        if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
+        if (status != null && status.isNotEmpty && status != 'all')
+          'status': status,
+        if (start != null) 'startDate': start.toIso8601String(),
+        if (end != null) 'endDate': end.toIso8601String(),
+      });
 
-      // Root query filtering by businessId
-      var rootQuery = _firestore.collection('sales').where('businessId', isEqualTo: _businessId) as dynamic;
-      if (storeId != null && storeId.isNotEmpty) rootQuery = rootQuery.where('storeId', isEqualTo: storeId);
-      if (status != null && status.isNotEmpty && status != 'all') rootQuery = rootQuery.where('status', isEqualTo: status);
-      if (start != null) rootQuery = rootQuery.where('createdAt', isGreaterThanOrEqualTo: start);
-      if (end != null) rootQuery = rootQuery.where('createdAt', isLessThanOrEqualTo: end);
+      var results = sales
+          .cast<Map<String, dynamic>>()
+          .map(_normalizeSaleForUi)
+          .toList();
+      if (results.length > limit) results = results.sublist(0, limit);
 
-      final nestedSnapshot = await nestedQuery.limit(limit).get();
-      final rootSnapshot = await rootQuery.limit(limit).get();
-
-      final Map<String, Map<String, dynamic>> combined = {};
-
-      // Root first, nested overwrites if same id
-      for (final doc in rootSnapshot.docs) {
-        combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
-      }
-      for (final doc in nestedSnapshot.docs) {
-        combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
-      }
-
-      List<Map<String, dynamic>> sales = combined.values.toList();
-
-      int _createdAtToMillis(dynamic v) {
-        if (v == null) return 0;
-        if (v is Timestamp) return v.toDate().millisecondsSinceEpoch;
-        if (v is DateTime) return v.millisecondsSinceEpoch;
-        if (v is num) return v.toInt();
-        if (v is String) {
-          final p = int.tryParse(v);
-          if (p != null) return p;
-          final dt = DateTime.tryParse(v);
-          if (dt != null) return dt.millisecondsSinceEpoch;
-        }
-        return 0;
-      }
-
-      sales.sort((a, b) => _createdAtToMillis(b['createdAt']).compareTo(_createdAtToMillis(a['createdAt'])));
-
-      if (sales.length > limit) sales = sales.sublist(0, limit);
-
-      debugPrint('[RetailProvider] Fetched ${sales.length} sales records (combined root & nested)');
-      return sales;
+      debugPrint('[RetailProvider] Fetched ${results.length} sales records');
+      return results;
     } catch (e) {
       debugPrint('[RetailProvider] Error fetching sales history: $e');
       return [];
     }
   }
 
-  // Fetch a single sale from either the business sales collection or the root
-  // sales collection so receipt reprints can reopen older records reliably.
+  // Fetch a single sale by id.
   Future<Map<String, dynamic>?> getSaleById(String saleId) async {
     if (_businessId == null || saleId.trim().isEmpty) return null;
 
     try {
-      final nestedDoc = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .doc(saleId)
-          .get();
-      if (nestedDoc.exists) {
-        return {'id': nestedDoc.id, ...(nestedDoc.data() ?? const {})};
-      }
-
-      final rootDoc = await _firestore.collection('sales').doc(saleId).get();
-      if (rootDoc.exists) {
-        return {'id': rootDoc.id, ...(rootDoc.data() ?? const {})};
-      }
+      final sale = await _salesRepo.getSaleById(saleId);
+      if (sale is Map<String, dynamic>) return _normalizeSaleForUi(sale);
+      return null;
     } catch (e) {
-      debugPrint('[RetailProvider] Error fetching sale by id: $e');
+      debugPrint('[RetailProvider] Error fetching sale $saleId: $e');
+      return null;
+    }
+  }
+
+  Future<void> deleteSale(String saleId, {String? reason}) async {
+    if (_businessId == null || _businessId!.isEmpty) {
+      throw Exception('Business ID is required to delete a sale');
+    }
+    if (saleId.trim().isEmpty) {
+      throw Exception('Sale ID is required');
     }
 
-    return null;
+    await _salesRepo.deleteSaleForBusiness(
+      _businessId!,
+      saleId,
+      reason: reason,
+    );
   }
 
   /// Sales that only exist locally (queued while offline, or stuck after a
@@ -2891,9 +2572,12 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return [];
     try {
       final dbHelper = DatabaseHelper.instance;
-      final pending = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['pending']);
-      final failed = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['failed']);
-      final errored = await dbHelper.query('sales', where: 'syncStatus = ?', whereArgs: ['error']);
+      final pending = await dbHelper
+          .query('sales', where: 'syncStatus = ?', whereArgs: ['pending']);
+      final failed = await dbHelper
+          .query('sales', where: 'syncStatus = ?', whereArgs: ['failed']);
+      final errored = await dbHelper
+          .query('sales', where: 'syncStatus = ?', whereArgs: ['error']);
       final rows = [...pending, ...failed, ...errored]
           .where((r) => r['businessId']?.toString() == _businessId);
 
@@ -2902,7 +2586,8 @@ class RetailProvider extends ChangeNotifier {
         final saleId = row['id']?.toString() ?? '';
         final itemRows = saleId.isEmpty
             ? <Map<String, dynamic>>[]
-            : await dbHelper.query('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
+            : await dbHelper
+                .query('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
         result.add({
           ...Map<String, dynamic>.from(row),
           'items': itemRows.map((i) => Map<String, dynamic>.from(i)).toList(),
@@ -2917,151 +2602,121 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
-  // Paged sales fetch — returns sales plus the last document snapshot (for startAfter)
-  // This method merges business-level sales and root 'sales' collection (filtered by businessId).
-  // Paging uses the nested business collection's document snapshot as the cursor (startAfterDoc).
+  // Paged sales fetch — returns sales plus the next page number to request
+  // (null once there are no more pages), using the backend's page/limit
+  // pagination (routes/sales.js).
   Future<Map<String, dynamic>> getSalesHistoryPage({
     int limit = 50,
     String? storeId,
     DateTime? start,
     DateTime? end,
     String? status,
-    DocumentSnapshot? startAfterDoc,
+    int? page,
   }) async {
-    if (_businessId == null) return {'sales': <Map<String, dynamic>>[], 'lastDoc': null};
+    if (_businessId == null) {
+      return {'sales': <Map<String, dynamic>>[], 'nextPage': null};
+    }
 
     try {
       // A "refunded" filter should also surface partially-refunded sales —
       // otherwise a partial return makes a sale vanish from both the
       // Completed tab (it's no longer that status) and the Refunded tab
-      // (its status isn't an exact match). Queried as separate equality
-      // filters (rather than whereIn) so this doesn't require deploying a
-      // new Firestore composite index beyond what the existing per-status
-      // filters already rely on.
+      // (its status isn't an exact match). The REST route only takes a
+      // single `status` filter, so each value is fetched separately and
+      // merged when more than one applies.
       final statusValues = status == 'refunded'
           ? const ['refunded', 'partially_refunded']
-          : <String>[if (status != null && status.isNotEmpty && status != 'all') status];
+          : <String>[
+              if (status != null && status.isNotEmpty && status != 'all') status
+            ];
 
-      final Map<String, Map<String, dynamic>> combined = {};
-      DocumentSnapshot? lastDoc;
+      final currentPage = page ?? 1;
 
-      if (statusValues.isEmpty) {
-        var nestedQuery = _firestore
-            .collection('businesses')
-            .doc(_businessId)
-            .collection('sales')
-            .orderBy('createdAt', descending: true) as dynamic;
-        if (storeId != null && storeId.isNotEmpty) nestedQuery = nestedQuery.where('storeId', isEqualTo: storeId);
-        if (start != null) nestedQuery = nestedQuery.where('createdAt', isGreaterThanOrEqualTo: start);
-        if (end != null) nestedQuery = nestedQuery.where('createdAt', isLessThanOrEqualTo: end);
-        if (startAfterDoc != null) nestedQuery = nestedQuery.startAfterDocument(startAfterDoc);
+      Future<Map<String, dynamic>> fetchPage(String? statusValue) async {
+        final response = await _api.get('/api/sales/$_businessId', query: {
+          'page': currentPage,
+          'limit': limit,
+          if (storeId != null && storeId.isNotEmpty) 'storeId': storeId,
+          if (start != null) 'startDate': start.toIso8601String(),
+          if (end != null) 'endDate': end.toIso8601String(),
+          if (statusValue != null) 'status': statusValue,
+        });
+        return response as Map<String, dynamic>;
+      }
 
-        var rootQuery = _firestore.collection('sales').where('businessId', isEqualTo: _businessId) as dynamic;
-        if (storeId != null && storeId.isNotEmpty) rootQuery = rootQuery.where('storeId', isEqualTo: storeId);
-        if (start != null) rootQuery = rootQuery.where('createdAt', isGreaterThanOrEqualTo: start);
-        if (end != null) rootQuery = rootQuery.where('createdAt', isLessThanOrEqualTo: end);
+      List<Map<String, dynamic>> sales;
+      int? nextPage;
 
-        final nestedSnapshot = await nestedQuery.limit(limit).get();
-        final rootSnapshot = await rootQuery.limit(limit).get();
-        for (final doc in rootSnapshot.docs) {
-          combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
-        }
-        for (final doc in nestedSnapshot.docs) {
-          combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
-        }
-        if (nestedSnapshot.docs.isNotEmpty) lastDoc = nestedSnapshot.docs.last;
+      if (statusValues.length <= 1) {
+        final response = await fetchPage(
+          statusValues.isEmpty ? null : statusValues.first,
+        );
+        sales = ((response['data'] as List?) ?? [])
+            .cast<Map<String, dynamic>>();
+        final pagination = response['pagination'] as Map<String, dynamic>?;
+        final totalPages =
+            (pagination?['totalPages'] as num?)?.toInt() ?? currentPage;
+        nextPage = currentPage < totalPages ? currentPage + 1 : null;
       } else {
+        final combined = <String, Map<String, dynamic>>{};
         for (final statusValue in statusValues) {
-          var nestedQuery = _firestore
-              .collection('businesses')
-              .doc(_businessId)
-              .collection('sales')
-              .orderBy('createdAt', descending: true)
-              .where('status', isEqualTo: statusValue) as dynamic;
-          if (storeId != null && storeId.isNotEmpty) nestedQuery = nestedQuery.where('storeId', isEqualTo: storeId);
-          if (start != null) nestedQuery = nestedQuery.where('createdAt', isGreaterThanOrEqualTo: start);
-          if (end != null) nestedQuery = nestedQuery.where('createdAt', isLessThanOrEqualTo: end);
-          if (startAfterDoc != null) nestedQuery = nestedQuery.startAfterDocument(startAfterDoc);
-
-          var rootQuery = _firestore
-              .collection('sales')
-              .where('businessId', isEqualTo: _businessId)
-              .where('status', isEqualTo: statusValue) as dynamic;
-          if (storeId != null && storeId.isNotEmpty) rootQuery = rootQuery.where('storeId', isEqualTo: storeId);
-          if (start != null) rootQuery = rootQuery.where('createdAt', isGreaterThanOrEqualTo: start);
-          if (end != null) rootQuery = rootQuery.where('createdAt', isLessThanOrEqualTo: end);
-
-          final nestedSnapshot = await nestedQuery.limit(limit).get();
-          final rootSnapshot = await rootQuery.limit(limit).get();
-          for (final doc in rootSnapshot.docs) {
-            combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
+          final response = await fetchPage(statusValue);
+          final data = ((response['data'] as List?) ?? [])
+              .cast<Map<String, dynamic>>();
+          for (final sale in data) {
+            combined[sale['id'].toString()] = sale;
           }
-          for (final doc in nestedSnapshot.docs) {
-            combined[doc.id] = {'id': doc.id, ...(doc.data() as Map<String, dynamic>)};
-          }
-          if (nestedSnapshot.docs.isNotEmpty) lastDoc = nestedSnapshot.docs.last;
         }
+        sales = combined.values.toList()
+          ..sort((a, b) => (b['created_at'] ?? '')
+              .toString()
+              .compareTo((a['created_at'] ?? '').toString()));
+        // Multi-status paging isn't exact server-side; a full page from
+        // either status is treated as "there might be more".
+        nextPage = sales.length >= limit ? currentPage + 1 : null;
       }
 
-      List<Map<String, dynamic>> sales = combined.values.toList();
-
-      int _createdAtToMillis(dynamic v) {
-        if (v == null) return 0;
-        if (v is Timestamp) return v.toDate().millisecondsSinceEpoch;
-        if (v is DateTime) return v.millisecondsSinceEpoch;
-        if (v is num) return v.toInt();
-        if (v is String) {
-          final p = int.tryParse(v);
-          if (p != null) return p;
-          final dt = DateTime.tryParse(v);
-          if (dt != null) return dt.millisecondsSinceEpoch;
-        }
-        return 0;
-      }
-
-      sales.sort((a, b) => _createdAtToMillis(b['createdAt']).compareTo(_createdAtToMillis(a['createdAt'])));
-
-      if (sales.length > limit) sales = sales.sublist(0, limit);
-
-      debugPrint('[RetailProvider] Fetched ${sales.length} (paged, combined root & nested) sales records');
-      return {'sales': sales, 'lastDoc': lastDoc};
+      debugPrint(
+          '[RetailProvider] Fetched ${sales.length} (paged) sales records');
+      return {
+        'sales': sales.map(_normalizeSaleForUi).toList(),
+        'nextPage': nextPage,
+      };
     } catch (e) {
       debugPrint('[RetailProvider] Error fetching paged sales history: $e');
-      return {'sales': <Map<String, dynamic>>[], 'lastDoc': null};
+      return {'sales': <Map<String, dynamic>>[], 'nextPage': null};
     }
   }
 
-  // Realtime sales history subscription
-  StreamSubscription<QuerySnapshot>? _salesHistorySubscription;
+  // The custom backend doesn't implement Supabase's Realtime protocol, so
+  // this is polled the same way InventoryRepositorySupabase.streamInventory
+  // is (see that class for the fuller explanation).
+  Timer? _salesHistoryPollTimer;
+  static const _salesHistoryPollInterval = Duration(seconds: 15);
 
   void subscribeToSalesHistory(
       void Function(List<Map<String, dynamic>> sales) onUpdate,
       {int limit = 50}) {
     if (_businessId == null) return;
-    _salesHistorySubscription?.cancel();
-    _salesHistorySubscription = _firestore
-        .collection('businesses')
-        .doc(_businessId)
-        .collection('sales')
-        .orderBy('createdAt', descending: true)
-        .limit(limit)
-        .snapshots()
-        .listen((snapshot) {
-      final sales = snapshot.docs
-          .map((doc) => {
-                'id': doc.id,
-                ...doc.data(),
-              })
-          .toList();
-      onUpdate(sales);
-    }, onError: (e) {
-      debugPrint('[RetailProvider] Sales subscription error: $e');
-    });
+    _salesHistoryPollTimer?.cancel();
+
+    Future<void> poll() async {
+      try {
+        final sales = await getSalesHistory(limit: limit);
+        onUpdate(sales);
+      } catch (e) {
+        debugPrint('[RetailProvider] Sales subscription error: $e');
+      }
+    }
+
+    unawaited(poll());
+    _salesHistoryPollTimer =
+        Timer.periodic(_salesHistoryPollInterval, (_) => poll());
   }
 
   void unsubscribeFromSalesHistory() {
-    _salesHistorySubscription?.cancel();
-    _salesHistorySubscription = null;
+    _salesHistoryPollTimer?.cancel();
+    _salesHistoryPollTimer = null;
   }
 
   // Get sales count for a date range
@@ -3072,17 +2727,15 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return 0;
 
     try {
-      final snapshot = await _firestore
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .where('createdAt', isGreaterThanOrEqualTo: startDate)
-          .where('createdAt', isLessThanOrEqualTo: endDate)
-          .get();
+      final sales = await _salesRepo.fetchSales(
+        businessId: _businessId,
+        start: startDate,
+        end: endDate,
+      );
 
       debugPrint(
-          '[RetailProvider] Sales count from ${startDate.toIso8601String()} to ${endDate.toIso8601String()}: ${snapshot.docs.length}');
-      return snapshot.docs.length;
+          '[RetailProvider] Sales count from ${startDate.toIso8601String()} to ${endDate.toIso8601String()}: ${sales.length}');
+      return sales.length;
     } catch (e) {
       debugPrint('[RetailProvider] Error fetching sales count: $e');
       return 0;
@@ -3102,7 +2755,10 @@ class RetailProvider extends ChangeNotifier {
     }
   }
 
-  // Process return/refund
+  // Process return/refund via the returns API (routes/returns.js), which
+  // atomically records the return, increments the sale's running
+  // return_amount and per-item returned_quantities, and flips the sale's
+  // status to 'refunded'/'partially_refunded'.
   Future<void> processReturn(Map<String, dynamic> returnData) async {
     try {
       final businessId = returnData['businessId'];
@@ -3111,75 +2767,31 @@ class RetailProvider extends ChangeNotifier {
         throw Exception('Business ID not found');
       }
 
-      // Save return to Firestore
-      await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(businessId)
-          .collection('returns')
-          .add({
-        ...returnData,
-        'createdAt': FieldValue.serverTimestamp(),
+      await _api.post('/api/returns/$businessId', body: {
+        'sale_id': returnData['saleId'],
+        'reason': returnData['reason'],
+        'refund_method': returnData['refundMethod'],
+        'refund_amount': returnData['refundAmount'],
+        'exclude_from_totals': returnData['excludeFromTotals'] == true,
+        'items_returned': returnData['itemsReturned'],
+        'processed_by_id': returnData['processedById'],
+        'processed_by_name': returnData['processedBy'],
+        'entered_by_id': returnData['enteredById'],
+        'entered_by_name': returnData['enteredByName'],
+        'entered_by_email': returnData['enteredByEmail'],
+        'entered_by_role': returnData['enteredByRole'],
+        'sale_reference': returnData['saleReference'],
+        'sold_by_id': returnData['soldById'],
+        'sold_by_name': returnData['soldByName'],
+        'customer_id': returnData['customerId'],
+        'customer_name': returnData['customerName'],
       });
 
-      // Update original sale with return reference
-      final saleId = returnData['saleId'];
-      if (saleId != null && saleId.isNotEmpty) {
-        final saleRef = FirebaseFirestore.instance
-            .collection('businesses')
-            .doc(businessId)
-            .collection('sales')
-            .doc(saleId);
-
-        // Determine whether this (plus any prior) refund covers the full
-        // sale amount, so the sale's status reflects reality and the
-        // "Refunded" tab in Sales History actually picks it up — a partial
-        // return should not silently hide the sale from view.
-        final refundAmount = ((returnData['refundAmount'] ?? 0) as num).toDouble();
-        String status = 'partially_refunded';
-        try {
-          final saleSnap = await saleRef.get();
-          final saleData = saleSnap.data() ?? <String, dynamic>{};
-          final saleTotal = ((saleData['finalAmount'] ?? saleData['totalAmount'] ?? saleData['total'] ?? 0) as num).toDouble();
-          final priorReturnAmount = ((saleData['returnAmount'] ?? 0) as num).toDouble();
-          final totalReturned = priorReturnAmount + refundAmount;
-          if (saleTotal <= 0 || totalReturned >= saleTotal - 0.01) {
-            status = 'refunded';
-          }
-        } catch (e) {
-          print('[RetailProvider] Error reading sale to determine refund status: $e');
-        }
-
-        final updateMap = <String, dynamic>{
-          'hasReturn': true,
-          'status': status,
-          'returnAmount': FieldValue.increment(refundAmount),
-          'returnedAt': FieldValue.serverTimestamp(),
-          // Mark this return so it may or may not subtract from sales totals
-          'excludeReturnFromTotals': returnData['excludeFromTotals'] == true,
-        };
-
-        // Accumulate per-item returned quantities (dot-path updates merge
-        // into the existing map rather than overwriting it) so a later
-        // partial refund on the same sale knows exactly how much of each
-        // item is still available to return.
-        final itemsReturned = returnData['itemsReturned'] as List? ?? const [];
-        for (final raw in itemsReturned) {
-          if (raw is! Map) continue;
-          final item = Map<String, dynamic>.from(raw);
-          final productId = (item['productId'] ?? '').toString();
-          final qty = ((item['quantity'] ?? 0) as num);
-          if (productId.isEmpty || qty <= 0) continue;
-          updateMap['returnedQuantities.$productId'] = FieldValue.increment(qty);
-        }
-
-        await saleRef.update(updateMap);
-      }
-
-      print(
-          '[RetailProvider] Return processed: ₦${returnData['refundAmount']}');
+      debugPrint(
+          '[RetailProvider] Return processed: ${returnData['refundAmount']}');
       notifyListeners();
     } catch (e) {
-      print('[RetailProvider] Error processing return: $e');
+      debugPrint('[RetailProvider] Error processing return: $e');
       rethrow;
     }
   }
@@ -3189,26 +2801,25 @@ class RetailProvider extends ChangeNotifier {
     try {
       if (_businessId == null) return;
 
-      final productRef = FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('inventory')
-          .doc(productId);
-
-      await productRef.update({
-        'quantity': FieldValue.increment(quantity),
-        'stock': FieldValue.increment(quantity),
-        'updatedAt': FieldValue.serverTimestamp(),
+      await _api.patch('/api/inventory/$_businessId/$productId/quantity', body: {
+        'quantity': quantity,
+        'operation': 'increment',
       });
 
-      print('[RetailProvider] Inventory restored: $productId +$quantity');
+      final idx = _products.indexWhere((p) => p.id == productId);
+      if (idx != -1) {
+        _products[idx].stock += quantity;
+        notifyListeners();
+      }
+
+      debugPrint('[RetailProvider] Inventory restored: $productId +$quantity');
     } catch (e) {
-      print('[RetailProvider] Error restoring inventory: $e');
+      debugPrint('[RetailProvider] Error restoring inventory: $e');
       rethrow;
     }
   }
 
-  // Save customer purchase to history
+  // Record a purchase against the customer's running totals.
   Future<void> savePurchaseToCustomerHistory(
     String customerId,
     Map<String, dynamic> saleData,
@@ -3216,22 +2827,21 @@ class RetailProvider extends ChangeNotifier {
     try {
       if (_businessId == null) return;
 
-      // Save to customer's purchases subcollection
-      await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('customers')
-          .doc(customerId)
-          .collection('purchases')
-          .add({
-        ...saleData,
-        'customerId': customerId,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      final amount = ((saleData['totalAmount'] ??
+              saleData['finalAmount'] ??
+              saleData['total'] ??
+              0) as num)
+          .toDouble();
 
-      print('[RetailProvider] Purchase saved to customer history: $customerId');
+      await _api.patch(
+        '/customers/$_businessId/$customerId/purchase',
+        body: {'amount': amount},
+      );
+
+      debugPrint(
+          '[RetailProvider] Purchase saved to customer history: $customerId');
     } catch (e) {
-      print('[RetailProvider] Error saving purchase history: $e');
+      debugPrint('[RetailProvider] Error saving purchase history: $e');
       rethrow;
     }
   }
@@ -3241,24 +2851,19 @@ class RetailProvider extends ChangeNotifier {
     try {
       if (_businessId == null) return;
 
-      await FirebaseFirestore.instance
-          .collection('businesses')
-          .doc(_businessId)
-          .collection('sales')
-          .doc(saleId)
-          .update({
-        'customerId': customerId,
-        'updatedAt': FieldValue.serverTimestamp(),
+      await _salesRepo.updateSale(saleId, {
+        'businessId': _businessId,
+        'customer_id': customerId,
       });
 
-      print('[RetailProvider] Customer $customerId linked to sale $saleId');
+      debugPrint('[RetailProvider] Customer $customerId linked to sale $saleId');
     } catch (e) {
-      print('[RetailProvider] Error linking customer to sale: $e');
+      debugPrint('[RetailProvider] Error linking customer to sale: $e');
       rethrow;
     }
   }
 
-  /// Get today's sales total from Firestore sales collection
+  /// Get today's sales total.
   Future<double> getTodaysSalesTotal() async {
     if (_businessId == null || _businessId!.isEmpty) {
       return 0.0;
@@ -3269,55 +2874,20 @@ class RetailProvider extends ChangeNotifier {
       final startOfDay = DateTime(now.year, now.month, now.day);
       final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59);
 
-      try {
-        final snapshot = await _firestore
-            .collection('businesses')
-            .doc(_businessId)
-            .collection('sales')
-            .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
-            .where('createdAt', isLessThanOrEqualTo: endOfDay)
-            .where('status', isEqualTo: 'completed')
-            .get();
+      final sales = await _salesRepo.getSales(_businessId!, filters: {
+        'startDate': startOfDay.toIso8601String(),
+        'endDate': endOfDay.toIso8601String(),
+        'status': 'completed',
+      });
 
-        double totalSales = 0.0;
-        for (final doc in snapshot.docs) {
-          final amount = (doc['totalAmount'] as num?)?.toDouble() ?? 0.0;
-          totalSales += amount;
-        }
-
-        debugPrint('[RetailProvider] Today\'s sales total: ₦$totalSales');
-        return totalSales;
-      } catch (e) {
-        final msg = e.toString();
-        if (msg.contains('requires an index') || msg.contains('FAILED_PRECONDITION')) {
-          try {
-            debugPrint('[RetailProvider] Composite index required; falling back to date-only query for today\'s sales');
-            final fallback = await _firestore
-                .collection('businesses')
-                .doc(_businessId)
-                .collection('sales')
-                .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
-                .where('createdAt', isLessThanOrEqualTo: endOfDay)
-                .get();
-
-            double totalSales = 0.0;
-            for (final doc in fallback.docs) {
-              if ((doc['status'] as String?)?.toLowerCase() != 'completed') continue;
-              final amount = (doc['totalAmount'] as num?)?.toDouble() ?? 0.0;
-              totalSales += amount;
-            }
-
-            debugPrint('[RetailProvider] Today\'s sales total (fallback): ₦$totalSales');
-            return totalSales;
-          } catch (e2) {
-            debugPrint('[RetailProvider] Fallback date-only query failed: $e2');
-            return 0.0;
-          }
-        }
-
-        debugPrint('[RetailProvider] Error fetching today\'s sales: $e');
-        return 0.0;
+      double totalSales = 0.0;
+      for (final sale in sales) {
+        final amount = (sale['final_amount'] as num?)?.toDouble() ?? 0.0;
+        totalSales += amount;
       }
+
+      debugPrint('[RetailProvider] Today\'s sales total: $totalSales');
+      return totalSales;
     } catch (e) {
       debugPrint('[RetailProvider] Error fetching today\'s sales: $e');
       return 0.0;

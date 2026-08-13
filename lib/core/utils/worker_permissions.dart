@@ -425,6 +425,11 @@ class WorkerPermissions {
   static bool canAttendanceForUser(String role, List<String> permissions) =>
       hasEffectivePermission(role, permissions, 'attendance');
 
+  static bool canManagePumpDisputes(String role) =>
+      _fullAccessRoles.contains(normalizeRole(role)) ||
+      normalizeRole(role) == 'manager' ||
+      normalizeRole(role) == 'fuel_manager';
+
   static bool canApplyDiscount(String role) {
     final normalizedRole = normalizeRole(role);
     return normalizedRole == 'owner' || normalizedRole == 'manager';

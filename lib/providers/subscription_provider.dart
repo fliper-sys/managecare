@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/subscription_service.dart';
 import '../data/models/user_model.dart';
 
@@ -14,8 +13,7 @@ class SubscriptionProvider extends ChangeNotifier {
   SubscriptionPlan? _currentPlan;
 
   SubscriptionProvider({SubscriptionService? subscriptionService})
-      : _subscriptionService = subscriptionService ??
-            SubscriptionService(firestore: FirebaseFirestore.instance);
+      : _subscriptionService = subscriptionService ?? SubscriptionService();
 
   // Getters
   UserModel? get currentUser => _currentUser;

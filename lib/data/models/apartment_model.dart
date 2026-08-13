@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 class Apartment {
   final String id;
   final String title;
@@ -9,7 +7,7 @@ class Apartment {
   final List<String> photos;
   final List<String> amenities;
   final String? defaultCancellationPolicyId;
-  final Timestamp? createdAt;
+  final DateTime? createdAt;
 
   Apartment({
     required this.id,
@@ -32,7 +30,7 @@ class Apartment {
     List<String>? photos,
     List<String>? amenities,
     String? defaultCancellationPolicyId,
-    Timestamp? createdAt,
+    DateTime? createdAt,
   }) {
     return Apartment(
       id: id ?? this.id,
@@ -48,22 +46,22 @@ class Apartment {
     );
   }
 
-  factory Apartment.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>? ?? {};
+  factory Apartment.fromMap(Map<String, dynamic> data, {String? id}) {
     return Apartment(
-      id: doc.id,
-      title: data['title'] ?? '',
+      id: id ?? data['id']?.toString() ?? '',
+      title: data['title'] ?? data['name'] ?? '',
       description: data['description'] ?? '',
-      ownerId: data['ownerId'] ?? '',
+      ownerId: data['ownerId'] ?? data['owner_id'] ?? '',
       address: data['address'] ?? '',
       photos: List<String>.from(data['photos'] ?? []),
       amenities: List<String>.from(data['amenities'] ?? []),
-      defaultCancellationPolicyId: data['defaultCancellationPolicyId'],
-      createdAt: data['createdAt'],
+      defaultCancellationPolicyId:
+          data['defaultCancellationPolicyId'] ?? data['default_cancellation_policy_id'],
+      createdAt: _dateOrNull(data['createdAt'] ?? data['created_at']),
     );
   }
 
-  Map<String, dynamic> toFirestore() {
+  Map<String, dynamic> toApi() {
     return {
       'title': title,
       'description': description,
@@ -72,7 +70,13 @@ class Apartment {
       'photos': photos,
       'amenities': amenities,
       'defaultCancellationPolicyId': defaultCancellationPolicyId,
-      'createdAt': createdAt ?? FieldValue.serverTimestamp(),
     };
+  }
+
+  static DateTime? _dateOrNull(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
   }
 }

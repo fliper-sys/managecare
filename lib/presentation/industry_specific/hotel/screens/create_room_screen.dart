@@ -22,8 +22,14 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
   final _numberCtrl = TextEditingController();
   final _capacityCtrl = TextEditingController(text: '1');
   final _priceCtrl = TextEditingController(text: '0');
+  final _halfDayPriceCtrl = TextEditingController(text: '0');
   final _floorCtrl = TextEditingController(text: '1');
   final _amenitiesCtrl = TextEditingController();
+  final _sizeCtrl = TextEditingController();
+  final _bedSizeCtrl = TextEditingController();
+  final _extraDetailsCtrl = TextEditingController();
+  final _halfDayHoursCtrl = TextEditingController(text: '12');
+  final _fullDayCheckoutCtrl = TextEditingController(text: '12:00');
   
   // State variables
   bool _isCreating = false;
@@ -37,8 +43,14 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
     _numberCtrl.dispose();
     _capacityCtrl.dispose();
     _priceCtrl.dispose();
+    _halfDayPriceCtrl.dispose();
     _floorCtrl.dispose();
     _amenitiesCtrl.dispose();
+    _sizeCtrl.dispose();
+    _bedSizeCtrl.dispose();
+    _extraDetailsCtrl.dispose();
+    _halfDayHoursCtrl.dispose();
+    _fullDayCheckoutCtrl.dispose();
     super.dispose();
   }
 
@@ -112,6 +124,9 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
     final roomNumber = _numberCtrl.text.trim();
     final capacity = int.tryParse(_capacityCtrl.text.trim()) ?? 0;
     final pricePerNight = double.tryParse(_priceCtrl.text.trim()) ?? 0.0;
+    final halfDayPrice =
+        double.tryParse(_halfDayPriceCtrl.text.trim()) ?? 0.0;
+    final halfDayHours = int.tryParse(_halfDayHoursCtrl.text.trim()) ?? 12;
 
     if (roomNumber.isEmpty) return;
     if (capacity <= 0) {
@@ -123,6 +138,12 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
     if (pricePerNight <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Room price must be greater than zero')),
+      );
+      return;
+    }
+    if (halfDayHours <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Half day hours must be greater than zero')),
       );
       return;
     }
@@ -145,12 +166,23 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
         type: _selectedType, // Uses the dropdown value
         capacity: capacity,
         pricePerNight: pricePerNight,
+        halfDayPrice: halfDayPrice,
         floor: int.tryParse(_floorCtrl.text.trim()) ?? 1,
         amenities: _amenitiesCtrl.text
             .split(',')
             .map((s) => s.trim())
             .where((s) => s.isNotEmpty)
             .toList(),
+        size: _sizeCtrl.text.trim(),
+        bedSize: _bedSizeCtrl.text.trim(),
+        extraDetails: {
+          if (_extraDetailsCtrl.text.trim().isNotEmpty)
+            'notes': _extraDetailsCtrl.text.trim(),
+        },
+        halfDayHours: halfDayHours,
+        fullDayCheckoutTime: _fullDayCheckoutCtrl.text.trim().isEmpty
+            ? '12:00'
+            : _fullDayCheckoutCtrl.text.trim(),
       );
 
       if (!mounted) return;
@@ -260,7 +292,7 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                         children: [
                           Expanded(
                             child: CustomTextField(
-                              label: 'Price / Night',
+                              label: 'Full Day Price',
                               controller: _priceCtrl,
                               prefixIcon: Icons.attach_money,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -273,6 +305,28 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                               label: 'Capacity',
                               controller: _capacityCtrl,
                               prefixIcon: Icons.people_outline,
+                              keyboardType: TextInputType.number,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: CustomTextField(
+                              label: 'Half Day Price',
+                              controller: _halfDayPriceCtrl,
+                              prefixIcon: Icons.payments_outlined,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: CustomTextField(
+                              label: 'Half Day Hours',
+                              controller: _halfDayHoursCtrl,
+                              prefixIcon: Icons.timer_outlined,
                               keyboardType: TextInputType.number,
                             ),
                           ),
@@ -297,6 +351,32 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      CustomTextField(
+                        label: 'Full Day Checkout Time (HH:mm)',
+                        controller: _fullDayCheckoutCtrl,
+                        prefixIcon: Icons.schedule_outlined,
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: CustomTextField(
+                              label: 'Room Size',
+                              controller: _sizeCtrl,
+                              prefixIcon: Icons.square_foot_outlined,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: CustomTextField(
+                              label: 'Bed Size',
+                              controller: _bedSizeCtrl,
+                              prefixIcon: Icons.bed_outlined,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
 
                       // Amenities
                       CustomTextField(
@@ -309,6 +389,12 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                       Text(
                         "Separate items with a comma",
                         style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                      ),
+                      const SizedBox(height: 16),
+                      CustomTextField(
+                        label: 'Extra Details (optional)',
+                        controller: _extraDetailsCtrl,
+                        prefixIcon: Icons.notes_outlined,
                       ),
                     ],
                   ),

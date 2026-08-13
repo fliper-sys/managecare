@@ -354,7 +354,10 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
       final businessType = context.read<BusinessProvider>().currentBusiness?.businessType;
 
-      final primaryRole = _selectedRoles.isNotEmpty ? _selectedRoles.first : 'staff';
+      final primaryRole = _selectedRoles.firstWhere(
+        (role) => role != 'staff',
+        orElse: () => _selectedRoles.isNotEmpty ? _selectedRoles.first : 'staff',
+      );
       final effectivePermissions = _effectivePermissionsForSelection();
 
       // Commission percentage (if worker is barber/stylist)
@@ -422,6 +425,53 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           return;
         }
       }
+
+      final selectedBusinessId =
+          context.read<BusinessProvider>().currentBusiness?.id ??
+              authProvider.currentUser!.businessId;
+      if (selectedBusinessId.isEmpty) {
+        throw Exception('Select a business before creating a worker.');
+      }
+
+      final createdWorkerLogin = await authProvider.register(
+        email: normalizedEmail,
+        password: password,
+        fullName: _fullNameController.text.trim(),
+        phoneNumber: _phoneController.text.trim(),
+        role: primaryRole,
+        businessId: selectedBusinessId,
+      );
+      if (!createdWorkerLogin) {
+        throw Exception(
+          authProvider.errorMessage ?? 'Failed to create worker account.',
+        );
+      }
+
+      try {
+        final businessProvider = context.read<BusinessProvider>();
+        final bid = businessProvider.currentBusiness?.id ?? selectedBusinessId;
+        if (bid.isNotEmpty) {
+          await context.read<WorkersProvider>().refreshForBusiness(bid);
+          await businessProvider.refreshBusinessStats(bid);
+        }
+      } catch (_) {}
+
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Worker account created for $normalizedEmail'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        if (authProvider.isOwnerUser) {
+          Navigator.pushReplacementNamed(context, Routes.workers);
+        } else {
+          Navigator.pop(context);
+        }
+      }
+      return;
+
       try {
         final defaultApp = fb_core.Firebase.app();
         final tempAppName =
@@ -461,8 +511,16 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
           subscriptionTransactionId: passwordHash,
         );
 
-        final repo =
-            AuthRepositoryImpl(firebaseAuth: fb_auth.FirebaseAuth.instance);
+        // TODO(managecare-migration): this still creates the worker's login
+        // in Firebase Auth via a duplicate of the temp-app pattern that used
+        // to live in AuthenticationService.createWorkerUser. That method now
+        // calls managecare-admin-api (Supabase-backed) instead - this screen
+        // needs a follow-up pass to call it too, so workers created here can
+        // actually sign in against the new backend. Left as-is for now since
+        // it also writes vertical-specific worker metadata (roles, service
+        // assignments, commission, pump assignments) that hasn't been
+        // modeled in Postgres yet (Phase 4 of the migration plan).
+        final repo = AuthRepositoryImpl();
         await repo.createOrUpdateUser(worker);
       } on fb_auth.FirebaseAuthException catch (e) {
         if (e.code == 'email-already-in-use') {
@@ -528,7 +586,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
               subscriptionTransactionId: passwordHash,
             );
 
-            final repo = AuthRepositoryImpl(firebaseAuth: fb_auth.FirebaseAuth.instance);
+            final repo = AuthRepositoryImpl();
             await repo.createOrUpdateUser(linkedWorker);
 
             // Also ensure a workers document exists with this UID
