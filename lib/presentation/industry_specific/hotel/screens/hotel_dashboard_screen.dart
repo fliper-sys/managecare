@@ -59,7 +59,8 @@ class HotelDashboardScreen extends StatelessWidget {
                 _buildSummaryTile(
                   icon: Icons.badge_outlined,
                   label: 'Workers',
-                  value: '$workersCount',
+                  value:
+                      '${Provider.of<BusinessProvider>(context, listen: false).currentBusiness?.totalWorkers ?? 0}',
                   color: Colors.purple.shade100,
                 ),
               ],
@@ -171,8 +172,6 @@ class HotelDashboardScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // 1. SUMMARY HEADER (Revenue, Active Occupancy, Customers, Workers)
-                _buildSummaryHeader(context, provider),
-                // 1. SUMMARY HEADER (Revenue, Active Rooms, Customers)
                 _buildSummaryHeader(provider),
                 const SizedBox(height: 24),
 
