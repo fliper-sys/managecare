@@ -212,6 +212,8 @@ class Routes {
   static const String hotelBilling = '/hotel/billing';
   static const String hotelHallBookings = '/hotel/hall-bookings';
   static const String hotelPoolBookings = '/hotel/pool-bookings';
+  static const String hotelAnalytics = '/hotel/analytics';
+  static const String hotelExpenses = '/hotel/expenses';
 
   // Industry-Specific Routes - Drink/Bar
   static const String drinkDashboard = '/drink';

@@ -30,6 +30,13 @@ class SettingsScreen extends StatelessWidget {
         businessType.contains('petroleum') ||
         businessType.contains('petrol') ||
         businessType.contains('filling');
+    // Hotel/hospitality — used to expose Room Management under Settings
+    // instead of on the main dashboard (per the requirements doc: room
+    // management is a configuration task, not a daily operation).
+    final isHotel = businessType.contains('hotel') ||
+        businessType.contains('hospitality') ||
+        businessType.contains('lodge') ||
+        businessType.contains('guest');
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -210,6 +217,22 @@ class SettingsScreen extends StatelessWidget {
                                   ? Routes.petroleumPumpConfiguration
                                   : Routes.gasPumpConfiguration,
                             );
+                          },
+                        ),
+                      ],
+                      // Room Management — hotel/hospitality only. Per the doc,
+                      // room configuration (adding rooms, setting rates, sizes,
+                      // bed types, half-day/full-day rules) is a setup task
+                      // that belongs in Settings, not on the main dashboard.
+                      if (isHotel) ...[
+                        const Divider(height: 1),
+                        _SettingsItem(
+                          icon: Icons.meeting_room_outlined,
+                          title: 'Room Management',
+                          subtitle:
+                              'Add rooms, set rates, half-day rules, amenities',
+                          onTap: () {
+                            Navigator.pushNamed(context, Routes.hotelRooms);
                           },
                         ),
                       ],

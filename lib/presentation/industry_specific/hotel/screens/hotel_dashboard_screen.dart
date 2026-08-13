@@ -7,6 +7,7 @@ import '../../../../core/utils/currency.dart';
 import '../../../../core/utils/whatsapp_utils.dart';
 
 import '../../../../core/constants/routes.dart';
+import '../../../../providers/business_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 
 class HotelDashboardScreen extends StatelessWidget {
@@ -45,7 +46,7 @@ class HotelDashboardScreen extends StatelessWidget {
                 ),
                 _buildSummaryTile(
                   icon: Icons.hotel_outlined,
-                  label: 'Active Rooms',
+                  label: 'Active Occupancy',
                   value: '${provider.occupiedRooms}/${provider.totalRooms}',
                   color: Colors.blue.shade100,
                 ),
@@ -54,6 +55,12 @@ class HotelDashboardScreen extends StatelessWidget {
                   label: 'Customers',
                   value: '${provider.guestProfiles.length}',
                   color: Colors.amber.shade100,
+                ),
+                _buildSummaryTile(
+                  icon: Icons.badge_outlined,
+                  label: 'Workers',
+                  value: '$workersCount',
+                  color: Colors.purple.shade100,
                 ),
               ],
             ),
@@ -163,6 +170,8 @@ class HotelDashboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 1. SUMMARY HEADER (Revenue, Active Occupancy, Customers, Workers)
+                _buildSummaryHeader(context, provider),
                 // 1. SUMMARY HEADER (Revenue, Active Rooms, Customers)
                 _buildSummaryHeader(provider),
                 const SizedBox(height: 24),
@@ -508,7 +517,10 @@ class HotelDashboardScreen extends StatelessWidget {
         icon: Icons.login,
         label: 'Check-In / Guests',
         color: Colors.blue,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelBookings),
+        // Routes to the new CheckInHubScreen (Available / Reserved /
+        // Checked-In tabs with New Booking + Reserve Room FABs + history).
+        // Replaces the old bookings screen as the single reception hub.
+        onTap: () => Navigator.pushNamed(context, Routes.hotelCheckIn),
       ));
     }
 

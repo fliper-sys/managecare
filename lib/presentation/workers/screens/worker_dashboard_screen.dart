@@ -127,14 +127,10 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
                           () => _navigateToAttendance(context),
                         ),
                       // Hotel-specific management quick actions
-                      if (can('manage_rooms') || can('room_status'))
-                        _buildActionCard(
-                          context,
-                          'Room Management',
-                          Icons.bed_outlined,
-                          Colors.brown,
-                          () => Navigator.pushNamed(context, Routes.hotelRooms),
-                        ),
+                      // Room Management deliberately removed here — per the
+                      // requirements doc, it now lives only in Settings →
+                      // Room Management. Workers with 'manage_rooms' permission
+                      // can still reach it through Settings.
                       if (can('manage_guests') ||
                           can('guest_checkin') ||
                           can('guest_checkout'))

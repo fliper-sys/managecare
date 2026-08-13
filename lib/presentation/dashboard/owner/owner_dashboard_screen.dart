@@ -3169,13 +3169,9 @@ Future<void> _loadRetailMetrics(String businessId) async {
             color: Colors.blue,
             route: Routes.hotelFrontDesk,
           ),
-          _QuickActionItem(
-            title: 'Rooms',
-            subtitle: 'Room management',
-            icon: Icons.meeting_room_rounded,
-            color: Colors.green,
-            route: Routes.hotelRooms,
-          ),
+          // Room Management removed from dashboard per requirements doc —
+          // it now lives under Settings → Room Management (a setup task,
+          // not a daily operation).
           _QuickActionItem(
             title: 'Bookings',
             subtitle: 'Manage reservations',

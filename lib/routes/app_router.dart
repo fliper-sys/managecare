@@ -141,6 +141,9 @@ import '../presentation/industry_specific/hotel/screens/create_room_screen.dart'
 import '../presentation/industry_specific/hotel/screens/bookings_screen.dart'
     as hotel_bookings;
 import '../presentation/industry_specific/hotel/screens/check_in_screen.dart';
+import '../presentation/industry_specific/hotel/screens/check_in_hub_screen.dart';
+import '../presentation/industry_specific/hotel/screens/hotel_analytics_screen.dart';
+import '../presentation/industry_specific/hotel/screens/hotel_expenses_screen.dart';
 import '../presentation/industry_specific/hotel/screens/check_out_screen.dart';
 import '../presentation/industry_specific/hotel/screens/front_desk_screen.dart';
 import '../presentation/industry_specific/hotel/screens/guest_management_screen.dart';
@@ -821,7 +824,10 @@ class AppRouter {
         return _buildRoute(const hotel_bookings.BookingsScreen());
 
       case Routes.hotelCheckIn:
-        return _buildRoute(const CheckInScreen());
+        // Points at the new central hub (3 tabs, dual FABs, countdown timers,
+        // history buttons). The old CheckInScreen is retained as a legacy
+        // import for now — safe to delete once all references are migrated.
+        return _buildRoute(const CheckInHubScreen());
 
       case Routes.hotelCheckOut:
         return _buildRoute(const CheckOutScreen());
@@ -862,6 +868,12 @@ class AppRouter {
 
       case Routes.hotelPoolBookings:
         return _buildRoute(const PoolBookingsScreen());
+
+      case Routes.hotelAnalytics:
+        return _buildRoute(const HotelAnalyticsScreen());
+
+      case Routes.hotelExpenses:
+        return _buildRoute(const HotelExpensesScreen());
 
       // Industry Specific Routes - Drink
       case Routes.drinkDashboard:
