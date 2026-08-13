@@ -13,9 +13,18 @@ DateTime parseTimestamp(dynamic value) {
   if (value is Timestamp) return value.toDate();
   if (value is num) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
   if (value is String) {
-    // Try ISO parse
+    // Try ISO parse. The backend (Postgres TIMESTAMPTZ) always returns
+    // UTC-marked strings ("...Z" / "+00:00"), so DateTime.tryParse gives
+    // back a UTC-flagged DateTime here - unlike the Firestore Timestamp
+    // branch above, where .toDate() has always silently returned local
+    // time. Every caller of this function historically got local time for
+    // free from that Firestore behavior; without toLocal() here, every
+    // Postgres-sourced timestamp displays in raw UTC instead of the
+    // device's real timezone (e.g. sales made at 3:30pm WAT showing as
+    // roughly 2:30pm) - a correctness regression from the backend
+    // migration, not a display formatting choice.
     final parsed = DateTime.tryParse(value);
-    if (parsed != null) return parsed;
+    if (parsed != null) return parsed.toLocal();
     // Try number-in-string
     final ms = int.tryParse(value);
     if (ms != null) return DateTime.fromMillisecondsSinceEpoch(ms);

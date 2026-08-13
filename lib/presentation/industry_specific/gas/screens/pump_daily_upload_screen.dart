@@ -9,11 +9,13 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
 import '../../../../core/utils/amount_formatter.dart';
+import '../../../../core/utils/connectivity_helper.dart';
 import '../../../../services/email_service.dart';
 import '../../../../services/managecare_api_client.dart';
 import '../utils/pump_config_cache.dart';
 import '../utils/pump_daily_upload_validation.dart';
 import '../utils/pump_row_mapper.dart';
+import '../utils/pump_upload_offline_queue.dart';
 
 class PumpDailyUploadScreen extends StatefulWidget {
   const PumpDailyUploadScreen({super.key});
@@ -72,7 +74,31 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadCachedPumps());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadCachedPumps();
+      _syncPendingUploads();
+    });
+  }
+
+  Future<void> _syncPendingUploads() async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return;
+    try {
+      final synced = await PumpUploadOfflineQueue.sync(businessId);
+      if (synced > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              synced == 1
+                  ? '1 offline pump upload synced'
+                  : '$synced offline pump uploads synced',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Pending pump upload sync failed: $e');
+    }
   }
 
   Stream<List<Map<String, dynamic>>> _pumpsStream(String businessId) async* {
@@ -562,8 +588,18 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   }
 
   Future<void> _saveUpload(Map<String, dynamic> pump) async {
+    if (_isSaving) return;
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     if (businessId == null || businessId.isEmpty || _selectedPumpId == null) return;
+
+    // Set before any of the checks/network calls below run, not just before
+    // the final POST - those checks each await (duplicate-fingerprint
+    // lookup, price resolution, photo uploads), and the submit button only
+    // reads _isSaving to decide whether it's tappable. Setting this any
+    // later left a window where a fast double-tap fired _saveUpload twice
+    // before the button ever disabled, which is exactly how attendants
+    // ended up submitting the same reading more than once.
+    setState(() => _isSaving = true);
 
     if (!_allImagesSelected()) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -572,21 +608,32 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
           duration: Duration(seconds: 3),
         ),
       );
+      if (mounted) setState(() => _isSaving = false);
       return;
     }
 
-    final opening = double.tryParse(_openingController.text.trim()) ?? 0.0;
-    final closing = double.tryParse(_closingController.text.trim()) ?? 0.0;
-    final analogOpening =
-        double.tryParse(_analogOpeningController.text.trim()) ?? 0.0;
-    final analogClosing =
-        double.tryParse(_analogClosingController.text.trim()) ?? 0.0;
+    final opening = _parseControllerValue(_openingController);
+    final closing = _parseControllerValue(_closingController);
+    final analogOpening = _parseControllerValue(_analogOpeningController);
+    final analogClosing = _parseControllerValue(_analogClosingController);
     final shiftOpeningCash =
         _parseControllerValue(_shiftOpeningCashController);
     final shiftCloseCash =
         _parseControllerValue(_shiftCloseCashController);
     final cash = _parseControllerValue(_cashController);
     final pos = _parseControllerValue(_posController);
+
+    if (closing <= opening) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Closing volume must be greater than opening volume'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      if (mounted) setState(() => _isSaving = false);
+      return;
+    }
+
     final productId = pump['productId']?.toString() ?? '';
     final uploadFingerprint = _uploadFingerprint(
       pumpId: _selectedPumpId!,
@@ -612,6 +659,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
           content: Text('This exact pump upload has already been submitted.'),
         ),
       );
+      setState(() => _isSaving = false);
       return;
     }
 
@@ -624,6 +672,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Unable to resolve current product price')),
       );
+      if (mounted) setState(() => _isSaving = false);
       return;
     }
 
@@ -652,50 +701,72 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
 
     final totalPaid = cash + pos;
 
-    final shiftOpeningCashPhotoUrl = await _ensurePhotoUrl(
-      label: 'shift opening cash',
-      url: _shiftOpeningCashPhotoUrl,
-      path: _shiftOpeningCashPhotoPath,
-    );
-    final shiftCloseCashPhotoUrl = await _ensurePhotoUrl(
-      label: 'shift close cash',
-      url: _shiftCloseCashPhotoUrl,
-      path: _shiftCloseCashPhotoPath,
-    );
-    final openingPhotoUrl = await _ensurePhotoUrl(
-      label: 'closing pump volume',
-      url: _openingPhotoUrl,
-      path: _openingPhotoPath,
-    );
-    final closingPhotoUrl = await _ensurePhotoUrl(
-      label: 'Opening pump volume',
-      url: _closingPhotoUrl,
-      path: _closingPhotoPath,
-    );
+    // retail.fuelSale() below already queues the sale locally and reports
+    // success while offline; the upload POST used to have no such path and
+    // just threw, leaving a sale with no matching pump upload record (and a
+    // worker who retried after the "failed to save" error only piled up
+    // more queued sales). Checking connectivity once up front lets both
+    // halves take the same offline-queued path together instead.
+    final isOnline = await ConnectivityHelper.hasInternetConnection();
 
-    // Verify all images were successfully uploaded
-    if (shiftOpeningCashPhotoUrl == null ||
-        shiftCloseCashPhotoUrl == null ||
-        openingPhotoUrl == null ||
-        closingPhotoUrl == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to upload one or more images. Please try again.'),
-          duration: Duration(seconds: 3),
-        ),
+    String? shiftOpeningCashPhotoUrl;
+    String? shiftCloseCashPhotoUrl;
+    String? openingPhotoUrl;
+    String? closingPhotoUrl;
+
+    if (isOnline) {
+      shiftOpeningCashPhotoUrl = await _ensurePhotoUrl(
+        label: 'shift opening cash',
+        url: _shiftOpeningCashPhotoUrl,
+        path: _shiftOpeningCashPhotoPath,
       );
-      if (mounted) setState(() => _isSaving = false);
-      return;
+      shiftCloseCashPhotoUrl = await _ensurePhotoUrl(
+        label: 'shift close cash',
+        url: _shiftCloseCashPhotoUrl,
+        path: _shiftCloseCashPhotoPath,
+      );
+      openingPhotoUrl = await _ensurePhotoUrl(
+        label: 'closing pump volume',
+        url: _openingPhotoUrl,
+        path: _openingPhotoPath,
+      );
+      closingPhotoUrl = await _ensurePhotoUrl(
+        label: 'Opening pump volume',
+        url: _closingPhotoUrl,
+        path: _closingPhotoPath,
+      );
+
+      // Verify all images were successfully uploaded
+      if (shiftOpeningCashPhotoUrl == null ||
+          shiftCloseCashPhotoUrl == null ||
+          openingPhotoUrl == null ||
+          closingPhotoUrl == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to upload one or more images. Please try again.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        if (mounted) setState(() => _isSaving = false);
+        return;
+      }
+
+      _shiftOpeningCashPhotoUrl = shiftOpeningCashPhotoUrl;
+      _shiftCloseCashPhotoUrl = shiftCloseCashPhotoUrl;
+      _openingPhotoUrl = openingPhotoUrl;
+      _closingPhotoUrl = closingPhotoUrl;
+      await _saveDraft();
+    } else {
+      // Offline: skip the network upload attempts entirely (they'd just
+      // throw) and carry whatever local paths/URLs are already on hand.
+      // PumpUploadOfflineQueue resolves the actual photo URLs at sync time.
+      shiftOpeningCashPhotoUrl = _shiftOpeningCashPhotoUrl;
+      shiftCloseCashPhotoUrl = _shiftCloseCashPhotoUrl;
+      openingPhotoUrl = _openingPhotoUrl;
+      closingPhotoUrl = _closingPhotoUrl;
     }
 
-    _shiftOpeningCashPhotoUrl = shiftOpeningCashPhotoUrl;
-    _shiftCloseCashPhotoUrl = shiftCloseCashPhotoUrl;
-    _openingPhotoUrl = openingPhotoUrl;
-    _closingPhotoUrl = closingPhotoUrl;
-    await _saveDraft();
-
-    setState(() => _isSaving = true);
     try {
       final auth = context.read<AuthProvider>().currentUser;
       final expectedAmount = calculatedSalesVolume * price;
@@ -744,58 +815,99 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       );
       final discrepancySummary = formatDiscrepancySummary(discrepancyNotes);
 
-      try {
-        await ManagecareApiClient.instance.post(
-          '/api/pumps/$businessId/uploads',
-          body: {
-            'pump_id': _selectedPumpId,
-            'pump_number': pump['pumpNumber'],
-            'product_id': productId,
-            'product_name': pump['productName'],
-            'product_unit': pump['productUnit'],
-            'product_price': price,
-            'opening_volume': opening,
-            'closing_volume': closing,
-            'digital_volume': digitalVolume,
-            'volume_difference': digitalVolume,
-            'analog_opening_volume': analogOpening,
-            'sold_volume': calculatedSalesVolume,
-            'cash_derived_volume': calculatedSalesVolume,
-            'analog_closing_volume': analogClosing,
-            'previous_analog_closing_volume': _previousAnalogClosingVolume,
-            'previous_shift_closing_cash': _previousShiftClosingCash,
-            'previous_closing_volume': _previousClosingVolume,
-            'expected_amount': expectedAmount,
-            'discrepancy_notes': discrepancyNotes,
-            'discrepancy_summary': discrepancySummary,
-            'shift_opening_cash': shiftOpeningCash,
-            'shift_close_cash': shiftCloseCash,
-            'shift_cash_difference': shiftCashDifference,
-            'today_pump_cash': cash,
-            'cash_amount': cash,
-            'pos_amount': pos,
-            'total_paid': totalPaid,
-            'upload_fingerprint': uploadFingerprint,
-            'sale_id': saleData['id'] ?? saleData['orderId'],
-            'shift_opening_cash_photo_url': shiftOpeningCashPhotoUrl,
-            'shift_close_cash_photo_url': shiftCloseCashPhotoUrl,
-            'opening_photo_url': openingPhotoUrl,
-            'closing_photo_url': closingPhotoUrl,
-            'worker_id': auth?.id,
-            'worker_name': auth?.fullName ?? auth?.email,
-          },
+      final uploadBody = {
+        'pump_id': _selectedPumpId,
+        'pump_number': pump['pumpNumber'],
+        'product_id': productId,
+        'product_name': pump['productName'],
+        'product_unit': pump['productUnit'],
+        'product_price': price,
+        'opening_volume': opening,
+        'closing_volume': closing,
+        'digital_volume': digitalVolume,
+        'volume_difference': digitalVolume,
+        'analog_opening_volume': analogOpening,
+        'sold_volume': calculatedSalesVolume,
+        'cash_derived_volume': calculatedSalesVolume,
+        'analog_closing_volume': analogClosing,
+        'previous_analog_closing_volume': _previousAnalogClosingVolume,
+        'previous_shift_closing_cash': _previousShiftClosingCash,
+        'previous_closing_volume': _previousClosingVolume,
+        'expected_amount': expectedAmount,
+        'discrepancy_notes': discrepancyNotes,
+        'discrepancy_summary': discrepancySummary,
+        'shift_opening_cash': shiftOpeningCash,
+        'shift_close_cash': shiftCloseCash,
+        'shift_cash_difference': shiftCashDifference,
+        'today_pump_cash': cash,
+        'cash_amount': cash,
+        'pos_amount': pos,
+        'total_paid': totalPaid,
+        'upload_fingerprint': uploadFingerprint,
+        'sale_id': saleData['id'] ?? saleData['orderId'],
+        'shift_opening_cash_photo_url': shiftOpeningCashPhotoUrl,
+        'shift_close_cash_photo_url': shiftCloseCashPhotoUrl,
+        'opening_photo_url': openingPhotoUrl,
+        'closing_photo_url': closingPhotoUrl,
+        'worker_id': auth?.id,
+        'worker_name': auth?.fullName ?? auth?.email,
+      };
+      final photoPaths = {
+        'shift_opening_cash_photo_url': _shiftOpeningCashPhotoPath,
+        'shift_close_cash_photo_url': _shiftCloseCashPhotoPath,
+        'opening_photo_url': _openingPhotoPath,
+        'closing_photo_url': _closingPhotoPath,
+      };
+
+      var queuedOffline = false;
+      if (!isOnline) {
+        await PumpUploadOfflineQueue.enqueue(
+          businessId,
+          uploadBody,
+          photoPaths: photoPaths,
         );
-      } on ManagecareApiException catch (error) {
-        if (error.statusCode == 409) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('This exact pump upload has already been submitted.'),
-            ),
+        queuedOffline = true;
+      } else {
+        try {
+          await ManagecareApiClient.instance.post(
+            '/api/pumps/$businessId/uploads',
+            body: uploadBody,
           );
-          return;
+        } on ManagecareApiException catch (error) {
+          if (error.statusCode == 409) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('This exact pump upload has already been submitted.'),
+              ),
+            );
+            return;
+          }
+          if (error.statusCode >= 400 && error.statusCode < 500) {
+            // The server explicitly rejected this data (e.g. the
+            // closing-must-exceed-opening rule) - retrying later won't
+            // help, so surface it now instead of silently queuing
+            // something that will just keep failing.
+            rethrow;
+          }
+          // 5xx or similar - likely transient, queue for later.
+          await PumpUploadOfflineQueue.enqueue(
+            businessId,
+            uploadBody,
+            photoPaths: photoPaths,
+          );
+          queuedOffline = true;
+        } catch (_) {
+          // Network-level failure mid-flight (e.g. connection dropped
+          // between the connectivity check above and this call) - queue
+          // rather than lose the submission.
+          await PumpUploadOfflineQueue.enqueue(
+            businessId,
+            uploadBody,
+            photoPaths: photoPaths,
+          );
+          queuedOffline = true;
         }
-        rethrow;
       }
 
       await PumpAnalogClosingCache.save(businessId, _selectedPumpId!, analogClosing);
@@ -803,7 +915,14 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pump upload saved')),
+        SnackBar(
+          content: Text(
+            queuedOffline
+                ? 'No connection - upload saved offline and will sync automatically once you\'re back online.'
+                : 'Pump upload saved',
+          ),
+          duration: Duration(seconds: queuedOffline ? 4 : 3),
+        ),
       );
       Navigator.pop(context);
     } catch (error) {
@@ -1083,7 +1202,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      inputFormatters: const [AmountInputFormatter()],
+                      inputFormatters: const [AmountInputFormatter(decimalDigits: 3)],
                       decoration: InputDecoration(
                         labelText: 'Opening volume',
                         helperText: _isLoadingPreviousClosing
@@ -1102,7 +1221,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
-                          'Opening diff: ${((double.tryParse(_openingController.text.trim()) ?? 0.0) - _previousClosingVolume!) >= 0 ? '+' : ''}${((double.tryParse(_openingController.text.trim()) ?? 0.0) - _previousClosingVolume!).toStringAsFixed(3)} liters from previous close',
+                          'Opening diff: ${(_parseControllerValue(_openingController) - _previousClosingVolume!) >= 0 ? '+' : ''}${(_parseControllerValue(_openingController) - _previousClosingVolume!).toStringAsFixed(3)} liters from previous close',
                           style: const TextStyle(color: Colors.black54),
                         ),
                       ),
@@ -1112,7 +1231,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      inputFormatters: const [AmountInputFormatter()],
+                      inputFormatters: const [AmountInputFormatter(decimalDigits: 3)],
                       decoration: const InputDecoration(
                         labelText: 'Closing volume',
                         border: OutlineInputBorder(),
@@ -1128,7 +1247,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      inputFormatters: const [AmountInputFormatter()],
+                      inputFormatters: const [AmountInputFormatter(decimalDigits: 3)],
                       decoration: InputDecoration(
                         labelText: 'Analog opening volume',
                         helperText: _previousAnalogClosingVolume == null
@@ -1147,7 +1266,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      inputFormatters: const [AmountInputFormatter()],
+                      inputFormatters: const [AmountInputFormatter(decimalDigits: 3)],
                       decoration: const InputDecoration(
                         labelText: 'Today analog entry',
                         border: OutlineInputBorder(),

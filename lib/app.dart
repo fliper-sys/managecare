@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'core/constants/routes.dart';
 import 'core/theme/app_theme.dart';
 import 'core/utils/context_extensions.dart';
+import 'presentation/industry_specific/gas/utils/pump_upload_offline_queue.dart';
 import 'presentation/industry_specific/realestate/providers/real_estate_provider.dart';
 import 'presentation/industry_specific/restaurant/providers/restaurant_provider.dart';
 import 'presentation/industry_specific/wholesale/providers/wholesale_provider.dart';
@@ -98,6 +99,7 @@ class _AppState extends State<App> {
     // install of the app) right away instead of waiting for one.
     unawaited(syncProvider.syncNow());
     _syncPendingPumpSalesIfPossible();
+    _syncPendingPumpUploadsIfPossible();
 
     _authProvider = context.read<AuthProvider>();
     _businessProvider = context.read<BusinessProvider>();
@@ -117,6 +119,7 @@ class _AppState extends State<App> {
     if (!mounted || _connectivityProviderRef == null) return;
     if (_connectivityProviderRef!.isConnected) {
       _syncPendingPumpSalesIfPossible();
+      _syncPendingPumpUploadsIfPossible();
     }
   }
 
@@ -127,6 +130,16 @@ class _AppState extends State<App> {
     } catch (e) {
       debugPrint('[App] Error syncing pending pump sales: $e');
     }
+  }
+
+  void _syncPendingPumpUploadsIfPossible() {
+    final businessId = _businessProvider?.currentBusiness?.id ??
+        context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return;
+    PumpUploadOfflineQueue.sync(businessId).catchError((e) {
+      debugPrint('[App] Error syncing pending pump uploads: $e');
+      return 0;
+    });
   }
 
   void _handleAuthStateChanged() {

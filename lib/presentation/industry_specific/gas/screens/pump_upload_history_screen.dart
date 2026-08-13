@@ -10,6 +10,7 @@ import '../../../../providers/business_provider.dart';
 import '../../../../services/managecare_api_client.dart';
 import '../utils/pump_config_cache.dart';
 import '../utils/pump_row_mapper.dart';
+import '../utils/pump_upload_offline_queue.dart';
 import 'disputed_pump_uploads_screen.dart';
 
 class PumpUploadHistoryScreen extends StatefulWidget {
@@ -34,6 +35,18 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadCachedPumps());
+  }
+
+  Stream<int> _pendingUploadCountStream(String businessId) async* {
+    while (true) {
+      try {
+        await PumpUploadOfflineQueue.sync(businessId);
+      } catch (_) {
+        // Swallow transient errors between polls so the stream stays alive.
+      }
+      yield await PumpUploadOfflineQueue.pendingCount(businessId);
+      await Future.delayed(_pollInterval);
+    }
   }
 
   Future<void> _loadCachedPumps() async {
@@ -570,6 +583,29 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
           ? const Center(child: Text('No business selected'))
           : Column(
               children: [
+                StreamBuilder<int>(
+                  stream: _pendingUploadCountStream(businessId),
+                  builder: (context, snapshot) {
+                    final pending = snapshot.data ?? 0;
+                    if (pending <= 0) return const SizedBox.shrink();
+                    return Container(
+                      width: double.infinity,
+                      color: Colors.amber.shade100,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Text(
+                        pending == 1
+                            ? '1 pump upload saved offline, waiting to sync'
+                            : '$pending pump uploads saved offline, waiting to sync',
+                        style: TextStyle(
+                          color: Colors.amber.shade900,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    );
+                  },
+                ),
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(

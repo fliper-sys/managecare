@@ -392,9 +392,9 @@ class _PharmacyDashboardState extends State<PharmacyDashboard> {
                     final p = recent[index];
                     // Safe patient lookup: avoid unsafe orElse that returns null via cast hacks
                     final patient = patients
-                            .where((pat) => pat != null && pat.id == p.patientId)
+                            .where((pat) => pat.id == p.patientId)
                             .isNotEmpty
-                        ? patients.firstWhere((pat) => pat != null && pat.id == p.patientId)
+                        ? patients.firstWhere((pat) => pat.id == p.patientId)
                         : null;
                     final patientName =
                         patient != null ? patient.name : 'Unknown Patient';
