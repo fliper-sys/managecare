@@ -83,12 +83,13 @@ module.exports = function(pool) {
   }));
 
   // PUT /api/workers/:businessId/:id - Update worker (owner only).
-  // When is_active is explicitly set, the matching business_members row is
-  // kept in sync in the same transaction, since workers.id === profiles.id
-  // and that's what actually gates business access/membership checks.
+  // When is_active/role/permissions/store_id changes, the matching
+  // business_members row is upserted in the same transaction (see below) -
+  // workers.id === profiles.id, and business_members is what actually
+  // gates business access/membership checks and worker session permissions.
   router.put('/:businessId/:id', requireBusinessOwner, asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
-    const { email, full_name, phone, role, store_id, permissions, pin, is_active, password } = req.body;
+    const { email, full_name, phone, role, store_id, permissions, pin, is_active, password, commission_percentage } = req.body;
     const permissionsJson = permissions !== undefined ? JSON.stringify(permissions) : undefined;
 
     const fields = [];
@@ -103,6 +104,7 @@ module.exports = function(pool) {
     if (permissions !== undefined) { fields.push(`permissions = $${paramIndex++}`); params.push(permissionsJson); }
     if (pin !== undefined) { fields.push(`pin = $${paramIndex++}`); params.push(pin); }
     if (is_active !== undefined) { fields.push(`is_active = $${paramIndex++}`); params.push(is_active); }
+    if (commission_percentage !== undefined) { fields.push(`commission_percentage = $${paramIndex++}`); params.push(commission_percentage); }
     // Owner-initiated reset - the owner is already authenticated as the
     // business owner here, so no "current password" proof is needed the
     // way the worker's own self-service /change-password page requires one.
@@ -132,25 +134,46 @@ module.exports = function(pool) {
         return res.status(404).json({ error: 'Worker not found' });
       }
 
-      if (is_active !== undefined) {
-        await client.query(
-          'UPDATE business_members SET is_active = $1, updated_at = NOW() WHERE user_id = $2 AND business_id = $3',
-          [is_active, id, businessId]
-        );
-      }
+      if (is_active !== undefined || role !== undefined || permissions !== undefined || store_id !== undefined) {
+        const workerRow = result.rows[0];
 
-      if (role !== undefined || permissions !== undefined || store_id !== undefined) {
-        const memberFields = [];
-        const memberParams = [];
-        let memberParamIndex = 1;
-        if (role !== undefined) { memberFields.push(`role = $${memberParamIndex++}`); memberParams.push(role); }
-        if (permissions !== undefined) { memberFields.push(`permissions = $${memberParamIndex++}`); memberParams.push(permissionsJson); }
-        if (store_id !== undefined) { memberFields.push(`store_id = $${memberParamIndex++}`); memberParams.push(store_id); }
-        memberFields.push('updated_at = NOW()');
-        memberParams.push(id, businessId);
+        // business_members is what _composeUserModel() (session/login
+        // resolution on the client) actually reads role/permissions from -
+        // NOT the workers row just updated above. Workers created through
+        // the app get a matching business_members row via /admin-api/workers,
+        // but workers imported from the pre-migration Firestore data only
+        // ever got a `workers` row. A bare UPDATE against business_members
+        // for one of those workers matches zero rows and succeeds silently:
+        // the owner sees "Worker updated" and workers.permissions changes,
+        // but the grant never reaches the worker's own session. Upsert
+        // instead, backfilling the profiles row business_members.user_id's
+        // FK requires (email deliberately left out - profiles.email is
+        // UNIQUE and several legacy workers share a blank email; the
+        // worker's real email lives on the workers row untouched by this).
         await client.query(
-          `UPDATE business_members SET ${memberFields.join(', ')} WHERE user_id = $${memberParamIndex++} AND business_id = $${memberParamIndex}`,
-          memberParams
+          `INSERT INTO profiles (id, full_name)
+           VALUES ($1, $2)
+           ON CONFLICT (id) DO NOTHING`,
+          [id, workerRow.full_name]
+        );
+
+        await client.query(
+          `INSERT INTO business_members (user_id, business_id, role, is_owner, is_active, permissions, store_id)
+           VALUES ($1, $2, $3, false, $4, $5, $6)
+           ON CONFLICT (user_id, business_id) DO UPDATE SET
+             role = EXCLUDED.role,
+             is_active = EXCLUDED.is_active,
+             permissions = EXCLUDED.permissions,
+             store_id = EXCLUDED.store_id,
+             updated_at = NOW()`,
+          [
+            id,
+            businessId,
+            role !== undefined ? role : workerRow.role,
+            is_active !== undefined ? is_active : workerRow.is_active,
+            permissionsJson !== undefined ? permissionsJson : JSON.stringify(workerRow.permissions || {}),
+            store_id !== undefined ? store_id : workerRow.store_id,
+          ]
         );
       }
 

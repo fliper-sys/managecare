@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
-import '../../../data/repositories/auth_repository_impl.dart';
 import '../../../data/repositories/worker_repository_impl.dart';
 import '../../../providers/retail_provider.dart';
 import '../../industry_specific/barber_shop/providers/barber_shop_provider.dart';
@@ -296,15 +295,19 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
               final text = controller.text.trim();
               final parsed = double.tryParse(text) ?? 0.0;
 
+              // businessId is required by WorkerRepositorySupabase.updateWorker
+              // (it 400s without one) - this call used to omit it entirely, so
+              // every commission edit failed before commission_percentage even
+              // existed as a column to write to.
+              final businessId = widget.businessId ?? _worker?['businessId'] as String?;
               final repo = WorkerRepositoryImpl(firestore: FirebaseFirestore.instance);
               try {
                 await repo.updateWorker(widget.workerId, {
                   'commissionPercentage': parsed,
-                  'updatedAt': DateTime.now(),
+                  'businessId': businessId,
                 });
 
                 // Also update business-scoped barber/stylist docs if available
-                final businessId = widget.businessId ?? _worker?['businessId'] as String?;
                 final businessType = (widget.businessType ?? _worker?['businessType'] ?? '') as String;
                 final roles = (_worker?['roles'] as List<dynamic>?)?.cast<String>() ?? [(_worker?['role'] as String?) ?? ''];
                 final businessTypeLow = (businessType).toLowerCase();
@@ -372,52 +375,95 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
     );
   }
 
-  Future<void> _sendPasswordResetEmail() async {
-    final email = (_worker?['email'] as String?)?.trim() ?? '';
-    if (email.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Worker email is missing')),
-        );
-      }
-      return;
-    }
+  // Workers authenticate against their own `workers` row, not the
+  // `profiles` table Supabase Auth's email-based recovery flow looks up -
+  // so the old AuthRepositoryImpl().resetPassword(email) call here always
+  // reported success while silently emailing nobody, because a worker's
+  // address is never found there. The backend's worker PUT route already
+  // lets an already-authenticated owner set a worker's password directly
+  // (no proof-of-old-password round trip needed), so this now does that
+  // instead of relying on email delivery to a possibly-unwatched inbox.
+  Future<void> _showSetPasswordDialog() async {
+    final passwordCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool obscure = true;
 
-    final confirmed = await showDialog<bool>(
+    final newPassword = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reset Worker Password'),
-        content: Text(
-          'A password reset email will be sent to $email. '
-          'The worker can use it to choose a new password.',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx2, setStateSB) => AlertDialog(
+          title: Text('Set Password for ${_worker?['name'] ?? 'worker'}'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: passwordCtrl,
+                  obscureText: obscure,
+                  decoration: InputDecoration(
+                    labelText: 'New password',
+                    helperText: 'At least 8 characters',
+                    suffixIcon: IconButton(
+                      icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
+                      onPressed: () => setStateSB(() => obscure = !obscure),
+                    ),
+                  ),
+                  validator: (v) {
+                    if (v == null || v.length < 8) return 'Enter at least 8 characters';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: confirmCtrl,
+                  obscureText: obscure,
+                  decoration: const InputDecoration(labelText: 'Confirm password'),
+                  validator: (v) {
+                    if (v != passwordCtrl.text) return 'Passwords do not match';
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (!formKey.currentState!.validate()) return;
+                Navigator.of(ctx).pop(passwordCtrl.text);
+              },
+              child: const Text('Set Password'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Send'),
-          ),
-        ],
       ),
     );
 
-    if (confirmed != true) return;
+    if (newPassword == null || newPassword.isEmpty) return;
 
     try {
-      await AuthRepositoryImpl().resetPassword(email);
+      final businessId = widget.businessId ?? _worker?['businessId'] as String?;
+      await context.read<WorkersProvider>().updateWorker(
+        widget.workerId,
+        {'password': newPassword},
+        businessId: businessId,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Password reset email sent to $email')),
+          const SnackBar(content: Text('Password updated')),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send password reset email: $e')),
+          SnackBar(content: Text('Failed to set password: $e')),
         );
       }
     }
@@ -537,6 +583,13 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                     .where((s) => s.isNotEmpty)
                     .toList();
                 final normalizedRoles = roles.isEmpty ? ['staff'] : roles;
+                // Permissions are deliberately left out here - this dialog
+                // edits contact/role details, not access. Setting them from
+                // WorkerPermissions.getPermissionsForRoles() on every save
+                // used to blow away any custom grants made via the
+                // "Edit permissions" dialog whenever an owner just fixed a
+                // phone number or toggled Active. Role/permission changes
+                // belong on the Permissions tab.
                 final updateMap = <String, dynamic>{
                   'name': nameCtrl.text.trim(),
                   'email': emailCtrl.text.trim(),
@@ -544,9 +597,6 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                   'pin': pinCtrl.text.trim(),
                   'isActive': isActive,
                   'roles': normalizedRoles,
-                  'permissions': WorkerPermissions.getPermissionsForRoles(
-                    normalizedRoles,
-                  ),
                   'serviceNames': servicesCtrl.text.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList(),
                   'updatedAt': DateTime.now(),
                 };
@@ -622,11 +672,6 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
           Builder(builder: (ctx) {
             final currentUser = context.watch<AuthProvider>().currentUser;
             final isOwner = currentUser?.isOwner ?? false;
-            final canManageStaff = currentUser != null &&
-                WorkerPermissions.canManageStaffForUser(
-                  currentUser.role,
-                  currentUser.permissions,
-                );
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -641,11 +686,11 @@ class _WorkerDetailsScreenState extends State<WorkerDetailsScreen>
                   tooltip: 'Edit commission',
                   onPressed: _showEditCommissionDialog,
                 ),
-                if (canManageStaff)
+                if (isOwner)
                   IconButton(
                     icon: const Icon(Icons.lock_reset),
-                    tooltip: 'Reset password',
-                    onPressed: _sendPasswordResetEmail,
+                    tooltip: 'Set password',
+                    onPressed: _showSetPasswordDialog,
                   ),
                 if (isOwner)
                   IconButton(

@@ -172,6 +172,7 @@ CREATE TABLE IF NOT EXISTS workers (
   is_active BOOLEAN DEFAULT true,
   permissions JSONB DEFAULT '{}',
   pin TEXT,
+  commission_percentage DECIMAL(5,2) DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

@@ -163,18 +163,35 @@ class WorkerRepositorySupabase implements WorkerRepository {
     }
   }
 
+  // updateWorker's PUT route only touches a column when its key is present
+  // in the JSON body at all (`if (field !== undefined)`), so it can be
+  // patched with just the fields that changed. This used to always emit
+  // every field - defaulting role to 'staff' and permissions to {} whenever
+  // the caller didn't mean to touch them - which meant any partial update
+  // that didn't happen to restate the worker's current role/permissions
+  // (deactivating them, setting a password, editing just a phone number)
+  // silently downgraded their role and wiped their access. Now a field is
+  // only sent when the caller actually included it.
   Map<String, dynamic> _buildPayload(Map<String, dynamic> data) {
-    final permissions = data['permissions'] ?? data['customPermissions'] ?? {};
+    final hasPermissions =
+        data.containsKey('permissions') || data.containsKey('customPermissions');
+    final password = data['password']?.toString().trim();
     return {
-      'email': data['email'],
-      'full_name': data['fullName'] ?? data['full_name'] ?? data['name'],
-      'phone': data['phone'] ?? data['phoneNumber'],
-      'role': data['role'] ?? 'staff',
-      'store_id': data['storeId'] ?? data['store_id'],
-      'permissions': permissions,
-      'pin': data['pin'],
+      if (data.containsKey('email')) 'email': data['email'],
+      if (data.containsKey('fullName') || data.containsKey('full_name') || data.containsKey('name'))
+        'full_name': data['fullName'] ?? data['full_name'] ?? data['name'],
+      if (data.containsKey('phone') || data.containsKey('phoneNumber'))
+        'phone': data['phone'] ?? data['phoneNumber'],
+      if (data.containsKey('role')) 'role': data['role'],
+      if (data.containsKey('storeId') || data.containsKey('store_id'))
+        'store_id': data['storeId'] ?? data['store_id'],
+      if (hasPermissions) 'permissions': data['permissions'] ?? data['customPermissions'],
+      if (data.containsKey('pin')) 'pin': data['pin'],
       if (data.containsKey('isActive') || data.containsKey('is_active'))
         'is_active': data['isActive'] ?? data['is_active'],
+      if (data.containsKey('commissionPercentage') || data.containsKey('commission_percentage'))
+        'commission_percentage': data['commissionPercentage'] ?? data['commission_percentage'],
+      if (password != null && password.isNotEmpty) 'password': password,
     };
   }
 
@@ -200,6 +217,7 @@ class WorkerRepositorySupabase implements WorkerRepository {
     worker['businessId'] ??= worker['business_id'];
     worker['storeId'] ??= worker['store_id'];
     worker['isActive'] ??= worker['is_active'] != false;
+    worker['commissionPercentage'] ??= worker['commission_percentage'];
     worker['createdAt'] ??= worker['created_at'];
     worker['updatedAt'] ??= worker['updated_at'];
     worker['roles'] ??= [role];
