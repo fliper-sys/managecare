@@ -8,6 +8,7 @@ import '../../../providers/business_provider.dart';
 import '../../../providers/theme_provider.dart';
 import '../../../core/access_control.dart';
 import '../../../widgets/profile_avatar.dart';
+import '../../../services/customer_display_service.dart';
 import 'currency_management_screen.dart';
 import 'notification_preferences_screen.dart';
 import 'backup_and_restore_screen.dart';
@@ -204,6 +205,18 @@ class SettingsScreen extends StatelessWidget {
                           Navigator.pushNamed(context, Routes.printerSettings);
                         },
                       ),
+                      if (customerDisplaySupported) ...[
+                        const Divider(height: 1),
+                        _SettingsItem(
+                          icon: Icons.tv_outlined,
+                          title: 'Customer Display',
+                          subtitle: 'POS terminal customer-facing total display',
+                          onTap: () {
+                            Navigator.pushNamed(
+                                context, Routes.customerDisplaySettings);
+                          },
+                        ),
+                      ],
                       if (isFuelStation) ...[
                         const Divider(height: 1),
                         _SettingsItem(

@@ -56,6 +56,7 @@ import '../presentation/settings/screens/whatsapp_settings_screen.dart';
 import '../presentation/settings/screens/notification_logs_screen.dart';
 import '../presentation/settings/screens/thermal_receipt_settings_screen.dart';
 import '../presentation/settings/screens/printer_settings_screen.dart';
+import '../presentation/settings/screens/customer_display_settings_screen.dart';
 import '../presentation/settings/screens/subscription_screen.dart';
 import '../presentation/settings/screens/subscription_transactions_screen.dart';
 import '../presentation/settings/screens/tax_settings_screen.dart';
@@ -437,6 +438,9 @@ class AppRouter {
 
       case Routes.printerSettings:
         return _buildRoute(const PrinterSettingsScreen());
+
+      case Routes.customerDisplaySettings:
+        return _buildRoute(const CustomerDisplaySettingsScreen());
 
       case Routes.procurement:
         final args = settings.arguments is Map

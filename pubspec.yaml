@@ -1,7 +1,7 @@
 name: business_manager
 description: A comprehensive business management app for multiple industries
 publish_to: 'none'
-version: 2.0.75+75
+version: 2.0.77+77
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -85,6 +85,12 @@ dependencies:
 
   # Bluetooth Thermal Printer
   print_bluetooth_thermal: ^1.1.7
+
+  # Customer-facing pole display (Windows POS terminals) - communicates over
+  # a serial COM port, same as the receipt printer's Bluetooth/USB path but
+  # for the small second screen facing the customer.
+  flutter_libserialport: ^0.4.0
+  ffi: ^2.2.0
 
   # Utils
   uuid: ^4.5.2

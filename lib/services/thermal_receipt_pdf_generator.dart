@@ -24,8 +24,8 @@ class ThermalReceiptPdfGenerator {
 
   // Receipt dimensions (in mm)
   static const int minHeight = 80;
-  static const int maxHeight = 200;
-  static const int marginMm = 2;
+  static const int maxHeight = 320;
+  static const double marginMm = 1.5;
 
   /// Generate thermal receipt PDF
   /// Returns properly sized PDF for thermal printer
@@ -54,7 +54,7 @@ class ThermalReceiptPdfGenerator {
     // Calculate dimensions
     final widthMm = paperWidth;
     final widthPt = widthMm * pointsPerMm;
-    final heightMm = _calculateHeight(items.length, showQrCode);
+    final heightMm = _calculateHeight(items, showQrCode, customHeader, customFooter);
     final heightPt = heightMm * pointsPerMm;
 
     _log('Page size: ${widthMm}mm x ${heightMm}mm');
@@ -140,7 +140,7 @@ class ThermalReceiptPdfGenerator {
         ),
       ),
     );
-    children.add(pw.SizedBox(height: 2));
+    children.add(pw.SizedBox(height: 3));
 
     // Custom header
     if (customHeader != null && customHeader.isNotEmpty) {
@@ -151,7 +151,7 @@ class ThermalReceiptPdfGenerator {
           style: pw.TextStyle(font: font, fontSize: 8),
         ),
       );
-      children.add(pw.SizedBox(height: 2));
+      children.add(pw.SizedBox(height: 3));
     }
 
     // Receipt title
@@ -172,7 +172,7 @@ class ThermalReceiptPdfGenerator {
       pw.Text(
         'No: $receiptNumber',
         textAlign: pw.TextAlign.center,
-        style: pw.TextStyle(font: font, fontSize: 8),
+        style: pw.TextStyle(font: font, fontSize: 8.5),
       ),
     );
 
@@ -186,7 +186,7 @@ class ThermalReceiptPdfGenerator {
     );
 
     // Separator
-    children.add(pw.SizedBox(height: 1));
+    children.add(pw.SizedBox(height: 2));
     children.add(_buildSeparator('=', charsPerLine, font));
     children.add(pw.SizedBox(height: 1));
 
@@ -194,13 +194,13 @@ class ThermalReceiptPdfGenerator {
     children.add(
       pw.Text(
         'Customer: $customerName',
-        style: pw.TextStyle(font: font, fontSize: 8),
+        style: pw.TextStyle(font: font, fontSize: 8.5),
       ),
     );
 
     // Separator
     children.add(_buildSeparator('-', charsPerLine, font));
-    children.add(pw.SizedBox(height: 2));
+    children.add(pw.SizedBox(height: 3));
 
     // Items header
     children.add(
@@ -208,7 +208,7 @@ class ThermalReceiptPdfGenerator {
         _formatLine('Item', 'Qty', 'Price', charsPerLine),
         style: pw.TextStyle(
           font: font,
-          fontSize: 7,
+          fontSize: 8,
           fontWeight: pw.FontWeight.bold,
         ),
       ),
@@ -217,21 +217,44 @@ class ThermalReceiptPdfGenerator {
 
     // Items
     for (final item in items) {
-      final name = item.name.length > 15
-          ? '${item.name.substring(0, 12)}...'
-          : item.name;
-
+      final lineTotal = item.quantity * item.price;
+      final qtyPrice = '${item.quantity} x ${formatCurrency(item.price, symbol: currencySymbol)}';
       children.add(
-        pw.Text(
-          _formatLine(
-            name,
-            item.quantity.toString(),
-            item.price.toStringAsFixed(0),
-            charsPerLine,
-          ),
-          style: pw.TextStyle(font: font, fontSize: 8),
+        pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  child: pw.Text(
+                    item.name,
+                    style: pw.TextStyle(
+                      font: font,
+                      fontSize: 8.5,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                ),
+                pw.SizedBox(width: 4),
+                pw.Text(
+                  formatCurrency(lineTotal, symbol: currencySymbol),
+                  style: pw.TextStyle(
+                    font: font,
+                    fontSize: 8.5,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            pw.Text(
+              qtyPrice,
+              style: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.grey800),
+            ),
+          ],
         ),
       );
+      children.add(pw.SizedBox(height: 2));
     }
 
     // Separator
@@ -401,16 +424,28 @@ class ThermalReceiptPdfGenerator {
   }
 
   /// Calculate receipt height based on content
-  static int _calculateHeight(int itemCount, bool hasQr) {
+  static int _calculateHeight(
+    List<ReceiptItem> items,
+    bool hasQr,
+    String? customHeader,
+    String? customFooter,
+  ) {
     // Base height (header, separator, totals, footer)
-    int height = 50;
+    int height = 64;
 
-    // Each item takes approximately 4mm
-    height += itemCount * 4;
+    for (final item in items) {
+      height += 7 + (item.name.length ~/ 24) * 4;
+    }
 
     // QR code section
     if (hasQr) {
       height += 20;
+    }
+    if ((customHeader ?? '').trim().isNotEmpty) {
+      height += 8;
+    }
+    if ((customFooter ?? '').trim().isNotEmpty) {
+      height += 10;
     }
 
     // Ensure within bounds

@@ -19,9 +19,9 @@ import '../../../services/thermal_printer_manager.dart';
 import '../../../services/thermal_printing_service.dart';
 import '../../../services/esc_pos_receipt_generator.dart';
 import '../../../services/pdf_receipt_generator.dart';
+import '../../../services/windows_raw_print_service.dart';
 import '../../settings/screens/pdf_preview_page.dart';
 import '../../../services/web_download.dart' as web_download;
-import '../../../data/models/sale_model.dart';
 import '../../../services/email_service.dart';
 import '../../../services/analytics_service.dart';
 import '../../../providers/business_provider.dart';
@@ -32,6 +32,7 @@ import '../../../core/utils/currency.dart';
 import '../../../services/pdf_invoice_generator.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../../services/prescription_print_service.dart';
+import '../../../services/customer_display_service.dart';
 
 /// Post-sale action sheet allowing users to choose:
 /// Share receipt as text
@@ -363,6 +364,8 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
       }
     });
 
+    _pushTotalToCustomerDisplay();
+
     // Listen for background PDF generation if provided
     if (widget.pdfFuture != null && !_isCompletedSaleReceiptFlow) {
       setState(() => _pdfGenerating = true);
@@ -427,6 +430,28 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
 
     // Initialize editable sale data
     _initializeEditableData();
+  }
+
+  @override
+  void dispose() {
+    // Revert the pole display to an idle message once the cashier has moved
+    // past this receipt, so it doesn't keep showing a stale total to the
+    // next customer in line.
+    if (customerDisplaySupported) {
+      CustomerDisplayService().showIdle();
+    }
+    super.dispose();
+  }
+
+  Future<void> _pushTotalToCustomerDisplay() async {
+    if (!customerDisplaySupported) return;
+    final display = CustomerDisplayService();
+    await display.ensureConnectedFromSavedSettings();
+    if (!display.isConnected) return;
+    final total = _toDouble(
+      widget.saleData['total'] ?? widget.saleData['amount'] ?? _invoiceTotal(),
+    );
+    display.showTotal(total, currencySymbol: 'NGN');
   }
 
   void _initializeEditableData() {
@@ -1760,48 +1785,34 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
     setState(() => _isPrinting = true);
 
     try {
-      // Build sale model from widget data
-      (widget.saleData['items'] as List<dynamic>?)?.map((it) {
-        try {
-          final id = (it is Map && (it['productId'] ?? it['id']) != null) ? (it['productId'] ?? it['id']).toString() : '';
-          final name = (it is Map) ? (it['name'] ?? it['productName'] ?? 'Item').toString() : it.toString();
-          final qty = (it is Map) ? ((it['quantity'] ?? it['qty'] ?? 1) as num).toDouble() : 1.0;
-          final price = (it is Map) ? ((it['unitPrice'] ?? it['price'] ?? it['unit_price'] ?? 0) as num).toDouble() : 0.0;
-          final total = (it is Map) ? ((it['total'] ?? (qty * price)) as num).toDouble() : 0.0;
-          return SaleItem(id: id, productId: id, productName: name, quantity: qty, unitPrice: price, total: total);
-        } catch (_) {
-          return SaleItem(id: '', productId: '', productName: 'Item', quantity: 1.0, unitPrice: 0.0, total: 0.0);
-        }
-      }).toList() ?? [];
+      if (!Platform.isWindows) {
+        setState(() {
+          _statusMessage = 'Plain text USB printing is only available on Windows.';
+          _statusColor = Colors.orange;
+        });
+        return;
+      }
 
-      // Note: saleModel could be used for analytics or history tracking in future
-      /* final saleModel = SaleModel(
-        id: widget.orderId ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        businessId: businessId,
-        customerId: (widget.saleData['customerId'] ?? (widget.saleData['customer'] is Map ? widget.saleData['customer']['id'] : null))?.toString(),
-        customerName: (widget.saleData['customerName'] ?? (widget.saleData['customer'] is Map ? widget.saleData['customer']['name'] : null))?.toString(),
-        items: items,
-        totalAmount: ((widget.saleData['subtotal'] ?? widget.saleData['total'] ?? 0) as num).toDouble(),
-        discountAmount: ((widget.saleData['discount'] ?? 0) as num).toDouble(),
-        taxAmount: ((widget.saleData['tax'] ?? 0) as num).toDouble(),
-        finalAmount: ((widget.saleData['total'] ?? widget.saleData['amount'] ?? 0) as num).toDouble(),
-        paymentMethod: (widget.saleData['paymentMethod'] ?? 'cash').toString(),
-        status: (widget.saleData['status'] ?? 'completed').toString(),
-        receiptNumber: widget.orderId?.toString(),
-        notes: widget.saleData['notes']?.toString(),
-        createdBy: widget.saleData['workerName']?.toString() ?? auth.currentUser?.fullName ?? 'Staff',
-        createdAt: parseTimestamp(widget.saleData['createdAt']),
-      ); */
-
-      // Print using thermal printing service
+      final printerName = await WindowsRawPrintService.defaultPrinterName();
       setState(() {
-        _statusMessage = 'Receipt printed successfully!';
+        _statusMessage = 'Sending plain text to $printerName...';
+        _statusColor = Colors.grey;
+      });
+
+      await WindowsRawPrintService.printPlainText(
+        text: widget.receiptText,
+        printerName: printerName,
+        jobName: 'Receipt_${widget.orderId ?? DateTime.now().millisecondsSinceEpoch}',
+      );
+
+      setState(() {
+        _statusMessage = 'Plain text receipt sent to $printerName';
         _statusColor = Colors.green;
       });
     } catch (e) {
       debugPrint('[PostSaleActionSheet] Print error: $e');
       setState(() {
-        _statusMessage = 'Print error: $e';
+        _statusMessage = 'Plain text print failed: ${e.toString().split('\n').first}';
         _statusColor = Colors.red;
       });
     } finally {
@@ -2444,20 +2455,20 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                         ),
                       );
                     }
-                    // Mobile: Show USB and Bluetooth options
-                    return Row(children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isPrinting ? null : _printReceiptUsb,
-                          icon: const Icon(Icons.usb),
-                          label: const Text('Print (USB)'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.success,
-                            disabledBackgroundColor: Colors.grey,
+                    final buttons = <Widget>[
+                      if (Platform.isWindows)
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _isPrinting ? null : _printReceiptUsb,
+                            icon: const Icon(Icons.text_snippet_outlined),
+                            label: const Text('Plain Text (USB)'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.success,
+                              disabledBackgroundColor: Colors.grey,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
+                      if (Platform.isWindows) const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: _isPrinting ? null : _printReceipt,
@@ -2468,8 +2479,9 @@ class _PostSaleActionSheetState extends State<PostSaleActionSheet> {
                             disabledBackgroundColor: Colors.grey,
                           ),
                         ),
-                      )
-                    ]);
+                      ),
+                    ];
+                    return Row(children: buttons);
                   }),
 
                   // PDF preview / print action (similar UX to Receipt Customization preview)

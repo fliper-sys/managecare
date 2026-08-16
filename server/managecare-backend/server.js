@@ -460,7 +460,22 @@ app.post('/auth/v1/signup', async (req, res) => {
   }
 
   try {
-    const existing = await pool.query('SELECT id FROM profiles WHERE lower(email) = $1', [email]);
+    // /auth/v1/token treats profiles, workers and managecare_workers as one
+    // shared login-by-email space (see the login route below), but this
+    // check only ever looked at profiles - so an email already claimed by a
+    // worker could still "successfully" register here, creating a second,
+    // colliding identity under a different id. Whichever row's password
+    // happened to match then won at login, occasionally logging a worker
+    // in as an ownerless "owner" instead of their real account. Check all
+    // three tables the login route actually searches.
+    const existing = await pool.query(
+      `SELECT 1 FROM profiles WHERE lower(email) = $1
+       UNION ALL
+       SELECT 1 FROM workers WHERE lower(email) = $1
+       UNION ALL
+       SELECT 1 FROM managecare_workers WHERE lower(email) = $1`,
+      [email]
+    );
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'User already registered' });
     }
@@ -1988,7 +2003,22 @@ app.post('/api/auth/register', async (req, res) => {
   }
 
   try {
-    const existing = await pool.query('SELECT id FROM profiles WHERE lower(email) = $1', [email]);
+    // /auth/v1/token treats profiles, workers and managecare_workers as one
+    // shared login-by-email space (see the login route below), but this
+    // check only ever looked at profiles - so an email already claimed by a
+    // worker could still "successfully" register here, creating a second,
+    // colliding identity under a different id. Whichever row's password
+    // happened to match then won at login, occasionally logging a worker
+    // in as an ownerless "owner" instead of their real account. Check all
+    // three tables the login route actually searches.
+    const existing = await pool.query(
+      `SELECT 1 FROM profiles WHERE lower(email) = $1
+       UNION ALL
+       SELECT 1 FROM workers WHERE lower(email) = $1
+       UNION ALL
+       SELECT 1 FROM managecare_workers WHERE lower(email) = $1`,
+      [email]
+    );
     if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'User already registered' });
     }

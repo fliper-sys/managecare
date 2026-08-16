@@ -19,6 +19,7 @@ import '../../services/thermal_printing_service.dart';
 import '../../services/esc_pos_receipt_generator.dart';
 import '../../services/pdf_receipt_generator.dart';
 import '../../services/thermal_printer_manager.dart';
+import '../../services/windows_raw_print_service.dart';
 import '../settings/screens/pdf_preview_page.dart';
 import '../../services/web_download.dart' as web_download;
 import '../../services/email_service.dart';
@@ -915,18 +916,35 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
   }
 
   Future<void> _printReceiptUsb() async {
-    // USB printing implementation
     setState(() => _isPrinting = true);
     try {
-      // USB printing logic
+      if (!Platform.isWindows) {
+        setState(() {
+          _statusMessage = 'Plain text USB printing is only available on Windows.';
+          _statusColor = Colors.orange;
+        });
+        return;
+      }
+
+      final printerName = await WindowsRawPrintService.defaultPrinterName();
       setState(() {
-        _statusMessage = 'Printing via USB...';
+        _statusMessage = 'Sending plain text to $printerName...';
         _statusColor = Colors.grey;
       });
-      // Implement USB printing
+
+      await WindowsRawPrintService.printPlainText(
+        text: widget.receiptText,
+        printerName: printerName,
+        jobName: 'Receipt_${widget.orderId ?? DateTime.now().millisecondsSinceEpoch}',
+      );
+
+      setState(() {
+        _statusMessage = 'Plain text receipt sent to $printerName';
+        _statusColor = Colors.green;
+      });
     } catch (e) {
       setState(() {
-        _statusMessage = 'USB print failed: $e';
+        _statusMessage = 'Plain text print failed: ${e.toString().split('\n').first}';
         _statusColor = Colors.red;
       });
     } finally {
@@ -1282,20 +1300,20 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
                         ),
                       );
                     }
-                    // Mobile: Show USB and Bluetooth options
-                    return Row(children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isPrinting ? null : _printReceiptUsb,
-                          icon: const Icon(Icons.usb),
-                          label: const Text('Print (USB)'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.success,
-                            disabledBackgroundColor: Colors.grey,
+                    final buttons = <Widget>[
+                      if (Platform.isWindows)
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _isPrinting ? null : _printReceiptUsb,
+                            icon: const Icon(Icons.text_snippet_outlined),
+                            label: const Text('Plain Text (USB)'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.success,
+                              disabledBackgroundColor: Colors.grey,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
+                      if (Platform.isWindows) const SizedBox(width: 12),
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: _isPrinting ? null : _printReceipt,
@@ -1306,8 +1324,9 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
                             disabledBackgroundColor: Colors.grey,
                           ),
                         ),
-                      )
-                    ]);
+                      ),
+                    ];
+                    return Row(children: buttons);
                   }),
 
                   // PDF preview / print action (similar UX to Receipt Customization preview)

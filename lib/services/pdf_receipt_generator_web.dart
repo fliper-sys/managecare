@@ -73,7 +73,7 @@ class PdfReceiptGenerator {
         pageFormat: PdfPageFormat(
           pageWidth,
           pageHeight,
-          marginAll: paperWidth == '58' ? 6 : 8,
+          marginAll: paperWidth == '58' ? 4 : 6,
         ),
         theme: pw.ThemeData.withFont(base: branding.font),
         build: (_) {
@@ -102,7 +102,7 @@ class PdfReceiptGenerator {
                   ),
                 ),
               ],
-              pw.SizedBox(height: 8),
+              pw.SizedBox(height: 6),
               _buildMetaCard(
                 font: branding.font,
                 paperWidth: paperWidth,
@@ -113,14 +113,14 @@ class PdfReceiptGenerator {
                 customerName: safeCustomer,
                 customerEmail: customerEmail,
               ),
-              pw.SizedBox(height: 8),
+              pw.SizedBox(height: 6),
               _buildItemsSection(
                 font: branding.font,
                 paperWidth: paperWidth,
                 items: items,
                 symbol: symbol,
               ),
-              pw.SizedBox(height: 8),
+              pw.SizedBox(height: 6),
               _buildTotalsCard(
                 font: branding.font,
                 paperWidth: paperWidth,
@@ -130,7 +130,7 @@ class PdfReceiptGenerator {
                 discount: discount,
                 total: total,
               ),
-              pw.SizedBox(height: 8),
+              pw.SizedBox(height: 6),
               _buildPaymentSection(
                 font: branding.font,
                 paperWidth: paperWidth,
@@ -162,7 +162,7 @@ class PdfReceiptGenerator {
                   ),
                 ),
               ],
-              pw.SizedBox(height: 10),
+              pw.SizedBox(height: 6),
               pw.Center(
                 child: pw.BarcodeWidget(
                   barcode: pw.Barcode.code128(),
@@ -276,10 +276,9 @@ class PdfReceiptGenerator {
   static pw.Widget _buildReceiptLabel(pw.Font font) {
     return pw.Center(
       child: pw.Container(
-        padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: pw.BoxDecoration(
-          color: PdfColor.fromInt(0xFFEAF3FB),
-          borderRadius: pw.BorderRadius.circular(20),
+          border: pw.Border.all(color: PdfColors.black, width: 0.6),
         ),
         child: pw.Text(
           'RECEIPT',
@@ -287,7 +286,7 @@ class PdfReceiptGenerator {
             font: font,
             fontSize: 9,
             fontWeight: pw.FontWeight.bold,
-            color: PdfColor.fromInt(0xFF0F4C81),
+            color: PdfColors.black,
             letterSpacing: 1.1,
           ),
         ),
@@ -305,7 +304,7 @@ class PdfReceiptGenerator {
     required String customerName,
     required String? customerEmail,
   }) {
-    final fontSize = paperWidth == '58' ? 7.5 : 8.5;
+    final fontSize = paperWidth == '58' ? 8.2 : 9.0;
     final valueStyle = pw.TextStyle(
       font: font,
       fontSize: fontSize,
@@ -320,10 +319,9 @@ class PdfReceiptGenerator {
 
     return pw.Container(
       width: double.infinity,
-      padding: const pw.EdgeInsets.all(8),
+      padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 4),
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColors.grey300),
-        borderRadius: pw.BorderRadius.circular(10),
+        border: pw.Border.all(color: PdfColors.black, width: 0.5),
       ),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -377,8 +375,8 @@ class PdfReceiptGenerator {
     required List<Map<String, dynamic>> items,
     required String symbol,
   }) {
-    final titleSize = paperWidth == '58' ? 8 : 9;
-    final bodySize = paperWidth == '58' ? 7.5 : 8.5;
+    final titleSize = paperWidth == '58' ? 8.8 : 9.5;
+    final bodySize = paperWidth == '58' ? 8.4 : 9.0;
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -389,17 +387,15 @@ class PdfReceiptGenerator {
             font: font,
             fontSize: titleSize.toDouble(),
             fontWeight: pw.FontWeight.bold,
-            color: PdfColor.fromInt(0xFF0F4C81),
+            color: PdfColors.black,
           ),
         ),
         pw.SizedBox(height: 4),
         pw.Container(
           width: double.infinity,
-          padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+          padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 4),
           decoration: pw.BoxDecoration(
-            color: PdfColor.fromInt(0xFFF6F8FA),
-            borderRadius: pw.BorderRadius.circular(10),
-            border: pw.Border.all(color: PdfColors.grey300),
+            border: pw.Border.all(color: PdfColors.black, width: 0.5),
           ),
           child: pw.Column(
             children: items.map((item) {
@@ -416,7 +412,7 @@ class PdfReceiptGenerator {
                 padding: const pw.EdgeInsets.symmetric(vertical: 4),
                 decoration: const pw.BoxDecoration(
                   border: pw.Border(
-                    bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.3),
+                    bottom: pw.BorderSide(color: PdfColors.grey600, width: 0.3),
                   ),
                 ),
                 child: pw.Column(
@@ -474,13 +470,12 @@ class PdfReceiptGenerator {
     required double discount,
     required double total,
   }) {
-    final fontSize = paperWidth == '58' ? 7.8 : 8.8;
+    final fontSize = paperWidth == '58' ? 8.4 : 9.2;
     return pw.Container(
       width: double.infinity,
-      padding: const pw.EdgeInsets.all(8),
+      padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 4),
       decoration: pw.BoxDecoration(
-        color: PdfColor.fromInt(0xFFEAF3FB),
-        borderRadius: pw.BorderRadius.circular(10),
+        border: pw.Border.all(color: PdfColors.black, width: 0.7),
       ),
       child: pw.Column(
         children: [
@@ -509,7 +504,7 @@ class PdfReceiptGenerator {
     required String paymentMethod,
     required List<Map<String, dynamic>>? paymentBreakdown,
   }) {
-    final fontSize = paperWidth == '58' ? 7.5 : 8.5;
+    final fontSize = paperWidth == '58' ? 8.0 : 8.8;
     final rows = (paymentBreakdown ?? [])
         .where((entry) => entry.isNotEmpty)
         .map((entry) {
@@ -540,10 +535,9 @@ class PdfReceiptGenerator {
 
     return pw.Container(
       width: double.infinity,
-      padding: const pw.EdgeInsets.all(8),
+      padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 4),
       decoration: pw.BoxDecoration(
-        border: pw.Border.all(color: PdfColors.grey300),
-        borderRadius: pw.BorderRadius.circular(10),
+        border: pw.Border.all(color: PdfColors.black, width: 0.5),
       ),
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -554,7 +548,7 @@ class PdfReceiptGenerator {
               font: font,
               fontSize: fontSize,
               fontWeight: pw.FontWeight.bold,
-              color: PdfColor.fromInt(0xFF0F4C81),
+              color: PdfColors.black,
             ),
           ),
           pw.SizedBox(height: 4),
@@ -616,7 +610,7 @@ class PdfReceiptGenerator {
               font: font,
               fontSize: fontSize,
               fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
-              color: bold ? PdfColor.fromInt(0xFF0F4C81) : PdfColors.grey800,
+              color: PdfColors.black,
             ),
           ),
         ],
@@ -640,16 +634,16 @@ class PdfReceiptGenerator {
     required bool hasCustomFooter,
   }) {
     final compact = paperWidth == '58';
-    final base = compact ? 420.0 : 460.0;
-    final itemHeight = compact ? 36.0 : 30.0;
-    final paymentHeight = paymentCount <= 0 ? 34.0 : paymentCount * 18.0;
+    final base = compact ? 300.0 : 340.0;
+    final itemHeight = compact ? 31.0 : 27.0;
+    final paymentHeight = paymentCount <= 0 ? 28.0 : paymentCount * 16.0;
     var height = base + (itemCount * itemHeight) + paymentHeight;
     if (hasDiscount) height += compact ? 18 : 20;
     if (hasQrCode) height += compact ? 120 : 136;
     if (hasCustomHeader) height += 24;
     if (hasCustomFooter) height += 28;
-    height += compact ? 120 : 140;
-    return height.clamp(480.0, 1800.0);
+    height += compact ? 72 : 92;
+    return height.clamp(360.0, 1600.0);
   }
 
   static String _resolveItemName(Map<String, dynamic> item) {
