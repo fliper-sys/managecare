@@ -70,7 +70,28 @@ class _SplashScreenState extends State<SplashScreen>
       print(
           '[SplashScreen] Auth Status: ${authProvider.status}, User: ${authProvider.currentUser?.email}');
 
-      if (authProvider.isAuthenticated && authProvider.currentUser != null) {
+      final shouldNavigateToLogin = shouldNavigateToLoginOnStartup(
+        status: authProvider.status,
+        isAuthenticated: authProvider.isAuthenticated,
+        hasCachedUser: authProvider.hasCachedUser,
+        autoLoginEnabled: authProvider.isPersistentLoginEnabled,
+      );
+
+      if (authProvider.status == AuthStatus.initial ||
+          authProvider.status == AuthStatus.loading) {
+        final retry = await authProvider.initializationComplete
+            .timeout(const Duration(seconds: 3), onTimeout: () {});
+        if (!mounted) return;
+        if (retry == null && authProvider.status == AuthStatus.initial) {
+          // Still settling during cold start; don't redirect until the restore
+          // path has had a chance to populate the cached session.
+          await Future.delayed(const Duration(milliseconds: 300));
+        }
+      }
+
+      if (!shouldNavigateToLogin &&
+          authProvider.isAuthenticated &&
+          authProvider.currentUser != null) {
         final isOnline = await ConnectivityHelper.hasInternetConnection();
         if (!isOnline) {
           final user = authProvider.currentUser!;

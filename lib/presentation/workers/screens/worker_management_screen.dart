@@ -648,10 +648,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                     }
                   },
                   itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'edit',
-                      child: Text('Edit Permissions'),
-                    ),
+              
                     const PopupMenuItem(
                       value: 'view_details',
                       child: Text('View Details'),

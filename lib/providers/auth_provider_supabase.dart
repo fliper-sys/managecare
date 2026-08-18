@@ -25,6 +25,23 @@ enum AuthStatus {
   loading,
 }
 
+bool shouldNavigateToLoginOnStartup({
+  required AuthStatus status,
+  required bool isAuthenticated,
+  required bool hasCachedUser,
+  required bool autoLoginEnabled,
+}) {
+  if (status == AuthStatus.initial || status == AuthStatus.loading) {
+    return false;
+  }
+
+  if (isAuthenticated) {
+    return false;
+  }
+
+  return !(autoLoginEnabled && hasCachedUser);
+}
+
 class AuthProvider with ChangeNotifier {
   final AuthRepositorySupabase _authRepo;
   final AuthenticationService _authService;
@@ -88,6 +105,8 @@ class AuthProvider with ChangeNotifier {
   bool get isPersistentLoginEnabled =>
       _localStorage?.isAutoLoginEnabled() ?? false;
 
+  bool get hasCachedUser => _localStorage?.getCachedUser() != null;
+
   String? getLastLoggedInEmail() => _localStorage?.getLastLoggedInEmail();
 
   // ────────────────────────────── Lifecycle ──────────────────────────────
@@ -111,25 +130,51 @@ class AuthProvider with ChangeNotifier {
           sessionUser.id,
           allowSelfRecovery: _status == AuthStatus.loading,
         );
-      } else {
-        if (_isInitializingLocalStorage) return;
-
-        if (_currentUser != null) {
-          // Optimistically stay authenticated if offline.
-          _hasNetwork().then((online) {
-            if (!online) {
-              _subscriptionValidated = true;
-              _status = AuthStatus.authenticated;
-              _errorMessage = null;
-              notifyListeners();
-            } else {
-              _goUnauthenticated();
-            }
-          });
-        } else {
-          _goUnauthenticated();
-        }
+        return;
       }
+
+      if (_isInitializingLocalStorage) return;
+
+      final cachedUser = _localStorage?.getCachedUser();
+      final hasPersistedSession = isPersistentLoginEnabled && cachedUser != null;
+
+      if (_currentUser != null && hasPersistedSession) {
+        _hasNetwork().then((online) {
+          if (!online) {
+            _subscriptionValidated = true;
+            _status = AuthStatus.authenticated;
+            _errorMessage = null;
+            notifyListeners();
+            return;
+          }
+
+          // A valid cached user exists, and Supabase may still be restoring its
+          // persisted session during cold app start. Do not force a logout just
+          // because the auth listener briefly reports null during this window.
+          if (_currentUser != null) {
+            _status = AuthStatus.authenticated;
+            _errorMessage = null;
+            notifyListeners();
+          }
+        });
+        return;
+      }
+
+      if (_currentUser != null) {
+        _hasNetwork().then((online) {
+          if (!online) {
+            _subscriptionValidated = true;
+            _status = AuthStatus.authenticated;
+            _errorMessage = null;
+            notifyListeners();
+          } else {
+            _goUnauthenticated();
+          }
+        });
+        return;
+      }
+
+      _goUnauthenticated();
     });
   }
 

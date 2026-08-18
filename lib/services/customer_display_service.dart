@@ -145,23 +145,36 @@ class CustomerDisplayService {
   // ── Local (per-device) settings persistence ──────────────────────────
 
   Future<CustomerDisplaySettings> loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    return CustomerDisplaySettings(
-      enabled: prefs.getBool(_prefsKeyEnabled) ?? false,
-      portName: prefs.getString(_prefsKeyPort),
-      baudRate: prefs.getInt(_prefsKeyBaudRate) ?? 9600,
-    );
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return CustomerDisplaySettings(
+        enabled: prefs.getBool(_prefsKeyEnabled) ?? false,
+        portName: prefs.getString(_prefsKeyPort),
+        baudRate: prefs.getInt(_prefsKeyBaudRate) ?? 9600,
+      );
+    } catch (_) {
+      return const CustomerDisplaySettings(
+        enabled: false,
+        portName: null,
+        baudRate: 9600,
+      );
+    }
   }
 
   Future<void> saveSettings(CustomerDisplaySettings settings) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsKeyEnabled, settings.enabled);
-    if (settings.portName != null) {
-      await prefs.setString(_prefsKeyPort, settings.portName!);
-    } else {
-      await prefs.remove(_prefsKeyPort);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKeyEnabled, settings.enabled);
+      if (settings.portName != null) {
+        await prefs.setString(_prefsKeyPort, settings.portName!);
+      } else {
+        await prefs.remove(_prefsKeyPort);
+      }
+      await prefs.setInt(_prefsKeyBaudRate, settings.baudRate);
+    } catch (_) {
+      // Allow the POS screen to keep working even if local settings storage is
+      // temporarily unavailable on this machine.
     }
-    await prefs.setInt(_prefsKeyBaudRate, settings.baudRate);
   }
 
   /// Connects using whatever was last saved, if the feature is enabled.
@@ -174,6 +187,47 @@ class CustomerDisplayService {
     if (isConnected && connectedPortName == settings.portName) return;
     await connect(portName: settings.portName!, baudRate: settings.baudRate);
   }
+
+  /// Tries a small set of likely COM ports and baud rates, writes a minimal
+  /// ESC/POS init command, and returns the first port that accepts it. This is
+  /// used as a practical auto-detect helper for Windows POS terminals where the
+  /// exact port/baud is not known ahead of time.
+  Future<CustomerDisplayAutoDetectResult?> autoDetectDisplay() async {
+    if (!customerDisplaySupported) return null;
+
+    final ports = availablePorts();
+    for (final portName in ports) {
+      for (final baudRate in customerDisplayBaudRates) {
+        final opened = platform.platformOpen(portName, baudRate);
+        if (opened == null) continue;
+
+        try {
+          platform.platformWrite(opened, Uint8List.fromList([0x1B, 0x40]));
+          return CustomerDisplayAutoDetectResult(
+            portName: portName,
+            baudRate: baudRate,
+          );
+        } catch (_) {
+          // Port opened but the display did not respond; keep probing the next
+          // candidate instead of failing the entire scan.
+        } finally {
+          platform.platformClose(opened);
+        }
+      }
+    }
+
+    return null;
+  }
+}
+
+class CustomerDisplayAutoDetectResult {
+  final String portName;
+  final int baudRate;
+
+  const CustomerDisplayAutoDetectResult({
+    required this.portName,
+    required this.baudRate,
+  });
 }
 
 class CustomerDisplaySettings {

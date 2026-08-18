@@ -28,6 +28,7 @@ class _CustomerDisplaySettingsScreenState
 
   bool _isTesting = false;
   bool _isSaving = false;
+  bool _isAutoDetecting = false;
   String? _statusMessage;
   Color? _statusColor;
 
@@ -38,19 +39,35 @@ class _CustomerDisplaySettingsScreenState
   }
 
   Future<void> _load() async {
-    final settings = await _service.loadSettings();
-    setState(() {
-      _enabled = settings.enabled;
-      _selectedPort = settings.portName;
-      _baudRate = settings.baudRate;
-      _ports = _service.availablePorts();
-      if (_selectedPort != null && !_ports.contains(_selectedPort)) {
-        // Last-saved port isn't currently present (unplugged, different PC
-        // restore, etc.) - keep it selectable so Save doesn't silently drop it.
-        _ports = [..._ports, _selectedPort!];
+    try {
+      final settings = await _service.loadSettings();
+      if (!mounted) return;
+      setState(() {
+        _enabled = settings.enabled;
+        _selectedPort = settings.portName;
+        _baudRate = settings.baudRate;
+        _ports = _service.availablePorts();
+        if (_selectedPort != null && !_ports.contains(_selectedPort)) {
+          // Last-saved port isn't currently present (unplugged, different PC
+          // restore, etc.) - keep it selectable so Save doesn't silently drop it.
+          _ports = [..._ports, _selectedPort!];
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _enabled = false;
+        _selectedPort = null;
+        _baudRate = 9600;
+        _ports = _service.availablePorts();
+        _statusMessage = 'Could not load saved customer display settings';
+        _statusColor = Colors.orange;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
       }
-      _loading = false;
-    });
+    }
   }
 
   void _refreshPorts() {
@@ -128,6 +145,35 @@ class _CustomerDisplaySettingsScreenState
     });
   }
 
+  Future<void> _autoDetect() async {
+    setState(() {
+      _isAutoDetecting = true;
+      _statusMessage = 'Scanning COM ports and baud rates...';
+      _statusColor = Colors.grey;
+    });
+
+    final result = await _service.autoDetectDisplay();
+    if (!mounted) return;
+
+    if (result != null) {
+      setState(() {
+        _selectedPort = result.portName;
+        _baudRate = result.baudRate;
+        _statusMessage =
+            'Detected display on ${result.portName} at ${result.baudRate} baud';
+        _statusColor = Colors.green;
+      });
+    } else {
+      setState(() {
+        _statusMessage =
+            'No customer display responded. Check the port and baud rate or reconnect the display.';
+        _statusColor = Colors.orange;
+      });
+    }
+
+    setState(() => _isAutoDetecting = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!customerDisplaySupported) {
@@ -167,10 +213,26 @@ class _CustomerDisplaySettingsScreenState
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text('COM Port', style: AppTextStyles.body1),
-                    TextButton.icon(
-                      onPressed: _refreshPorts,
-                      icon: const Icon(Icons.refresh, size: 18),
-                      label: const Text('Refresh'),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: _isAutoDetecting ? null : _autoDetect,
+                          icon: _isAutoDetecting
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                )
+                              : const Icon(Icons.search, size: 18),
+                          label: const Text('Auto detect'),
+                        ),
+                        TextButton.icon(
+                          onPressed: _refreshPorts,
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text('Refresh'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
