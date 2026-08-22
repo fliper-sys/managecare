@@ -435,6 +435,14 @@ class _AppState extends State<App> {
       return;
     }
 
+    // The auth refresh already has an authoritative subscription result for
+    // this user. Do not turn a concurrent validation failure into a payment
+    // redirect while that active entitlement is available locally.
+    if (_authProvider!.subscriptionValidated || user.isSubscriptionValid) {
+      _activeSubscriptionBlockedBusinessId = null;
+      return;
+    }
+
     final connectivity = _connectivityProviderRef;
     if (connectivity != null && !connectivity.isConnected) {
       debugPrint(

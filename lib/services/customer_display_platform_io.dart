@@ -30,14 +30,20 @@ Object? platformOpen(String portName, int baudRate) {
       port.dispose();
       return null;
     }
+
     final config = SerialPortConfig()
       ..baudRate = baudRate
       ..bits = 8
       ..parity = SerialPortParity.none
       ..stopBits = 1
       ..setFlowControl(SerialPortFlowControl.none);
+
+    // Do not dispose the config immediately after assigning it to the port.
+    // The library still owns and uses that native config state to drive the
+    // serial device; disposing it here can tear down the port while the app is
+    // still writing to it and trigger the kind of hard-close crash seen on
+    // POS terminals when a display test is sent to COM1.
     port.config = config;
-    config.dispose();
     return port;
   } catch (_) {
     return null;

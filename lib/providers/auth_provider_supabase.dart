@@ -7,7 +7,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../core/config/supabase_config.dart';
 import '../core/utils/connectivity_helper.dart';
 import '../data/models/user_model.dart';
 import '../data/repositories/auth_repository_supabase.dart';
@@ -66,6 +65,7 @@ class AuthProvider with ChangeNotifier {
   bool _subscriptionValidated = false;
   bool _isInitializingLocalStorage = true;
   final Completer<void> _initializationCompleter = Completer<void>();
+  final Completer<void> _authRestoreCompleter = Completer<void>();
 
   AuthProvider({
     AuthRepositorySupabase? authRepo,
@@ -81,6 +81,7 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<void> get initializationComplete => _initializationCompleter.future;
+  Future<void> get authRestoreComplete => _authRestoreCompleter.future;
 
   AuthStatus get status => _status;
   UserModel? get currentUser => _currentUser;
@@ -124,9 +125,15 @@ class AuthProvider with ChangeNotifier {
 
     // Listen to GoTrue auth state changes (replaces Firebase authStateChanges).
     _supabase.auth.onAuthStateChange.listen((event) {
+      unawaited(_handleAuthStateChange(event));
+    });
+  }
+
+  Future<void> _handleAuthStateChange(AuthState event) async {
+    try {
       final sessionUser = event.session?.user;
       if (sessionUser != null) {
-        _loadCurrentUser(
+        await _loadCurrentUser(
           sessionUser.id,
           allowSelfRecovery: _status == AuthStatus.loading,
         );
@@ -175,10 +182,24 @@ class AuthProvider with ChangeNotifier {
       }
 
       _goUnauthenticated();
-    });
+    } finally {
+      if (!_authRestoreCompleter.isCompleted) {
+        _authRestoreCompleter.complete();
+      }
+    }
   }
 
   void _goUnauthenticated() {
+    final cached = _localStorage?.getCachedUser();
+    if (isPersistentLoginEnabled && cached != null) {
+      _currentUser = cached;
+      _status = AuthStatus.authenticated;
+      _errorMessage = null;
+      _subscriptionValidated = true;
+      notifyListeners();
+      return;
+    }
+
     _status = AuthStatus.unauthenticated;
     _currentUser = null;
     notifyListeners();
@@ -268,6 +289,10 @@ class AuthProvider with ChangeNotifier {
     try {
       final access = await _authService.resolveUserAccess(userId);
       if (!access.isAllowed || access.user == null) {
+        if (_canKeepCachedUserAfterUncertainAccessFailure(userId, access.message)) {
+          await _restoreCachedUserForOfflineStartup(_localStorage!.getCachedUser()!);
+          return;
+        }
         await _forceLogoutBecauseAccessChanged(
           access.message ?? 'This account is no longer available.',
         );
@@ -672,6 +697,13 @@ class AuthProvider with ChangeNotifier {
     try {
       final access = await _authService.resolveUserAccess(id);
       if (!access.isAllowed || access.user == null) {
+        if (_canKeepCachedUserAfterUncertainAccessFailure(id, access.message)) {
+          _status = AuthStatus.authenticated;
+          _errorMessage = null;
+          _subscriptionValidated = _currentUser?.isSubscriptionValid == true;
+          notifyListeners();
+          return;
+        }
         await _forceLogoutBecauseAccessChanged(
           access.message ?? 'This account is no longer available.',
         );
@@ -769,6 +801,10 @@ class AuthProvider with ChangeNotifier {
 
       final access = await _authService.resolveUserAccess(uid);
       if (!access.isAllowed || access.user == null) {
+        if (_canKeepCachedUserAfterUncertainAccessFailure(uid, access.message)) {
+          await _restoreCachedUserForOfflineStartup(_localStorage!.getCachedUser()!);
+          return;
+        }
         await _forceLogoutBecauseAccessChanged(
           access.message ?? 'This account is no longer available.',
         );
@@ -795,6 +831,11 @@ class AuthProvider with ChangeNotifier {
       _subscribeToProfile(uid);
       notifyListeners();
     } catch (e) {
+      final cached = _localStorage?.getCachedUser();
+      if (isPersistentLoginEnabled && cached != null && cached.id == uid) {
+        await _restoreCachedUserForOfflineStartup(cached);
+        return;
+      }
       _status = AuthStatus.unauthenticated;
       _errorMessage = e.toString();
       notifyListeners();
@@ -846,10 +887,35 @@ class AuthProvider with ChangeNotifier {
         ? businessId!.trim()
         : _resolveCurrentBusinessId(user);
     if (resolvedBiz == null || resolvedBiz.isEmpty) return true;
-    return _subscriptionService.validateAndUpdateSubscriptionStatus(
+    final valid = await _subscriptionService.validateAndUpdateSubscriptionStatus(
       user.id,
       businessId: resolvedBiz,
     );
+    if (!valid && user.isSubscriptionValid) {
+      debugPrint(
+        '[AuthProvider] Subscription validation failed but cached entitlement '
+        'is still within access window for business $resolvedBiz.',
+      );
+      return true;
+    }
+    return valid;
+  }
+
+  bool _canKeepCachedUserAfterUncertainAccessFailure(
+    String userId,
+    String? message,
+  ) {
+    final cached = _localStorage?.getCachedUser();
+    if (!isPersistentLoginEnabled || cached == null || cached.id != userId) {
+      return false;
+    }
+
+    final lowerMessage = (message ?? '').toLowerCase();
+    return lowerMessage.contains('failed to load user profile') ||
+        lowerMessage.contains('socket') ||
+        lowerMessage.contains('timeout') ||
+        lowerMessage.contains('connection') ||
+        lowerMessage.contains('network');
   }
 
   String? _resolveCurrentBusinessId([UserModel? user]) {

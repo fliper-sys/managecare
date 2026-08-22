@@ -86,6 +86,7 @@ class _SalesScreenState extends State<SalesScreen>
   final _historySearchController = TextEditingController();
   String _historyQuery = '';
   String _selectedStoreFilterId = _allStoresValue;
+  String? _initializedBusinessId;
 
   // Handheld scanner mode (keyboard wedge) and controller
   bool _handheldMode = false;
@@ -105,7 +106,8 @@ class _SalesScreenState extends State<SalesScreen>
   bool _filterInStockOnly = false;
   String _productSort = 'none'; // 'none' | 'priceAsc' | 'priceDesc' | 'name'
   bool _isGridView = true; // Toggle between grid and list view
-  String _globalPricingMode = 'retail'; // 'retail' | 'wholesale' - global mode for all items
+  String _globalPricingMode =
+      'retail'; // 'retail' | 'wholesale' - global mode for all items
   bool _isCartPreviewCollapsed = false; // Toggle for cart preview collapse
 
   // Save reference to RetailProvider for safe cleanup in dispose()
@@ -119,31 +121,39 @@ class _SalesScreenState extends State<SalesScreen>
     // Save reference to RetailProvider for safe cleanup later
     _retailProvider = context.read<RetailProvider>();
 
-    // Initialize RetailProvider with business ID and load products
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final business = context.read<BusinessProvider>().currentBusiness;
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _initializeForCurrentBusiness());
+  }
 
-      if (business != null) {
-        final businessId = business.id;
-        _retailProvider.initialize(businessId).then((_) {
-          if (!mounted) return;
-          setState(() {
-            _globalPricingMode = _retailProvider.activeCartPricingMode;
-          });
-        });
-        // Subscribe to realtime sales history updates
-        _retailProvider.subscribeToSalesHistory((sales) async {
-          if (!mounted) return;
-          final merged = await _mergeWithLocalPendingSales(sales);
-          if (!mounted) return;
-          setState(() {
-            _salesHistory = merged;
-            _hasMoreHistory = sales.length >= _historyLimit;
-          });
-          print('[SalesScreen] Realtime sales update: ${sales.length}');
-        }, limit: _historyLimit);
-      }
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _initializeForCurrentBusiness());
+  }
+
+  Future<void> _initializeForCurrentBusiness() async {
+    if (!mounted) return;
+    final business = context.read<BusinessProvider>().currentBusiness;
+    if (business == null || business.id == _initializedBusinessId) return;
+
+    final businessId = business.id;
+    _initializedBusinessId = businessId;
+    await _retailProvider.initialize(businessId);
+    if (!mounted) return;
+    setState(() {
+      _globalPricingMode = _retailProvider.activeCartPricingMode;
     });
+    _retailProvider.subscribeToSalesHistory((sales) async {
+      if (!mounted) return;
+      final merged = await _mergeWithLocalPendingSales(sales);
+      if (!mounted) return;
+      setState(() {
+        _salesHistory = merged;
+        _hasMoreHistory = sales.length >= _historyLimit;
+      });
+      print('[SalesScreen] Realtime sales update: ${sales.length}');
+    }, limit: _historyLimit);
   }
 
   @override
@@ -162,10 +172,10 @@ class _SalesScreenState extends State<SalesScreen>
     final cartItemCountBeforeCheckout = retail.cartCount;
     final cartTotalBeforeCheckout = retail.cartTotal;
     final cartLabelBeforeCheckout = retail.activeCartLabel;
-    final checkoutStoreId = widget.enableStoreSwitcher &&
-            _selectedStoreFilterId != _allStoresValue
-        ? _selectedStoreFilterId
-        : null;
+    final checkoutStoreId =
+        widget.enableStoreSwitcher && _selectedStoreFilterId != _allStoresValue
+            ? _selectedStoreFilterId
+            : null;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -292,7 +302,8 @@ class _SalesScreenState extends State<SalesScreen>
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text('Sale could not be saved: $e. Please try again.'),
+                    content:
+                        Text('Sale could not be saved: $e. Please try again.'),
                     backgroundColor: AppColors.error,
                   ),
                 );
@@ -322,17 +333,20 @@ class _SalesScreenState extends State<SalesScreen>
               // The sync service will handle the actual Firestore update later.
               for (final item in items) {
                 final productId = item['productId'] as String?;
-                final quantitySold = (item['inventoryQuantity'] as num?)?.toDouble() ??
-                                     (item['quantity'] as num?)?.toDouble() ??
-                                     0.0;
-                if (productId != null && quantitySold > 0) { 
-                  try { 
-                    final product = retail.products.firstWhere((p) => p.id == productId); 
-                    final newStock = product.stock - quantitySold; 
-                    product.stock = newStock > 0 ? newStock : 0; 
-                  } catch (e) { 
-                    debugPrint('[SalesScreen] Could not find product $productId to update stock locally.'); 
-                  } 
+                final quantitySold =
+                    (item['inventoryQuantity'] as num?)?.toDouble() ??
+                        (item['quantity'] as num?)?.toDouble() ??
+                        0.0;
+                if (productId != null && quantitySold > 0) {
+                  try {
+                    final product =
+                        retail.products.firstWhere((p) => p.id == productId);
+                    final newStock = product.stock - quantitySold;
+                    product.stock = newStock > 0 ? newStock : 0;
+                  } catch (e) {
+                    debugPrint(
+                        '[SalesScreen] Could not find product $productId to update stock locally.');
+                  }
                 }
               }
             } else {
@@ -393,11 +407,11 @@ class _SalesScreenState extends State<SalesScreen>
                             })
                         .toList(),
                     paymentMethod: pm,
-                    paymentBreakdown:
-                        (saleMap['paymentBreakdown'] as List<dynamic>?)
-                            ?.map((entry) =>
-                                Map<String, dynamic>.from(entry as Map))
-                            .toList(),
+                    paymentBreakdown: (saleMap['paymentBreakdown']
+                            as List<dynamic>?)
+                        ?.map(
+                            (entry) => Map<String, dynamic>.from(entry as Map))
+                        .toList(),
                     businessLogo: business.logoUrl,
                     businessContact: business.phone,
                   );
@@ -450,11 +464,11 @@ class _SalesScreenState extends State<SalesScreen>
                     subtotal: saleMap['subtotal'] as double,
                     tax: saleMap['tax'] as double,
                     discount: saleMap['discount'] as double,
-                    paymentBreakdown:
-                        (saleMap['paymentBreakdown'] as List<dynamic>?)
-                            ?.map((entry) =>
-                                Map<String, dynamic>.from(entry as Map))
-                            .toList(),
+                    paymentBreakdown: (saleMap['paymentBreakdown']
+                            as List<dynamic>?)
+                        ?.map(
+                            (entry) => Map<String, dynamic>.from(entry as Map))
+                        .toList(),
                     saleTime: saleMap['createdAt'] as DateTime?,
                   );
 
@@ -477,7 +491,8 @@ class _SalesScreenState extends State<SalesScreen>
                 if (receiptSent && ownerNotificationSent) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Receipt and owner notification emails sent!'),
+                      content:
+                          Text('Receipt and owner notification emails sent!'),
                       backgroundColor: Colors.green,
                       duration: Duration(seconds: 2),
                     ),
@@ -485,7 +500,8 @@ class _SalesScreenState extends State<SalesScreen>
                 } else if (ownerNotificationSent) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Owner sale alert email sent successfully!'),
+                      content:
+                          Text('Owner sale alert email sent successfully!'),
                       backgroundColor: Colors.green,
                       duration: Duration(seconds: 2),
                     ),
@@ -493,7 +509,8 @@ class _SalesScreenState extends State<SalesScreen>
                 } else if (receiptSent) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Customer receipt email sent successfully!'),
+                      content:
+                          Text('Customer receipt email sent successfully!'),
                       backgroundColor: Colors.green,
                       duration: Duration(seconds: 2),
                     ),
@@ -562,7 +579,8 @@ class _SalesScreenState extends State<SalesScreen>
       if (retail.cartItems.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Add items to cart before generating an invoice.')),
+          const SnackBar(
+              content: Text('Add items to cart before generating an invoice.')),
         );
         return;
       }
@@ -718,7 +736,8 @@ class _SalesScreenState extends State<SalesScreen>
             onPressed: () async {
               Navigator.of(dialogContext).pop();
               if (kIsWeb) {
-                web_download.downloadBytes(pdfBytes, filename, 'application/pdf');
+                web_download.downloadBytes(
+                    pdfBytes, filename, 'application/pdf');
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('Invoice downloaded: $filename')),
@@ -760,7 +779,8 @@ class _SalesScreenState extends State<SalesScreen>
       final tempDir = await getTemporaryDirectory();
       final file = File('${tempDir.path}/$filename');
       await file.writeAsBytes(pdfBytes);
-      await Share.shareXFiles([XFile(file.path)], text: 'Invoice PDF', subject: 'Invoice');
+      await Share.shareXFiles([XFile(file.path)],
+          text: 'Invoice PDF', subject: 'Invoice');
     } catch (e) {
       try {
         final docsDir = await getApplicationDocumentsDirectory();
@@ -826,9 +846,8 @@ class _SalesScreenState extends State<SalesScreen>
       if (localPending.isEmpty) return serverSales;
 
       final existingIds = serverSales.map((s) => s['id']).toSet();
-      final normalizedLocal = localPending
-          .where((s) => !existingIds.contains(s['id']))
-          .map((s) {
+      final normalizedLocal =
+          localPending.where((s) => !existingIds.contains(s['id'])).map((s) {
         final merged = Map<String, dynamic>.from(s);
         final createdAtRaw = merged['createdAt'];
         if (createdAtRaw is String) {
@@ -932,8 +951,7 @@ class _SalesScreenState extends State<SalesScreen>
   }
 
   void _toggleGlobalPricingMode(RetailProvider retail) {
-    final newMode =
-        _globalPricingMode == 'retail' ? 'wholesale' : 'retail';
+    final newMode = _globalPricingMode == 'retail' ? 'wholesale' : 'retail';
     setState(() {
       _globalPricingMode = newMode;
     });
@@ -1006,8 +1024,7 @@ class _SalesScreenState extends State<SalesScreen>
                           retail.closeCart(session.id);
                           if (!mounted) return;
                           setState(() {
-                            _globalPricingMode =
-                                retail.activeCartPricingMode;
+                            _globalPricingMode = retail.activeCartPricingMode;
                           });
                         }
                       : null,
@@ -1238,14 +1255,13 @@ class _SalesScreenState extends State<SalesScreen>
           Consumer<RetailProvider>(
             builder: (context, retail, _) => IconButton(
               icon: Icon(
-                _globalPricingMode == 'wholesale' 
-                  ? Icons.business_center 
-                  : Icons.shopping_cart,
-                color: _globalPricingMode == 'wholesale' 
-                  ? Colors.orange 
-                  : null,
+                _globalPricingMode == 'wholesale'
+                    ? Icons.business_center
+                    : Icons.shopping_cart,
+                color: _globalPricingMode == 'wholesale' ? Colors.orange : null,
               ),
-              tooltip: 'Toggle ${_globalPricingMode == 'retail' ? 'Wholesale' : 'Retail'} Mode',
+              tooltip:
+                  'Toggle ${_globalPricingMode == 'retail' ? 'Wholesale' : 'Retail'} Mode',
               onPressed: () => _toggleGlobalPricingMode(retail),
             ),
           ),
@@ -1276,8 +1292,7 @@ class _SalesScreenState extends State<SalesScreen>
         children: [
           const AppHeader(showBusinessSwitcher: false),
           _buildCartSessionStrip(context, retail),
-          if (widget.enableStoreSwitcher)
-            _buildStoreSwitcher(retail),
+          if (widget.enableStoreSwitcher) _buildStoreSwitcher(retail),
           // Handheld scanner input (keyboard wedge)
           if (_handheldMode)
             Container(
@@ -1562,7 +1577,8 @@ class _SalesScreenState extends State<SalesScreen>
       return const SizedBox.shrink();
     }
 
-    final selectedValue = stores.any((store) => store.id == _selectedStoreFilterId)
+    final selectedValue =
+        stores.any((store) => store.id == _selectedStoreFilterId)
             ? _selectedStoreFilterId
             : _allStoresValue;
 
@@ -1663,9 +1679,8 @@ class _SalesScreenState extends State<SalesScreen>
                                 style: AppTextStyles.body1
                                     .copyWith(fontWeight: FontWeight.w600)),
                             Text(
-                              formatCurrency(
-                                  retail.getEffectivePriceForCartItem(
-                                      e.key.id)),
+                              formatCurrency(retail
+                                  .getEffectivePriceForCartItem(e.key.id)),
                               style: AppTextStyles.body2,
                             ),
                           ],
@@ -1881,39 +1896,39 @@ class _SalesScreenState extends State<SalesScreen>
                           ? DateFormat('dd/MM/yyyy HH:mm')
                               .format(parseTimestamp(sale['createdAt']))
                           : 'Unknown time';
-                        final amount = sale['totalAmount'] as num? ?? 0;
-                        var worker = sale['workerName'] as String? ?? '';
-                        if (worker.isEmpty) {
-                          final workerId = (sale['workerId'] as String?) ??
-                              (sale['createdBy'] as String?);
-                          if (workerId != null && workerId.isNotEmpty) {
-                            // Workers are scoped to the current business, unlike
-                            // AdminProvider's user list which is only populated
-                            // on admin screens and is empty here — looking it up
-                            // there always fell through to "Unknown".
-                            final workersProvider =
-                                context.read<WorkersProvider>();
-                            final match = workersProvider.workers.firstWhere(
-                              (w) => (w['id'] as String?) == workerId,
-                              orElse: () => <String, dynamic>{},
-                            );
-                            worker = (match['name'] ?? match['fullName'])
-                                    as String? ??
-                                '';
-                          }
+                      final amount = sale['totalAmount'] as num? ?? 0;
+                      var worker = sale['workerName'] as String? ?? '';
+                      if (worker.isEmpty) {
+                        final workerId = (sale['workerId'] as String?) ??
+                            (sale['createdBy'] as String?);
+                        if (workerId != null && workerId.isNotEmpty) {
+                          // Workers are scoped to the current business, unlike
+                          // AdminProvider's user list which is only populated
+                          // on admin screens and is empty here — looking it up
+                          // there always fell through to "Unknown".
+                          final workersProvider =
+                              context.read<WorkersProvider>();
+                          final match = workersProvider.workers.firstWhere(
+                            (w) => (w['id'] as String?) == workerId,
+                            orElse: () => <String, dynamic>{},
+                          );
+                          worker =
+                              (match['name'] ?? match['fullName']) as String? ??
+                                  '';
                         }
-                        if (worker.isEmpty) worker = 'Unknown';
-                        final isRefunded = (sale['hasReturn'] == true) ||
+                      }
+                      if (worker.isEmpty) worker = 'Unknown';
+                      final isRefunded = (sale['hasReturn'] == true) ||
                           (sale['saleStatus']?.toString().toLowerCase() ==
-                            'refunded') ||
+                              'refunded') ||
                           ((sale['status'] ?? '').toString().toLowerCase() ==
-                            'refunded');
-                        final isPendingSync =
-                            sale['pendingSync'] as bool? ?? false;
-                        final refundedAtText = sale['returnedAt'] != null
-                            ? DateFormat('dd/MM/yyyy HH:mm')
-                                .format(parseTimestamp(sale['returnedAt']))
-                            : null;
+                              'refunded');
+                      final isPendingSync =
+                          sale['pendingSync'] as bool? ?? false;
+                      final refundedAtText = sale['returnedAt'] != null
+                          ? DateFormat('dd/MM/yyyy HH:mm')
+                              .format(parseTimestamp(sale['returnedAt']))
+                          : null;
                       final itemCount = (sale['items'] as List?)?.length ??
                           (sale['cartItems'] as List?)?.length;
 
@@ -1954,9 +1969,10 @@ class _SalesScreenState extends State<SalesScreen>
                                                 'Sale #${sale['referenceId'] ?? _shortSaleRef(sale['id'])}',
                                                 overflow: TextOverflow.ellipsis,
                                                 maxLines: 1,
-                                                style: AppTextStyles.body1.copyWith(
-                                                    fontWeight:
-                                                        FontWeight.w600)),
+                                                style: AppTextStyles.body1
+                                                    .copyWith(
+                                                        fontWeight:
+                                                            FontWeight.w600)),
                                           ),
                                           if (isRefunded) ...[
                                             const SizedBox(width: 8),
@@ -1965,20 +1981,27 @@ class _SalesScreenState extends State<SalesScreen>
                                                   ? 'Refunded on $refundedAtText'
                                                   : 'Refunded',
                                               child: Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                    horizontal: 8, vertical: 4),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 4),
                                                 decoration: BoxDecoration(
-                                                  color: AppColors.warning.withOpacity(0.12),
+                                                  color: AppColors.warning
+                                                      .withOpacity(0.12),
                                                   borderRadius:
                                                       BorderRadius.circular(12),
                                                   border: Border.all(
-                                                      color: AppColors.warning.withOpacity(0.3)),
+                                                      color: AppColors.warning
+                                                          .withOpacity(0.3)),
                                                 ),
                                                 child: Text('Refunded',
-                                                    style: AppTextStyles.body2.copyWith(
-                                                        color: AppColors.warning,
-                                                        fontWeight:
-                                                            FontWeight.w600)),
+                                                    style: AppTextStyles.body2
+                                                        .copyWith(
+                                                            color: AppColors
+                                                                .warning,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w600)),
                                               ),
                                             ),
                                           ],
@@ -2012,9 +2035,8 @@ class _SalesScreenState extends State<SalesScreen>
                                                           .textSecondary)),
                                         ],
                                         Text(worker,
-                                            style: AppTextStyles.body2
-                                                .copyWith(
-                                                    fontWeight: FontWeight.w500)),
+                                            style: AppTextStyles.body2.copyWith(
+                                                fontWeight: FontWeight.w500)),
                                       ],
                                     ),
                                     Text(formattedTime,
@@ -2057,10 +2079,12 @@ class _SalesScreenState extends State<SalesScreen>
                                               'refunded')))
                                         OutlinedButton.icon(
                                           onPressed: () async {
-                                            final confirmed = await showDialog<bool>(
+                                            final confirmed =
+                                                await showDialog<bool>(
                                               context: context,
                                               builder: (dCtx) => AlertDialog(
-                                                title: const Text('Confirm refund'),
+                                                title: const Text(
+                                                    'Confirm refund'),
                                                 content: Text(
                                                     'Process refund for sale ${sale['referenceId'] ?? sale['id']}?'),
                                                 actions: [
@@ -2068,27 +2092,31 @@ class _SalesScreenState extends State<SalesScreen>
                                                       onPressed: () =>
                                                           Navigator.of(dCtx)
                                                               .pop(false),
-                                                      child: const Text('Cancel')),
+                                                      child:
+                                                          const Text('Cancel')),
                                                   ElevatedButton(
                                                       onPressed: () =>
                                                           Navigator.of(dCtx)
                                                               .pop(true),
-                                                      style: ElevatedButton.styleFrom(
-                                                          backgroundColor:
-                                                              AppColors.error),
-                                                      child: const Text('Continue')),
+                                                      style: ElevatedButton
+                                                          .styleFrom(
+                                                              backgroundColor:
+                                                                  AppColors
+                                                                      .error),
+                                                      child: const Text(
+                                                          'Continue')),
                                                 ],
                                               ),
                                             );
                                             if (confirmed == true) {
                                               Navigator.of(context)
                                                   .push(
-                                                    MaterialPageRoute(
-                                                      builder: (context) =>
-                                                          ReturnRefundScreen(
-                                                              sale: sale),
-                                                    ),
-                                                  )
+                                                MaterialPageRoute(
+                                                  builder: (context) =>
+                                                      ReturnRefundScreen(
+                                                          sale: sale),
+                                                ),
+                                              )
                                                   .then((result) {
                                                 if (result != null && mounted) {
                                                   _loadSalesHistory();
@@ -2251,11 +2279,11 @@ class _SalesScreenState extends State<SalesScreen>
                             Navigator.pop(c);
                             Navigator.of(context)
                                 .push(
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        ReturnRefundScreen(sale: sale),
-                                  ),
-                                )
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    ReturnRefundScreen(sale: sale),
+                              ),
+                            )
                                 .then((result) {
                               if (result != null && mounted) {
                                 _loadSalesHistory();
@@ -2306,7 +2334,8 @@ class _ProductsGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final allProducts = context.watch<RetailProvider>().products;
+    final retail = context.watch<RetailProvider>();
+    final allProducts = retail.products;
     // PharmacyRepositoryImpl.fetchDrugs() reads from the generic
     // /inventory/:businessId endpoint with no pharmacy-specific filter, so
     // PharmacyProvider ends up holding *every* business's full inventory
@@ -2432,8 +2461,18 @@ class _ProductsGrid extends StatelessWidget {
             itemCount: products.length,
             itemBuilder: (context, index) {
               final product = products[index];
+              final cartQuantity = retail.cartItems.entries
+                  .where((entry) => entry.key.id == product.id)
+                  .fold<int>(0, (total, entry) => total + entry.value);
+              final saleUnitMultiplier =
+                  retail.getEffectiveSaleUnitMultiplierForCartItem(product.id);
+              final displayStock =
+                  (product.stock - cartQuantity * saleUnitMultiplier)
+                      .clamp(0, double.infinity)
+                      .toDouble();
               return _ProductCard(
                 product: product,
+                displayStock: displayStock,
                 onAdd: () => onAddToCart(product),
                 globalPricingMode: globalPricingMode,
               );
@@ -2446,10 +2485,20 @@ class _ProductsGrid extends StatelessWidget {
             itemCount: products.length,
             itemBuilder: (context, index) {
               final product = products[index];
+              final cartQuantity = retail.cartItems.entries
+                  .where((entry) => entry.key.id == product.id)
+                  .fold<int>(0, (total, entry) => total + entry.value);
+              final saleUnitMultiplier =
+                  retail.getEffectiveSaleUnitMultiplierForCartItem(product.id);
+              final displayStock =
+                  (product.stock - cartQuantity * saleUnitMultiplier)
+                      .clamp(0, double.infinity)
+                      .toDouble();
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: _ProductListTile(
                   product: product,
+                  displayStock: displayStock,
                   onAdd: () => onAddToCart(product),
                   globalPricingMode: globalPricingMode,
                 ),
@@ -2464,13 +2513,20 @@ class _ProductsGrid extends StatelessWidget {
 
 class _ProductCard extends StatelessWidget {
   final Product product;
+  final double displayStock;
   final VoidCallback onAdd;
   final String globalPricingMode;
 
-  const _ProductCard({required this.product, required this.onAdd, required this.globalPricingMode});
+  const _ProductCard(
+      {required this.product,
+      required this.displayStock,
+      required this.onAdd,
+      required this.globalPricingMode});
 
   double getEffectivePrice() {
-    if (globalPricingMode == 'wholesale' && product.hasWholesalePricing && product.wholesalePrice != null) {
+    if (globalPricingMode == 'wholesale' &&
+        product.hasWholesalePricing &&
+        product.wholesalePrice != null) {
       return product.wholesalePrice!;
     }
     return product.price;
@@ -2558,7 +2614,7 @@ class _ProductCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Stock: ${product.stock}',
+                  'Stock: ${displayStock.toStringAsFixed(displayStock.truncateToDouble() == displayStock ? 0 : 2)}',
                   style: AppTextStyles.body2Secondary,
                 ),
                 const SizedBox(height: 8),
@@ -2589,11 +2645,13 @@ class _ProductCard extends StatelessWidget {
 
 class _ProductListTile extends StatelessWidget {
   final Product product;
+  final double displayStock;
   final VoidCallback onAdd;
   final String globalPricingMode;
 
   const _ProductListTile({
     required this.product,
+    required this.displayStock,
     required this.onAdd,
     required this.globalPricingMode,
   });
@@ -2660,7 +2718,7 @@ class _ProductListTile extends StatelessWidget {
                 ),
               ),
             Text(
-              '₦${(globalPricingMode == 'wholesale' && product.hasWholesalePricing && product.wholesalePrice != null ? product.wholesalePrice! : product.price).toStringAsFixed(2)} • Stock: ${product.stock.toInt()}',
+              '₦${(globalPricingMode == 'wholesale' && product.hasWholesalePricing && product.wholesalePrice != null ? product.wholesalePrice! : product.price).toStringAsFixed(2)} • Stock: ${displayStock.toStringAsFixed(displayStock.truncateToDouble() == displayStock ? 0 : 2)}',
               style: AppTextStyles.body2Secondary,
             ),
           ],
@@ -3253,106 +3311,108 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                 children: [
                                   if (canEditSalePrice)
                                     SizedBox(
-                                    width: 120,
-                                    child: TextFormField(
-                                      // Deliberately uncontrolled
-                                      // (initialValue, no
-                                      // TextEditingController) - once
-                                      // mounted, changing initialValue on a
-                                      // later rebuild does *not* touch the
-                                      // field's live text/cursor, which is
-                                      // exactly what's needed while the
-                                      // user is mid-edit. The key is scoped
-                                      // to the *stored* pricing mode
-                                      // (unaffected by ordinary typing -
-                                      // only retail.setPricingModeForCartItem
-                                      // changes it, i.e. tapping a
-                                      // Retail/Wholesale chip below), so
-                                      // typing a custom value never
-                                      // recreates this field, but toggling
-                                      // a chip correctly forces a fresh one
-                                      // showing the new price.
-                                      key: ValueKey(
-                                          'price_${item.id}_${retail.getPricingModeForCartItem(item.id)}'),
-                                      initialValue:
-                                          (_priceOverrides[item.id] ?? item.price)
-                                              .toStringAsFixed(2),
-                                      // This runs on Windows desktop (POS
-                                      // terminals), where a numeric
-                                      // keyboardType is meaningless for a
-                                      // physical keyboard but still changes
-                                      // how the engine tracks the cursor -
-                                      // TextInputType.numberWithOptions
-                                      // combined with no inputFormatters had
-                                      // a known cursor-tracking bug around
-                                      // the decimal point on desktop (typing
-                                      // before the decimal appeared to do
-                                      // nothing until the cursor was moved
-                                      // past it). Plain text + an explicit
-                                      // decimal formatter sidesteps it.
-                                      keyboardType: TextInputType.text,
-                                      inputFormatters: [
-                                        DecimalInputFormatter(),
-                                      ],
-                                      decoration: InputDecoration(
-                                        prefixText: '₦',
-                                        isDense: true,
-                                        filled: true,
-                                        fillColor: theme.inputDecorationTheme
-                                                .fillColor ??
-                                            theme.cardColor,
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                                vertical: 12, horizontal: 8),
+                                      width: 120,
+                                      child: TextFormField(
+                                        // Deliberately uncontrolled
+                                        // (initialValue, no
+                                        // TextEditingController) - once
+                                        // mounted, changing initialValue on a
+                                        // later rebuild does *not* touch the
+                                        // field's live text/cursor, which is
+                                        // exactly what's needed while the
+                                        // user is mid-edit. The key is scoped
+                                        // to the *stored* pricing mode
+                                        // (unaffected by ordinary typing -
+                                        // only retail.setPricingModeForCartItem
+                                        // changes it, i.e. tapping a
+                                        // Retail/Wholesale chip below), so
+                                        // typing a custom value never
+                                        // recreates this field, but toggling
+                                        // a chip correctly forces a fresh one
+                                        // showing the new price.
+                                        key: ValueKey(
+                                            'price_${item.id}_${retail.getPricingModeForCartItem(item.id)}'),
+                                        initialValue:
+                                            (_priceOverrides[item.id] ??
+                                                    item.price)
+                                                .toStringAsFixed(2),
+                                        // This runs on Windows desktop (POS
+                                        // terminals), where a numeric
+                                        // keyboardType is meaningless for a
+                                        // physical keyboard but still changes
+                                        // how the engine tracks the cursor -
+                                        // TextInputType.numberWithOptions
+                                        // combined with no inputFormatters had
+                                        // a known cursor-tracking bug around
+                                        // the decimal point on desktop (typing
+                                        // before the decimal appeared to do
+                                        // nothing until the cursor was moved
+                                        // past it). Plain text + an explicit
+                                        // decimal formatter sidesteps it.
+                                        keyboardType: TextInputType.text,
+                                        inputFormatters: [
+                                          DecimalInputFormatter(),
+                                        ],
+                                        decoration: InputDecoration(
+                                          prefixText: '₦',
+                                          isDense: true,
+                                          filled: true,
+                                          fillColor: theme.inputDecorationTheme
+                                                  .fillColor ??
+                                              theme.cardColor,
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                  vertical: 12, horizontal: 8),
+                                        ),
+                                        onChanged: (v) {
+                                          final normalized =
+                                              v.replaceAll(',', '').trim();
+                                          final parsed = normalized.isEmpty
+                                              ? 0.0
+                                              : double.tryParse(normalized);
+                                          if (parsed == null) return;
+                                          if (parsed < 0) {
+                                            // Show error for negative prices
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                    'Price cannot be negative'),
+                                                backgroundColor: Colors.red,
+                                              ),
+                                            );
+                                            return;
+                                          }
+                                          if ((parsed - item.price).abs() <
+                                              0.0001) {
+                                            retail.setPricingModeForCartItem(
+                                              item.id,
+                                              'retail',
+                                            );
+                                            _manualPriceOverrideProductIds
+                                                .remove(item.id);
+                                          } else if (item.hasWholesalePricing &&
+                                              item.wholesalePrice != null &&
+                                              (parsed - item.wholesalePrice!)
+                                                      .abs() <
+                                                  0.0001) {
+                                            retail.setPricingModeForCartItem(
+                                              item.id,
+                                              'wholesale',
+                                            );
+                                            _manualPriceOverrideProductIds
+                                                .remove(item.id);
+                                          } else {
+                                            _manualPriceOverrideProductIds
+                                                .add(item.id);
+                                          }
+                                          setState(() {
+                                            _setPriceOverrideValue(
+                                                item.id, parsed);
+                                          });
+                                        },
                                       ),
-                                      onChanged: (v) {
-                                        final normalized =
-                                            v.replaceAll(',', '').trim();
-                                        final parsed = normalized.isEmpty
-                                            ? 0.0
-                                            : double.tryParse(normalized);
-                                        if (parsed == null) return;
-                                        if (parsed < 0) {
-                                          // Show error for negative prices
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                  'Price cannot be negative'),
-                                              backgroundColor: Colors.red,
-                                            ),
-                                          );
-                                          return;
-                                        }
-                                        if ((parsed - item.price).abs() <
-                                            0.0001) {
-                                          retail.setPricingModeForCartItem(
-                                            item.id,
-                                            'retail',
-                                          );
-                                          _manualPriceOverrideProductIds
-                                              .remove(item.id);
-                                        } else if (item.hasWholesalePricing &&
-                                            item.wholesalePrice != null &&
-                                            (parsed - item.wholesalePrice!)
-                                                    .abs() <
-                                                0.0001) {
-                                          retail.setPricingModeForCartItem(
-                                            item.id,
-                                            'wholesale',
-                                          );
-                                          _manualPriceOverrideProductIds
-                                              .remove(item.id);
-                                        } else {
-                                          _manualPriceOverrideProductIds
-                                              .add(item.id);
-                                        }
-                                        setState(() {
-                                          _setPriceOverrideValue(item.id, parsed);
-                                        });
-                                      },
-                                    ),
-                                  )
+                                    )
                                   else
                                     Text(
                                       '₦${(_priceOverrides[item.id] ?? item.price).toStringAsFixed(2)}',
@@ -3373,9 +3433,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                     ChoiceChip(
                                       label: Text(
                                           'Retail ₦${item.price.toStringAsFixed(2)}'),
-                                      selected:
-                                          _pricingModeFor(retail, item) ==
-                                              'retail',
+                                      selected: _pricingModeFor(retail, item) ==
+                                          'retail',
                                       onSelected: (_) {
                                         setState(() {
                                           _applyModePrice(
@@ -3387,9 +3446,8 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                                       label: Text(
                                         'Wholesale ₦${item.wholesalePrice!.toStringAsFixed(2)}',
                                       ),
-                                      selected:
-                                          _pricingModeFor(retail, item) ==
-                                              'wholesale',
+                                      selected: _pricingModeFor(retail, item) ==
+                                          'wholesale',
                                       onSelected: (_) {
                                         setState(() {
                                           _applyModePrice(
@@ -3722,36 +3780,36 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                         const SizedBox(height: 12),
                         // Discount Field
                         Row(
-                        children: [
-                          Expanded(
-                            child: Text('Discount (₦)',
-                                style: AppTextStyles.body2),
-                          ),
-                          SizedBox(
-                            width: 100,
-                            child: TextFormField(
-                              controller: _discountController,
-                              keyboardType: TextInputType.text,
-                              inputFormatters: [
-                                DecimalInputFormatter(),
-                              ],
-                              decoration: InputDecoration(
-                                hintText: '0',
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 8),
-                                border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(4)),
-                              ),
-                              onChanged: (_) => setState(() {}),
+                          children: [
+                            Expanded(
+                              child: Text('Discount (₦)',
+                                  style: AppTextStyles.body2),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                              '-₦${(double.tryParse(_discountController.text) ?? 0).toStringAsFixed(2)}',
-                              style: AppTextStyles.caption
-                                  .copyWith(color: AppColors.success)),
-                        ],
+                            SizedBox(
+                              width: 100,
+                              child: TextFormField(
+                                controller: _discountController,
+                                keyboardType: TextInputType.text,
+                                inputFormatters: [
+                                  DecimalInputFormatter(),
+                                ],
+                                decoration: InputDecoration(
+                                  hintText: '0',
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 8),
+                                  border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(4)),
+                                ),
+                                onChanged: (_) => setState(() {}),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                                '-₦${(double.tryParse(_discountController.text) ?? 0).toStringAsFixed(2)}',
+                                style: AppTextStyles.caption
+                                    .copyWith(color: AppColors.success)),
+                          ],
                         ),
                       ],
                     ],

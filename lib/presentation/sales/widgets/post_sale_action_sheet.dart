@@ -19,7 +19,8 @@ import '../../../services/thermal_printer_manager.dart';
 import '../../../services/thermal_printing_service.dart';
 import '../../../services/esc_pos_receipt_generator.dart';
 import '../../../services/pdf_receipt_generator.dart';
-import '../../../services/windows_raw_print_service.dart';
+import '../../../services/windows_raw_print_service.dart'
+    if (dart.library.html) '../../../services/windows_raw_print_service_stub.dart';
 import '../../settings/screens/pdf_preview_page.dart';
 import '../../../services/web_download.dart' as web_download;
 import '../../../services/email_service.dart';

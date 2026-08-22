@@ -70,7 +70,8 @@ class InventoryRepositorySupabase implements InventoryRepository {
   }
 
   @override
-  Future<void> updateInventory(String inventoryId, Map<String, dynamic> inventoryData) async {
+  Future<void> updateInventory(
+      String inventoryId, Map<String, dynamic> inventoryData) async {
     try {
       final businessId = inventoryData['businessId']?.toString() ?? '';
       if (businessId.isEmpty) throw Exception('businessId is required');
@@ -86,10 +87,12 @@ class InventoryRepositorySupabase implements InventoryRepository {
 
   @override
   Future<void> deleteInventory(String inventoryId) async {
-    throw UnimplementedError('Use deleteInventoryForBusiness(businessId, inventoryId) instead');
+    throw UnimplementedError(
+        'Use deleteInventoryForBusiness(businessId, inventoryId) instead');
   }
 
-  Future<void> deleteInventoryForBusiness(String businessId, String inventoryId) async {
+  Future<void> deleteInventoryForBusiness(
+      String businessId, String inventoryId) async {
     try {
       await _http.delete(
         '/inventory/$businessId/$inventoryId',
@@ -114,12 +117,19 @@ class InventoryRepositorySupabase implements InventoryRepository {
     try {
       final queryParams = <String, dynamic>{};
       if (filters != null) {
-        if (filters.containsKey('category')) queryParams['category'] = filters['category'];
-        if (filters.containsKey('search')) queryParams['search'] = filters['search'];
-        if (filters.containsKey('lowStock')) queryParams['lowStock'] = filters['lowStock'] == true ? 'true' : 'false';
-        if (filters.containsKey('isActive')) queryParams['isActive'] = filters['isActive'] == true ? 'true' : 'false';
+        if (filters.containsKey('category'))
+          queryParams['category'] = filters['category'];
+        if (filters.containsKey('search'))
+          queryParams['search'] = filters['search'];
+        if (filters.containsKey('lowStock'))
+          queryParams['lowStock'] =
+              filters['lowStock'] == true ? 'true' : 'false';
+        if (filters.containsKey('isActive'))
+          queryParams['isActive'] =
+              filters['isActive'] == true ? 'true' : 'false';
       }
-      if (storeId != null && storeId.isNotEmpty) queryParams['storeId'] = storeId;
+      if (storeId != null && storeId.isNotEmpty)
+        queryParams['storeId'] = storeId;
       // The backend paginates this endpoint (default 50/page, 500 max) so a
       // single request silently truncates any business with a larger catalog
       // - callers throughout the app (loadProducts, this screen's list, etc.)
@@ -143,8 +153,11 @@ class InventoryRepositorySupabase implements InventoryRepository {
         // blast dozens of simultaneous requests at the backend's DB
         // connection pool and starve unrelated requests.
         const batchSize = 5;
-        for (var batchStart = 2; batchStart <= totalPages; batchStart += batchSize) {
-          final batchEnd = (batchStart + batchSize - 1).clamp(batchStart, totalPages);
+        for (var batchStart = 2;
+            batchStart <= totalPages;
+            batchStart += batchSize) {
+          final batchEnd =
+              (batchStart + batchSize - 1).clamp(batchStart, totalPages);
           final batch = await Future.wait([
             for (var page = batchStart; page <= batchEnd; page++)
               _http.get(
@@ -182,21 +195,25 @@ class InventoryRepositorySupabase implements InventoryRepository {
       // failure should never block showing the data that was just fetched.
       if (isFullFetch) {
         unawaited(_cacheInventory(businessId, items).catchError(
-          (e) => debugPrint('[InventoryRepositorySupabase] Cache write failed: $e'),
+          (e) => debugPrint(
+              '[InventoryRepositorySupabase] Cache write failed: $e'),
         ));
       }
 
       return items;
-    } on DioException catch (e) {
+    } catch (e) {
       if (isFullFetch) {
         final cached = await _getCachedInventory(businessId);
         if (cached.isNotEmpty) {
           debugPrint(
-              '[InventoryRepositorySupabase] Network fetch failed, serving ${cached.length} cached item(s): ${_extractError(e)}');
+              '[InventoryRepositorySupabase] Inventory fetch failed, serving ${cached.length} cached item(s): $e');
           return cached;
         }
       }
-      throw Exception('Failed to fetch inventory: ${_extractError(e)}');
+      if (e is DioException) {
+        throw Exception('Failed to fetch inventory: ${_extractError(e)}');
+      }
+      rethrow;
     }
   }
 
@@ -205,7 +222,8 @@ class InventoryRepositorySupabase implements InventoryRepository {
   // camelCase columns, so it's read back below as if it came from the API.
 
   Future<void> _cacheInventory(String businessId, List<dynamic> items) async {
-    await _dbHelper.delete('inventory', where: 'businessId = ?', whereArgs: [businessId]);
+    await _dbHelper
+        .delete('inventory', where: 'businessId = ?', whereArgs: [businessId]);
     for (final raw in items) {
       final row = Map<String, dynamic>.from(raw as Map);
       await _dbHelper.insert('inventory', {
@@ -224,7 +242,8 @@ class InventoryRepositorySupabase implements InventoryRepository {
         'unit': row['unit'] ?? 'pcs',
         'expiryDate': row['expiry_date']?.toString(),
         'isActive': row['is_active'] == false ? 0 : 1,
-        'createdAt': row['created_at']?.toString() ?? DateTime.now().toIso8601String(),
+        'createdAt':
+            row['created_at']?.toString() ?? DateTime.now().toIso8601String(),
         'updatedAt': row['updated_at']?.toString(),
         'syncStatus': 'synced',
         'storeId': row['store_id'],
@@ -240,8 +259,10 @@ class InventoryRepositorySupabase implements InventoryRepository {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _getCachedInventory(String businessId) async {
-    final rows = await _dbHelper.query('inventory', where: 'businessId = ?', whereArgs: [businessId]);
+  Future<List<Map<String, dynamic>>> _getCachedInventory(
+      String businessId) async {
+    final rows = await _dbHelper
+        .query('inventory', where: 'businessId = ?', whereArgs: [businessId]);
     // Re-shape back to the same snake_case keys the network response uses,
     // so callers (Product.fromJson and friends) can't tell the difference.
     return rows
@@ -303,12 +324,15 @@ class InventoryRepositorySupabase implements InventoryRepository {
   }
 
   @override
-  Future<List<dynamic>> getLowStockItems(String businessId, {String? storeId}) async {
-    return getInventory(businessId, filters: {'lowStock': true}, storeId: storeId);
+  Future<List<dynamic>> getLowStockItems(String businessId,
+      {String? storeId}) async {
+    return getInventory(businessId,
+        filters: {'lowStock': true}, storeId: storeId);
   }
 
   @override
-  Future<List<dynamic>> getExpiredItems(String businessId, {String? storeId}) async {
+  Future<List<dynamic>> getExpiredItems(String businessId,
+      {String? storeId}) async {
     try {
       final data = await getInventory(businessId, storeId: storeId);
       return data.where((item) {
@@ -323,8 +347,10 @@ class InventoryRepositorySupabase implements InventoryRepository {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> fetchInventory({String? businessId, String? storeId}) async {
-    if (businessId == null || businessId.isEmpty) throw Exception('Business ID is required');
+  Future<List<Map<String, dynamic>>> fetchInventory(
+      {String? businessId, String? storeId}) async {
+    if (businessId == null || businessId.isEmpty)
+      throw Exception('Business ID is required');
     final result = await getInventory(businessId, storeId: storeId);
     return result.cast<Map<String, dynamic>>();
   }
@@ -347,7 +373,8 @@ class InventoryRepositorySupabase implements InventoryRepository {
   static const _pollInterval = Duration(seconds: 30);
 
   @override
-  Stream<List<Map<String, dynamic>>> streamInventory(String businessId, {String? storeId}) async* {
+  Stream<List<Map<String, dynamic>>> streamInventory(String businessId,
+      {String? storeId}) async* {
     while (true) {
       try {
         final items = await getInventory(businessId, storeId: storeId);
@@ -360,7 +387,8 @@ class InventoryRepositorySupabase implements InventoryRepository {
   }
 
   @override
-  Future<void> addHistoryEntry(String businessId, String inventoryId, Map<String, dynamic> entry) async {
+  Future<void> addHistoryEntry(
+      String businessId, String inventoryId, Map<String, dynamic> entry) async {
     try {
       await _http.post(
         '/inventory/$businessId/$inventoryId/history',
@@ -373,7 +401,8 @@ class InventoryRepositorySupabase implements InventoryRepository {
   }
 
   @override
-  Stream<List<Map<String, dynamic>>> streamInventoryHistory(String businessId, String inventoryId) async* {
+  Stream<List<Map<String, dynamic>>> streamInventoryHistory(
+      String businessId, String inventoryId) async* {
     while (true) {
       try {
         final response = await _http.get(
@@ -390,7 +419,8 @@ class InventoryRepositorySupabase implements InventoryRepository {
   }
 
   @override
-  Future<int> assignAllInventoryToStore(String businessId, String storeId) async {
+  Future<int> assignAllInventoryToStore(
+      String businessId, String storeId) async {
     try {
       final response = await _http.patch(
         '/inventory/$businessId/assign-store',
@@ -399,12 +429,14 @@ class InventoryRepositorySupabase implements InventoryRepository {
       );
       return (response.data['updated'] as int?) ?? 0;
     } on DioException catch (e) {
-      throw Exception('Failed to assign inventory to store: ${_extractError(e)}');
+      throw Exception(
+          'Failed to assign inventory to store: ${_extractError(e)}');
     }
   }
 
   @override
-  Future<void> syncInventoryToFirestore(Map<String, dynamic> inventoryData) async {
+  Future<void> syncInventoryToFirestore(
+      Map<String, dynamic> inventoryData) async {
     try {
       final businessId = inventoryData['businessId']?.toString() ?? '';
       if (businessId.isEmpty) throw Exception('businessId required');
@@ -519,17 +551,32 @@ class InventoryRepositorySupabase implements InventoryRepository {
   // and snake_case spellings a caller might use for each), plus a couple of
   // routing-only keys that never belong in the payload body at all.
   static const _knownPayloadKeys = {
-    'name', 'sku', 'barcode', 'category', 'description',
-    'unitPrice', 'unit_price', 'price',
-    'costPrice', 'cost_price', 'cost',
-    'quantity', 'stock',
-    'minStockLevel', 'min_stock_level',
+    'name',
+    'sku',
+    'barcode',
+    'category',
+    'description',
+    'unitPrice',
+    'unit_price',
+    'price',
+    'costPrice',
+    'cost_price',
+    'cost',
+    'quantity',
+    'stock',
+    'minStockLevel',
+    'min_stock_level',
     'unit',
-    'expiryDate', 'expiry_date',
-    'storeId', 'store_id',
-    'isActive', 'is_active',
+    'expiryDate',
+    'expiry_date',
+    'storeId',
+    'store_id',
+    'isActive',
+    'is_active',
     'metadata',
-    'businessId', 'business_id', 'id',
+    'businessId',
+    'business_id',
+    'id',
   };
 
   Map<String, dynamic> _buildPayload(Map<String, dynamic> data) {
@@ -563,8 +610,10 @@ class InventoryRepositorySupabase implements InventoryRepository {
       // actually send) uses bare 'price'/'cost', not 'unitPrice'/'costPrice'
       // - without these, every product edit anywhere in the app silently
       // reset both to 0 on save, since neither recognized key was ever present.
-      'unit_price': data['unitPrice'] ?? data['unit_price'] ?? data['price'] ?? 0,
-      'cost_price': data['costPrice'] ?? data['cost_price'] ?? data['cost'] ?? 0,
+      'unit_price':
+          data['unitPrice'] ?? data['unit_price'] ?? data['price'] ?? 0,
+      'cost_price':
+          data['costPrice'] ?? data['cost_price'] ?? data['cost'] ?? 0,
       'quantity': data['quantity'] ?? 0,
       'stock': data['stock'],
       'min_stock_level': data['minStockLevel'] ?? data['min_stock_level'] ?? 0,

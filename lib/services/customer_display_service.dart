@@ -57,12 +57,17 @@ class CustomerDisplayService {
   Future<bool> connect({required String portName, int baudRate = 9600}) async {
     if (!customerDisplaySupported) return false;
     disconnect();
-    final opened = platform.platformOpen(portName, baudRate);
-    if (opened == null) return false;
-    _port = opened;
-    _connectedPortName = portName;
-    _baudRate = baudRate;
-    return true;
+    try {
+      final opened = platform.platformOpen(portName, baudRate);
+      if (opened == null) return false;
+      _port = opened;
+      _connectedPortName = portName;
+      _baudRate = baudRate;
+      return true;
+    } catch (_) {
+      disconnect();
+      return false;
+    }
   }
 
   void disconnect() {
@@ -106,8 +111,12 @@ class CustomerDisplayService {
   /// The actual feature this was built for: show the final sale total to
   /// the customer once checkout completes.
   void showTotal(double amount, {String currencySymbol = ''}) {
-    final formatted = _formatAmount(amount, currencySymbol);
-    showLines('TOTAL DUE', formatted);
+    try {
+      final formatted = _formatAmount(amount, currencySymbol);
+      showLines('TOTAL DUE', formatted);
+    } catch (_) {
+      disconnect();
+    }
   }
 
   /// Reverts the display to an idle greeting once a receipt has been handed

@@ -12,6 +12,8 @@ import '../../../providers/business_provider.dart';
 import '../../../providers/sync_provider.dart';
 import 'receipt_detail_screen.dart';
 import 'return_refund_screen.dart';
+import '../../shared/printing_action_sheet.dart';
+import '../../../services/thermal_printing_service.dart';
 
 class SalesHistoryScreen extends StatefulWidget {
   const SalesHistoryScreen({super.key});
@@ -620,6 +622,46 @@ class _SalesListState extends State<_SalesList> {
     }
   }
 
+  Future<void> _printSale(Map<String, dynamic> sale) async {
+    final business = context.read<BusinessProvider>().currentBusiness;
+    final rawItems = (sale['items'] as List?) ?? const [];
+    final items = rawItems.whereType<Map>().map((raw) {
+      final item = Map<String, dynamic>.from(raw);
+      return <String, dynamic>{
+        'name': item['productName'] ?? item['product_name'] ?? item['name'] ?? 'Item',
+        'quantity': item['quantity'] ?? item['qty'] ?? 1,
+        'price': item['price'] ?? item['unitPrice'] ?? item['unit_price'] ?? 0,
+        'unit': item['unit'] ?? item['saleUnit'] ?? 'pcs',
+        'pricingMode': item['pricingMode'] ?? item['priceType'],
+      };
+    }).toList();
+    final receiptText = ThermalPrintingService.createCompleteReceipt(
+      businessName: business?.name ?? 'My Business',
+      paperWidth: 58,
+      items: items,
+      totalAmount: _calculateSaleAmount(sale),
+      paymentMethod: sale['paymentMethod'] ?? sale['payment_method'] ?? 'Cash',
+      orderId: sale['referenceId']?.toString() ?? sale['id']?.toString(),
+      customerName: sale['customerName']?.toString() ??
+          sale['customer']?.toString(),
+    );
+
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => FractionallySizedBox(
+        heightFactor: 0.88,
+        child: PrintingActionSheet(
+          receiptText: receiptText,
+          businessName: business?.name ?? 'My Business',
+          orderId: sale['referenceId']?.toString() ?? sale['id']?.toString(),
+          saleData: sale,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -714,6 +756,7 @@ class _SalesListState extends State<_SalesList> {
               ? null
               : () => _openRefund(sale),
           onDelete: sale['pendingSync'] == true ? null : () => _deleteSale(sale),
+          onPrint: () => _printSale(sale),
         );
       },
     );
@@ -790,6 +833,7 @@ class _SaleCard extends StatelessWidget {
   final Map<String, dynamic> saleData;
   final VoidCallback? onRefund;
   final VoidCallback? onDelete;
+  final VoidCallback? onPrint;
 
   const _SaleCard({
     required this.orderId,
@@ -802,6 +846,7 @@ class _SaleCard extends StatelessWidget {
     required this.saleData,
     this.onRefund,
     this.onDelete,
+    this.onPrint,
   });
 
   Color get _statusColor {
@@ -1085,13 +1130,24 @@ class _SaleCard extends StatelessWidget {
                 );
               }),
             ],
-            if (onRefund != null || onDelete != null) ...[
+            if (onRefund != null || onDelete != null || onPrint != null) ...[
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerRight,
                 child: Wrap(
                   spacing: 8,
                   children: [
+                    if (onPrint != null)
+                      TextButton.icon(
+                        onPressed: onPrint,
+                        icon: const Icon(Icons.print_outlined, size: 16),
+                        label: const Text('Print'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
                     if (onRefund != null)
                       TextButton.icon(
                         onPressed: onRefund,

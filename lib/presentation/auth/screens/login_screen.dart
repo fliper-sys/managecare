@@ -229,7 +229,8 @@ class _LoginScreenState extends State<LoginScreen>
 
         if (!mounted) return;
 
-        if (subscriptionStatus == 'pending_approval') {
+        if (subscriptionStatus == 'pending_approval' &&
+          !hasActiveCurrentBusinessSubscription) {
           Navigator.of(context).pushReplacementNamed(
             '/subscription-status',
             arguments: {

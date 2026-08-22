@@ -18,6 +18,7 @@ class BusinessProvider with ChangeNotifier {
       DeletionRecoveryServiceSupabase();
   LocalBusinessStorage? _localStorage;
   LocalUserStorage? _localUserStorage;
+  Future<void>? _localStorageReady;
 
   BusinessModel? _currentBusiness;
   List<BusinessModel> _userBusinesses = [];
@@ -42,8 +43,9 @@ class BusinessProvider with ChangeNotifier {
   bool get isSwitchingBusiness => _isSwitchingBusiness;
   String? get pendingBusinessId => _pendingBusinessId;
 
-  BusinessProvider({BusinessRepository? repository}) : _repository = repository ?? BusinessRepository() {
-    _initializeLocalStorage();
+  BusinessProvider({BusinessRepository? repository})
+      : _repository = repository ?? BusinessRepository() {
+    _localStorageReady = _initializeLocalStorage();
   }
 
   /// Initialize local storage
@@ -73,20 +75,25 @@ class BusinessProvider with ChangeNotifier {
 
   Future<void> loadUserBusinesses(String userId,
       {String? preferredBusinessId, List<String>? userBusinessIds}) async {
+    await _localStorageReady;
+
     // Prevent duplicate simultaneous requests
     if (_isLoadingInProgress) {
-      print('[BusinessProvider] ⏭️ Load already in progress, skipping duplicate request');
+      print(
+          '[BusinessProvider] ⏭️ Load already in progress, skipping duplicate request');
       return;
     }
 
     // Throttle: Don't reload if we loaded recently
     if (_loadedForUserId == userId && !_shouldRefreshData()) {
-      print('[BusinessProvider] ⏭️ Skipping reload - data refreshed ${DateTime.now().difference(_lastLoadTime!).inSeconds}s ago');
+      print(
+          '[BusinessProvider] ⏭️ Skipping reload - data refreshed ${DateTime.now().difference(_lastLoadTime!).inSeconds}s ago');
       // Still restore current business from cache if needed
       if (_currentBusiness == null && _localStorage != null) {
         final cachedId = _localStorage!.getCurrentBusinessId();
         if (cachedId != null) {
-          _currentBusiness = _userBusinesses.firstWhere((b) => b.id == cachedId, orElse: () => _userBusinesses.first);
+          _currentBusiness = _userBusinesses.firstWhere((b) => b.id == cachedId,
+              orElse: () => _userBusinesses.first);
           notifyListeners();
         }
       }
@@ -97,6 +104,7 @@ class BusinessProvider with ChangeNotifier {
       _isLoadingInProgress = true;
       _errorMessage = null;
       _isUsingCachedData = false;
+      _restoreCachedBusinessesForStartup();
       // DON'T notify yet - wait until data is loaded
 
       print('[BusinessProvider] 🔄 Loading businesses for user: $userId');
@@ -107,7 +115,8 @@ class BusinessProvider with ChangeNotifier {
         if (_localUserStorage != null) {
           final flag = _localUserStorage!.getEdgeLoggingForUser(userId);
           _verboseLogging = flag;
-          if (_verboseLogging) print('[BusinessProvider] Edge logging ENABLED for user: $userId');
+          if (_verboseLogging)
+            print('[BusinessProvider] Edge logging ENABLED for user: $userId');
         }
       } catch (e) {
         // ignore local storage issues for diagnostic flags
@@ -121,7 +130,8 @@ class BusinessProvider with ChangeNotifier {
         print(
             '[BusinessProvider] ✅ Loaded ${_userBusinesses.length} businesses from Firebase');
         if (_verboseLogging) {
-          print('[BusinessProvider] Verbose: loaded business ids: ${_userBusinesses.map((b) => b.id).join(', ')}');
+          print(
+              '[BusinessProvider] Verbose: loaded business ids: ${_userBusinesses.map((b) => b.id).join(', ')}');
         }
 
         // Save to local storage for offline use
@@ -167,7 +177,8 @@ class BusinessProvider with ChangeNotifier {
             .toSet()
             .toList();
         if (missingIds.isNotEmpty) {
-          print('[BusinessProvider] Ensuring businesses listed on user doc are loaded: ${missingIds.join(', ')}');
+          print(
+              '[BusinessProvider] Ensuring businesses listed on user doc are loaded: ${missingIds.join(', ')}');
           // Fetched in parallel rather than one at a time — with dozens of
           // businesses on a user doc, sequential awaits here added a full
           // network round trip per missing business to every login.
@@ -184,7 +195,8 @@ class BusinessProvider with ChangeNotifier {
               } else {
                 // If the business doc can't be fetched (permissions, eventual consistency or deletion),
                 // still include a placeholder so the user can see all businessIds from their user doc
-                print('[BusinessProvider] Business id listed on user doc not found: $bid - adding placeholder');
+                print(
+                    '[BusinessProvider] Business id listed on user doc not found: $bid - adding placeholder');
                 try {
                   final placeholder = BusinessModel(
                     id: bid,
@@ -195,11 +207,13 @@ class BusinessProvider with ChangeNotifier {
                   );
                   _userBusinesses.add(placeholder);
                 } catch (e) {
-                  print('[BusinessProvider] Failed to create placeholder for business id $bid: $e');
+                  print(
+                      '[BusinessProvider] Failed to create placeholder for business id $bid: $e');
                 }
               }
             } catch (e) {
-              print('[BusinessProvider] Error loading business by id ($bid): $e');
+              print(
+                  '[BusinessProvider] Error loading business by id ($bid): $e');
             }
           }));
         }
@@ -209,7 +223,8 @@ class BusinessProvider with ChangeNotifier {
       final beforeDedupe = _userBusinesses.length;
       _dedupeUserBusinesses();
       if (_verboseLogging) {
-        print('[BusinessProvider] Verbose: dedupe reduced $beforeDedupe -> ${_userBusinesses.length}');
+        print(
+            '[BusinessProvider] Verbose: dedupe reduced $beforeDedupe -> ${_userBusinesses.length}');
       }
 
       for (final b in _userBusinesses) {
@@ -252,11 +267,13 @@ class BusinessProvider with ChangeNotifier {
           // Respect an explicit, already-selected current business; only
           // force the preferred business when no current selection exists
           // or when the IDs differ.
-          if (_currentBusiness == null || _currentBusiness!.id != preferredBusinessId) {
+          if (_currentBusiness == null ||
+              _currentBusiness!.id != preferredBusinessId) {
             // If we've previously set an explicit selection for this user (e.g. via switch)
             // avoid overwriting it during background loads
             if (_loadedForUserId == userId && _currentBusiness != null) {
-              print('[BusinessProvider] Preserving explicit current business (${_currentBusiness!.id}) for user $userId');
+              print(
+                  '[BusinessProvider] Preserving explicit current business (${_currentBusiness!.id}) for user $userId');
             } else {
               _currentBusiness = _userBusinesses[idx];
               print(
@@ -269,7 +286,8 @@ class BusinessProvider with ChangeNotifier {
             }
           } else {
             // Already set to preferred; ensure cache matches
-            if (_localStorage != null && _localStorage!.getCurrentBusinessId() != _currentBusiness!.id) {
+            if (_localStorage != null &&
+                _localStorage!.getCurrentBusinessId() != _currentBusiness!.id) {
               await _localStorage!.setCurrentBusiness(_currentBusiness!.id);
             }
           }
@@ -344,7 +362,8 @@ class BusinessProvider with ChangeNotifier {
         await _repository.createBusiness(business).timeout(timeoutDuration);
       } catch (e) {
         _isLoading = false;
-        _errorMessage = 'Failed to create business (network timeout or error): $e';
+        _errorMessage =
+            'Failed to create business (network timeout or error): $e';
         print('[BusinessProvider] ERROR: $_errorMessage');
         notifyListeners();
         return false;
@@ -358,9 +377,11 @@ class BusinessProvider with ChangeNotifier {
         try {
           await _localStorage!.setCurrentBusiness(business.id);
           await _localStorage!.saveBusiness(business);
-          print('[BusinessProvider] Persisted newly created business to local storage: ${business.id}');
+          print(
+              '[BusinessProvider] Persisted newly created business to local storage: ${business.id}');
         } catch (e) {
-          print('[BusinessProvider] Warning: failed to persist new business to local storage: $e');
+          print(
+              '[BusinessProvider] Warning: failed to persist new business to local storage: $e');
         }
       }
 
@@ -374,27 +395,39 @@ class BusinessProvider with ChangeNotifier {
           normalizedBusinessType == 'petrolstation' ||
           normalizedBusinessType == 'petroleumstation' ||
           normalizedBusinessType == 'fillingstation') {
-        final configured = (business.industrySpecificSettings ?? {})['defaultFuelProductsConfigured'] ?? false;
+        final configured = (business.industrySpecificSettings ??
+                {})['defaultFuelProductsConfigured'] ??
+            false;
         if (configured != true) {
           try {
-            final fuelUnit = (business.industrySpecificSettings ?? {})['fuelUnit'] ?? 'L';
-            print('[BusinessProvider] Detected fuel station business - creating default fuel products (unit: $fuelUnit)');
+            final fuelUnit =
+                (business.industrySpecificSettings ?? {})['fuelUnit'] ?? 'L';
+            print(
+                '[BusinessProvider] Detected fuel station business - creating default fuel products (unit: $fuelUnit)');
             // Guard default product creation with a timeout as well
             try {
-              await _repository.createDefaultFuelProducts(business.id, fuelUnit: fuelUnit).timeout(timeoutDuration);
+              await _repository
+                  .createDefaultFuelProducts(business.id, fuelUnit: fuelUnit)
+                  .timeout(timeoutDuration);
             } catch (e) {
-              print('[BusinessProvider] Warning: default fuel products creation timed out or failed: $e');
+              print(
+                  '[BusinessProvider] Warning: default fuel products creation timed out or failed: $e');
             }
 
             // Update the business doc to mark default products configured
-            final updatedSettings = Map<String, dynamic>.from(business.industrySpecificSettings ?? {});
+            final updatedSettings = Map<String, dynamic>.from(
+                business.industrySpecificSettings ?? {});
             updatedSettings['defaultFuelProductsConfigured'] = true;
-            final updated = business.copyWith(industrySpecificSettings: updatedSettings);
+            final updated =
+                business.copyWith(industrySpecificSettings: updatedSettings);
 
             try {
-              await _repository.updateBusiness(updated).timeout(timeoutDuration);
+              await _repository
+                  .updateBusiness(updated)
+                  .timeout(timeoutDuration);
             } catch (e) {
-              print('[BusinessProvider] Warning: update business to mark default products configured timed out or failed: $e');
+              print(
+                  '[BusinessProvider] Warning: update business to mark default products configured timed out or failed: $e');
             }
 
             // Update local caches
@@ -405,41 +438,51 @@ class BusinessProvider with ChangeNotifier {
             if (_localStorage != null) {
               try {
                 await _localStorage!.saveBusiness(updated);
-                print('[BusinessProvider] Updated local cache to mark default fuel products configured for ${updated.id}');
+                print(
+                    '[BusinessProvider] Updated local cache to mark default fuel products configured for ${updated.id}');
               } catch (e) {
-                print('[BusinessProvider] Warning: failed to update local business cache: $e');
+                print(
+                    '[BusinessProvider] Warning: failed to update local business cache: $e');
               }
             }
           } catch (e) {
-            print('[BusinessProvider] Warning: failed to create default fuel products: $e');
+            print(
+                '[BusinessProvider] Warning: failed to create default fuel products: $e');
             // Do not fail business creation if the onboarding step fails
           }
         }
       }
 
       if (normalizedBusinessType == 'bakery') {
-        final configured =
-            (business.industrySpecificSettings ?? {})['defaultBakeryProductsConfigured'] ?? false;
+        final configured = (business.industrySpecificSettings ??
+                {})['defaultBakeryProductsConfigured'] ??
+            false;
         if (configured != true) {
           try {
-            print('[BusinessProvider] Detected Bakery business - creating default bakery products');
+            print(
+                '[BusinessProvider] Detected Bakery business - creating default bakery products');
             try {
               await _repository
                   .createDefaultBakeryProducts(business.id)
                   .timeout(timeoutDuration);
             } catch (e) {
-              print('[BusinessProvider] Warning: default bakery products creation timed out or failed: $e');
+              print(
+                  '[BusinessProvider] Warning: default bakery products creation timed out or failed: $e');
             }
 
-            final updatedSettings =
-                Map<String, dynamic>.from(business.industrySpecificSettings ?? {});
+            final updatedSettings = Map<String, dynamic>.from(
+                business.industrySpecificSettings ?? {});
             updatedSettings['defaultBakeryProductsConfigured'] = true;
-            final updated = business.copyWith(industrySpecificSettings: updatedSettings);
+            final updated =
+                business.copyWith(industrySpecificSettings: updatedSettings);
 
             try {
-              await _repository.updateBusiness(updated).timeout(timeoutDuration);
+              await _repository
+                  .updateBusiness(updated)
+                  .timeout(timeoutDuration);
             } catch (e) {
-              print('[BusinessProvider] Warning: update business to mark default bakery products configured timed out or failed: $e');
+              print(
+                  '[BusinessProvider] Warning: update business to mark default bakery products configured timed out or failed: $e');
             }
 
             final idx = _userBusinesses.indexWhere((b) => b.id == updated.id);
@@ -449,13 +492,16 @@ class BusinessProvider with ChangeNotifier {
             if (_localStorage != null) {
               try {
                 await _localStorage!.saveBusiness(updated);
-                print('[BusinessProvider] Updated local cache to mark default bakery products configured for ${updated.id}');
+                print(
+                    '[BusinessProvider] Updated local cache to mark default bakery products configured for ${updated.id}');
               } catch (e) {
-                print('[BusinessProvider] Warning: failed to update local business cache: $e');
+                print(
+                    '[BusinessProvider] Warning: failed to update local business cache: $e');
               }
             }
           } catch (e) {
-            print('[BusinessProvider] Warning: failed to create default bakery products: $e');
+            print(
+                '[BusinessProvider] Warning: failed to create default bakery products: $e');
           }
         }
       }
@@ -464,7 +510,8 @@ class BusinessProvider with ChangeNotifier {
       // user immediately sees an apartment listed after registration.
       if (business.businessType.toLowerCase() == 'apartment') {
         try {
-          print('[BusinessProvider] Detected Apartment business - creating default apartment');
+          print(
+              '[BusinessProvider] Detected Apartment business - creating default apartment');
           final aptRepo = ApartmentRepositoryImpl();
           final apt = Apartment(
             id: '',
@@ -473,21 +520,28 @@ class BusinessProvider with ChangeNotifier {
             ownerId: business.ownerId,
             address: business.address ?? '',
           );
-          final aptId = await aptRepo.createApartment(businessId: business.id, apartment: apt);
+          final aptId = await aptRepo.createApartment(
+              businessId: business.id, apartment: apt);
           print('[BusinessProvider] Default apartment created: $aptId');
 
           // Optionally create a default unit for the newly created apartment
           try {
             final settings = business.industrySpecificSettings ?? {};
-            final nightly = (settings['defaultNightlyRate'] is num) ? (settings['defaultNightlyRate'] as num).toDouble() : 0.0;
-            final unit = Unit(id: '', name: 'Unit 1', capacity: 1, pricePerNight: nightly);
-            final unitId = await aptRepo.createUnit(businessId: business.id, apartmentId: aptId, unit: unit);
+            final nightly = (settings['defaultNightlyRate'] is num)
+                ? (settings['defaultNightlyRate'] as num).toDouble()
+                : 0.0;
+            final unit = Unit(
+                id: '', name: 'Unit 1', capacity: 1, pricePerNight: nightly);
+            final unitId = await aptRepo.createUnit(
+                businessId: business.id, apartmentId: aptId, unit: unit);
             print('[BusinessProvider] Default unit created: $unitId');
           } catch (e) {
-            print('[BusinessProvider] Warning: failed to create default unit: $e');
+            print(
+                '[BusinessProvider] Warning: failed to create default unit: $e');
           }
         } catch (e) {
-          print('[BusinessProvider] Warning: failed to create default apartment: $e');
+          print(
+              '[BusinessProvider] Warning: failed to create default apartment: $e');
         }
       }
 
@@ -574,7 +628,8 @@ class BusinessProvider with ChangeNotifier {
         cachedUser = _localUserStorage?.getCachedUser();
         cachedUserId = cachedUser?.id;
       } catch (e) {
-        print('[BusinessProvider] Warning: failed to update local cached user after delete: $e');
+        print(
+            '[BusinessProvider] Warning: failed to update local cached user after delete: $e');
       }
 
       final ownerId = deletingBusiness.ownerId.isNotEmpty
@@ -583,7 +638,8 @@ class BusinessProvider with ChangeNotifier {
               Supabase.instance.client.auth.currentUser?.id ??
               '');
       if (ownerId.isEmpty) {
-        throw Exception('Unable to identify the account deleting this business.');
+        throw Exception(
+            'Unable to identify the account deleting this business.');
       }
 
       await _deletionRecoveryService.softDeleteBusiness(
@@ -613,9 +669,8 @@ class BusinessProvider with ChangeNotifier {
 
       try {
         if (cachedUser != null && _localUserStorage != null) {
-          final remainingBusinessIds = cachedUser.businessIds
-              .where((id) => id != businessId)
-              .toList();
+          final remainingBusinessIds =
+              cachedUser.businessIds.where((id) => id != businessId).toList();
           final fallbackId = fallbackBusiness?.id;
           final updatedUser = cachedUser.copyWith(
             businessId: fallbackId ?? '',
@@ -628,7 +683,8 @@ class BusinessProvider with ChangeNotifier {
           await _localUserStorage!.saveUser(updatedUser);
         }
       } catch (e) {
-        print('[BusinessProvider] Warning: failed to persist local cached user after delete: $e');
+        print(
+            '[BusinessProvider] Warning: failed to persist local cached user after delete: $e');
       }
 
       if (ownerId.isNotEmpty) {
@@ -660,7 +716,8 @@ class BusinessProvider with ChangeNotifier {
         await _localStorage!.saveBusiness(business);
         print('[BusinessProvider] Persisted current business to local storage');
       } catch (e) {
-        print('[BusinessProvider] Warning: failed to persist current business locally: $e');
+        print(
+            '[BusinessProvider] Warning: failed to persist current business locally: $e');
       }
     }
 
@@ -676,7 +733,8 @@ class BusinessProvider with ChangeNotifier {
   void markUserSelection(String userId) {
     try {
       _loadedForUserId = userId;
-      print('[BusinessProvider] markUserSelection: $userId (protecting explicit selection)');
+      print(
+          '[BusinessProvider] markUserSelection: $userId (protecting explicit selection)');
     } catch (e) {
       print('[BusinessProvider] markUserSelection error: $e');
     }
@@ -726,7 +784,8 @@ class BusinessProvider with ChangeNotifier {
         currentBusinessId: business.id,
       );
     } catch (e) {
-      print('[BusinessProvider] Warning: failed to update local cached user: $e');
+      print(
+          '[BusinessProvider] Warning: failed to update local cached user: $e');
     }
   }
 
@@ -809,7 +868,8 @@ class BusinessProvider with ChangeNotifier {
             currentBusinessId: business.id,
           );
         } catch (e) {
-          print('[BusinessProvider] Warning: failed to update local cached user: $e');
+          print(
+              '[BusinessProvider] Warning: failed to update local cached user: $e');
         }
 
         // Mark that businesses were explicitly set for this user so subsequent
@@ -834,11 +894,20 @@ class BusinessProvider with ChangeNotifier {
   }
 
   Future<void> loadBusinessById(String businessId) async {
+    await _localStorageReady;
+
     try {
       print(
           '[BusinessProvider.loadBusinessById] Starting load for ID: $businessId');
       _isLoading = true;
       _errorMessage = null;
+      final cachedBusiness = _localStorage?.getCachedBusiness(businessId);
+      if (cachedBusiness != null) {
+        _currentBusiness = cachedBusiness;
+        _upsertUserBusiness(cachedBusiness);
+        _isUsingCachedData = true;
+        notifyListeners();
+      }
       notifyListeners();
 
       final b = await _repository.getBusinessById(businessId);
@@ -850,12 +919,14 @@ class BusinessProvider with ChangeNotifier {
         print(
             '[BusinessProvider.loadBusinessById] Set currentBusiness to: ${b.name} (${b.businessType})');
         if (_verboseLogging) {
-          print('[BusinessProvider.loadBusinessById] Verbose: business details: id=${b.id}, name=${b.name}, owner=${b.ownerId}, tier=${b.subscriptionTier}');
+          print(
+              '[BusinessProvider.loadBusinessById] Verbose: business details: id=${b.id}, name=${b.name}, owner=${b.ownerId}, tier=${b.subscriptionTier}');
         }
 
         // If a placeholder for this business exists in the list, replace it so UI reflects real data.
         _upsertUserBusiness(b);
-        print('[BusinessProvider.loadBusinessById] Replaced placeholder/entry for business id: ${b.id}');
+        print(
+            '[BusinessProvider.loadBusinessById] Replaced placeholder/entry for business id: ${b.id}');
 
         // Cache current business selection
         if (_localStorage != null) {
@@ -883,6 +954,25 @@ class BusinessProvider with ChangeNotifier {
     }
   }
 
+  void _restoreCachedBusinessesForStartup() {
+    final localStorage = _localStorage;
+    if (localStorage == null) return;
+
+    final cachedBusinesses = localStorage.getCachedBusinesses();
+    if (cachedBusinesses.isEmpty) return;
+
+    _userBusinesses = cachedBusinesses;
+    final cachedBusinessId = localStorage.getCurrentBusinessId();
+    _currentBusiness = cachedBusinessId == null
+        ? cachedBusinesses.first
+        : cachedBusinesses.firstWhere(
+            (business) => business.id == cachedBusinessId,
+            orElse: () => cachedBusinesses.first,
+          );
+    _isUsingCachedData = true;
+    notifyListeners();
+  }
+
   /// Attempt to locate and load the business associated with a worker, by
   /// looking up their active business_members row directly. (Postgres has
   /// a single membership table keyed by user id - the old multi-field
@@ -905,7 +995,8 @@ class BusinessProvider with ChangeNotifier {
           : null;
 
       if (foundBusinessId != null && foundBusinessId.isNotEmpty) {
-        print('[BusinessProvider] Found businessId for worker: $foundBusinessId');
+        print(
+            '[BusinessProvider] Found businessId for worker: $foundBusinessId');
         await loadBusinessById(foundBusinessId);
         return _currentBusiness != null;
       } else {
@@ -927,7 +1018,8 @@ class BusinessProvider with ChangeNotifier {
 
       int products = 0;
       try {
-        final inv = await api.get('/api/inventory/$businessId', query: {'limit': 1});
+        final inv =
+            await api.get('/api/inventory/$businessId', query: {'limit': 1});
         products = (inv['pagination']?['total'] as num?)?.toInt() ?? 0;
       } catch (e) {
         print('[BusinessProvider] Failed to compute product count: $e');
@@ -935,7 +1027,8 @@ class BusinessProvider with ChangeNotifier {
 
       int customers = 0;
       try {
-        final cust = await api.get('/api/customers/$businessId', query: {'limit': 1});
+        final cust =
+            await api.get('/api/customers/$businessId', query: {'limit': 1});
         customers = (cust['pagination']?['total'] as num?)?.toInt() ?? 0;
       } catch (e) {
         print('[BusinessProvider] Failed to compute customer count: $e');
@@ -946,17 +1039,22 @@ class BusinessProvider with ChangeNotifier {
         final workerRepo = WorkerRepositoryImpl();
         final list = await workerRepo.getWorkers(businessId);
         workers = list.length;
-        print('[BusinessProvider] WorkerRepo returned $workers workers for business');
+        print(
+            '[BusinessProvider] WorkerRepo returned $workers workers for business');
       } catch (e) {
         print('[BusinessProvider] Failed to compute workers count: $e');
       }
 
-      print('[BusinessProvider] Counts: products=$products, workers=$workers, customers=$customers');
+      print(
+          '[BusinessProvider] Counts: products=$products, workers=$workers, customers=$customers');
 
       // Persist computed stats to primary business document
       try {
         await _repository.updateBusinessStats(
-            businessId: businessId, totalWorkers: workers, totalProducts: products, totalCustomers: customers);
+            businessId: businessId,
+            totalWorkers: workers,
+            totalProducts: products,
+            totalCustomers: customers);
       } catch (e) {
         print('[BusinessProvider] Failed to update business stats: $e');
       }
@@ -969,9 +1067,11 @@ class BusinessProvider with ChangeNotifier {
           totalCustomers: customers,
         );
         try {
-          if (_localStorage != null) await _localStorage!.saveBusiness(_currentBusiness!);
+          if (_localStorage != null)
+            await _localStorage!.saveBusiness(_currentBusiness!);
         } catch (e) {
-          print('[BusinessProvider] Warning: failed to cache updated business: $e');
+          print(
+              '[BusinessProvider] Warning: failed to cache updated business: $e');
         }
         notifyListeners();
       }
@@ -981,7 +1081,8 @@ class BusinessProvider with ChangeNotifier {
   }
 
   /// Helper: Get authoritative list of workers for a business using WorkerRepository
-  Future<List<Map<String, dynamic>>> getWorkersForBusiness(String businessId) async {
+  Future<List<Map<String, dynamic>>> getWorkersForBusiness(
+      String businessId) async {
     try {
       final repo = WorkerRepositoryImpl();
       final list = await repo.getWorkers(businessId);
@@ -1003,7 +1104,8 @@ class BusinessProvider with ChangeNotifier {
           await _localStorage!.setCurrentBusiness(businessId);
           await _localStorage!.saveBusiness(business);
         } catch (e) {
-          print('[BusinessProvider] Warning: failed to persist switched business: $e');
+          print(
+              '[BusinessProvider] Warning: failed to persist switched business: $e');
         }
       }
 
@@ -1118,8 +1220,7 @@ class BusinessProvider with ChangeNotifier {
       return 'The current business subscription expired on $formattedDate. Renew this business plan to continue.';
     }
 
-    if (end != null &&
-        SubscriptionService.isInSubscriptionGracePeriod(end)) {
+    if (end != null && SubscriptionService.isInSubscriptionGracePeriod(end)) {
       final daysSinceEnd = SubscriptionService.daysSinceSubscriptionEnd(end);
       final graceLeft =
           SubscriptionService.subscriptionGracePeriodDays - daysSinceEnd;
@@ -1326,7 +1427,8 @@ class BusinessProvider with ChangeNotifier {
   }
 
   /// Backwards-compatible instance wrapper
-  String? getIndustryRouteForType(String? businessType) => BusinessProvider.industryRouteForType(businessType);
+  String? getIndustryRouteForType(String? businessType) =>
+      BusinessProvider.industryRouteForType(businessType);
 
   /// Subscription helpers
   DateTime? get subscriptionEndDate => _currentBusiness?.subscriptionEndDate;
@@ -1400,7 +1502,8 @@ class BusinessProvider with ChangeNotifier {
         await _localUserStorage!.setEdgeLoggingForUser(userId, enabled);
       }
       if (_loadedForUserId == userId) _verboseLogging = enabled;
-      print('[BusinessProvider] Edge logging ${enabled ? 'ENABLED' : 'DISABLED'} for user $userId');
+      print(
+          '[BusinessProvider] Edge logging ${enabled ? 'ENABLED' : 'DISABLED'} for user $userId');
       notifyListeners();
     } catch (e) {
       print('[BusinessProvider] Failed to set edge logging for $userId: $e');
@@ -1418,8 +1521,10 @@ class BusinessProvider with ChangeNotifier {
       } else {
         final existing = map[b.id]!;
         // Prefer a business that appears to be a full record (has ownerId or non-placeholder name)
-        final existingIsPlaceholder = existing.ownerId.isEmpty || existing.name.startsWith('Unknown Business');
-        final candidateIsPlaceholder = b.ownerId.isEmpty || b.name.startsWith('Unknown Business');
+        final existingIsPlaceholder = existing.ownerId.isEmpty ||
+            existing.name.startsWith('Unknown Business');
+        final candidateIsPlaceholder =
+            b.ownerId.isEmpty || b.name.startsWith('Unknown Business');
         if (existingIsPlaceholder && !candidateIsPlaceholder) {
           map[b.id] = b;
         }

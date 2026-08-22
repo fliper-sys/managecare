@@ -11,6 +11,7 @@ import '../../../../core/utils/inventory_utils.dart';
 import '../../../../core/utils/search_utils.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../providers/connectivity_provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../industry_specific/retail/screens/add_product_screen.dart';
@@ -20,6 +21,7 @@ import '../../../../services/notification_and_email_service.dart';
 import 'procurement_history_screen.dart';
 import 'product_procurements_screen.dart';
 import '../../../../data/repositories/procurement_repository.dart';
+import '../../../../data/repositories/inventory_repository_supabase.dart';
 import '../../../../services/managecare_api_client.dart';
 import '../../../../data/local/shared_prefs_helper.dart';
 import '../utils/procurement_filter_utils.dart';
@@ -111,9 +113,14 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         return;
       }
 
-      // Load products from inventory
-      final response = await ManagecareApiClient.instance.get('/api/inventory/$businessId', query: {'limit': 500});
-      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      // Use the repository so a previously loaded catalog is available when
+      // the backend cannot be reached.
+      final inventoryRows = await InventoryRepositorySupabase()
+          .getInventory(businessId);
+      final rows = inventoryRows
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
 
       final products = rows.map((row) {
         return {
@@ -532,6 +539,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
               ],
             ),
           ),
+          const _ProcurementOfflineBanner(),
 
           // Products List
           Expanded(
@@ -560,6 +568,24 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                   color:
                                       Theme.of(context).colorScheme.onSurface,
                                 ),
+                              ),
+                              const SizedBox(height: 8),
+                              Consumer<ConnectivityProvider>(
+                                builder: (context, connectivity, _) {
+                                  if (connectivity.isConnected) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 32,
+                                    ),
+                                    child: Text(
+                                      'You are offline. Procurement will show cached products when available.',
+                                      textAlign: TextAlign.center,
+                                      style: AppTextStyles.body2Secondary,
+                                    ),
+                                  );
+                                },
                               ),
                             ],
                           ),
@@ -1468,6 +1494,54 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
             backgroundColor: AppColors.error));
       setState(() => _isSubmitting = false);
     }
+  }
+}
+
+class _ProcurementOfflineBanner extends StatelessWidget {
+  const _ProcurementOfflineBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<ConnectivityProvider>(
+      builder: (context, connectivity, _) {
+        if (connectivity.isConnected) {
+          return const SizedBox.shrink();
+        }
+
+        final theme = Theme.of(context);
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.warning.withOpacity(0.12),
+            border: Border(
+              bottom: BorderSide(
+                color: AppColors.warning.withOpacity(0.45),
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.cloud_off_outlined,
+                color: AppColors.warning,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Offline mode: showing cached procurement products. New stock updates may need connection before they are saved.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 

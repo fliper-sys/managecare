@@ -125,18 +125,25 @@ class _CustomerDisplaySettingsScreenState
     });
   }
 
-  Future<void> _save() async {
-    setState(() => _isSaving = true);
+  Future<void> _persistCurrentSettings({bool reconnect = true}) async {
     await _service.saveSettings(CustomerDisplaySettings(
       enabled: _enabled,
       portName: _selectedPort,
       baudRate: _baudRate,
     ));
-    if (_enabled) {
-      await _service.ensureConnectedFromSavedSettings();
-    } else {
-      _service.disconnect();
+
+    if (reconnect) {
+      if (_enabled && _selectedPort != null) {
+        await _service.ensureConnectedFromSavedSettings();
+      } else {
+        _service.disconnect();
+      }
     }
+  }
+
+  Future<void> _save() async {
+    setState(() => _isSaving = true);
+    await _persistCurrentSettings();
     if (!mounted) return;
     setState(() {
       _isSaving = false;
@@ -206,7 +213,10 @@ class _CustomerDisplaySettingsScreenState
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Enable customer display'),
                   value: _enabled,
-                  onChanged: (v) => setState(() => _enabled = v),
+                  onChanged: (v) {
+                    setState(() => _enabled = v);
+                    Future.microtask(() => _persistCurrentSettings());
+                  },
                 ),
                 const Divider(height: 24),
                 Row(
@@ -245,7 +255,12 @@ class _CustomerDisplaySettingsScreenState
                   items: _ports
                       .map((p) => DropdownMenuItem(value: p, child: Text(p)))
                       .toList(),
-                  onChanged: (v) => setState(() => _selectedPort = v),
+                  onChanged: (v) {
+                    setState(() => _selectedPort = v);
+                    Future.microtask(
+                      () => _persistCurrentSettings(reconnect: false),
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
                 Text('Baud Rate', style: AppTextStyles.body1),
@@ -259,7 +274,12 @@ class _CustomerDisplaySettingsScreenState
                       .map((b) => DropdownMenuItem(
                           value: b, child: Text('$b baud')))
                       .toList(),
-                  onChanged: (v) => setState(() => _baudRate = v ?? 9600),
+                  onChanged: (v) {
+                    setState(() => _baudRate = v ?? 9600);
+                    Future.microtask(
+                      () => _persistCurrentSettings(reconnect: false),
+                    );
+                  },
                 ),
                 const SizedBox(height: 8),
                 Text(

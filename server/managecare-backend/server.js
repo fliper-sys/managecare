@@ -2230,6 +2230,14 @@ app.get('/api/businesses/:id', authMiddleware, async (req, res) => {
 });
 
 // ── Subscription validation ─────────────────────────────────
+const SUBSCRIPTION_GRACE_PERIOD_DAYS = 7;
+
+function isWithinSubscriptionAccessWindow(endDate, now = new Date()) {
+  const graceEnd = new Date(endDate);
+  graceEnd.setDate(graceEnd.getDate() + SUBSCRIPTION_GRACE_PERIOD_DAYS);
+  return now.getTime() <= graceEnd.getTime();
+}
+
 app.post('/api/subscriptions/validate/:businessId', authMiddleware, async (req, res) => {
   try {
     const { businessId } = req.params;
@@ -2244,7 +2252,8 @@ app.post('/api/subscriptions/validate/:businessId', authMiddleware, async (req, 
 
     const biz = result.rows[0];
     const isValid = biz.is_subscription_active &&
-      (!biz.subscription_end_date || new Date(biz.subscription_end_date) > new Date());
+      (!biz.subscription_end_date ||
+        isWithinSubscriptionAccessWindow(new Date(biz.subscription_end_date)));
 
     res.json({
       isValid,

@@ -283,14 +283,14 @@ class LocalBusinessStorage {
     return BusinessModel(
       id: data['id'] ?? '',
       name: data['name'] ?? '',
-      businessType: data['businessType'] ?? '',
+      businessType: data['businessType'] ?? data['business_type'] ?? '',
       description: data['description'],
-      ownerId: data['ownerId'] ?? '',
-      logoUrl: data['logoUrl'],
-      photoUrl: data['photoUrl'],
+      ownerId: data['ownerId'] ?? data['owner_id'] ?? '',
+      logoUrl: data['logoUrl'] ?? data['logo_url'],
+      photoUrl: data['photoUrl'] ?? data['photo_url'],
       currency: data['currency'] ?? 'NGN',
-      taxId: data['taxId'],
-      taxRate: (data['taxRate'] as num?)?.toDouble() ?? 0.0,
+      taxId: data['taxId'] ?? data['tax_id'],
+      taxRate: _asDouble(data['taxRate'] ?? data['tax_rate']),
       email: data['email'],
       phone: data['phone'],
       website: data['website'],
@@ -298,31 +298,47 @@ class LocalBusinessStorage {
       city: data['city'],
       state: data['state'],
       country: data['country'],
-      postalCode: data['postalCode'],
+      postalCode: data['postalCode'] ?? data['postal_code'],
       location: data['location'],
-      subscriptionTier: data['subscriptionTier'] ?? 'free',
-      businessClass: data['businessClass'] ?? 'tier1',
-      isSubscriptionActive: data['isSubscriptionActive'] ?? false,
-      subscriptionStartDate: data['subscriptionStartDate'] != null
-          ? parseTimestamp(data['subscriptionStartDate'])
+      subscriptionTier: data['subscriptionTier'] ?? data['subscription_tier'] ?? 'free',
+      businessClass: data['businessClass'] ?? data['business_class'] ?? 'tier1',
+      subscriptionPlan: data['subscriptionPlan'] ?? data['subscription_plan'],
+      isSubscriptionActive:
+          data['isSubscriptionActive'] ?? data['is_subscription_active'] ?? true,
+      subscriptionStartDate:
+          (data['subscriptionStartDate'] ?? data['subscription_start_date']) != null
+          ? parseTimestamp(data['subscriptionStartDate'] ?? data['subscription_start_date'])
           : null,
-      subscriptionEndDate: data['subscriptionEndDate'] != null
-          ? parseTimestamp(data['subscriptionEndDate'])
+      subscriptionEndDate:
+          (data['subscriptionEndDate'] ?? data['subscription_end_date']) != null
+          ? parseTimestamp(data['subscriptionEndDate'] ?? data['subscription_end_date'])
           : null,
       settings: data['settings'] as Map<String, dynamic>?,
       industrySpecificSettings:
-          data['industrySpecificSettings'] as Map<String, dynamic>?,
-      isActive: data['isActive'] ?? true,
-      createdAt: data['createdAt'] != null
-          ? parseTimestamp(data['createdAt'])
+          (data['industrySpecificSettings'] ?? data['industry_specific_settings'])
+              as Map<String, dynamic>?,
+      isActive: data['isActive'] ?? data['is_active'] ?? true,
+      createdAt: (data['createdAt'] ?? data['created_at']) != null
+          ? parseTimestamp(data['createdAt'] ?? data['created_at'])
           : DateTime.now(),
-      updatedAt: data['updatedAt'] != null
-          ? parseTimestamp(data['updatedAt'])
+      updatedAt: (data['updatedAt'] ?? data['updated_at']) != null
+          ? parseTimestamp(data['updatedAt'] ?? data['updated_at'])
           : null,
-      totalWorkers: data['totalWorkers'] as int?,
-      totalProducts: data['totalProducts'] as int?,
-      totalCustomers: data['totalCustomers'] as int?,
+      totalWorkers: _asInt(data['totalWorkers'] ?? data['total_workers']),
+      totalProducts: _asInt(data['totalProducts'] ?? data['total_products']),
+      totalCustomers: _asInt(data['totalCustomers'] ?? data['total_customers']),
     );
+  }
+
+  double _asDouble(dynamic value, {double fallback = 0.0}) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? fallback;
+  }
+
+  int? _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
   }
 
   /// Get cache statistics for debugging

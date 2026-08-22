@@ -82,22 +82,22 @@ class WindowsRawPrintService {
       _winspool.lookupFunction<_StartDocPrinterWNative, _StartDocPrinterWDart>(
     'StartDocPrinterW',
   );
-  static final _EndDocPrinterDart _endDocPrinter = _winspool
-      .lookupFunction<_EndDocPrinterNative, _EndDocPrinterDart>(
+  static final _EndDocPrinterDart _endDocPrinter =
+      _winspool.lookupFunction<_EndDocPrinterNative, _EndDocPrinterDart>(
     'EndDocPrinter',
   );
-  static final _StartPagePrinterDart _startPagePrinter = _winspool
-      .lookupFunction<_StartPagePrinterNative, _StartPagePrinterDart>(
+  static final _StartPagePrinterDart _startPagePrinter =
+      _winspool.lookupFunction<_StartPagePrinterNative, _StartPagePrinterDart>(
     'StartPagePrinter',
   );
-  static final _EndPagePrinterDart _endPagePrinter = _winspool
-      .lookupFunction<_EndPagePrinterNative, _EndPagePrinterDart>(
+  static final _EndPagePrinterDart _endPagePrinter =
+      _winspool.lookupFunction<_EndPagePrinterNative, _EndPagePrinterDart>(
     'EndPagePrinter',
   );
   static final _WritePrinterDart _writePrinter = _winspool
       .lookupFunction<_WritePrinterNative, _WritePrinterDart>('WritePrinter');
-  static final _GetDefaultPrinterWDart _getDefaultPrinter =
-      _winspool.lookupFunction<_GetDefaultPrinterWNative, _GetDefaultPrinterWDart>(
+  static final _GetDefaultPrinterWDart _getDefaultPrinter = _winspool
+      .lookupFunction<_GetDefaultPrinterWNative, _GetDefaultPrinterWDart>(
     'GetDefaultPrinterW',
   );
 
@@ -134,9 +134,11 @@ class WindowsRawPrintService {
     String? printerName,
     String jobName = 'Manage Care Receipt',
     bool cutPaper = true,
+    int charsPerLine = 30,
   }) async {
     if (!Platform.isWindows) {
-      throw UnsupportedError('Plain text USB printing is only available on Windows.');
+      throw UnsupportedError(
+          'Plain text USB printing is only available on Windows.');
     }
 
     final targetPrinter = (printerName ?? await defaultPrinterName()).trim();
@@ -144,7 +146,11 @@ class WindowsRawPrintService {
       throw StateError('No Windows printer selected.');
     }
 
-    final bytes = _buildReceiptBytes(text, cutPaper: cutPaper);
+    final bytes = _buildReceiptBytes(
+      text,
+      cutPaper: cutPaper,
+      charsPerLine: charsPerLine,
+    );
     _writeRawBytes(
       printerName: targetPrinter,
       jobName: jobName,
@@ -152,18 +158,23 @@ class WindowsRawPrintService {
     );
   }
 
-  static Uint8List _buildReceiptBytes(String text, {required bool cutPaper}) {
+  static Uint8List _buildReceiptBytes(
+    String text, {
+    required bool cutPaper,
+    required int charsPerLine,
+  }) {
     final normalized = text
         .replaceAll('₦', 'NGN ')
         .replaceAll('â‚¦', 'NGN ')
         .replaceAll('•', '-')
         .replaceAll('\r\n', '\n')
         .replaceAll('\r', '\n');
+    final fittedText = _wrapLines(normalized, charsPerLine);
 
     final bytes = <int>[
       0x1B,
       0x40,
-      ...utf8.encode(normalized),
+      ...utf8.encode(fittedText),
       0x0A,
       0x0A,
       0x0A,
@@ -174,6 +185,28 @@ class WindowsRawPrintService {
     }
 
     return Uint8List.fromList(bytes);
+  }
+
+  static String _wrapLines(String text, int charsPerLine) {
+    if (charsPerLine <= 0) return text;
+
+    final output = <String>[];
+    for (final line in text.split('\n')) {
+      if (line.isEmpty) {
+        output.add('');
+        continue;
+      }
+
+      var remaining = line;
+      while (remaining.length > charsPerLine) {
+        var breakAt = remaining.lastIndexOf(' ', charsPerLine);
+        if (breakAt <= 0) breakAt = charsPerLine;
+        output.add(remaining.substring(0, breakAt).trimRight());
+        remaining = remaining.substring(breakAt).trimLeft();
+      }
+      output.add(remaining);
+    }
+    return output.join('\n');
   }
 
   static void _writeRawBytes({
@@ -190,7 +223,8 @@ class WindowsRawPrintService {
     final writtenPtr = calloc<Uint32>();
 
     try {
-      final openOk = _openPrinter(printerNamePtr, printerHandlePtr, nullptr) != 0;
+      final openOk =
+          _openPrinter(printerNamePtr, printerHandlePtr, nullptr) != 0;
       if (!openOk || printerHandlePtr.value == 0) {
         throw StateError('Unable to open Windows printer "$printerName".');
       }

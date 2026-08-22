@@ -148,10 +148,14 @@ class ReportsProvider extends ChangeNotifier {
   ) {
     final directCandidates = <dynamic>[
       item['cost'],
+      item['cost_price'],
       item['costPrice'],
+      item['unit_cost'],
       item['unitCost'],
       item['purchasePrice'],
+      item['purchase_price'],
       item['inventoryCost'],
+      item['inventory_cost'],
     ];
     for (final candidate in directCandidates) {
       final parsed = _toDouble(candidate);
@@ -194,6 +198,48 @@ class ReportsProvider extends ChangeNotifier {
       return double.tryParse(cleaned);
     }
     return null;
+  }
+
+  double _saleRevenue(Map<String, dynamic> data) {
+    final gross = _toDouble(
+          data['finalAmount'] ??
+              data['final_amount'] ??
+              data['total'] ??
+              data['amount'] ??
+              data['totalAmount'] ??
+              data['total_amount'] ??
+              data['subtotal'],
+        ) ??
+        0.0;
+    final returned =
+        _toDouble(data['returnAmount'] ?? data['return_amount']) ?? 0.0;
+    return (gross - returned).clamp(0.0, double.infinity).toDouble();
+  }
+
+  double _saleGrossRevenue(Map<String, dynamic> data) {
+    return _toDouble(
+          data['finalAmount'] ??
+              data['final_amount'] ??
+              data['total'] ??
+              data['amount'] ??
+              data['totalAmount'] ??
+              data['total_amount'] ??
+              data['subtotal'],
+        ) ??
+        0.0;
+  }
+
+  double _lineQuantityForCogs(Map<String, dynamic> item) {
+    return _toDouble(
+          item['inventoryQuantity'] ??
+              item['inventory_quantity'] ??
+              item['quantity_sold'] ??
+              item['quantitySold'] ??
+              item['quantity'] ??
+              item['qty'] ??
+              1,
+        ) ??
+        0.0;
   }
 
   List<Map<String, dynamic>> _normalizeSaleProducts(dynamic rawItems) {
@@ -242,6 +288,7 @@ class ReportsProvider extends ChangeNotifier {
         'pricingMode': item['pricingMode'] ?? item['pricing_mode'],
         'inventoryUnit': item['inventoryUnit'] ?? item['inventory_unit'],
         'saleUnit': item['saleUnit'] ?? item['sale_unit'],
+        'cost': _toDouble(item['cost'] ?? item['cost_price'] ?? item['costPrice']),
         'saleUnitMultiplier':
             _toDouble(item['saleUnitMultiplier'] ?? item['sale_unit_multiplier']) ??
                 1.0,
@@ -859,11 +906,7 @@ class ReportsProvider extends ChangeNotifier {
                 _financialStartDate.subtract(const Duration(days: 1))) &&
             date.isBefore(_financialEndDate.add(const Duration(days: 1)))) {
           final month = date.month;
-          final grossRevenue = ((data['totalAmount'] ??
-                  data['final_amount'] ??
-                  data['total_amount'] ??
-                  0) as num)
-              .toDouble();
+          final grossRevenue = _saleGrossRevenue(data);
 
           // If part or all of this sale was returned/refunded, subtract the
           // refunded amount so profit isn't overstated.
@@ -878,10 +921,7 @@ class ReportsProvider extends ChangeNotifier {
           for (var item in items) {
             if (item is Map<String, dynamic>) {
               final itemCost = _resolveItemCost(item, inventoryCostMap);
-              final itemQty = ((item['inventoryQuantity'] ??
-                          item['quantity'] ??
-                          1) as num)
-                      .toDouble();
+              final itemQty = _lineQuantityForCogs(item);
               cogsForSale += (itemCost * itemQty).toDouble();
             }
           }
@@ -2966,6 +3006,7 @@ class ReportsProvider extends ChangeNotifier {
     final paymentTotals = <String, double>{};
     final productQty = <String, double>{};
     final productRevenue = <String, double>{};
+    final cashierTotals = <String, double>{};
 
     for (final report in _salesReports) {
       totalRevenue += report.totalAmount;
@@ -2973,6 +3014,13 @@ class ReportsProvider extends ChangeNotifier {
           (categoryTotals[report.category] ?? 0) + report.totalAmount;
       paymentTotals[report.paymentMethod] =
           (paymentTotals[report.paymentMethod] ?? 0) + report.totalAmount;
+      
+      // Aggregate cashier totals
+      final cashier = (report.cashier ?? 'Unknown').trim();
+      if (cashier.isNotEmpty) {
+        cashierTotals[cashier] = (cashierTotals[cashier] ?? 0) + report.totalAmount;
+      }
+      
       for (final product in report.products) {
         final productId = (product['productId'] ?? '').toString();
         final name = (product['name'] ?? 'Unknown').toString();
@@ -2998,16 +3046,30 @@ class ReportsProvider extends ChangeNotifier {
 
     final topProducts = productRevenue.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    
+    final topCashiers = cashierTotals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
 
     final buffer = StringBuffer()
       ..writeln('*Sales Report*')
       ..writeln(period)
       ..writeln()
-      ..writeln('*Revenue:* ${formatCurrency(totalRevenue)}')
+      ..writeln('*Total Revenue:* ${formatCurrency(totalRevenue)}')
       ..writeln('*Cost of goods sold:* ${formatCurrency(totalCogs)}')
       ..writeln('*Gross profit:* ${formatCurrency(grossProfit)} (${grossMargin.toStringAsFixed(1)}%)')
       ..writeln('*Transactions:* $transactions')
       ..writeln('*Average sale:* ${formatCurrency(averageSale)}');
+
+    // Top cashiers
+    if (topCashiers.isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln('*Top Cashiers*');
+      for (var i = 0; i < (topCashiers.length < 5 ? topCashiers.length : 5); i++) {
+        final c = topCashiers[i];
+        buffer.writeln('${i + 1}. ${c.key} - ${formatCurrency(c.value)}');
+      }
+    }
 
     if (categoryTotals.isNotEmpty) {
       buffer
@@ -3035,6 +3097,20 @@ class ReportsProvider extends ChangeNotifier {
         final qty = productQty[entry.key] ?? 0;
         final qtyLabel = qty % 1 == 0 ? qty.toInt().toString() : qty.toStringAsFixed(1);
         buffer.writeln('- ${entry.key}: $qtyLabel sold, ${formatCurrency(entry.value)}');
+      }
+    }
+
+    // Recent transactions (up to 30)
+    if (_salesReports.isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln('*Recent Transactions*');
+      final recent = _salesReports.take(30).toList();
+      for (final report in recent) {
+        final items = report.productNames.isEmpty
+            ? 'No items'
+            : report.productNames.take(3).join(', ');
+        buffer.writeln('- ${formatCurrency(report.totalAmount)} • ${report.paymentMethod} • ${report.cashier ?? 'Unknown'} • $items');
       }
     }
 

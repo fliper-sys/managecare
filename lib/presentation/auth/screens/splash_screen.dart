@@ -65,11 +65,35 @@ class _SplashScreenState extends State<SplashScreen>
         Future.delayed(const Duration(milliseconds: 500)),
       ]);
 
+      // Local storage can finish before Supabase has delivered its initial
+      // persisted session event. Let that event populate AuthProvider before
+      // deciding that a cold start is unauthenticated.
+      await authProvider.authRestoreComplete
+          .timeout(const Duration(seconds: 2), onTimeout: () {});
+
       if (!mounted) return;
 
       print(
           '[SplashScreen] Auth Status: ${authProvider.status}, User: ${authProvider.currentUser?.email}');
 
+      if (authProvider.status == AuthStatus.initial ||
+          authProvider.status == AuthStatus.loading) {
+        try {
+          await authProvider.initializationComplete
+              .timeout(const Duration(seconds: 3), onTimeout: () {});
+        } catch (_) {
+          // Timeout or error during initialization; wait a bit for restore to settle.
+        }
+        if (!mounted) return;
+        if (authProvider.status == AuthStatus.initial) {
+          // Still settling during cold start; don't redirect until the restore
+          // path has had a chance to populate the cached session.
+          await Future.delayed(const Duration(milliseconds: 300));
+        }
+      }
+
+      final hasPersistedLogin =
+          authProvider.isPersistentLoginEnabled && authProvider.hasCachedUser;
       final shouldNavigateToLogin = shouldNavigateToLoginOnStartup(
         status: authProvider.status,
         isAuthenticated: authProvider.isAuthenticated,
@@ -77,15 +101,13 @@ class _SplashScreenState extends State<SplashScreen>
         autoLoginEnabled: authProvider.isPersistentLoginEnabled,
       );
 
-      if (authProvider.status == AuthStatus.initial ||
-          authProvider.status == AuthStatus.loading) {
-        final retry = await authProvider.initializationComplete
-            .timeout(const Duration(seconds: 3), onTimeout: () {});
+      if (hasPersistedLogin && authProvider.currentUser == null) {
+        await Future.delayed(const Duration(milliseconds: 800));
         if (!mounted) return;
-        if (retry == null && authProvider.status == AuthStatus.initial) {
-          // Still settling during cold start; don't redirect until the restore
-          // path has had a chance to populate the cached session.
-          await Future.delayed(const Duration(milliseconds: 300));
+        if (authProvider.currentUser == null && authProvider.hasCachedUser) {
+          // Give the startup restore a brief chance to repopulate the user from
+          // the local cached session before forcing a login redirect.
+          return;
         }
       }
 
@@ -108,6 +130,9 @@ class _SplashScreenState extends State<SplashScreen>
         await authProvider.refresh();
         if (!mounted) return;
         if (authProvider.currentUser == null) {
+          if (hasPersistedLogin && authProvider.hasCachedUser) {
+            return;
+          }
           Navigator.of(context).pushReplacementNamed(Routes.login);
           return;
         }
@@ -159,6 +184,8 @@ class _SplashScreenState extends State<SplashScreen>
               await _fetchBusinessSubscriptionStatus(currentBusinessId);
           final hasActiveCurrentBusinessSubscription =
               _hasActiveCurrentBusinessSubscription(subscriptionData);
+          final hasLocalActiveSubscription = user.isSubscriptionValid ||
+              authProvider.subscriptionValidated;
 
           final subscriptionStatus =
               (subscriptionData?['subscriptionReviewStatus'] ??
@@ -167,7 +194,8 @@ class _SplashScreenState extends State<SplashScreen>
                   .toLowerCase() ??
                   '';
 
-          if (subscriptionStatus == 'pending_approval') {
+          if (subscriptionStatus == 'pending_approval' &&
+              !hasActiveCurrentBusinessSubscription) {
             // Owner has pending subscription approval
             print('[SplashScreen] Subscription pending approval (owner)');
             if (mounted) {
@@ -187,7 +215,7 @@ class _SplashScreenState extends State<SplashScreen>
               );
             }
           } else if (!(hasActiveCurrentBusinessSubscription ||
-              authProvider.subscriptionValidated)) {
+              hasLocalActiveSubscription)) {
             if (mounted) {
               Navigator.of(context).pushReplacementNamed(
                 Routes.subscriptionPayment,
@@ -208,11 +236,19 @@ class _SplashScreenState extends State<SplashScreen>
         }
       } else {
         print('[SplashScreen] User not authenticated, navigating to login');
+        if (hasPersistedLogin && authProvider.hasCachedUser) {
+          return;
+        }
         Navigator.of(context).pushReplacementNamed(Routes.login);
       }
     } catch (e) {
       print('[SplashScreen] Error during auth check: $e');
       if (mounted) {
+        final authProvider = context.read<AuthProvider>();
+        if (authProvider.isPersistentLoginEnabled &&
+            authProvider.hasCachedUser) {
+          return;
+        }
         Navigator.of(context).pushReplacementNamed(Routes.login);
       }
     }

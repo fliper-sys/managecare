@@ -1,12 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/constants/routes.dart';
 import '../../../core/utils/datetime_utils.dart';
+import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/notification_provider.dart';
+import '../../../services/managecare_api_client.dart';
 import '../../../services/notification_service.dart';
 import '../../../widgets/empty_state.dart';
 import '../../../widgets/loading_indicator.dart';
@@ -15,6 +16,20 @@ import '../../settings/screens/notification_admin_screen.dart';
 import '../../settings/screens/notification_preferences_screen.dart';
 
 enum _FeedFilter { all, unread, read }
+
+class _NotificationRecord {
+  final String id;
+  final Map<String, dynamic> data;
+  final DocumentReference<Map<String, dynamic>>? firestoreReference;
+
+  const _NotificationRecord({
+    required this.id,
+    required this.data,
+    this.firestoreReference,
+  });
+
+  bool get isBackend => firestoreReference == null;
+}
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -27,8 +42,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   _FeedFilter _filter = _FeedFilter.all;
   bool _busy = false;
+  String? _backendNotificationsUserId;
+  Future<List<Map<String, dynamic>>>? _backendNotificationsFuture;
 
-  String? get _uid => FirebaseAuth.instance.currentUser?.uid;
+  String? get _uid => context.read<AuthProvider>().currentUser?.id;
 
   Query<Map<String, dynamic>> _query(String uid) => _firestore
       .collection('users')
@@ -37,11 +54,70 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       .orderBy('createdAt', descending: true)
       .limit(100);
 
+  Query<Map<String, dynamic>> _targetedQuery(String uid) => _firestore
+      .collection('notifications')
+      .where('targetUsers', arrayContains: uid)
+      .orderBy('createdAt', descending: true)
+      .limit(100);
+
+  Future<List<Map<String, dynamic>>> _fetchBackendNotifications(
+      String uid) async {
+    final response = await ManagecareApiClient.instance.get(
+      '/api/notifications/$uid',
+      query: {'limit': 100},
+    );
+    final rows = response is Map ? response['data'] : response;
+    if (rows is! List) return <Map<String, dynamic>>[];
+    return rows
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>> _backendNotifications(String uid) {
+    if (_backendNotificationsUserId != uid ||
+        _backendNotificationsFuture == null) {
+      _backendNotificationsUserId = uid;
+      _backendNotificationsFuture = _fetchBackendNotifications(uid);
+    }
+    return _backendNotificationsFuture!;
+  }
+
+  DateTime _backendCreatedAt(Map<String, dynamic> data) =>
+      parseTimestamp(data['created_at'] ?? data['createdAt']);
+
+  Future<void> _markBackendRead(Map<String, dynamic> data, bool read) async {
+    final id = data['id'];
+    if (id == null) return;
+    await ManagecareApiClient.instance.put(
+      '/api/notifications/$id/read',
+    );
+    data['is_read'] = read;
+    data['isRead'] = read;
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _deleteBackendNotification(Map<String, dynamic> data) async {
+    final id = data['id'];
+    if (id == null) return;
+    await ManagecareApiClient.instance.delete('/api/notifications/$id');
+    _backendNotificationsFuture =
+        _fetchBackendNotifications(_backendNotificationsUserId!);
+    if (mounted) setState(() {});
+  }
+
   bool _isRead(Map<String, dynamic> data) =>
-      data['isRead'] == true || data['readAt'] != null;
+      data['isRead'] == true ||
+      data['is_read'] == true ||
+      data['readAt'] != null ||
+      data['read_at'] != null;
 
   DateTime _createdAt(Map<String, dynamic> data) =>
-      parseTimestamp(data['createdAt']) ?? DateTime.now();
+      parseTimestamp(data['createdAt']);
+
+  DateTime _recordCreatedAt(_NotificationRecord record) => record.isBackend
+      ? _backendCreatedAt(record.data)
+      : _createdAt(record.data);
 
   String _type(Map<String, dynamic> data) {
     final payload = data['data'];
@@ -101,19 +177,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     return Icons.notifications_active_rounded;
   }
 
-  Future<void> _setRead(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-    bool read,
-  ) async {
-    await doc.reference.set({
+  Future<void> _setRead(_NotificationRecord record, bool read) async {
+    if (record.isBackend) {
+      await _markBackendRead(record.data, read);
+      return;
+    }
+    await record.firestoreReference!.set({
       'isRead': read,
       'readAt': read ? FieldValue.serverTimestamp() : FieldValue.delete(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
 
-  Future<void> _markAll(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) async {
-    final unread = docs.where((doc) => !_isRead(doc.data())).toList();
+  Future<void> _markAll(List<_NotificationRecord> docs) async {
+    final unread = docs.where((record) => !_isRead(record.data)).toList();
     if (unread.isEmpty) {
       _snack('Everything is already marked as read.');
       return;
@@ -121,14 +198,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     setState(() => _busy = true);
     try {
       final batch = _firestore.batch();
-      for (final doc in unread) {
-        batch.set(doc.reference, {
-          'isRead': true,
-          'readAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+      for (final record in unread.where((record) => !record.isBackend)) {
+        batch.set(
+            record.firestoreReference!,
+            {
+              'isRead': true,
+              'readAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
       }
       await batch.commit();
+      for (final record in unread.where((record) => record.isBackend)) {
+        await _markBackendRead(record.data, true);
+      }
       _snack('Marked ${unread.length} notification(s) as read.');
     } catch (e) {
       _snack('Failed to update notifications: $e', error: true);
@@ -137,8 +220,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
-  Future<void> _clearRead(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) async {
-    final read = docs.where((doc) => _isRead(doc.data())).toList();
+  Future<void> _clearRead(List<_NotificationRecord> docs) async {
+    final read = docs.where((record) => _isRead(record.data)).toList();
     if (read.isEmpty) {
       _snack('There are no read notifications to clear.');
       return;
@@ -146,10 +229,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     setState(() => _busy = true);
     try {
       final batch = _firestore.batch();
-      for (final doc in read) {
-        batch.delete(doc.reference);
+      for (final record in read.where((record) => !record.isBackend)) {
+        batch.delete(record.firestoreReference!);
       }
       await batch.commit();
+      for (final record in read.where((record) => record.isBackend)) {
+        await _deleteBackendNotification(record.data);
+      }
       _snack('Cleared ${read.length} read notification(s).');
     } catch (e) {
       _snack('Failed to clear notifications: $e', error: true);
@@ -206,7 +292,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final uid = _uid;
+    final uid = context.watch<AuthProvider>().currentUser?.id;
     final business = context.watch<BusinessProvider>().currentBusiness;
 
     return Scaffold(
@@ -235,323 +321,449 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       return const Center(child: CustomLoadingIndicator());
                     }
 
-                    final docs =
-                        snapshot.data?.docs ??
-                        <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-                    final unread = docs.where((doc) => !_isRead(doc.data())).length;
-                    final filtered = docs.where((doc) {
-                      switch (_filter) {
-                        case _FeedFilter.unread:
-                          return !_isRead(doc.data());
-                        case _FeedFilter.read:
-                          return _isRead(doc.data());
-                        case _FeedFilter.all:
-                          return true;
-                      }
-                    }).toList();
+                    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: _targetedQuery(uid).snapshots(),
+                      builder: (context, targetedSnapshot) {
+                        return FutureBuilder<List<Map<String, dynamic>>>(
+                          future: _backendNotifications(uid),
+                          builder: (context, backendSnapshot) {
+                            final docsByPath = <String, _NotificationRecord>{};
+                            final sourceDocs =
+                                <QueryDocumentSnapshot<Map<String, dynamic>>>[
+                              if (snapshot.hasData) ...snapshot.data!.docs,
+                              if (targetedSnapshot.hasData)
+                                ...targetedSnapshot.data!.docs,
+                            ];
+                            for (final doc in sourceDocs) {
+                              docsByPath[doc.reference.path] =
+                                  _NotificationRecord(
+                                id: doc.id,
+                                data: doc.data(),
+                                firestoreReference: doc.reference,
+                              );
+                            }
+                            for (final data
+                                in backendSnapshot.data ?? const []) {
+                              final id = data['id']?.toString();
+                              if (id != null) {
+                                docsByPath['backend:$id'] = _NotificationRecord(
+                                  id: id,
+                                  data: data,
+                                );
+                              }
+                            }
+                            final docs = docsByPath.values.toList()
+                              ..sort((a, b) => _recordCreatedAt(b)
+                                  .compareTo(_recordCreatedAt(a)));
+                            final unread = docs
+                                .where((record) => !_isRead(record.data))
+                                .length;
+                            final filtered = docs.where((record) {
+                              switch (_filter) {
+                                case _FeedFilter.unread:
+                                  return !_isRead(record.data);
+                                case _FeedFilter.read:
+                                  return _isRead(record.data);
+                                case _FeedFilter.all:
+                                  return true;
+                              }
+                            }).toList();
 
-                    return ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                scheme.primary,
-                                Color.lerp(scheme.primary, scheme.secondary, 0.5)!,
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(28),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'A cleaner notification center',
-                                style: theme.textTheme.titleLarge?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Track unread alerts, test delivery, and jump straight into notification settings.',
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: Colors.white.withOpacity(0.92),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _HeroChip(label: 'Unread', value: '$unread'),
-                                  _HeroChip(label: 'Total', value: '${docs.length}'),
-                                  _HeroChip(
-                                    label: 'Delivery',
-                                    value: _frequencyLabel(prefs.frequency),
+                            if (backendSnapshot.connectionState ==
+                                    ConnectionState.waiting &&
+                                !backendSnapshot.hasData &&
+                                docs.isEmpty) {
+                              return const Center(
+                                  child: CustomLoadingIndicator());
+                            }
+
+                            return ListView(
+                              padding:
+                                  const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(20),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        scheme.primary,
+                                        Color.lerp(scheme.primary,
+                                            scheme.secondary, 0.5)!,
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    borderRadius: BorderRadius.circular(28),
                                   ),
-                                  _HeroChip(
-                                    label: 'Quiet Hours',
-                                    value: prefs.isQuietHoursEnabled ? 'On' : 'Off',
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            _ActionTile(
-                              icon: Icons.tune_rounded,
-                              label: 'Preferences',
-                              subtitle: 'Channels and quiet hours',
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => const NotificationPreferencesScreen(),
-                                ),
-                              ),
-                            ),
-                            _ActionTile(
-                              icon: Icons.devices_other_rounded,
-                              label: 'Devices',
-                              subtitle: 'Manage push-enabled devices',
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => const ManageDevicesScreen(),
-                                ),
-                              ),
-                            ),
-                            _ActionTile(
-                              icon: Icons.bolt_rounded,
-                              label: 'Test Alert',
-                              subtitle: 'Send a local test notification',
-                              onTap: prefs.isPushEnabled || prefs.isInAppEnabled
-                                  ? _sendTest
-                                  : null,
-                            ),
-                            _ActionTile(
-                              icon: Icons.receipt_long_rounded,
-                              label: 'Logs',
-                              subtitle: 'Delivery and message activity',
-                              onTap: business == null
-                                  ? null
-                                  : () => Navigator.pushNamed(
-                                        context,
-                                        Routes.notificationLogs,
-                                      ),
-                            ),
-                            _ActionTile(
-                              icon: Icons.admin_panel_settings_outlined,
-                              label: 'Admin',
-                              subtitle: 'Thresholds and scheduled alerts',
-                              onTap: business == null
-                                  ? null
-                                  : () => Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) => const NotificationAdminScreen(),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'A cleaner notification center',
+                                        style: theme.textTheme.titleLarge
+                                            ?.copyWith(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w800,
                                         ),
                                       ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            FilterChip(
-                              selected: _filter == _FeedFilter.all,
-                              label: Text('All (${docs.length})'),
-                              onSelected: (_) => setState(() => _filter = _FeedFilter.all),
-                            ),
-                            FilterChip(
-                              selected: _filter == _FeedFilter.unread,
-                              label: Text('Unread ($unread)'),
-                              onSelected: (_) => setState(() => _filter = _FeedFilter.unread),
-                            ),
-                            FilterChip(
-                              selected: _filter == _FeedFilter.read,
-                              label: Text('Read (${docs.length - unread})'),
-                              onSelected: (_) => setState(() => _filter = _FeedFilter.read),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            TextButton.icon(
-                              onPressed: docs.isEmpty || _busy ? null : () => _markAll(docs),
-                              icon: const Icon(Icons.done_all_rounded),
-                              label: const Text('Mark all read'),
-                            ),
-                            const SizedBox(width: 8),
-                            TextButton.icon(
-                              onPressed: docs.isEmpty || _busy ? null : () => _clearRead(docs),
-                              icon: const Icon(Icons.cleaning_services_outlined),
-                              label: const Text('Clear read'),
-                            ),
-                            if (_busy) ...[
-                              const Spacer(),
-                              SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: scheme.primary,
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Track unread alerts, test delivery, and jump straight into notification settings.',
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                          color: Colors.white.withOpacity(0.92),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          _HeroChip(
+                                              label: 'Unread',
+                                              value: '$unread'),
+                                          _HeroChip(
+                                              label: 'Total',
+                                              value: '${docs.length}'),
+                                          _HeroChip(
+                                            label: 'Delivery',
+                                            value: _frequencyLabel(
+                                                prefs.frequency),
+                                          ),
+                                          _HeroChip(
+                                            label: 'Quiet Hours',
+                                            value: prefs.isQuietHoursEnabled
+                                                ? 'On'
+                                                : 'Off',
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        if (filtered.isEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(vertical: 28),
-                            decoration: BoxDecoration(
-                              color: theme.cardColor,
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(
-                                color: scheme.outline.withOpacity(0.45),
-                              ),
-                            ),
-                            child: EmptyState(
-                              title: docs.isEmpty ? 'No notifications yet' : 'Nothing here',
-                              subtitle: docs.isEmpty
-                                  ? 'Alerts will appear here once they are delivered to your account.'
-                                  : 'Try another filter or send a test notification.',
-                              icon: Icons.notifications_none_rounded,
-                            ),
-                          )
-                        else
-                          ...filtered.map((doc) {
-                            final data = doc.data();
-                            final read = _isRead(data);
-                            final type = _type(data);
-                            final accent = scheme.primary;
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(22),
-                                  onTap: () async {
-                                    if (!read) {
-                                      await _setRead(doc, true);
-                                    }
-                                  },
-                                  child: Ink(
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      color: read
-                                          ? theme.cardColor
-                                          : accent.withOpacity(
-                                              theme.brightness == Brightness.dark
-                                                  ? 0.16
-                                                  : 0.08,
-                                            ),
-                                      borderRadius: BorderRadius.circular(22),
-                                      border: Border.all(
-                                        color: read
-                                            ? scheme.outline.withOpacity(0.45)
-                                            : accent.withOpacity(0.28),
+                                const SizedBox(height: 20),
+                                Wrap(
+                                  spacing: 12,
+                                  runSpacing: 12,
+                                  children: [
+                                    _ActionTile(
+                                      icon: Icons.tune_rounded,
+                                      label: 'Preferences',
+                                      subtitle: 'Channels and quiet hours',
+                                      onTap: () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const NotificationPreferencesScreen(),
+                                        ),
                                       ),
                                     ),
-                                    child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Container(
-                                          width: 46,
-                                          height: 46,
-                                          decoration: BoxDecoration(
-                                            color: accent.withOpacity(0.12),
-                                            borderRadius: BorderRadius.circular(16),
-                                          ),
-                                          child: Icon(_iconFor(type), color: accent),
+                                    _ActionTile(
+                                      icon: Icons.devices_other_rounded,
+                                      label: 'Devices',
+                                      subtitle: 'Manage push-enabled devices',
+                                      onTap: () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) =>
+                                              const ManageDevicesScreen(),
                                         ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      (data['title'] ?? 'Notification').toString(),
-                                                      style: theme.textTheme.titleSmall?.copyWith(
-                                                        fontWeight: FontWeight.w800,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    _relative(_createdAt(data)),
-                                                    style: theme.textTheme.labelSmall?.copyWith(
-                                                      color: scheme.onSurface.withOpacity(0.55),
-                                                    ),
-                                                  ),
-                                                ],
+                                      ),
+                                    ),
+                                    _ActionTile(
+                                      icon: Icons.bolt_rounded,
+                                      label: 'Test Alert',
+                                      subtitle:
+                                          'Send a local test notification',
+                                      onTap: prefs.isPushEnabled ||
+                                              prefs.isInAppEnabled
+                                          ? _sendTest
+                                          : null,
+                                    ),
+                                    _ActionTile(
+                                      icon: Icons.receipt_long_rounded,
+                                      label: 'Logs',
+                                      subtitle: 'Delivery and message activity',
+                                      onTap: business == null
+                                          ? null
+                                          : () => Navigator.pushNamed(
+                                                context,
+                                                Routes.notificationLogs,
                                               ),
-                                              const SizedBox(height: 8),
-                                              Text(
-                                                (data['body'] ?? 'No details provided.').toString(),
-                                                style: theme.textTheme.bodyMedium?.copyWith(
-                                                  color: scheme.onSurface.withOpacity(0.8),
+                                    ),
+                                    _ActionTile(
+                                      icon: Icons.admin_panel_settings_outlined,
+                                      label: 'Admin',
+                                      subtitle:
+                                          'Thresholds and scheduled alerts',
+                                      onTap: business == null
+                                          ? null
+                                          : () => Navigator.of(context).push(
+                                                MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      const NotificationAdminScreen(),
                                                 ),
                                               ),
-                                              const SizedBox(height: 10),
-                                              Wrap(
-                                                spacing: 8,
-                                                runSpacing: 8,
-                                                children: [
-                                                  _MetaChip(label: type.replaceAll('_', ' ')),
-                                                  _MetaChip(
-                                                    label: (data['source'] ?? 'app')
-                                                        .toString()
-                                                        .replaceAll('_', ' '),
-                                                  ),
-                                                  if (!read)
-                                                    _MetaChip(label: 'new', highlighted: true),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 20),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    FilterChip(
+                                      selected: _filter == _FeedFilter.all,
+                                      label: Text('All (${docs.length})'),
+                                      onSelected: (_) => setState(
+                                          () => _filter = _FeedFilter.all),
+                                    ),
+                                    FilterChip(
+                                      selected: _filter == _FeedFilter.unread,
+                                      label: Text('Unread ($unread)'),
+                                      onSelected: (_) => setState(
+                                          () => _filter = _FeedFilter.unread),
+                                    ),
+                                    FilterChip(
+                                      selected: _filter == _FeedFilter.read,
+                                      label: Text(
+                                          'Read (${docs.length - unread})'),
+                                      onSelected: (_) => setState(
+                                          () => _filter = _FeedFilter.read),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    TextButton.icon(
+                                      onPressed: docs.isEmpty || _busy
+                                          ? null
+                                          : () => _markAll(docs),
+                                      icon: const Icon(Icons.done_all_rounded),
+                                      label: const Text('Mark all read'),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    TextButton.icon(
+                                      onPressed: docs.isEmpty || _busy
+                                          ? null
+                                          : () => _clearRead(docs),
+                                      icon: const Icon(
+                                          Icons.cleaning_services_outlined),
+                                      label: const Text('Clear read'),
+                                    ),
+                                    if (_busy) ...[
+                                      const Spacer(),
+                                      SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: scheme.primary,
                                         ),
-                                        PopupMenuButton<String>(
-                                          onSelected: (value) async {
-                                            if (value == 'toggle') {
-                                              await _setRead(doc, !read);
-                                            }
-                                            if (value == 'delete') {
-                                              await doc.reference.delete();
-                                              _snack('Notification removed.');
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                if (filtered.isEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 28),
+                                    decoration: BoxDecoration(
+                                      color: theme.cardColor,
+                                      borderRadius: BorderRadius.circular(24),
+                                      border: Border.all(
+                                        color: scheme.outline.withOpacity(0.45),
+                                      ),
+                                    ),
+                                    child: EmptyState(
+                                      title: docs.isEmpty
+                                          ? 'No notifications yet'
+                                          : 'Nothing here',
+                                      subtitle: docs.isEmpty
+                                          ? 'Alerts will appear here once they are delivered to your account.'
+                                          : 'Try another filter or send a test notification.',
+                                      icon: Icons.notifications_none_rounded,
+                                    ),
+                                  )
+                                else
+                                  ...filtered.map((record) {
+                                    final data = record.data;
+                                    final read = _isRead(data);
+                                    final type = _type(data);
+                                    final accent = scheme.primary;
+                                    return Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 12),
+                                      child: Material(
+                                        color: Colors.transparent,
+                                        child: InkWell(
+                                          borderRadius:
+                                              BorderRadius.circular(22),
+                                          onTap: () async {
+                                            if (!read) {
+                                              await _setRead(record, true);
                                             }
                                           },
-                                          itemBuilder: (context) => [
-                                            PopupMenuItem(
-                                              value: 'toggle',
-                                              child: Text(read ? 'Mark unread' : 'Mark read'),
+                                          child: Ink(
+                                            padding: const EdgeInsets.all(16),
+                                            decoration: BoxDecoration(
+                                              color: read
+                                                  ? theme.cardColor
+                                                  : accent.withOpacity(
+                                                      theme.brightness ==
+                                                              Brightness.dark
+                                                          ? 0.16
+                                                          : 0.08,
+                                                    ),
+                                              borderRadius:
+                                                  BorderRadius.circular(22),
+                                              border: Border.all(
+                                                color: read
+                                                    ? scheme.outline
+                                                        .withOpacity(0.45)
+                                                    : accent.withOpacity(0.28),
+                                              ),
                                             ),
-                                            const PopupMenuItem(
-                                              value: 'delete',
-                                              child: Text('Delete'),
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Container(
+                                                  width: 46,
+                                                  height: 46,
+                                                  decoration: BoxDecoration(
+                                                    color: accent
+                                                        .withOpacity(0.12),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            16),
+                                                  ),
+                                                  child: Icon(_iconFor(type),
+                                                      color: accent),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Row(
+                                                        children: [
+                                                          Expanded(
+                                                            child: Text(
+                                                              (data['title'] ??
+                                                                      'Notification')
+                                                                  .toString(),
+                                                              style: theme
+                                                                  .textTheme
+                                                                  .titleSmall
+                                                                  ?.copyWith(
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w800,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          Text(
+                                                            _relative(
+                                                                _createdAt(
+                                                                    data)),
+                                                            style: theme
+                                                                .textTheme
+                                                                .labelSmall
+                                                                ?.copyWith(
+                                                              color: scheme
+                                                                  .onSurface
+                                                                  .withOpacity(
+                                                                      0.55),
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      const SizedBox(height: 8),
+                                                      Text(
+                                                        (data['body'] ??
+                                                                'No details provided.')
+                                                            .toString(),
+                                                        style: theme.textTheme
+                                                            .bodyMedium
+                                                            ?.copyWith(
+                                                          color: scheme
+                                                              .onSurface
+                                                              .withOpacity(0.8),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(
+                                                          height: 10),
+                                                      Wrap(
+                                                        spacing: 8,
+                                                        runSpacing: 8,
+                                                        children: [
+                                                          _MetaChip(
+                                                              label: type
+                                                                  .replaceAll(
+                                                                      '_',
+                                                                      ' ')),
+                                                          _MetaChip(
+                                                            label:
+                                                                (data['source'] ??
+                                                                        'app')
+                                                                    .toString()
+                                                                    .replaceAll(
+                                                                        '_',
+                                                                        ' '),
+                                                          ),
+                                                          if (!read)
+                                                            _MetaChip(
+                                                                label: 'new',
+                                                                highlighted:
+                                                                    true),
+                                                        ],
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                PopupMenuButton<String>(
+                                                  onSelected: (value) async {
+                                                    if (value == 'toggle') {
+                                                      await _setRead(
+                                                          record, !read);
+                                                    }
+                                                    if (value == 'delete') {
+                                                      await record
+                                                          .firestoreReference!
+                                                          .delete();
+                                                      _snack(
+                                                          'Notification removed.');
+                                                    }
+                                                  },
+                                                  itemBuilder: (context) => [
+                                                    PopupMenuItem(
+                                                      value: 'toggle',
+                                                      child: Text(read
+                                                          ? 'Mark unread'
+                                                          : 'Mark read'),
+                                                    ),
+                                                    const PopupMenuItem(
+                                                      value: 'delete',
+                                                      child: Text('Delete'),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
                                             ),
-                                          ],
+                                          ),
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
+                                      ),
+                                    );
+                                  }),
+                              ],
                             );
-                          }),
-                      ],
+                          },
+                        );
+                      },
                     );
                   },
                 );
@@ -618,8 +830,7 @@ class _ActionTile extends StatelessWidget {
     final scheme = theme.colorScheme;
     final enabled = onTap != null;
     final screenWidth = MediaQuery.of(context).size.width;
-    final width =
-        screenWidth > 640 ? (screenWidth - 56) / 2 : screenWidth - 32;
+    final width = screenWidth > 640 ? (screenWidth - 56) / 2 : screenWidth - 32;
 
     return SizedBox(
       width: width,
