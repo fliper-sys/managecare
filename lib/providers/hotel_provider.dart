@@ -51,29 +51,43 @@ class Room {
   });
 
   Room copyWith({
+    String? number,
+    String? type,
+    int? capacity,
+    double? pricePerNight,
+    double? halfDayPrice,
     String? status,
+    String? emoji,
+    List<String>? amenities,
+    List<String>? images,
     double? rating,
     List<Map<String, dynamic>>? priceIntervals,
+    int? floor,
+    String? size,
+    String? bedSize,
+    Map<String, dynamic>? extraDetails,
+    int? halfDayHours,
+    String? fullDayCheckoutTime,
   }) {
     return Room(
       id: id,
-      number: number,
-      type: type,
-      capacity: capacity,
-      pricePerNight: pricePerNight,
-      halfDayPrice: halfDayPrice,
+      number: number ?? this.number,
+      type: type ?? this.type,
+      capacity: capacity ?? this.capacity,
+      pricePerNight: pricePerNight ?? this.pricePerNight,
+      halfDayPrice: halfDayPrice ?? this.halfDayPrice,
       status: status ?? this.status,
-      emoji: emoji,
-      amenities: amenities,
-      images: images,
+      emoji: emoji ?? this.emoji,
+      amenities: amenities ?? this.amenities,
+      images: images ?? this.images,
       priceIntervals: priceIntervals ?? this.priceIntervals,
-      floor: floor,
+      floor: floor ?? this.floor,
       rating: rating ?? this.rating,
-      size: size,
-      bedSize: bedSize,
-      extraDetails: extraDetails,
-      halfDayHours: halfDayHours,
-      fullDayCheckoutTime: fullDayCheckoutTime,
+      size: size ?? this.size,
+      bedSize: bedSize ?? this.bedSize,
+      extraDetails: extraDetails ?? this.extraDetails,
+      halfDayHours: halfDayHours ?? this.halfDayHours,
+      fullDayCheckoutTime: fullDayCheckoutTime ?? this.fullDayCheckoutTime,
     );
   }
 }
@@ -1269,6 +1283,90 @@ class HotelProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateRoom({
+    required String roomId,
+    required String number,
+    required String type,
+    required int capacity,
+    required double pricePerNight,
+    double halfDayPrice = 0,
+    int floor = 1,
+    List<String>? amenities,
+    String? emoji,
+    List<Map<String, dynamic>>? priceIntervals,
+    String size = '',
+    String bedSize = '',
+    Map<String, dynamic> extraDetails = const {},
+    int halfDayHours = 12,
+    String fullDayCheckoutTime = '12:00',
+  }) async {
+    final index = _rooms.indexWhere((room) => room.id == roomId);
+    if (index < 0) return;
+
+    final current = _rooms[index];
+    Room updated = current.copyWith(
+      number: number,
+      type: type,
+      capacity: capacity,
+      pricePerNight: pricePerNight,
+      halfDayPrice: halfDayPrice,
+      amenities: amenities ?? [],
+      emoji: emoji,
+      priceIntervals: priceIntervals,
+      floor: floor,
+      size: size,
+      bedSize: bedSize,
+      extraDetails: extraDetails,
+      halfDayHours: halfDayHours,
+      fullDayCheckoutTime: fullDayCheckoutTime,
+    );
+
+    if (repository != null && _businessId != null && _businessId!.isNotEmpty) {
+      try {
+        final res = await repository!.updateRoom(_businessId!, roomId, {
+          'number': number,
+          'type': type,
+          'capacity': capacity,
+          'pricePerNight': pricePerNight,
+          'halfDayPrice': halfDayPrice,
+          'status': current.status,
+          'emoji': emoji,
+          'amenities': amenities ?? [],
+          'images': current.images,
+          'priceIntervals': priceIntervals ?? current.priceIntervals ?? [],
+          'floor': floor,
+          'size': size,
+          'bedSize': bedSize,
+          'extraDetails': extraDetails,
+          'halfDayHours': halfDayHours,
+          'fullDayCheckoutTime': fullDayCheckoutTime,
+        });
+        updated = updated.copyWith(
+          number: res['number']?.toString() ?? number,
+          type: res['type']?.toString() ?? type,
+          capacity: (res['capacity'] as num?)?.toInt() ?? capacity,
+          pricePerNight:
+              (res['pricePerNight'] as num?)?.toDouble() ?? pricePerNight,
+          halfDayPrice:
+              (res['halfDayPrice'] as num?)?.toDouble() ?? halfDayPrice,
+          floor: (res['floor'] as num?)?.toInt() ?? floor,
+          size: res['size']?.toString() ?? size,
+          bedSize: res['bedSize']?.toString() ?? bedSize,
+          halfDayHours:
+              (res['halfDayHours'] as num?)?.toInt() ?? halfDayHours,
+          fullDayCheckoutTime:
+              res['fullDayCheckoutTime']?.toString() ?? fullDayCheckoutTime,
+        );
+      } catch (e) {
+        debugPrint('[HotelProvider] updateRoom repository error: $e');
+      }
+    }
+
+    _rooms[index] = updated;
+    _updateOccupancy();
+    notifyListeners();
+  }
+
   List<Room> getAvailableRoomsForDates(DateTime checkIn, DateTime checkOut) {
     return _rooms.where((room) {
       if (room.status != 'available') return false;
@@ -1619,6 +1717,40 @@ class HotelProvider extends ChangeNotifier {
 
       notifyListeners();
     }
+  }
+
+  Future<void> checkOutReservationAsPaid(String reservationId) async {
+    final index = _reservations.indexWhere((r) => r.id == reservationId);
+    if (index < 0) return;
+
+    _reservations[index] = _reservations[index].copyWith(
+      status: 'checked-out',
+      paymentStatus: 'paid',
+    );
+    updateRoomStatus(_reservations[index].roomId, 'available');
+
+    if (repository != null && _businessId != null && _businessId!.isNotEmpty) {
+      try {
+        await repository!.updateReservation(_businessId!, reservationId, {
+          'status': 'checked-out',
+          'paymentStatus': 'paid',
+        });
+      } catch (e) {
+        debugPrint('[HotelProvider] checkOutReservationAsPaid error: $e');
+      }
+    }
+
+    await _syncGuestProfile(_reservations[index]);
+    try {
+      await persistReservationSale(
+        reservationId,
+        paymentMethod: 'hotel_checkout',
+        sendNotifications: false,
+      );
+    } catch (e) {
+      debugPrint('[HotelProvider] persistReservationSale on checkout error: $e');
+    }
+    notifyListeners();
   }
 
   Future<void> addReservationCharge({

@@ -614,15 +614,13 @@ class _GrantedAdminQuickNav extends StatelessWidget {
         ),
       );
     }
-    if (can('access_settings_screen')) {
-      shortcuts.add(
-        const _GrantedAdminShortcut(
-          label: 'Settings',
-          route: Routes.settings,
-          icon: Icons.settings_rounded,
-        ),
-      );
-    }
+    shortcuts.add(
+      const _GrantedAdminShortcut(
+        label: 'Settings',
+        route: Routes.settings,
+        icon: Icons.settings_rounded,
+      ),
+    );
     return shortcuts;
   }
 }

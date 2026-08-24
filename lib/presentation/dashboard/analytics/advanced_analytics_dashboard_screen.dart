@@ -12,6 +12,7 @@ import '../../../providers/analytics_provider.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/reports_provider.dart';
+import '../../../data/repositories/procurement_repository.dart';
 import '../../../services/managecare_api_client.dart';
 import '../../../widgets/custom_app_bar.dart';
 import '../../../widgets/date_range_selector.dart';
@@ -172,6 +173,72 @@ class _AdvancedAnalyticsDashboardScreenState
     }
   }
 
+  Future<List<_ProcurementMetric>> _loadProcurementAnalytics(
+    String businessId,
+  ) async {
+    final rows =
+        await ProcurementRepository().fetchProcurements(businessId: businessId);
+    final start = DateTime(
+      _selectedDateRange.start.year,
+      _selectedDateRange.start.month,
+      _selectedDateRange.start.day,
+    );
+    final end = _selectedDateRange.end.add(const Duration(days: 1));
+    final metrics = <String, _ProcurementMetric>{};
+
+    for (final procurement in rows) {
+      final createdAt = _parseChartDate(procurement['createdAt']);
+      if (createdAt == null ||
+          createdAt.isBefore(start) ||
+          !createdAt.isBefore(end)) {
+        continue;
+      }
+
+      final items = (procurement['items'] as List?) ?? const [];
+      for (final rawItem in items) {
+        if (rawItem is! Map) continue;
+        final item = Map<String, dynamic>.from(rawItem);
+        final name = (item['name'] ??
+                item['productName'] ??
+                item['product_name'] ??
+                item['itemName'] ??
+                'Unknown Item')
+            .toString();
+        final unit = (item['purchaseUnit'] ??
+                item['purchase_unit'] ??
+                item['unit'] ??
+                item['inventoryUnit'] ??
+                item['inventory_unit'] ??
+                '')
+            .toString();
+        final quantity = _readDouble(
+          item['purchaseQuantity'] ??
+              item['purchase_quantity'] ??
+              item['quantity'],
+        );
+        final totalCost = _readDouble(
+          item['purchaseTotal'] ??
+              item['purchase_total'] ??
+              item['total'],
+        );
+        final unitCost = _readDouble(
+          item['purchaseUnitCost'] ??
+              item['purchase_unit_cost'] ??
+              item['cost'],
+        );
+        final resolvedTotal = totalCost > 0 ? totalCost : quantity * unitCost;
+        final key = '${name.toLowerCase()}|${unit.toLowerCase()}';
+        final current = metrics[key] ??
+            _ProcurementMetric(name: name, unit: unit.isEmpty ? 'unit' : unit);
+        metrics[key] = current.add(quantity: quantity, totalCost: resolvedTotal);
+      }
+    }
+
+    final list = metrics.values.toList()
+      ..sort((a, b) => b.quantity.compareTo(a.quantity));
+    return list.take(10).toList();
+  }
+
   Future<void> _loadAnalytics() async {
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     await analyticsProvider.calculateAnalytics(
@@ -321,6 +388,12 @@ class _AdvancedAnalyticsDashboardScreenState
                   _buildTopProductsCard(provider)
                       .animate()
                       .fadeIn(duration: 500.ms, delay: 600.ms),
+                  if (business != null) ...[
+                    const SizedBox(height: 28),
+                    _buildProcurementAnalyticsCard(business.id)
+                        .animate()
+                        .fadeIn(duration: 500.ms, delay: 650.ms),
+                  ],
                   const SizedBox(height: 28),
                   _buildPerformanceMetricsCard(analytics)
                       .animate()
@@ -666,6 +739,117 @@ class _AdvancedAnalyticsDashboardScreenState
               );
             }),
         ],
+      ),
+    );
+  }
+
+  Widget _buildProcurementAnalyticsCard(String businessId) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: _cardSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _softBorder),
+        boxShadow: _cardShadow,
+      ),
+      child: FutureBuilder<List<_ProcurementMetric>>(
+        future: _loadProcurementAnalytics(businessId),
+        builder: (context, snapshot) {
+          final metrics = snapshot.data ?? const <_ProcurementMetric>[];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Procurement Analysis',
+                style: GoogleFonts.poppins(
+                  color: _textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Most procured items in the selected period',
+                style: GoogleFonts.poppins(color: _textMuted, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: CircularProgressIndicator(),
+                  ),
+                )
+              else if (metrics.isEmpty)
+                Text(
+                  'No procurement records found for this period.',
+                  style: GoogleFonts.poppins(color: _textMuted),
+                )
+              else
+                ...List.generate(metrics.length, (index) {
+                  final metric = metrics[index];
+                  return Column(
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: AppColors.warning.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.inventory_outlined,
+                              color: AppColors.warning,
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  metric.name,
+                                  style: GoogleFonts.poppins(
+                                    color: _textPrimary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  '${formatNumber(metric.quantity, decimalDigits: 2)} ${metric.unit} procured',
+                                  style: GoogleFonts.poppins(
+                                    color: _textMuted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            formatCurrency(metric.totalCost, decimalDigits: 0),
+                            style: GoogleFonts.poppins(
+                              color: AppColors.warning,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (index != metrics.length - 1)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Divider(color: _softBorder, height: 1),
+                        ),
+                    ],
+                  );
+                }),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1438,6 +1622,32 @@ class _AdvancedAnalyticsDashboardScreenState
           side: BorderSide(color: _softBorder),
         ),
       ),
+    );
+  }
+}
+
+class _ProcurementMetric {
+  final String name;
+  final String unit;
+  final double quantity;
+  final double totalCost;
+
+  const _ProcurementMetric({
+    required this.name,
+    required this.unit,
+    this.quantity = 0,
+    this.totalCost = 0,
+  });
+
+  _ProcurementMetric add({
+    required double quantity,
+    required double totalCost,
+  }) {
+    return _ProcurementMetric(
+      name: name,
+      unit: unit,
+      quantity: this.quantity + quantity,
+      totalCost: this.totalCost + totalCost,
     );
   }
 }

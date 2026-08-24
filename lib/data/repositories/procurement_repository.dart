@@ -164,6 +164,22 @@ class ProcurementRepository {
 
   /// Export procurements as CSV string.
   String procurementsToCsv(List<Map<String, dynamic>> procurements) {
+    double asDouble(dynamic value) {
+      if (value is num) return value.toDouble();
+      if (value is String) return double.tryParse(value.replaceAll(',', '')) ?? 0.0;
+      return 0.0;
+    }
+
+    String itemValue(Map item, List<String> keys) {
+      for (final key in keys) {
+        final value = item[key];
+        if (value != null && value.toString().trim().isNotEmpty) {
+          return value.toString();
+        }
+      }
+      return '';
+    }
+
     final rows = <List<String>>[];
     rows.add(['Procurement ID', 'Date', 'Supplier', 'Invoice', 'Baker', 'Sales Rep', 'Total Quantity', 'Total Cost', 'Item Count']);
     for (final d in procurements) {
@@ -181,11 +197,18 @@ class ProcurementRepository {
       ]);
       final items = (d['items'] as List?)?.cast<dynamic>() ?? [];
       if (items.isNotEmpty) {
-        rows.add(['-- Item Name', 'Qty', 'Purchase Unit', 'Purchase Unit Cost', 'Per Kg Cost', 'Unit Cost', 'Total']);
+        rows.add(['-- Date', 'Item Name', 'Qty', 'Unit', 'Purchase Unit', 'Purchase Unit Cost', 'Per Kg Cost', 'Unit Cost', 'Total']);
         for (final it in items) {
-          final purchaseUnit = (it['purchaseUnit'] ?? '').toString();
-          final purchaseUnitCost = (it['purchaseUnitCost'] as num?)?.toDouble() ?? 0.0;
-          final bagWeightKg = (it['bagWeightKg'] as num?)?.toDouble() ?? 0.0;
+          final item = it is Map ? it : <String, dynamic>{};
+          final itemDate = DateTime.tryParse(
+                (item['createdAt'] ?? item['created_at'] ?? d['createdAt'] ?? '')
+                    .toString(),
+              ) ??
+              createdAt;
+          final purchaseUnit = itemValue(item, ['purchaseUnit', 'purchase_unit']);
+          final unit = itemValue(item, ['unit', 'inventoryUnit', 'inventory_unit']);
+          final purchaseUnitCost = asDouble(item['purchaseUnitCost'] ?? item['purchase_unit_cost']);
+          final bagWeightKg = asDouble(item['bagWeightKg'] ?? item['bag_weight_kg']);
           String perKg = '';
           if (purchaseUnit.toLowerCase() == 'bag' && bagWeightKg > 0) {
             perKg = (purchaseUnitCost / bagWeightKg).toStringAsFixed(2);
@@ -193,13 +216,15 @@ class ProcurementRepository {
             perKg = purchaseUnitCost.toStringAsFixed(2);
           }
           rows.add([
-            '    ${it['name'] ?? ''}',
-            formatInventoryQuantity((it['quantity'] as num?) ?? 0),
+            itemDate.toIso8601String(),
+            itemValue(item, ['name', 'productName', 'product_name', 'itemName', 'item_name']),
+            formatInventoryQuantity(asDouble(item['quantity'] ?? item['purchaseQuantity'] ?? item['purchase_quantity'])),
+            unit,
             purchaseUnit,
             purchaseUnitCost.toStringAsFixed(2),
             perKg,
-            '${(it['cost'] ?? 0).toStringAsFixed(2)}',
-            '${(it['total'] ?? 0).toStringAsFixed(2)}',
+            asDouble(item['cost'] ?? item['unit_cost']).toStringAsFixed(2),
+            asDouble(item['total'] ?? item['purchase_total']).toStringAsFixed(2),
           ]);
         }
       }

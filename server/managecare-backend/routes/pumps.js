@@ -135,7 +135,7 @@ module.exports = function(pool) {
            analog_closing_volume, sold_volume, cash_derived_volume, previous_analog_closing_volume,
            previous_shift_closing_cash, previous_closing_volume, expected_amount, shift_opening_cash,
            shift_close_cash, shift_cash_difference, today_pump_cash, cash_amount, pos_amount, total_paid,
-           discrepancy_notes, discrepancy_summary,
+           cash_breakdown, discrepancy_notes, discrepancy_summary,
            shift_opening_cash_photo_url, shift_close_cash_photo_url, opening_photo_url, closing_photo_url
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
@@ -144,8 +144,8 @@ module.exports = function(pool) {
            $17, $18, $19, $20,
            $21, $22, $23, $24,
            $25, $26, $27, $28, $29, $30,
-           COALESCE($31::jsonb, '[]'::jsonb), $32,
-           $33, $34, $35, $36
+           COALESCE($31::jsonb, '[]'::jsonb), COALESCE($32::jsonb, '[]'::jsonb), $33,
+           $34, $35, $36, $37
          )
          RETURNING *`,
         [
@@ -155,7 +155,7 @@ module.exports = function(pool) {
           b.analog_closing_volume || 0, b.sold_volume || 0, b.cash_derived_volume || 0, b.previous_analog_closing_volume ?? null,
           b.previous_shift_closing_cash ?? null, b.previous_closing_volume ?? null, b.expected_amount || 0, b.shift_opening_cash || 0,
           b.shift_close_cash || 0, b.shift_cash_difference || 0, b.today_pump_cash || 0, b.cash_amount || 0, b.pos_amount || 0, b.total_paid || 0,
-          b.discrepancy_notes ? JSON.stringify(b.discrepancy_notes) : null, b.discrepancy_summary || null,
+          b.cash_breakdown ? JSON.stringify(b.cash_breakdown) : null, b.discrepancy_notes ? JSON.stringify(b.discrepancy_notes) : null, b.discrepancy_summary || null,
           b.shift_opening_cash_photo_url || null, b.shift_close_cash_photo_url || null, b.opening_photo_url || null, b.closing_photo_url || null,
         ]
       );
@@ -347,6 +347,51 @@ module.exports = function(pool) {
     } finally {
       client.release();
     }
+  }));
+
+  // ---------- Bank deposits ----------
+
+  router.get('/:businessId/bank-deposits', asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const { limit } = req.query;
+    const result = await pool.query(
+      `SELECT * FROM petroleum_bank_deposits
+       WHERE business_id = $1
+       ORDER BY deposit_date DESC, deposit_time DESC, created_at DESC
+       LIMIT $2`,
+      [businessId, Math.min(500, parseInt(limit) || 100)]
+    );
+    res.json({ data: result.rows });
+  }));
+
+  router.post('/:businessId/bank-deposits', requireFields('depositor_name', 'amount', 'bank_name'), asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const b = req.body;
+    const result = await pool.query(
+      `INSERT INTO petroleum_bank_deposits (
+         business_id, depositor_name, deposit_date, deposit_time, amount,
+         bank_name, account_number, account_name, receipt_url,
+         recorded_by, recorded_by_name
+       ) VALUES (
+         $1, $2, COALESCE($3::date, CURRENT_DATE), COALESCE($4::time, CURRENT_TIME), $5,
+         $6, $7, $8, $9, $10, $11
+       )
+       RETURNING *`,
+      [
+        businessId,
+        b.depositor_name,
+        b.deposit_date || null,
+        b.deposit_time || null,
+        b.amount || 0,
+        b.bank_name,
+        b.account_number || null,
+        b.account_name || null,
+        b.receipt_url || null,
+        asUuidOrNull(b.recorded_by),
+        b.recorded_by_name || null,
+      ]
+    );
+    res.status(201).json(result.rows[0]);
   }));
 
   // ---------- Adjustment audit log ----------

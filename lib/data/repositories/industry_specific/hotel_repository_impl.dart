@@ -115,6 +115,38 @@ class HotelRepositoryImpl implements HotelRepository {
   }
 
   @override
+  Future<Map<String, dynamic>> updateRoom(
+    String businessId,
+    String roomId,
+    Map<String, dynamic> room,
+  ) async {
+    try {
+      final response = await _api.put('/api/hotel/$businessId/rooms/$roomId', body: {
+        'number': room['number'],
+        'type': room['type'],
+        'capacity': room['capacity'],
+        'price_per_night': room['pricePerNight'],
+        'half_day_price': room['halfDayPrice'],
+        'status': room['status'],
+        'emoji': room['emoji'],
+        'amenities': room['amenities'],
+        'images': room['images'],
+        'price_intervals': room['priceIntervals'],
+        'floor': room['floor'],
+        'size': room['size'],
+        'bed_size': room['bedSize'],
+        'extra_details': room['extraDetails'],
+        'half_day_hours': room['halfDayHours'],
+        'full_day_checkout_time': room['fullDayCheckoutTime'],
+      });
+      return _roomRowToJson(Map<String, dynamic>.from(response as Map));
+    } catch (e) {
+      print('Error updating room: $e');
+      rethrow;
+    }
+  }
+
+  @override
   Future<Map<String, dynamic>> createBooking(Map<String, dynamic> booking) async {
     try {
       final businessId = booking['businessId'] as String?;

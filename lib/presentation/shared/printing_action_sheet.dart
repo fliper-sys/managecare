@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -93,8 +94,9 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
 
     // Fallback to paymentBreakdown if present
     final pb = data['paymentBreakdown'] ?? data['payment_breakdown'];
-    if (pb is List && pb.isNotEmpty) {
-      final first = pb.first;
+    final parsedPb = _parsePaymentBreakdown(pb);
+    if (parsedPb != null && parsedPb.isNotEmpty) {
+      final first = parsedPb.first;
       if (first is Map) {
         final v = first['method'] ?? first['name'] ?? first['payment'];
         if (v is String && v.trim().isNotEmpty) return _normalizePayment(v);
@@ -106,6 +108,12 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
 
   List<Map<String, dynamic>>? _getPaymentBreakdown(Map<String, dynamic> data) {
     final raw = data['paymentBreakdown'] ?? data['payment_breakdown'] ?? data['tenders'] ?? data['tender'];
+    final parsed = _parsePaymentBreakdown(raw);
+    if (parsed != null) return parsed;
+    return null;
+  }
+
+  List<Map<String, dynamic>>? _parsePaymentBreakdown(dynamic raw) {
     if (raw == null) return null;
     if (raw is List) {
       return raw.map((e) {
@@ -115,7 +123,15 @@ class _PrintingActionSheetState extends State<PrintingActionSheet> {
       }).toList();
     }
     if (raw is Map) return [Map<String, dynamic>.from(raw)];
-    return [{'method': raw.toString(), 'amount': null}];
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        return _parsePaymentBreakdown(decoded);
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
   }
 
   String _normalizePayment(String raw) {

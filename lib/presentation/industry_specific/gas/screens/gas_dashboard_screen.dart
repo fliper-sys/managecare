@@ -262,6 +262,13 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
             icon: Icons.receipt_long_outlined,
             color: Colors.brown,
             onTap: () => Navigator.pushNamed(context, Routes.expenseReport)),
+      if (isPetroleumStation && hasFullStationAccess)
+        _OperationCard(
+            title: 'Bank Deposits',
+            icon: Icons.account_balance_outlined,
+            color: Colors.green.shade700,
+            onTap: () =>
+                Navigator.pushNamed(context, Routes.petroleumBankDeposits)),
       if (showAllOperations)
         _OperationCard(
             title: 'Printer settings',

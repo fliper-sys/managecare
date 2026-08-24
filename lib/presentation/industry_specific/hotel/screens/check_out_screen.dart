@@ -82,13 +82,8 @@ class CheckOutScreen extends StatelessWidget {
                             onPressed: !canManageCheckOut
                                 ? null
                                 : () async {
-                                    await provider.updateReservationStatus(
+                                    await provider.checkOutReservationAsPaid(
                                       r.id,
-                                      'checked-out',
-                                    );
-                                    await provider.updatePaymentStatus(
-                                      r.id,
-                                      'paid',
                                     );
                                     if (context.mounted) {
                                       ScaffoldMessenger.of(context).showSnackBar(

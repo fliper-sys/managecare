@@ -117,6 +117,34 @@ class WhatsAppService {
         businessType.contains('gas');
   }
 
+  bool _isPetroleumStockRow(
+    Map<String, dynamic> row,
+    Set<String> pumpProductIds,
+  ) {
+    final id = (row['id'] ?? row['product_id'] ?? row['productId'] ?? '')
+        .toString()
+        .trim();
+    if (id.isNotEmpty && pumpProductIds.contains(id)) return true;
+
+    final searchable = [
+      row['name'],
+      row['category'],
+      row['unit'],
+      row['description'],
+      row['product_type'],
+      row['productType'],
+    ].whereType<Object>().join(' ').toLowerCase();
+
+    return searchable.contains('fuel') ||
+        searchable.contains('petrol') ||
+        searchable.contains('pms') ||
+        searchable.contains('diesel') ||
+        searchable.contains('ago') ||
+        searchable.contains('kerosene') ||
+        searchable.contains('dpk') ||
+        searchable.contains('gas');
+  }
+
   Future<String> _buildPetrolDailyTransactionsMessage({
     required String businessId,
     required String businessName,
@@ -158,6 +186,15 @@ class WhatsAppService {
     );
     final inventoryRows =
         ((inventoryResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+    final pumpProductIds = pumpConfigRows
+        .map((pump) => (pump['product_id'] ?? pump['productId'] ?? '')
+            .toString()
+            .trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    final petroleumInventoryRows = inventoryRows
+        .where((row) => _isPetroleumStockRow(row, pumpProductIds))
+        .toList();
 
     final pumpEntries = <Map<String, dynamic>>[];
     for (final data in pumpConfigRows) {
@@ -315,10 +352,10 @@ class WhatsAppService {
 
     buffer.writeln('');
     buffer.writeln('REMAINING STOCK');
-    if (inventoryRows.isEmpty) {
-      buffer.writeln('- No stock rows found.');
+    if (petroleumInventoryRows.isEmpty) {
+      buffer.writeln('- No petroleum stock rows found.');
     } else {
-      for (final row in inventoryRows) {
+      for (final row in petroleumInventoryRows) {
         final name = (row['name'] ?? 'Stock').toString();
         final quantity = _readDouble(row['quantity']);
         final unit = (row['unit'] ?? 'unit').toString();

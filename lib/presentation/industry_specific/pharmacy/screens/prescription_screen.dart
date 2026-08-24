@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/auth_provider.dart';
+import '../../../../core/theme/colors.dart';
 
 class PrescriptionScreen extends StatefulWidget {
   const PrescriptionScreen({super.key});
@@ -32,7 +33,7 @@ class _PrescriptionScreenState extends State<PrescriptionScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Prescriptions'),
-        backgroundColor: Colors.green.shade700,
+        backgroundColor: AppColors.pharmacy,
         elevation: 0,
         actions: [
           IconButton(
@@ -200,7 +201,7 @@ class _PrescriptionScreenState extends State<PrescriptionScreen> {
         },
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.green.shade700,
+        backgroundColor: AppColors.pharmacy,
         onPressed: () => _showAddPrescriptionDialog(context),
         child: const Icon(Icons.add),
       ),

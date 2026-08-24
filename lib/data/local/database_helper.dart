@@ -31,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 8,
+      version: 9,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -67,7 +67,8 @@ class DatabaseHelper {
         lastSyncAttemptAt TEXT,
         workerId TEXT,
         workerName TEXT,
-        saleType TEXT
+        saleType TEXT,
+        paymentBreakdown TEXT
       )
     ''');
 
@@ -240,6 +241,13 @@ class DatabaseHelper {
     if (oldVersion < 6) {
       await _addColumnsIfMissing(db, 'sales', {
         'saleType': 'TEXT',
+      });
+    }
+    if (oldVersion < 9) {
+      // Mixed payments are stored as JSON text locally so offline sales can
+      // retain their cash/card/transfer split until sync.
+      await _addColumnsIfMissing(db, 'sales', {
+        'paymentBreakdown': 'TEXT',
       });
     }
     if (oldVersion < 7) {

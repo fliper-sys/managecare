@@ -44,6 +44,7 @@ Map<String, dynamic> pumpUploadRowToJson(Map<String, dynamic> row) => {
       'shiftCashDifference': row['shift_cash_difference'],
       'todayPumpCash': row['today_pump_cash'],
       'cashAmount': row['cash_amount'],
+      'cashBreakdown': row['cash_breakdown'],
       'posAmount': row['pos_amount'],
       'totalPaid': row['total_paid'],
       'discrepancyNotes': row['discrepancy_notes'],

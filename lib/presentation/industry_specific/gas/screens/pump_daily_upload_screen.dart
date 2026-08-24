@@ -25,11 +25,26 @@ class PumpDailyUploadScreen extends StatefulWidget {
 }
 
 class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
+  static const List<int> _cashDenominations = [
+    1000,
+    500,
+    200,
+    100,
+    50,
+    20,
+    10,
+    5,
+  ];
+
   final _analogClosingController = TextEditingController();
   final _analogOpeningController = TextEditingController();
   bool _cacheLoaded = false;
   List<Map<String, dynamic>> _cachedPumps = [];
   final _cashController = TextEditingController();
+  final Map<int, TextEditingController> _cashDenominationControllers = {
+    for (final denomination in _cashDenominations)
+      denomination: TextEditingController(),
+  };
   final _closingController = TextEditingController();
   String? _closingPhotoPath;
   String? _closingPhotoUrl;
@@ -67,6 +82,9 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     _shiftOpeningCashController.dispose();
     _shiftCloseCashController.dispose();
     _cashController.dispose();
+    for (final controller in _cashDenominationControllers.values) {
+      controller.dispose();
+    }
     _posController.dispose();
     super.dispose();
   }
@@ -184,6 +202,83 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     return double.tryParse(text) ?? 0.0;
   }
 
+  int _parseDenominationCount(TextEditingController controller) {
+    final value = _parseControllerValue(controller);
+    return value <= 0 ? 0 : value.round();
+  }
+
+  List<Map<String, dynamic>> _cashBreakdownEntries() {
+    return _cashDenominations.map((denomination) {
+      final pieces = _parseDenominationCount(
+        _cashDenominationControllers[denomination]!,
+      );
+      return {
+        'denomination': denomination,
+        'pieces': pieces,
+        'amount': denomination * pieces,
+      };
+    }).toList();
+  }
+
+  double _cashBreakdownTotal() {
+    return _cashBreakdownEntries().fold<double>(
+      0,
+      (total, entry) => total + ((entry['amount'] as num?)?.toDouble() ?? 0),
+    );
+  }
+
+  void _syncCashTotalFromBreakdown({bool saveDraft = true}) {
+    final total = _cashBreakdownTotal();
+    final nextText = total <= 0 ? '' : formatAmount(total, decimalDigits: 2);
+    if (_cashController.text != nextText) {
+      _cashController.text = nextText;
+    }
+    if (mounted) setState(() {});
+    if (saveDraft) {
+      _saveDraft();
+    }
+  }
+
+  void _clearCashBreakdown() {
+    for (final controller in _cashDenominationControllers.values) {
+      controller.clear();
+    }
+    _cashController.clear();
+  }
+
+  void _restoreCashBreakdown(dynamic raw) {
+    if (raw == null) return;
+
+    final byDenomination = <int, int>{};
+    if (raw is Map) {
+      for (final entry in raw.entries) {
+        final denomination = int.tryParse(entry.key.toString());
+        final pieces = _parseNumber(entry.value)?.round();
+        if (denomination != null && pieces != null) {
+          byDenomination[denomination] = pieces;
+        }
+      }
+    } else if (raw is List) {
+      for (final item in raw) {
+        if (item is! Map) continue;
+        final denomination = _parseNumber(item['denomination'])?.round();
+        final pieces = _parseNumber(
+          item['pieces'] ?? item['count'] ?? item['quantity'],
+        )?.round();
+        if (denomination != null && pieces != null) {
+          byDenomination[denomination] = pieces;
+        }
+      }
+    }
+
+    for (final denomination in _cashDenominations) {
+      final pieces = byDenomination[denomination] ?? 0;
+      _cashDenominationControllers[denomination]!.text =
+          pieces <= 0 ? '' : pieces.toString();
+    }
+    _syncCashTotalFromBreakdown(saveDraft: false);
+  }
+
   Future<void> _loadPreviousClosing(
     String pumpId, {
     String? pumpNumber,
@@ -293,6 +388,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       _closingPhotoUrl = draft['closingPhotoUrl']?.toString();
       _closingPhotoPath = draft['closingPhotoPath']?.toString();
     });
+    _restoreCashBreakdown(draft['cashBreakdown'] ?? draft['cash_breakdown']);
   }
 
   Future<void> _saveDraft() async {
@@ -312,6 +408,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       'shiftOpeningCash': _shiftOpeningCashController.text.trim(),
       'shiftCloseCash': _shiftCloseCashController.text.trim(),
       'todayPumpCash': _cashController.text.trim(),
+      'cashBreakdown': _cashBreakdownEntries(),
       'posAmount': _posController.text.trim(),
       'shiftOpeningCashPhotoUrl': _shiftOpeningCashPhotoUrl,
       'shiftOpeningCashPhotoPath': _shiftOpeningCashPhotoPath,
@@ -620,7 +717,11 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         _parseControllerValue(_shiftOpeningCashController);
     final shiftCloseCash =
         _parseControllerValue(_shiftCloseCashController);
-    final cash = _parseControllerValue(_cashController);
+    final cashBreakdown = _cashBreakdownEntries();
+    final cash = cashBreakdown.fold<double>(
+      0,
+      (total, entry) => total + ((entry['amount'] as num?)?.toDouble() ?? 0),
+    );
     final pos = _parseControllerValue(_posController);
 
     if (closing <= opening) {
@@ -841,6 +942,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         'shift_cash_difference': shiftCashDifference,
         'today_pump_cash': cash,
         'cash_amount': cash,
+        'cash_breakdown': cashBreakdown,
         'pos_amount': pos,
         'total_paid': totalPaid,
         'upload_fingerprint': uploadFingerprint,
@@ -1028,7 +1130,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                           _analogClosingController.clear();
                           _shiftOpeningCashController.clear();
                           _shiftCloseCashController.clear();
-                          _cashController.clear();
+                          _clearCashBreakdown();
                           _posController.clear();
                         });
                         if (value != null) {
@@ -1298,17 +1400,60 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    Text(
+                      'Cash breakdown',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isWide = constraints.maxWidth >= 640;
+                        return GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _cashDenominations.length,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: isWide ? 4 : 2,
+                            childAspectRatio: isWide ? 2.6 : 2.35,
+                            crossAxisSpacing: 8,
+                            mainAxisSpacing: 8,
+                          ),
+                          itemBuilder: (context, index) {
+                            final denomination = _cashDenominations[index];
+                            return TextField(
+                              controller:
+                                  _cashDenominationControllers[denomination],
+                              keyboardType: TextInputType.number,
+                              inputFormatters: const [
+                                AmountInputFormatter(decimalDigits: 0),
+                              ],
+                              decoration: InputDecoration(
+                                labelText: '₦$denomination pcs',
+                                border: const OutlineInputBorder(),
+                              ),
+                              onChanged: (_) =>
+                                  _syncCashTotalFromBreakdown(),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
                     TextField(
                       controller: _cashController,
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
                       inputFormatters: const [AmountInputFormatter()],
+                      readOnly: true,
                       decoration: const InputDecoration(
                         labelText: 'Today total pump cash',
+                        helperText: 'Automatically calculated from cash breakdown',
                         border: OutlineInputBorder(),
                       ),
-                      onChanged: (_) => _saveDraft(),
                     ),
                     const SizedBox(height: 12),
                     TextField(

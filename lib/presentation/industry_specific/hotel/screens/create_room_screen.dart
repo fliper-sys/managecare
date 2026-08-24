@@ -9,7 +9,9 @@ import '../../../../widgets/custom_text_field.dart';
 import '../../../../providers/hotel_provider.dart';
 
 class CreateRoomScreen extends StatefulWidget {
-  const CreateRoomScreen({super.key});
+  const CreateRoomScreen({super.key, this.room});
+
+  final Room? room;
 
   @override
   State<CreateRoomScreen> createState() => _CreateRoomScreenState();
@@ -37,6 +39,27 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
   
   // Available room types
   final List<String> _roomTypes = ['single', 'double', 'suite', 'deluxe', 'family'];
+
+  bool get _isEditing => widget.room != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final room = widget.room;
+    if (room == null) return;
+    _numberCtrl.text = room.number;
+    _capacityCtrl.text = room.capacity.toString();
+    _priceCtrl.text = room.pricePerNight.toString();
+    _halfDayPriceCtrl.text = room.halfDayPrice.toString();
+    _floorCtrl.text = room.floor.toString();
+    _amenitiesCtrl.text = room.amenities.join(', ');
+    _sizeCtrl.text = room.size;
+    _bedSizeCtrl.text = room.bedSize;
+    _extraDetailsCtrl.text = room.extraDetails['notes']?.toString() ?? '';
+    _halfDayHoursCtrl.text = room.halfDayHours.toString();
+    _fullDayCheckoutCtrl.text = room.fullDayCheckoutTime;
+    _selectedType = _roomTypes.contains(room.type) ? room.type : 'single';
+  }
 
   @override
   void dispose() {
@@ -148,7 +171,9 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
       return;
     }
     final duplicateNumber = provider.rooms.any(
-      (room) => room.number.trim().toLowerCase() == roomNumber.toLowerCase(),
+      (room) =>
+          room.id != widget.room?.id &&
+          room.number.trim().toLowerCase() == roomNumber.toLowerCase(),
     );
     if (duplicateNumber) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -156,39 +181,63 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
       );
       return;
     }
-    if (!await _ensureCanCreateRoom()) return;
+    if (!_isEditing && !await _ensureCanCreateRoom()) return;
 
     setState(() => _isCreating = true);
 
     try {
-      await provider.createRoom(
-        number: roomNumber,
-        type: _selectedType, // Uses the dropdown value
-        capacity: capacity,
-        pricePerNight: pricePerNight,
-        halfDayPrice: halfDayPrice,
-        floor: int.tryParse(_floorCtrl.text.trim()) ?? 1,
-        amenities: _amenitiesCtrl.text
-            .split(',')
-            .map((s) => s.trim())
-            .where((s) => s.isNotEmpty)
-            .toList(),
-        size: _sizeCtrl.text.trim(),
-        bedSize: _bedSizeCtrl.text.trim(),
-        extraDetails: {
-          if (_extraDetailsCtrl.text.trim().isNotEmpty)
-            'notes': _extraDetailsCtrl.text.trim(),
-        },
-        halfDayHours: halfDayHours,
-        fullDayCheckoutTime: _fullDayCheckoutCtrl.text.trim().isEmpty
-            ? '12:00'
-            : _fullDayCheckoutCtrl.text.trim(),
-      );
+      final amenities = _amenitiesCtrl.text
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      final extraDetails = {
+        if (_extraDetailsCtrl.text.trim().isNotEmpty)
+          'notes': _extraDetailsCtrl.text.trim(),
+      };
+      final checkoutTime = _fullDayCheckoutCtrl.text.trim().isEmpty
+          ? '12:00'
+          : _fullDayCheckoutCtrl.text.trim();
+
+      if (_isEditing) {
+        await provider.updateRoom(
+          roomId: widget.room!.id,
+          number: roomNumber,
+          type: _selectedType,
+          capacity: capacity,
+          pricePerNight: pricePerNight,
+          halfDayPrice: halfDayPrice,
+          floor: int.tryParse(_floorCtrl.text.trim()) ?? 1,
+          amenities: amenities,
+          size: _sizeCtrl.text.trim(),
+          bedSize: _bedSizeCtrl.text.trim(),
+          extraDetails: extraDetails,
+          halfDayHours: halfDayHours,
+          fullDayCheckoutTime: checkoutTime,
+        );
+      } else {
+        await provider.createRoom(
+          number: roomNumber,
+          type: _selectedType,
+          capacity: capacity,
+          pricePerNight: pricePerNight,
+          halfDayPrice: halfDayPrice,
+          floor: int.tryParse(_floorCtrl.text.trim()) ?? 1,
+          amenities: amenities,
+          size: _sizeCtrl.text.trim(),
+          bedSize: _bedSizeCtrl.text.trim(),
+          extraDetails: extraDetails,
+          halfDayHours: halfDayHours,
+          fullDayCheckoutTime: checkoutTime,
+        );
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Room created successfully!'),
+        SnackBar(
+          content: Text(_isEditing
+              ? 'Room updated successfully!'
+              : 'Room created successfully!'),
           backgroundColor: Colors.green,
         ),
       );
@@ -217,7 +266,8 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
       appBar: AppBar(
         elevation: 0,
         centerTitle: true,
-        title: const Text('Add New Room', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(_isEditing ? 'Edit Room' : 'Add New Room',
+            style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
       ),
@@ -423,8 +473,8 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                         width: 24, 
                         child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
                       )
-                    : const Text(
-                        'Create Room',
+                    : Text(
+                        _isEditing ? 'Save Room' : 'Create Room',
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                       ),
               ),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -628,9 +629,39 @@ class ReportsProvider extends ChangeNotifier {
 
     final Map<String, double> totals = {};
     for (final data in sales) {
-      final method = (data['payment_method'] as String?) ?? 'unknown';
-      final amt = ((data['final_amount'] ?? data['total_amount'] ?? 0) as num)
-          .toDouble();
+      final rawBreakdown =
+          data['payment_breakdown'] ?? data['paymentBreakdown'];
+      List<dynamic>? breakdown;
+      if (rawBreakdown is List) {
+        breakdown = rawBreakdown;
+      } else if (rawBreakdown is String && rawBreakdown.trim().isNotEmpty) {
+        try {
+          final parsed = jsonDecode(rawBreakdown);
+          if (parsed is List) breakdown = parsed;
+        } catch (_) {}
+      }
+
+      if (breakdown != null && breakdown.isNotEmpty) {
+        for (final raw in breakdown) {
+          if (raw is! Map) continue;
+          final method = (raw['method'] ?? raw['name'] ?? 'unknown')
+              .toString()
+              .toLowerCase();
+          final amount = _toDouble(raw['amount'] ?? raw['total']) ?? 0.0;
+          if (amount <= 0) continue;
+          totals[method] = (totals[method] ?? 0.0) + amount;
+        }
+        continue;
+      }
+
+      final method = (data['payment_method'] ?? data['paymentMethod'] ?? 'unknown')
+          .toString()
+          .toLowerCase();
+      final amt = _toDouble(data['final_amount'] ??
+              data['finalAmount'] ??
+              data['total_amount'] ??
+              data['total']) ??
+          0.0;
       totals[method] = (totals[method] ?? 0.0) + amt;
     }
 
@@ -749,11 +780,7 @@ class ReportsProvider extends ChangeNotifier {
       date: date,
       category: data['category'] ?? data['sale_type'] ?? 'N/A',
       itemsCount: products.length,
-      totalAmount: ((data['totalAmount'] ??
-              data['final_amount'] ??
-              data['total_amount'] ??
-              0) as num)
-          .toDouble(),
+      totalAmount: _saleRevenue(data),
       cashier: _extractStringValue(data['workerName']) ??
           _extractStringValue(data['worker_name']) ??
           'N/A',
@@ -911,17 +938,17 @@ class ReportsProvider extends ChangeNotifier {
           // If part or all of this sale was returned/refunded, subtract the
           // refunded amount so profit isn't overstated.
           final returnAmount =
-              ((data['returnAmount'] ?? data['return_amount'] ?? 0) as num)
-                  .toDouble();
+              _toDouble(data['returnAmount'] ?? data['return_amount']) ?? 0.0;
           final revenue =
               (grossRevenue - returnAmount).clamp(0, double.infinity).toDouble();
 
           final items = data['items'] as List? ?? [];
           double cogsForSale = 0.0;
           for (var item in items) {
-            if (item is Map<String, dynamic>) {
-              final itemCost = _resolveItemCost(item, inventoryCostMap);
-              final itemQty = _lineQuantityForCogs(item);
+            if (item is Map) {
+              final itemMap = Map<String, dynamic>.from(item);
+              final itemCost = _resolveItemCost(itemMap, inventoryCostMap);
+              final itemQty = _lineQuantityForCogs(itemMap);
               cogsForSale += (itemCost * itemQty).toDouble();
             }
           }
@@ -2241,17 +2268,20 @@ class ReportsProvider extends ChangeNotifier {
               ),
             ),
             pw.SizedBox(height: 14),
-            sectionHeader('Transaction Overview', 'One row per sale, with the customer and salesperson context.'),
+            sectionHeader('Detailed Line Items', 'Each product sold appears with quantity, unit price, and the responsible salesperson.'),
             pw.SizedBox(height: 8),
             pw.Table(
               border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.6),
               columnWidths: const {
-                0: pw.FlexColumnWidth(1.15),
-                1: pw.FlexColumnWidth(1.25),
-                2: pw.FlexColumnWidth(1.6),
-                3: pw.FlexColumnWidth(1.4),
-                4: pw.FlexColumnWidth(1.2),
+                0: pw.FlexColumnWidth(1.05),
+                1: pw.FlexColumnWidth(1),
+                2: pw.FlexColumnWidth(1.45),
+                3: pw.FlexColumnWidth(1.15),
+                4: pw.FlexColumnWidth(1.15),
                 5: pw.FlexColumnWidth(1.1),
+                6: pw.FlexColumnWidth(0.9),
+                7: pw.FlexColumnWidth(0.95),
+                8: pw.FlexColumnWidth(1.05),
               },
               children: [
                 pw.TableRow(
@@ -2260,24 +2290,26 @@ class ReportsProvider extends ChangeNotifier {
                     _buildPdfCell('Date', bold: true),
                     _buildPdfCell('Receipt', bold: true),
                     _buildPdfCell('Customer', bold: true),
-                    _buildPdfCell('Payment', bold: true),
+                    _buildPdfCell('Product', bold: true),
+                    _buildPdfCell('Category', bold: true),
                     _buildPdfCell('Salesperson', bold: true),
-                    _buildPdfCell('Total', bold: true, align: pw.TextAlign.right),
+                    _buildPdfCell('Qty', bold: true, align: pw.TextAlign.right),
+                    _buildPdfCell('Unit Price', bold: true, align: pw.TextAlign.right),
+                    _buildPdfCell('Line Total', bold: true, align: pw.TextAlign.right),
                   ],
                 ),
-                ...sales.map(
-                  (sale) => pw.TableRow(
+                ...itemRows.map(
+                  (row) => pw.TableRow(
                     children: [
-                      _buildPdfCell(DateFormat('dd MMM yyyy').format(sale.date)),
-                      _buildPdfCell(sale.receiptId ?? 'N/A'),
-                      _buildPdfCell(
-                        sale.customerName.isNotEmpty
-                            ? sale.customerName
-                            : (sale.customerId.isNotEmpty ? sale.customerId : 'Walk-in'),
-                      ),
-                      _buildPdfCell(sale.paymentMethod),
-                      _buildPdfCell(sale.cashier),
-                      _buildPdfCell(currency.format(sale.totalAmount), align: pw.TextAlign.right),
+                      _buildPdfCell(DateFormat('dd MMM yyyy').format(row['date'] as DateTime)),
+                      _buildPdfCell(row['receiptId']?.toString().isNotEmpty == true ? row['receiptId'].toString() : 'N/A'),
+                      _buildPdfCell(row['customer'].toString()),
+                      _buildPdfCell(row['product'].toString()),
+                      _buildPdfCell(row['category'].toString()),
+                      _buildPdfCell(row['cashier'].toString()),
+                      _buildPdfCell((row['quantity'] as num).toStringAsFixed(0), align: pw.TextAlign.right),
+                      _buildPdfCell(currency.format((row['unitPrice'] as num).toDouble()), align: pw.TextAlign.right),
+                      _buildPdfCell(currency.format((row['lineTotal'] as num).toDouble()), align: pw.TextAlign.right),
                     ],
                   ),
                 ),
@@ -2357,54 +2389,6 @@ class ReportsProvider extends ChangeNotifier {
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 14),
-            sectionHeader('Detailed Line Items', 'Each product sold appears with quantity, unit price, and the responsible salesperson.'),
-            pw.SizedBox(height: 8),
-            pw.Table(
-              border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.6),
-              columnWidths: const {
-                0: pw.FlexColumnWidth(1.05),
-                1: pw.FlexColumnWidth(1),
-                2: pw.FlexColumnWidth(1.45),
-                3: pw.FlexColumnWidth(1.15),
-                4: pw.FlexColumnWidth(1.15),
-                5: pw.FlexColumnWidth(1.1),
-                6: pw.FlexColumnWidth(0.9),
-                7: pw.FlexColumnWidth(0.95),
-                8: pw.FlexColumnWidth(1.05),
-              },
-              children: [
-                pw.TableRow(
-                  decoration: const pw.BoxDecoration(color: PdfColors.grey200),
-                  children: [
-                    _buildPdfCell('Date', bold: true),
-                    _buildPdfCell('Receipt', bold: true),
-                    _buildPdfCell('Customer', bold: true),
-                    _buildPdfCell('Product', bold: true),
-                    _buildPdfCell('Category', bold: true),
-                    _buildPdfCell('Salesperson', bold: true),
-                    _buildPdfCell('Qty', bold: true, align: pw.TextAlign.right),
-                    _buildPdfCell('Unit Price', bold: true, align: pw.TextAlign.right),
-                    _buildPdfCell('Line Total', bold: true, align: pw.TextAlign.right),
-                  ],
-                ),
-                ...itemRows.map(
-                  (row) => pw.TableRow(
-                    children: [
-                      _buildPdfCell(DateFormat('dd MMM yyyy').format(row['date'] as DateTime)),
-                      _buildPdfCell(row['receiptId']?.toString().isNotEmpty == true ? row['receiptId'].toString() : 'N/A'),
-                      _buildPdfCell(row['customer'].toString()),
-                      _buildPdfCell(row['product'].toString()),
-                      _buildPdfCell(row['category'].toString()),
-                      _buildPdfCell(row['cashier'].toString()),
-                      _buildPdfCell((row['quantity'] as num).toStringAsFixed(0), align: pw.TextAlign.right),
-                      _buildPdfCell(currency.format((row['unitPrice'] as num).toDouble()), align: pw.TextAlign.right),
-                      _buildPdfCell(currency.format((row['lineTotal'] as num).toDouble()), align: pw.TextAlign.right),
                     ],
                   ),
                 ),
@@ -3190,22 +3174,52 @@ class ReportsProvider extends ChangeNotifier {
 
       final items = (data['items'] as List?) ?? [];
       final itemRows = <Map<String, dynamic>>[];
-      double saleRevenue = 0.0;
+      final saleRevenue = _saleRevenue(data);
+      double rawItemRevenue = 0.0;
       double saleCogs = 0.0;
 
       for (final rawItem in items) {
         if (rawItem is! Map) continue;
         final item = Map<String, dynamic>.from(rawItem);
         final quantity = _toDouble(
-              item['inventoryQuantity'] ??
-                  item['quantity'] ??
+              item['quantity'] ??
                   item['qty'] ??
                   item['soldQty'] ??
+                  item['quantity_sold'] ??
                   1,
             ) ??
             0.0;
         final unitPrice = _toDouble(
               item['unitPrice'] ??
+                  item['unit_price'] ??
+                  item['price'] ??
+                  item['sellingPrice'] ??
+                  item['amount'] ??
+                  0,
+            ) ??
+            0.0;
+        rawItemRevenue +=
+            _toDouble(item['total'] ?? item['lineTotal'] ?? item['line_total']) ??
+                (unitPrice * quantity);
+      }
+      final revenueScale =
+          rawItemRevenue > 0 ? saleRevenue / rawItemRevenue : 1.0;
+
+      for (final rawItem in items) {
+        if (rawItem is! Map) continue;
+        final item = Map<String, dynamic>.from(rawItem);
+        final quantity = _toDouble(
+              item['quantity'] ??
+                  item['qty'] ??
+                  item['soldQty'] ??
+                  item['quantity_sold'] ??
+                  1,
+            ) ??
+            0.0;
+        final inventoryQuantity = _lineQuantityForCogs(item);
+        final unitPrice = _toDouble(
+              item['unitPrice'] ??
+                  item['unit_price'] ??
                   item['price'] ??
                   item['sellingPrice'] ??
                   item['amount'] ??
@@ -3213,26 +3227,38 @@ class ReportsProvider extends ChangeNotifier {
             ) ??
             0.0;
         final costPerUnit = _resolveItemCost(item, inventoryCostMap);
-        final lineRevenue = unitPrice * quantity;
-        final lineCogs = costPerUnit * quantity;
-        final saleMode = (item['pricingMode'] ?? item['saleMode'] ?? '')
+        final rawLineRevenue =
+            _toDouble(item['total'] ?? item['lineTotal'] ?? item['line_total']) ??
+                (unitPrice * quantity);
+        final lineRevenue = rawLineRevenue * revenueScale;
+        final lineCogs = costPerUnit * inventoryQuantity;
+        final saleMode = (item['pricingMode'] ??
+                item['pricing_mode'] ??
+                item['saleMode'] ??
+                '')
             .toString()
             .trim()
             .toLowerCase();
 
-        saleRevenue += lineRevenue;
         saleCogs += lineCogs;
 
         itemRows.add({
-          'name': (item['name'] ?? item['productName'] ?? 'Item').toString(),
-          'productId': (item['productId'] ?? item['id'] ?? '').toString(),
+          'name': (item['name'] ??
+                  item['productName'] ??
+                  item['product_name'] ??
+                  'Item')
+              .toString(),
+          'productId':
+              (item['productId'] ?? item['product_id'] ?? item['id'] ?? '')
+                  .toString(),
           'quantity': quantity,
           'unitPrice': unitPrice,
           'costPerUnit': costPerUnit,
           'revenue': lineRevenue,
           'cogs': lineCogs,
-          'saleUnit': (item['saleUnit'] ?? item['unit'] ?? '').toString(),
-          'inventoryQuantity': _toDouble(item['inventoryQuantity']) ?? quantity,
+          'saleUnit': (item['saleUnit'] ?? item['sale_unit'] ?? item['unit'] ?? '')
+              .toString(),
+          'inventoryQuantity': inventoryQuantity,
           'pricingMode': saleMode.isEmpty ? 'retail' : saleMode,
           'isWholesale': saleMode == 'wholesale',
         });
@@ -3244,7 +3270,8 @@ class ReportsProvider extends ChangeNotifier {
       sales.add({
         'id': (data['id'] ?? '').toString(),
         'date': saleDate,
-        'receiptNumber': (data['receiptNumber'] ?? '').toString(),
+        'receiptNumber': (data['receiptNumber'] ?? data['receipt_number'] ?? '')
+            .toString(),
         'customerName':
             (data['customerName'] ?? data['customer_name'] ?? 'Walk-in')
                 .toString(),

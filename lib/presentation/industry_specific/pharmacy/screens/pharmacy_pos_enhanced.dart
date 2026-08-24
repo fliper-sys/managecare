@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../core/theme/colors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../data/repositories/sales_repository_impl.dart';
 
@@ -48,7 +49,7 @@ class _PharmacyPOSScreenState extends State<PharmacyPOSScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pharmacy POS'),
-        backgroundColor: Colors.green.shade700,
+        backgroundColor: AppColors.pharmacy,
         elevation: 0,
       ),
       body: Consumer<PharmacyProvider>(

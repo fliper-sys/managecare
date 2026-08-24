@@ -21,6 +21,7 @@ import '../presentation/industry_specific/gas/screens/gas_stock_screen.dart';
 import '../presentation/industry_specific/gas/screens/pump_configuration_screen.dart';
 import '../presentation/industry_specific/gas/screens/pump_daily_upload_screen.dart';
 import '../presentation/industry_specific/gas/screens/pump_upload_history_screen.dart';
+import '../presentation/industry_specific/gas/screens/petroleum_bank_deposit_screen.dart';
 import '../presentation/industry_specific/gas/utils/fuel_station_scope.dart';
 import '../presentation/industry_specific/wholesale/screens/warehouse_reports_screen.dart';
 import '../presentation/inventory/screens/bakery_resupply_screen.dart';
@@ -1029,6 +1030,9 @@ class AppRouter {
 
       case Routes.petroleumPumpUploadHistory:
         return _buildRoute(const PumpUploadHistoryScreen());
+
+      case Routes.petroleumBankDeposits:
+        return _buildRoute(const PetroleumBankDepositScreen());
 
       case '/restaurant/history':
         return _buildRoute(const PendingOrdersAndCheckoutScreen());

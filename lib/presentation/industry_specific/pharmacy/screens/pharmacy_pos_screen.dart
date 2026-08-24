@@ -9,6 +9,7 @@ import '../../../../providers/business_provider.dart';
 import '../../../../services/email_service.dart';
 import '../../../../services/notification_and_email_service.dart';
 import '../../../../services/business_notification_manager.dart';
+import '../../../../data/repositories/sales_repository_supabase.dart';
 
 import '../../../industry_specific/retail/widgets/pos_product_card.dart';
 import '../../../../core/theme/colors.dart';
@@ -537,13 +538,39 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
       final taxAmount = subtotal * (taxRate / 100);
       final finalTotal = subtotal + taxAmount - discount;
       
+      final apiItems = items
+          .map((item) => {
+                'product_id': item['drugId'],
+                'product_name': item['productName'],
+                'quantity': item['qty'],
+                'unit_price': item['unitPrice'],
+                'discount': 0,
+                'total': item['total'],
+                'pricing_mode': 'retail',
+                'inventory_unit': 'unit',
+                'sale_unit': 'unit',
+                'sale_unit_multiplier': 1,
+              })
+          .toList();
+
       final saleData = {
+        'id': receiptNumber,
+        'businessId': businessId,
         'orderId': receiptNumber,
-        'items': items,
+        'items': apiItems,
         'subtotal': subtotal,
         'tax': taxAmount,
         'taxRate': taxRate,
         'discount': discount,
+        'total_amount': subtotal,
+        'discount_amount': discount,
+        'tax_amount': taxAmount,
+        'final_amount': finalTotal,
+        'payment_method': paymentMethod,
+        'status': 'completed',
+        'created_by': authProvider.currentUser?.id,
+        'sale_type': 'pharmacy_walkin',
+        'created_at': DateTime.now().toIso8601String(),
         'total': finalTotal,
         'customerName': customerName ?? 'Walk-in',
         if (patientId != null) 'patientId': patientId,
@@ -554,46 +581,23 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
         'finalAmount': finalTotal,
         'type': 'pharmacy_walkin',
         'category': 'Pharmacy',
-        'createdAt': FieldValue.serverTimestamp(),
       };
 
-      // Perform Firestore transaction to atomically update inventory and add sale
-      final firestore = FirebaseFirestore.instance;
-      await firestore.runTransaction((tx) async {
-        final businessRef = firestore.collection('businesses').doc(businessId);
+      await SalesRepositorySupabase().createSale(saleData);
 
-        // Validate and update inventory docs
-        for (final e in _cart.entries) {
-          final drugId = e.key;
-          final qty = e.value;
-          final invDocRef = businessRef.collection('inventory').doc(drugId);
-          final invSnap = await tx.get(invDocRef);
-
-          if (!invSnap.exists) {
-            throw Exception('Inventory item not found for $drugId');
-          }
-
-          final currentQty = (invSnap.data()?['quantity'] as num?)?.toInt() ?? 0;
-          if (currentQty < qty) {
-            throw Exception('Insufficient stock for ${invSnap.data()?['name'] ?? drugId}');
-          }
-
-          final newQty = (currentQty - qty).clamp(0, 999999);
-          tx.update(invDocRef, {'quantity': newQty, 'updatedAt': DateTime.now().toIso8601String()});
-        }
-
-        // Add sale record
-        final salesRef = businessRef.collection('sales');
-        tx.set(salesRef.doc(), saleData);
-      });
-
-      // Upon successful transaction, update local provider cache and persist
+      // The sales API deducts inventory atomically; mirror the new stock into
+      // the in-memory pharmacy list so the POS updates immediately.
       for (final e in _cart.entries) {
         final drugId = e.key;
         final qty = e.value;
         final drug = provider.drugs.firstWhere((d) => d.id == drugId);
         final newStock = (drug.stock - qty).clamp(0, 999999);
-        await provider.updateDrugStock(drugId, newStock, persist: true, businessId: businessId);
+        await provider.updateDrugStock(
+          drugId,
+          newStock,
+          persist: false,
+          businessId: businessId,
+        );
       }
 
       // Add prescription record for tracking (persist to remote and local cache)

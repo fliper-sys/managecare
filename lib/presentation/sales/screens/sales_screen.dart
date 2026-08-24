@@ -199,6 +199,7 @@ class _SalesScreenState extends State<SalesScreen>
             storeId,
             taxRate,
             discount,
+            paymentBreakdown,
             priceOverrides,
           ) async {
             // Capture sale data before clearing cart
@@ -265,9 +266,7 @@ class _SalesScreenState extends State<SalesScreen>
               'discount': discountAmount,
               'total': finalTotal,
               'paymentMethod': pm,
-              'paymentBreakdown': [
-                {'method': pm, 'amount': finalTotal}
-              ],
+              'paymentBreakdown': paymentBreakdown,
               'customerId': customerId,
               'customerEmail': customerEmail,
               'customerName': customerName,
@@ -290,8 +289,9 @@ class _SalesScreenState extends State<SalesScreen>
                 workerId: authProvider.currentUser?.id,
                 workerName: authProvider.currentUser?.fullName,
                 storeId: storeId,
-                tax: taxAmount,
+                tax: taxRate,
                 discount: discountAmount,
+                paymentBreakdown: paymentBreakdown,
                 priceOverrides: priceOverrides,
               );
             } catch (e) {
@@ -1683,6 +1683,39 @@ class _SalesScreenState extends State<SalesScreen>
                                   .getEffectivePriceForCartItem(e.key.id)),
                               style: AppTextStyles.body2,
                             ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                ChoiceChip(
+                                  label: const Text('Retail'),
+                                  selected: retail.getPricingModeForCartItem(
+                                          e.key.id) ==
+                                      'retail',
+                                  onSelected: (_) =>
+                                      retail.setPricingModeForCartItem(
+                                    e.key.id,
+                                    'retail',
+                                  ),
+                                ),
+                                if (e.key.hasWholesalePricing &&
+                                    e.key.wholesalePrice != null)
+                                  ChoiceChip(
+                                    label: Text(
+                                      'Wholesale ${formatCurrency(e.key.wholesalePrice!)}',
+                                    ),
+                                    selected: retail.getPricingModeForCartItem(
+                                            e.key.id) ==
+                                        'wholesale',
+                                    onSelected: (_) =>
+                                        retail.setPricingModeForCartItem(
+                                      e.key.id,
+                                      'wholesale',
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ],
                         ),
                       ),
@@ -2758,6 +2791,7 @@ class _CheckoutSheet extends StatefulWidget {
       String? storeId,
       double taxRate,
       double discount,
+      List<Map<String, dynamic>> paymentBreakdown,
       Map<String, double> priceOverrides) onComplete;
 
   const _CheckoutSheet({
@@ -2781,6 +2815,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
   late TextEditingController _customerNameController;
   late TextEditingController _taxRateController;
   late TextEditingController _discountController;
+  late TextEditingController _cashAmountController;
+  late TextEditingController _cardAmountController;
+  late TextEditingController _transferAmountController;
 
   // Per-item price overrides (keyed by product id)
   final Map<String, double> _priceOverrides = {};
@@ -3107,6 +3144,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     _customerNameController = TextEditingController();
     _taxRateController = TextEditingController(text: '0'); // Default 0%
     _discountController = TextEditingController(text: '0'); // Default 0
+    _cashAmountController = TextEditingController();
+    _cardAmountController = TextEditingController();
+    _transferAmountController = TextEditingController();
 
     // Initialize price overrides with current product prices
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -3135,6 +3175,43 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     Iterable<MapEntry<Product, int>> entries,
   ) {
     return entries.fold(0.0, (s, e) => s + _lineTotal(retail, e.key, e.value));
+  }
+
+  double _computedTotal(
+    RetailProvider retail,
+    Iterable<MapEntry<Product, int>> entries,
+  ) {
+    final subtotal = _computedSubtotal(retail, entries);
+    final taxRate = double.tryParse(_taxRateController.text) ?? 0.0;
+    final discount = double.tryParse(_discountController.text) ?? 0.0;
+    return subtotal + (subtotal * (taxRate / 100)) - discount;
+  }
+
+  double _controllerAmount(TextEditingController controller) {
+    return double.tryParse(controller.text.replaceAll(',', '').trim()) ?? 0.0;
+  }
+
+  double _mixedPaymentTotal() {
+    return _controllerAmount(_cashAmountController) +
+        _controllerAmount(_cardAmountController) +
+        _controllerAmount(_transferAmountController);
+  }
+
+  List<Map<String, dynamic>> _paymentBreakdownForTotal(double total) {
+    if (_paymentMethod != 'mixed') {
+      return [
+        {'method': _paymentMethod, 'amount': total}
+      ];
+    }
+
+    return [
+      {'method': 'cash', 'amount': _controllerAmount(_cashAmountController)},
+      {'method': 'card', 'amount': _controllerAmount(_cardAmountController)},
+      {
+        'method': 'transfer',
+        'amount': _controllerAmount(_transferAmountController),
+      },
+    ].where((entry) => (entry['amount'] as double) > 0).toList();
   }
 
   bool _isManualCustomPrice(Product product) {
@@ -3198,6 +3275,9 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
     _customerNameController.dispose();
     _taxRateController.dispose();
     _discountController.dispose();
+    _cashAmountController.dispose();
+    _cardAmountController.dispose();
+    _transferAmountController.dispose();
     super.dispose();
   }
 
@@ -3737,8 +3817,64 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                             onTap: () =>
                                 setState(() => _paymentMethod = 'transfer'),
                           ),
+                          const SizedBox(width: 12),
+                          _PaymentMethodButton(
+                            label: 'Mixed',
+                            icon: Icons.call_split_rounded,
+                            isSelected: _paymentMethod == 'mixed',
+                            onTap: () =>
+                                setState(() => _paymentMethod = 'mixed'),
+                          ),
                         ],
                       ),
+                      if (_paymentMethod == 'mixed') ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _MixedPaymentField(
+                                label: 'Cash',
+                                controller: _cashAmountController,
+                                onChanged: () => setState(() {}),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _MixedPaymentField(
+                                label: 'Card',
+                                controller: _cardAmountController,
+                                onChanged: () => setState(() {}),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _MixedPaymentField(
+                                label: 'Transfer',
+                                controller: _transferAmountController,
+                                onChanged: () => setState(() {}),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Builder(builder: (context) {
+                          final total = _computedTotal(retail, entries);
+                          final mixedTotal = _mixedPaymentTotal();
+                          final difference = total - mixedTotal;
+                          final balanced = difference.abs() < 0.01;
+                          return Text(
+                            balanced
+                                ? 'Mixed payment matches total'
+                                : 'Remaining: ₦${difference.toStringAsFixed(2)}',
+                            style: AppTextStyles.caption.copyWith(
+                              color: balanced
+                                  ? AppColors.success
+                                  : AppColors.warning,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          );
+                        }),
+                      ],
                       const SizedBox(height: 20),
                       Text(
                         canApplyDiscount ? 'Tax & Discount' : 'Tax',
@@ -3853,26 +3989,44 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
                         const SizedBox(height: 16),
                         AsyncCustomButton(
                           text: 'Complete Sale',
-                          onPressed: () async => await widget.onComplete(
-                            _selectedCustomer?.id,
-                            _customerEmailController.text.trim().isEmpty
-                                ? null
-                                : _customerEmailController.text.trim(),
-                            _customerNameController.text.trim().isEmpty
-                                ? null
-                                : _customerNameController.text.trim(),
-                            (_selectedCustomer?.phone ?? '').trim().isEmpty
-                                ? null
-                                : _selectedCustomer!.phone!.trim(),
-                            _paymentMethod,
-                            _selectedStoreId,
-                            double.tryParse(_taxRateController.text) ?? 0.0,
-                            canApplyDiscount
-                                ? (double.tryParse(_discountController.text) ??
-                                    0)
-                                : 0,
-                            Map<String, double>.from(_priceOverrides),
-                          ),
+                          onPressed: () async {
+                            final total = _computedTotal(retail, entries);
+                            if (_paymentMethod == 'mixed' &&
+                                (_mixedPaymentTotal() - total).abs() >= 0.01) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Mixed payment amounts must equal the sale total.',
+                                  ),
+                                  backgroundColor: AppColors.error,
+                                ),
+                              );
+                              return;
+                            }
+
+                            await widget.onComplete(
+                              _selectedCustomer?.id,
+                              _customerEmailController.text.trim().isEmpty
+                                  ? null
+                                  : _customerEmailController.text.trim(),
+                              _customerNameController.text.trim().isEmpty
+                                  ? null
+                                  : _customerNameController.text.trim(),
+                              (_selectedCustomer?.phone ?? '').trim().isEmpty
+                                  ? null
+                                  : _selectedCustomer!.phone!.trim(),
+                              _paymentMethod,
+                              _selectedStoreId,
+                              double.tryParse(_taxRateController.text) ?? 0.0,
+                              canApplyDiscount
+                                  ? (double.tryParse(
+                                          _discountController.text) ??
+                                      0)
+                                  : 0,
+                              _paymentBreakdownForTotal(total),
+                              Map<String, double>.from(_priceOverrides),
+                            );
+                          },
                           icon: Icons.check_circle_outline,
                         ),
                       ],
@@ -3884,6 +4038,38 @@ class _CheckoutSheetState extends State<_CheckoutSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _MixedPaymentField extends StatelessWidget {
+  final String label;
+  final TextEditingController controller;
+  final VoidCallback onChanged;
+
+  const _MixedPaymentField({
+    required this.label,
+    required this.controller,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: TextInputType.text,
+      inputFormatters: [DecimalInputFormatter()],
+      decoration: InputDecoration(
+        labelText: label,
+        prefixText: '₦',
+        isDense: true,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      ),
+      onChanged: (_) => onChanged(),
     );
   }
 }

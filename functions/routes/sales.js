@@ -147,19 +147,19 @@ module.exports = function(pool) {
     const {
       customer_id, store_id, worker_id, worker_name,
       total_amount, discount_amount, tax_amount, final_amount,
-      payment_method, status, notes, created_by, sale_type, items,
+      payment_method, payment_breakdown, status, notes, created_by, sale_type, items,
     } = req.body;
 
     // Create sale
     const saleResult = await pool.query(
       `INSERT INTO sales (business_id, customer_id, store_id, worker_id, worker_name,
         total_amount, discount_amount, tax_amount, final_amount,
-        payment_method, status, notes, created_by, sale_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        payment_method, payment_breakdown, status, notes, created_by, sale_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11::jsonb, '[]'::jsonb), $12, $13, $14, $15)
        RETURNING *`,
       [businessId, customer_id || null, store_id || null, worker_id || null, worker_name || null,
        total_amount || final_amount, discount_amount || 0, tax_amount || 0, final_amount,
-       payment_method, status || 'completed', notes || null, created_by, sale_type || 'retail']
+       payment_method, normalizePaymentBreakdownParam(payment_breakdown), status || 'completed', notes || null, created_by, sale_type || 'retail']
     );
     const sale = saleResult.rows[0];
 
@@ -239,5 +239,18 @@ function formatSale(row) {
     ...row,
     items: typeof row.items === 'string' ? JSON.parse(row.items) : row.items,
   };
+}
+
+function normalizePaymentBreakdownParam(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string') {
+    try {
+      JSON.parse(value);
+      return value;
+    } catch (_) {
+      return JSON.stringify([]);
+    }
+  }
+  return JSON.stringify(value);
 }
 

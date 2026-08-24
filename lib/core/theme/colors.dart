@@ -46,7 +46,7 @@ class AppColors {
   static const Color white = Color(0xFFFFFFFF);
 
   // Industry-Specific Colors
-  static const Color pharmacy = Color(0xFF059669); // Green
+  static const Color pharmacy = primary; // ManageCare primary
   static const Color retail = Color(0xFF2563EB); // Blue
   static const Color agri = Color(0xFF84CC16); // Lime
   static const Color auto = Color(0xFF7C3AED); // Purple

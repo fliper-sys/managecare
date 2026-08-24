@@ -179,7 +179,7 @@ module.exports = function(pool) {
       id: rawId, customer_id, store_id, worker_id, worker_name,
       total_amount, discount_amount, tax_amount, final_amount,
       payment_method, status, notes, created_by, sale_type, items,
-      created_at,
+      created_at, payment_breakdown,
     } = req.body;
 
     // Offline-queued sales (and some older client code paths) generate a
@@ -211,12 +211,14 @@ module.exports = function(pool) {
     const saleResult = await pool.query(
       `INSERT INTO sales (id, business_id, customer_id, store_id, worker_id, worker_name,
         total_amount, discount_amount, tax_amount, final_amount,
-        payment_method, status, notes, created_by, sale_type, created_at)
-       VALUES (COALESCE($1, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, COALESCE($16, NOW()))
+        payment_method, payment_breakdown, status, notes, created_by, sale_type, created_at)
+       VALUES (COALESCE($1, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::jsonb, '[]'::jsonb), $13, $14, $15, $16, COALESCE($17, NOW()))
        RETURNING *`,
       [id || null, businessId, customer_id || null, store_id || null, worker_id || null, worker_name || null,
        total_amount || final_amount, discount_amount || 0, tax_amount || 0, final_amount,
-       payment_method, status || 'completed', notes || null, created_by || null, sale_type || 'retail',
+       payment_method,
+       normalizePaymentBreakdownParam(payment_breakdown),
+       status || 'completed', notes || null, created_by || null, sale_type || 'retail',
        validCreatedAt]
     );
     const sale = saleResult.rows[0];
@@ -269,7 +271,7 @@ module.exports = function(pool) {
     const {
       customer_id, store_id, worker_id, worker_name,
       total_amount, discount_amount, tax_amount, final_amount,
-      payment_method, status, notes,
+      payment_method, payment_breakdown, status, notes,
     } = req.body;
 
     const fields = [];
@@ -287,6 +289,10 @@ module.exports = function(pool) {
     set('tax_amount', tax_amount);
     set('final_amount', final_amount);
     set('payment_method', payment_method);
+    if (payment_breakdown !== undefined) {
+      fields.push(`payment_breakdown = $${paramIndex++}::jsonb`);
+      params.push(normalizePaymentBreakdownParam(payment_breakdown));
+    }
     set('status', status);
     set('notes', notes);
 
@@ -371,5 +377,18 @@ function formatSale(row) {
     ...row,
     items: typeof row.items === 'string' ? JSON.parse(row.items) : row.items,
   };
+}
+
+function normalizePaymentBreakdownParam(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'string') {
+    try {
+      JSON.parse(value);
+      return value;
+    } catch (_) {
+      return JSON.stringify([]);
+    }
+  }
+  return JSON.stringify(value);
 }
 

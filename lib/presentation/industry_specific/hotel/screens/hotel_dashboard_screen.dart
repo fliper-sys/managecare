@@ -10,7 +10,31 @@ import '../../../../core/constants/routes.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 
-class HotelDashboardScreen extends StatelessWidget {
+class HotelDashboardScreen extends StatefulWidget {
+  const HotelDashboardScreen({super.key});
+
+  @override
+  State<HotelDashboardScreen> createState() => _HotelDashboardScreenState();
+}
+
+class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
+  String? _loadedBusinessId;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final businessId = context.watch<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null ||
+        businessId.isEmpty ||
+        businessId == _loadedBusinessId) {
+      return;
+    }
+    _loadedBusinessId = businessId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<HotelProvider>().setBusinessId(businessId);
+    });
+  }
 
     // --- SUMMARY HEADER (Revenue, Active Rooms, Customers) ---
     Widget _buildSummaryHeader(HotelProvider provider) {
@@ -98,8 +122,6 @@ class HotelDashboardScreen extends StatelessWidget {
         ],
       );
     }
-  const HotelDashboardScreen({super.key});
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);

@@ -29,7 +29,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
   DateTimeRange? _selectedDateRange;
 
   // Quick stats state
-  final NumberFormat _currencyFormat = NumberFormat.currency(locale: 'en_NG', symbol: '₦', decimalDigits: 0);
+  final NumberFormat _currencyFormat =
+      NumberFormat.currency(locale: 'en_NG', symbol: '₦', decimalDigits: 0);
   double _todayTotal = 0.0;
   double _weekTotal = 0.0;
   double _monthTotal = 0.0;
@@ -132,7 +133,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
       }
 
       final businessId = bp.currentBusiness!.id;
-      final retailProvider = Provider.of<RetailProvider>(context, listen: false);
+      final retailProvider =
+          Provider.of<RetailProvider>(context, listen: false);
       try {
         await retailProvider.initialize(businessId);
       } catch (_) {}
@@ -145,7 +147,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
 
       if (customRange != null) {
         // Single call for custom range
-        final total = await retailProvider.getTotalSalesForPeriod(startDate: customRange.start, endDate: customRange.end);
+        final total = await retailProvider.getTotalSalesForPeriod(
+            startDate: customRange.start, endDate: customRange.end);
         setState(() {
           _todayTotal = total;
           _weekTotal = 0.0;
@@ -157,9 +160,12 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
 
       // Parallelize the three queries
       final futures = await Future.wait<double>([
-        retailProvider.getTotalSalesForPeriod(startDate: todayStart, endDate: now),
-        retailProvider.getTotalSalesForPeriod(startDate: weekStart, endDate: now),
-        retailProvider.getTotalSalesForPeriod(startDate: monthStart, endDate: now),
+        retailProvider.getTotalSalesForPeriod(
+            startDate: todayStart, endDate: now),
+        retailProvider.getTotalSalesForPeriod(
+            startDate: weekStart, endDate: now),
+        retailProvider.getTotalSalesForPeriod(
+            startDate: monthStart, endDate: now),
       ]);
 
       setState(() {
@@ -228,10 +234,13 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
                   style: TextStyle(color: theme.colorScheme.onPrimary),
                   decoration: InputDecoration(
                     hintText: 'Search by order ID, customer...',
-                    hintStyle: TextStyle(color: theme.colorScheme.onPrimary.withOpacity(0.72)),
-                    prefixIcon: Icon(Icons.search, color: theme.colorScheme.onPrimary),
+                    hintStyle: TextStyle(
+                        color: theme.colorScheme.onPrimary.withOpacity(0.72)),
+                    prefixIcon:
+                        Icon(Icons.search, color: theme.colorScheme.onPrimary),
                     suffixIcon: IconButton(
-                      icon: Icon(Icons.calendar_today, color: theme.colorScheme.onPrimary),
+                      icon: Icon(Icons.calendar_today,
+                          color: theme.colorScheme.onPrimary),
                       onPressed: _selectDateRange,
                     ),
                     filled: true,
@@ -256,7 +265,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.date_range, color: theme.colorScheme.onPrimary, size: 16),
+                        Icon(Icons.date_range,
+                            color: theme.colorScheme.onPrimary, size: 16),
                         const SizedBox(width: 8),
                         Text(
                           '${_selectedDateRange!.start.day}/${_selectedDateRange!.start.month} - ${_selectedDateRange!.end.day}/${_selectedDateRange!.end.month}',
@@ -285,21 +295,27 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
                     Expanded(
                       child: _QuickStat(
                         label: 'Today',
-                        value: _statsLoading ? 'Loading...' : _currencyFormat.format(_todayTotal),
+                        value: _statsLoading
+                            ? 'Loading...'
+                            : _currencyFormat.format(_todayTotal),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _QuickStat(
                         label: 'This Week',
-                        value: _statsLoading ? 'Loading...' : _currencyFormat.format(_weekTotal),
+                        value: _statsLoading
+                            ? 'Loading...'
+                            : _currencyFormat.format(_weekTotal),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _QuickStat(
                         label: 'This Month',
-                        value: _statsLoading ? 'Loading...' : _currencyFormat.format(_monthTotal),
+                        value: _statsLoading
+                            ? 'Loading...'
+                            : _currencyFormat.format(_monthTotal),
                       ),
                     ),
                   ],
@@ -314,7 +330,8 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
             child: TabBar(
               controller: _tabController,
               labelColor: theme.colorScheme.primary,
-              unselectedLabelColor: theme.colorScheme.onSurface.withOpacity(0.7),
+              unselectedLabelColor:
+                  theme.colorScheme.onSurface.withOpacity(0.7),
               indicatorColor: theme.colorScheme.primary,
               isScrollable: true,
               tabs: const [
@@ -331,10 +348,22 @@ class _SalesHistoryScreenState extends State<SalesHistoryScreen>
             child: TabBarView(
               controller: _tabController,
               children: [
-                _SalesList(filter: 'all', dateRange: _selectedDateRange, refreshTick: _refreshTick),
-                _SalesList(filter: 'completed', dateRange: _selectedDateRange, refreshTick: _refreshTick),
-                _SalesList(filter: 'pending', dateRange: _selectedDateRange, refreshTick: _refreshTick),
-                _SalesList(filter: 'refunded', dateRange: _selectedDateRange, refreshTick: _refreshTick),
+                _SalesList(
+                    filter: 'all',
+                    dateRange: _selectedDateRange,
+                    refreshTick: _refreshTick),
+                _SalesList(
+                    filter: 'completed',
+                    dateRange: _selectedDateRange,
+                    refreshTick: _refreshTick),
+                _SalesList(
+                    filter: 'pending',
+                    dateRange: _selectedDateRange,
+                    refreshTick: _refreshTick),
+                _SalesList(
+                    filter: 'refunded',
+                    dateRange: _selectedDateRange,
+                    refreshTick: _refreshTick),
               ],
             ),
           ),
@@ -380,7 +409,8 @@ class _QuickStat extends StatelessWidget {
           Text(
             label,
             style: AppTextStyles.caption.copyWith(
-              color: theme.colorScheme.onPrimary.withOpacity(isDark ? 0.88 : 0.92),
+              color:
+                  theme.colorScheme.onPrimary.withOpacity(isDark ? 0.88 : 0.92),
             ),
           ),
         ],
@@ -394,7 +424,8 @@ class _SalesList extends StatefulWidget {
   final DateTimeRange? dateRange;
   final int refreshTick;
 
-  const _SalesList({required this.filter, this.dateRange, this.refreshTick = 0});
+  const _SalesList(
+      {required this.filter, this.dateRange, this.refreshTick = 0});
 
   @override
   State<_SalesList> createState() => _SalesListState();
@@ -441,7 +472,8 @@ class _SalesListState extends State<_SalesList> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
       _loadMore();
     }
   }
@@ -486,7 +518,9 @@ class _SalesListState extends State<_SalesList> {
         page: reset ? null : _nextPage,
       );
 
-      final newSales = (page['sales'] as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      final newSales = (page['sales'] as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
       final nextPage = page['nextPage'] as int?;
 
       // Offline sales live only in the local DB until they sync — without
@@ -501,7 +535,8 @@ class _SalesListState extends State<_SalesList> {
           final filteredLocal = localPending.where((s) {
             if (existingIds.contains(s['id'])) return false;
             final createdAtRaw = s['createdAt'];
-            final dt = createdAtRaw is String ? DateTime.tryParse(createdAtRaw) : null;
+            final dt =
+                createdAtRaw is String ? DateTime.tryParse(createdAtRaw) : null;
             if (dt == null) return true;
             if (start != null && dt.isBefore(start)) return false;
             if (end != null && dt.isAfter(end)) return false;
@@ -511,10 +546,13 @@ class _SalesListState extends State<_SalesList> {
           if (filteredLocal.isNotEmpty) {
             combinedSales = [...filteredLocal, ...newSales];
             int millis(dynamic v) {
-              if (v is String) return DateTime.tryParse(v)?.millisecondsSinceEpoch ?? 0;
+              if (v is String)
+                return DateTime.tryParse(v)?.millisecondsSinceEpoch ?? 0;
               return 0;
             }
-            combinedSales.sort((a, b) => millis(b['createdAt']).compareTo(millis(a['createdAt'])));
+
+            combinedSales.sort((a, b) =>
+                millis(b['createdAt']).compareTo(millis(a['createdAt'])));
           }
         } catch (_) {}
       }
@@ -532,7 +570,8 @@ class _SalesListState extends State<_SalesList> {
 
       // refresh quick stats in parent (lightweight)
       try {
-        final parentState = context.findAncestorStateOfType<_SalesHistoryScreenState>();
+        final parentState =
+            context.findAncestorStateOfType<_SalesHistoryScreenState>();
         parentState?._loadQuickStats();
       } catch (_) {}
     } catch (e) {
@@ -562,7 +601,8 @@ class _SalesListState extends State<_SalesList> {
     if (result != null && mounted) {
       _loadSales(reset: true);
       try {
-        final parentState = context.findAncestorStateOfType<_SalesHistoryScreenState>();
+        final parentState =
+            context.findAncestorStateOfType<_SalesHistoryScreenState>();
         parentState?._loadQuickStats();
       } catch (_) {}
     }
@@ -628,7 +668,10 @@ class _SalesListState extends State<_SalesList> {
     final items = rawItems.whereType<Map>().map((raw) {
       final item = Map<String, dynamic>.from(raw);
       return <String, dynamic>{
-        'name': item['productName'] ?? item['product_name'] ?? item['name'] ?? 'Item',
+        'name': item['productName'] ??
+            item['product_name'] ??
+            item['name'] ??
+            'Item',
         'quantity': item['quantity'] ?? item['qty'] ?? 1,
         'price': item['price'] ?? item['unitPrice'] ?? item['unit_price'] ?? 0,
         'unit': item['unit'] ?? item['saleUnit'] ?? 'pcs',
@@ -642,8 +685,8 @@ class _SalesListState extends State<_SalesList> {
       totalAmount: _calculateSaleAmount(sale),
       paymentMethod: sale['paymentMethod'] ?? sale['payment_method'] ?? 'Cash',
       orderId: sale['referenceId']?.toString() ?? sale['id']?.toString(),
-      customerName: sale['customerName']?.toString() ??
-          sale['customer']?.toString(),
+      customerName:
+          sale['customerName']?.toString() ?? sale['customer']?.toString(),
     );
 
     if (!mounted) return;
@@ -712,7 +755,8 @@ class _SalesListState extends State<_SalesList> {
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         if (index >= _sales.length) {
-          return const Center(child: Padding(
+          return const Center(
+              child: Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
             child: CircularProgressIndicator(),
           ));
@@ -752,10 +796,12 @@ class _SalesListState extends State<_SalesList> {
           // so only hide the action once the sale is fully refunded —
           // ReturnRefundScreen itself fetches accurate remaining
           // quantities per item, rather than this list's possibly-stale copy.
-          onRefund: (sale['status'] == 'refunded' || sale['pendingSync'] == true)
-              ? null
-              : () => _openRefund(sale),
-          onDelete: sale['pendingSync'] == true ? null : () => _deleteSale(sale),
+          onRefund:
+              (sale['status'] == 'refunded' || sale['pendingSync'] == true)
+                  ? null
+                  : () => _openRefund(sale),
+          onDelete:
+              sale['pendingSync'] == true ? null : () => _deleteSale(sale),
           onPrint: () => _printSale(sale),
         );
       },
@@ -928,11 +974,14 @@ class _SaleCard extends StatelessWidget {
       String? name;
 
       // Direct name fields
-      if (item['productName'] is String && (item['productName'] as String).isNotEmpty) {
+      if (item['productName'] is String &&
+          (item['productName'] as String).isNotEmpty) {
         name = item['productName'];
-      } else if (item['product_name'] is String && (item['product_name'] as String).isNotEmpty) {
+      } else if (item['product_name'] is String &&
+          (item['product_name'] as String).isNotEmpty) {
         name = item['product_name'];
-      } else if (item['name'] is String && (item['name'] as String).isNotEmpty) {
+      } else if (item['name'] is String &&
+          (item['name'] as String).isNotEmpty) {
         name = item['name'];
       }
 
@@ -952,7 +1001,8 @@ class _SaleCard extends StatelessWidget {
       }
 
       // productId lookup
-      if ((name == null || name.isEmpty) && (item['productId'] ?? item['product_id']) != null) {
+      if ((name == null || name.isEmpty) &&
+          (item['productId'] ?? item['product_id']) != null) {
         final pid = (item['productId'] ?? item['product_id']).toString();
         final p = retailProvider.products.firstWhere(
           (prod) => prod.id == pid,
@@ -1083,7 +1133,9 @@ class _SaleCard extends StatelessWidget {
               children: [
                 Icon(_paymentIcon, size: 16, color: secondaryTextColor),
                 const SizedBox(width: 4),
-                Text(paymentMethod, style: AppTextStyles.body2.copyWith(color: secondaryTextColor)),
+                Text(paymentMethod,
+                    style: AppTextStyles.body2
+                        .copyWith(color: secondaryTextColor)),
                 const SizedBox(width: 16),
                 Icon(
                   Icons.shopping_cart,
@@ -1101,12 +1153,14 @@ class _SaleCard extends StatelessWidget {
               Builder(builder: (context) {
                 final isError = saleData['syncError'] == true;
                 final color = isError ? AppColors.error : AppColors.warning;
-                final attempts = (saleData['syncAttempts'] as num?)?.toInt() ?? 0;
+                final attempts =
+                    (saleData['syncAttempts'] as num?)?.toInt() ?? 0;
                 final label = isError
                     ? 'Sync error${attempts > 0 ? ' (tried $attempts×)' : ''} — tap Push to Firebase to retry'
                     : 'Pending sync';
                 return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(6),
@@ -1114,7 +1168,8 @@ class _SaleCard extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(isError ? Icons.error_outline : Icons.cloud_off, size: 14, color: color),
+                      Icon(isError ? Icons.error_outline : Icons.cloud_off,
+                          size: 14, color: color),
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
@@ -1183,4 +1238,3 @@ class _SaleCard extends StatelessWidget {
     );
   }
 }
-

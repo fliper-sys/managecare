@@ -559,6 +559,22 @@ class ReportExportService {
     required List<Map<String, dynamic>> procurements,
   }) async {
     try {
+      double asDouble(dynamic value) {
+        if (value is num) return value.toDouble();
+        if (value is String) return double.tryParse(value.replaceAll(',', '')) ?? 0.0;
+        return 0.0;
+      }
+
+      String itemValue(Map item, List<String> keys) {
+        for (final key in keys) {
+          final value = item[key];
+          if (value != null && value.toString().trim().isNotEmpty) {
+            return value.toString();
+          }
+        }
+        return '';
+      }
+
       final pdf = pw.Document();
 
       pdf.addPage(pw.MultiPage(
@@ -574,12 +590,14 @@ class ReportExportService {
           pw.Table(
             border: pw.TableBorder.all(width: 0.5),
             columnWidths: {
-              0: const pw.FlexColumnWidth(1.2),
-              1: const pw.FlexColumnWidth(1.8),
-              2: const pw.FlexColumnWidth(1.8),
-              3: const pw.FlexColumnWidth(1.2),
+              0: const pw.FlexColumnWidth(1.1),
+              1: const pw.FlexColumnWidth(1.5),
+              2: const pw.FlexColumnWidth(1.5),
+              3: const pw.FlexColumnWidth(1),
               4: const pw.FlexColumnWidth(1),
               5: const pw.FlexColumnWidth(1),
+              6: const pw.FlexColumnWidth(0.8),
+              7: const pw.FlexColumnWidth(1),
             },
             children: [
               pw.TableRow(
@@ -596,7 +614,9 @@ class ReportExportService {
                 ],
               ),
               ...procurements.map((p) {
-                final dt = p['createdAt'] as DateTime?;
+                final dt = p['createdAt'] is DateTime
+                    ? p['createdAt'] as DateTime
+                    : DateTime.tryParse((p['createdAt'] ?? '').toString());
                 final dateStr = dt != null ? _dateFormat.format(dt) : '';
                 return pw.TableRow(children: [
                   _buildTableCell(dateStr),
@@ -624,20 +644,42 @@ class ReportExportService {
               pw.SizedBox(height: 6),
               pw.Table(
                 border: pw.TableBorder.all(width: 0.5),
-                columnWidths: {0: const pw.FlexColumnWidth(3), 1: const pw.FlexColumnWidth(1), 2: const pw.FlexColumnWidth(1), 3: const pw.FlexColumnWidth(1)},
+                columnWidths: {
+                  0: const pw.FlexColumnWidth(1.2),
+                  1: const pw.FlexColumnWidth(2.4),
+                  2: const pw.FlexColumnWidth(0.9),
+                  3: const pw.FlexColumnWidth(1),
+                  4: const pw.FlexColumnWidth(1.2),
+                  5: const pw.FlexColumnWidth(1),
+                  6: const pw.FlexColumnWidth(1),
+                },
                 children: [
                   pw.TableRow(decoration: const pw.BoxDecoration(color: PdfColors.grey300), children: [
+                    _buildTableCell('Date', bold: true),
                     _buildTableCell('Item', bold: true),
                     _buildTableCell('Qty', bold: true),
+                    _buildTableCell('Unit', bold: true),
+                    _buildTableCell('Purchase Unit', bold: true),
                     _buildTableCell('Unit Cost', bold: true),
                     _buildTableCell('Total', bold: true),
                   ]),
-                  ...items.map((it) => pw.TableRow(children: [
-                        _buildTableCell(it['name'] ?? ''),
-                        _buildTableCell('${it['quantity'] ?? 0}'),
-                        _buildTableCell(_currencyFormat.format((it['cost'] ?? 0.0))),
-                        _buildTableCell(_currencyFormat.format((it['total'] ?? 0.0)), align: pw.TextAlign.right),
-                      ])),
+                  ...items.map((it) {
+                    final item = it is Map ? it : <String, dynamic>{};
+                    final rawItemDate =
+                        item['createdAt'] ?? item['created_at'] ?? p['createdAt'];
+                    final itemDate = rawItemDate is DateTime
+                        ? rawItemDate
+                        : DateTime.tryParse((rawItemDate ?? '').toString());
+                    return pw.TableRow(children: [
+                      _buildTableCell(itemDate == null ? '' : _dateFormat.format(itemDate)),
+                      _buildTableCell(itemValue(item, ['name', 'productName', 'product_name', 'itemName', 'item_name'])),
+                      _buildTableCell('${item['quantity'] ?? item['purchaseQuantity'] ?? item['purchase_quantity'] ?? 0}'),
+                      _buildTableCell(itemValue(item, ['unit', 'inventoryUnit', 'inventory_unit'])),
+                      _buildTableCell(itemValue(item, ['purchaseUnit', 'purchase_unit'])),
+                      _buildTableCell(_currencyFormat.format(asDouble(item['cost'] ?? item['unit_cost']))),
+                      _buildTableCell(_currencyFormat.format(asDouble(item['total'] ?? item['purchase_total'])), align: pw.TextAlign.right),
+                    ]);
+                  }),
                 ],
               ),
             ]);

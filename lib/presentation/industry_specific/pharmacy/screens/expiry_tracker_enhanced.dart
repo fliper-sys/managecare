@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../core/theme/colors.dart';
 
 class ExpiryTrackerScreen extends StatefulWidget {
   const ExpiryTrackerScreen({super.key});
@@ -28,7 +29,7 @@ class _ExpiryTrackerScreenState extends State<ExpiryTrackerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Expiry & Inventory Tracker'),
-        backgroundColor: Colors.green.shade700,
+        backgroundColor: AppColors.pharmacy,
         elevation: 0,
       ),
       body: Consumer<PharmacyProvider>(

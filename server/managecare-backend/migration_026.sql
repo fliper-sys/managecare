@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS pump_daily_uploads (
   shift_cash_difference DECIMAL(12,2) NOT NULL DEFAULT 0,
   today_pump_cash DECIMAL(12,2) NOT NULL DEFAULT 0,
   cash_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  cash_breakdown JSONB NOT NULL DEFAULT '[]',
   pos_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
   total_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
 

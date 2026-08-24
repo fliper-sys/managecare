@@ -35,6 +35,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   late TextEditingController _costController;
   late TextEditingController _wholesalePriceController;
   late TextEditingController _distributorPriceController;
+  late TextEditingController _distributorDiscountController;
   late TextEditingController _stockController;
   late TextEditingController _categoryController;
   late TextEditingController _barcodeController;
@@ -73,6 +74,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _distributorPriceController = TextEditingController(
       text: widget.product?.distributorPrice?.toString() ?? '',
     );
+    _distributorDiscountController = TextEditingController(
+      text: widget.product?.distributorDiscountPercent == 0
+          ? ''
+          : widget.product?.distributorDiscountPercent.toString() ?? '',
+    );
     _stockController =
         TextEditingController(text: widget.product?.stock.toString() ?? '');
     _categoryController =
@@ -102,6 +108,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     _costController.dispose();
     _wholesalePriceController.dispose();
     _distributorPriceController.dispose();
+    _distributorDiscountController.dispose();
     _stockController.dispose();
     _categoryController.dispose();
     _barcodeController.dispose();
@@ -381,6 +388,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
         distributorPrice: _distributorPriceController.text.trim().isEmpty
             ? null
             : double.tryParse(_distributorPriceController.text.trim()),
+        distributorDiscountPercent:
+            double.tryParse(_distributorDiscountController.text.trim()) ?? 0.0,
         stock: double.parse(_stockController.text),
         category: _categoryController.text.isEmpty
             ? 'Uncategorized'
@@ -843,6 +852,22 @@ class _AddProductScreenState extends State<AddProductScreen> {
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: InputDecoration(
                 hintText: 'Distributor price (optional)',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _distributorDiscountController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                hintText: 'Distributor discount % (optional)',
+                helperText: 'Leave blank or set any percentage you allow',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),

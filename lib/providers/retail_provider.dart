@@ -620,6 +620,12 @@ class RetailProvider extends ChangeNotifier {
         DateTime.fromMillisecondsSinceEpoch(0);
   }
 
+  double _readDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString().replaceAll(',', '').trim() ?? '') ??
+        0.0;
+  }
+
   void switchCart(String cartId) {
     if (!_cartSessions.containsKey(cartId) || cartId == _activeCartId) return;
     _syncActiveCartSnapshot();
@@ -850,6 +856,102 @@ class RetailProvider extends ChangeNotifier {
     };
   }
 
+  Future<List<Map<String, dynamic>>> _fetchPumpUploads({
+    DateTime? start,
+    DateTime? end,
+    int limit = 500,
+  }) async {
+    if (_businessId == null) return const [];
+    try {
+      final query = <String, String>{
+        'limit': limit.clamp(1, 500).toString(),
+        if (start != null) 'from': start.toIso8601String(),
+        if (end != null) 'to': end.toIso8601String(),
+      };
+      final response = await ManagecareApiClient.instance.get(
+        '/api/pumps/$_businessId/uploads',
+        query: query,
+      );
+      final rows =
+          ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      return rows;
+    } catch (e) {
+      debugPrint('Error fetching pump uploads for fuel metrics: $e');
+      return const [];
+    }
+  }
+
+  Map<String, dynamic> _calculatePumpUploadMetrics(
+    List<Map<String, dynamic>> uploads,
+  ) {
+    double totalAmount = 0.0;
+    double totalVolume = 0.0;
+    for (final upload in uploads) {
+      totalAmount += _readDouble(
+        upload['expected_amount'] ??
+            upload['expectedAmount'] ??
+            upload['total_paid'] ??
+            upload['totalPaid'],
+      );
+      totalVolume += _readDouble(
+        upload['sold_volume'] ??
+            upload['soldVolume'] ??
+            upload['cash_derived_volume'] ??
+            upload['cashDerivedVolume'],
+      );
+    }
+    return {
+      'totalAmount': totalAmount,
+      'totalVolume': totalVolume,
+      'transactions': uploads.length,
+    };
+  }
+
+  List<Map<String, dynamic>> _pumpUploadsToFuelHistory(
+    List<Map<String, dynamic>> uploads,
+  ) {
+    return uploads.map((upload) {
+      final createdAt = _readTimestamp(
+        upload['uploaded_at'] ?? upload['uploadedAt'] ?? upload['created_at'],
+      );
+      final amount = _readDouble(
+        upload['expected_amount'] ??
+            upload['expectedAmount'] ??
+            upload['total_paid'] ??
+            upload['totalPaid'],
+      );
+      final volume = _readDouble(
+        upload['sold_volume'] ??
+            upload['soldVolume'] ??
+            upload['cash_derived_volume'] ??
+            upload['cashDerivedVolume'],
+      );
+      final pumpNumber =
+          (upload['pump_number'] ?? upload['pumpNumber'] ?? '').toString();
+      final productName =
+          (upload['product_name'] ?? upload['productName'] ?? 'Fuel')
+              .toString();
+      return {
+        'id': upload['sale_id'] ?? upload['saleId'] ?? upload['id'],
+        'uploadId': upload['id'],
+        'createdAt': createdAt,
+        'createdAtRaw': upload['uploaded_at'] ?? upload['uploadedAt'],
+        'customerName':
+            pumpNumber.isEmpty ? 'Pump Upload' : 'Pump $pumpNumber Upload',
+        'totalAmount': amount,
+        'fuelVolume': volume,
+        'paymentMethod': 'pump_upload',
+        'items': [
+          {
+            'product_name': productName,
+            'quantity': volume,
+            'total': amount,
+          }
+        ],
+      };
+    }).toList();
+  }
+
   bool _isFuelText(String value) {
     final text = value.trim().toLowerCase();
     return text.contains('fuel') ||
@@ -934,12 +1036,37 @@ class RetailProvider extends ChangeNotifier {
     final e = end ?? DateTime(now.year, now.month, now.day, 23, 59, 59);
 
     try {
+      final uploads = await _fetchPumpUploads(start: s, end: e);
+      final uploadMetrics = _calculatePumpUploadMetrics(uploads);
+      final uploadSaleIds = uploads
+          .map((upload) => (upload['sale_id'] ?? upload['saleId'] ?? '')
+              .toString()
+              .trim())
+          .where((id) => id.isNotEmpty)
+          .toSet();
       final sales = await _salesRepo.fetchSales(
         businessId: _businessId,
         start: s,
         end: e,
       );
-      return await _calculateFuelMetricsSnapshot(sales);
+      final standaloneSales = sales
+          .where((sale) => !uploadSaleIds.contains(
+                (sale['id'] ?? sale['order_id'] ?? sale['orderId'] ?? '')
+                    .toString()
+                    .trim(),
+              ))
+          .toList();
+      final salesMetrics =
+          await _calculateFuelMetricsSnapshot(standaloneSales);
+      return {
+        'totalAmount': _readDouble(uploadMetrics['totalAmount']) +
+            _readDouble(salesMetrics['totalAmount']),
+        'totalVolume': _readDouble(uploadMetrics['totalVolume']) +
+            _readDouble(salesMetrics['totalVolume']),
+        'transactions': ((uploadMetrics['transactions'] as num?)?.toInt() ??
+                0) +
+            ((salesMetrics['transactions'] as num?)?.toInt() ?? 0),
+      };
     } catch (e) {
       debugPrint('Error computing fuel metrics: $e');
       return {'totalAmount': 0.0, 'totalVolume': 0.0, 'transactions': 0};
@@ -972,12 +1099,36 @@ class RetailProvider extends ChangeNotifier {
     if (_businessId == null) return [];
 
     try {
+      final uploads = await _fetchPumpUploads(start: start, end: end);
+      final uploadSaleIds = uploads
+          .map((upload) => (upload['sale_id'] ?? upload['saleId'] ?? '')
+              .toString()
+              .trim())
+          .where((id) => id.isNotEmpty)
+          .toSet();
       final sales = await _salesRepo.fetchSales(
         businessId: _businessId,
         start: start,
         end: end,
       );
-      final history = await _calculateFuelSalesHistorySnapshot(sales);
+      final standaloneSales = sales
+          .where((sale) => !uploadSaleIds.contains(
+                (sale['id'] ?? sale['order_id'] ?? sale['orderId'] ?? '')
+                    .toString()
+                    .trim(),
+              ))
+          .toList();
+      final history = [
+        ..._pumpUploadsToFuelHistory(uploads),
+        ...await _calculateFuelSalesHistorySnapshot(standaloneSales),
+      ]..sort((a, b) {
+          final ad = a['createdAt'] as DateTime?;
+          final bd = b['createdAt'] as DateTime?;
+          if (ad == null && bd == null) return 0;
+          if (ad == null) return 1;
+          if (bd == null) return -1;
+          return bd.compareTo(ad);
+        });
       if (history.length > limit) {
         return history.sublist(0, limit);
       }
@@ -1459,6 +1610,7 @@ class RetailProvider extends ChangeNotifier {
     String? customerEmail,
     String? customerName,
     String? storeId,
+    List<Map<String, dynamic>>? paymentBreakdown,
     Map<String, double>? priceOverrides,
   }) async {
     if (_businessId == null) return false;
@@ -1534,6 +1686,8 @@ class RetailProvider extends ChangeNotifier {
         'totalAmount': totalAmount,
         'finalAmount': totalAmount,
         'paymentMethod': paymentMethod,
+        if (paymentBreakdown != null && paymentBreakdown.isNotEmpty)
+          'paymentBreakdown': paymentBreakdown,
         'saleType': saleType,
         'category': 'General',
         'createdAt': DateTime.now().toIso8601String(),
@@ -1569,6 +1723,7 @@ class RetailProvider extends ChangeNotifier {
           workerName: workerName,
           storeId: storeId,
           saleType: saleType,
+          paymentBreakdown: paymentBreakdown,
           priceOverrides: priceOverrides,
         );
       }
@@ -1610,6 +1765,8 @@ class RetailProvider extends ChangeNotifier {
             'tax_amount': taxAmount,
             'final_amount': totalAmount,
             'payment_method': paymentMethod,
+            if (paymentBreakdown != null && paymentBreakdown.isNotEmpty)
+              'payment_breakdown': paymentBreakdown,
             'status': 'completed',
             'created_by': createdBy,
             'sale_type': saleType,
@@ -1631,6 +1788,7 @@ class RetailProvider extends ChangeNotifier {
             workerName: workerName,
             storeId: storeId,
             saleType: saleType,
+            paymentBreakdown: paymentBreakdown,
             priceOverrides: priceOverrides,
           );
         }
@@ -1741,6 +1899,7 @@ class RetailProvider extends ChangeNotifier {
           workerName: workerName,
           storeId: storeId,
           saleType: saleType,
+          paymentBreakdown: paymentBreakdown,
           priceOverrides: priceOverrides,
         );
       }
@@ -1764,6 +1923,7 @@ class RetailProvider extends ChangeNotifier {
     String? workerName,
     String? storeId,
     String saleType = 'retail',
+    List<Map<String, dynamic>>? paymentBreakdown,
     Map<String, double>? priceOverrides,
   }) async {
     final dbHelper = DatabaseHelper.instance;
@@ -1778,6 +1938,8 @@ class RetailProvider extends ChangeNotifier {
       'taxAmount': taxAmount,
       'finalAmount': totalAmount,
       'paymentMethod': paymentMethod,
+      if (paymentBreakdown != null && paymentBreakdown.isNotEmpty)
+        'paymentBreakdown': jsonEncode(paymentBreakdown),
       'saleType': saleType,
       'status': 'completed',
       'notes': null,
@@ -2403,6 +2565,9 @@ class RetailProvider extends ChangeNotifier {
 
       double totalSales = 0.0;
       for (final sale in sales) {
+        if (_isFuelOrPumpLinkedSale(Map<String, dynamic>.from(sale as Map))) {
+          continue;
+        }
         final amount = (sale['final_amount'] as num?)?.toDouble() ?? 0.0;
         totalSales += amount;
       }
@@ -2501,6 +2666,23 @@ class RetailProvider extends ChangeNotifier {
     return normalized;
   }
 
+  bool _isFuelOrPumpLinkedSale(Map<String, dynamic> sale) {
+    final saleType = (sale['saleType'] ?? sale['sale_type'] ?? '')
+        .toString()
+        .toLowerCase();
+    final category =
+        (sale['category'] ?? sale['order_type'] ?? '').toString().toLowerCase();
+    final pumpId = (sale['pumpId'] ?? sale['pump_id'] ?? '').toString().trim();
+    final pumpNumber =
+        (sale['pumpNumber'] ?? sale['pump_number'] ?? '').toString().trim();
+    return saleType.contains('fuel') ||
+        saleType.contains('pump') ||
+        category.contains('fuel') ||
+        category.contains('pump') ||
+        pumpId.isNotEmpty ||
+        pumpNumber.isNotEmpty;
+  }
+
   // Get sales history with optional limit and range. This is a simple convenience method (non-paged).
   Future<List<Map<String, dynamic>>> getSalesHistory({
     int limit = 50,
@@ -2524,6 +2706,7 @@ class RetailProvider extends ChangeNotifier {
       var results = sales
           .cast<Map<String, dynamic>>()
           .map(_normalizeSaleForUi)
+          .where((sale) => !_isFuelOrPumpLinkedSale(sale))
           .toList();
       if (results.length > limit) results = results.sublist(0, limit);
 
@@ -2679,7 +2862,10 @@ class RetailProvider extends ChangeNotifier {
       debugPrint(
           '[RetailProvider] Fetched ${sales.length} (paged) sales records');
       return {
-        'sales': sales.map(_normalizeSaleForUi).toList(),
+        'sales': sales
+            .map(_normalizeSaleForUi)
+            .where((sale) => !_isFuelOrPumpLinkedSale(sale))
+            .toList(),
         'nextPage': nextPage,
       };
     } catch (e) {

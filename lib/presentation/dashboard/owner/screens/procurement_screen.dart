@@ -71,15 +71,46 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     super.dispose();
   }
 
-  Future<void> _refreshProducts() async {
-    // Reset the filtered list and reload all products
+  Future<void> _refreshProducts({bool showFeedback = false}) async {
+    // Reset the filtered list and reload all products.
     _searchController.clear();
     _barcodeController.clear();
-    _selectedCategory = null;
+    _selectedCategory = widget.showIngredientsOnly ? 'Ingredient' : null;
     if (mounted) {
       setState(() => _isLoading = true);
     }
-    await _loadProducts();
+    try {
+      if (!widget.showIngredientsOnly) {
+        final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+        if (businessId != null && businessId.isNotEmpty) {
+          final key = 'procurement_selected_category_$businessId';
+          await SharedPrefsHelper.instance.init();
+          await SharedPrefsHelper.instance.setStringForKey(key, '');
+        }
+      }
+
+      await _loadProducts(restoreSavedCategory: false);
+
+      if (showFeedback && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Products refreshed'),
+            duration: Duration(seconds: 1),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (showFeedback && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error refreshing products: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      rethrow;
+    }
   }
 
   bool _isPharmacyBusinessType(String businessType) {
@@ -100,7 +131,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     return category.isEmpty ? 'Uncategorized' : category;
   }
 
-  Future<void> _loadProducts() async {
+  Future<void> _loadProducts({bool restoreSavedCategory = true}) async {
     try {
       // Prefer the currently selected business (supports owners with multiple businesses)
       final businessProvider = context.read<BusinessProvider>();
@@ -115,8 +146,8 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
 
       // Use the repository so a previously loaded catalog is available when
       // the backend cannot be reached.
-      final inventoryRows = await InventoryRepositorySupabase()
-          .getInventory(businessId);
+      final inventoryRows =
+          await InventoryRepositorySupabase().getInventory(businessId);
       final rows = inventoryRows
           .whereType<Map>()
           .map((row) => Map<String, dynamic>.from(row))
@@ -147,9 +178,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         allProducts = allProducts.where(isIngredientInventoryItem).toList();
       }
 
-      final businessType = (businessProvider.currentBusiness?.businessType ?? '')
-          .toLowerCase()
-          .replaceAll(RegExp(r'[^a-z0-9]'), '');
+      final businessType =
+          (businessProvider.currentBusiness?.businessType ?? '')
+              .toLowerCase()
+              .replaceAll(RegExp(r'[^a-z0-9]'), '');
       final isPharmacyBusiness = _isPharmacyBusinessType(businessType);
       if (isPharmacyBusiness) {
         // Include pharmacy drugs as inventory-like products only for actual
@@ -188,22 +220,40 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         // attempt to load saved category for this business
         final key = 'procurement_selected_category_${businessId ?? ''}';
         await SharedPrefsHelper.instance.init();
-        final savedCat = SharedPrefsHelper.instance.getStringForKey(key);
+        final savedCat = restoreSavedCategory
+            ? SharedPrefsHelper.instance.getStringForKey(key)
+            : null;
+        final cats = <String>{};
+        for (final p in allProducts) {
+          final c = (p['category'] ?? 'Uncategorized').toString().trim();
+          if (c.isNotEmpty) cats.add(c);
+        }
+        final categories = ['All', ...cats.toList()..sort()];
+        final selectedCategory = widget.showIngredientsOnly
+            ? 'Ingredient'
+            : (savedCat != null &&
+                    savedCat.isNotEmpty &&
+                    categories.contains(savedCat))
+                ? savedCat
+                : (_selectedCategory != null &&
+                        categories.contains(_selectedCategory))
+                    ? _selectedCategory
+                    : null;
+        final filteredProducts =
+            selectedCategory == null || selectedCategory == 'All'
+                ? allProducts
+                : allProducts
+                    .where((p) =>
+                        (p['category'] ?? 'Uncategorized')
+                            .toString()
+                            .toLowerCase() ==
+                        selectedCategory.toLowerCase())
+                    .toList();
         setState(() {
           _products = allProducts;
-          _filteredProducts = allProducts;
-          // derive categories from products
-          final cats = <String>{};
-          for (final p in allProducts) {
-            final c = (p['category'] ?? 'Uncategorized').toString().trim();
-            if (c.isNotEmpty) cats.add(c);
-          }
-          _categories = ['All', ...cats.toList()..sort()];
-          _selectedCategory = widget.showIngredientsOnly
-              ? 'Ingredient'
-              : (savedCat != null && savedCat.isNotEmpty && _categories.contains(savedCat))
-                  ? savedCat
-                  : null;
+          _filteredProducts = filteredProducts;
+          _categories = categories;
+          _selectedCategory = selectedCategory;
           _isLoading = false;
         });
       }
@@ -237,10 +287,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         _filteredProducts = base.toList();
       } else {
         _filteredProducts = base
-            .where((p) => (p['category'] ?? 'Uncategorized')
-                .toString()
-                .toLowerCase()
-                .trim() == _selectedCategory!.toLowerCase().trim())
+            .where((p) =>
+                (p['category'] ?? 'Uncategorized')
+                    .toString()
+                    .toLowerCase()
+                    .trim() ==
+                _selectedCategory!.toLowerCase().trim())
             .toList();
       }
     });
@@ -327,7 +379,9 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       final productId = product['id'] as String?;
       if (productId == null) return;
 
-      await ManagecareApiClient.instance.patch('/api/inventory/$businessId/$productId/quantity', body: {'quantity': newQuantity});
+      await ManagecareApiClient.instance.patch(
+          '/api/inventory/$businessId/$productId/quantity',
+          body: {'quantity': newQuantity});
 
       // Update local state
       final index = _products.indexWhere((p) => p['id'] == productId);
@@ -398,6 +452,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         backgroundColor: Colors.transparent,
         iconTheme: IconThemeData(color: Theme.of(context).iconTheme.color),
         actions: [
+          IconButton(
+            tooltip: 'Refresh products',
+            icon: const Icon(Icons.refresh_rounded),
+            onPressed:
+                _isLoading ? null : () => _refreshProducts(showFeedback: true),
+          ),
           IconButton(
             tooltip: 'Procurement History',
             icon: const Icon(Icons.history_outlined),
@@ -504,7 +564,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                       padding: const EdgeInsets.only(top: 6, bottom: 6),
                       itemBuilder: (context, idx) {
                         final cat = _categories[idx];
-                        final isSelected = (_selectedCategory == null && cat == 'All') || (_selectedCategory != null && _selectedCategory == cat);
+                        final isSelected =
+                            (_selectedCategory == null && cat == 'All') ||
+                                (_selectedCategory != null &&
+                                    _selectedCategory == cat);
                         return ChoiceChip(
                           label: Text(cat),
                           selected: isSelected,
@@ -518,15 +581,20 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                               _filterProducts();
                             });
                             try {
-                              final businessProvider = context.read<BusinessProvider>();
-                              final businessIdKey = businessProvider.currentBusiness?.id ?? '';
-                              final key = 'procurement_selected_category_$businessIdKey';
+                              final businessProvider =
+                                  context.read<BusinessProvider>();
+                              final businessIdKey =
+                                  businessProvider.currentBusiness?.id ?? '';
+                              final key =
+                                  'procurement_selected_category_$businessIdKey';
                               await SharedPrefsHelper.instance.init();
                               if (_selectedCategory == null) {
                                 // clear saved selection
-                                await SharedPrefsHelper.instance.setStringForKey(key, '');
+                                await SharedPrefsHelper.instance
+                                    .setStringForKey(key, '');
                               } else {
-                                await SharedPrefsHelper.instance.setStringForKey(key, _selectedCategory!);
+                                await SharedPrefsHelper.instance
+                                    .setStringForKey(key, _selectedCategory!);
                               }
                             } catch (_) {}
                           },
@@ -637,9 +705,8 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                           ?.toDouble(),
                                   stock: ((product['quantity'] ?? 0) as num)
                                       .toDouble(),
-                                  category:
-                                      _categoryForCurrentBusiness(
-                                          product['category']),
+                                  category: _categoryForCurrentBusiness(
+                                      product['category']),
                                   imageUrl: product['imageUrl'] as String?,
                                   barcode: product['barcode'] as String?,
                                   unit: canonicalizeInventoryUnit(
@@ -864,10 +931,12 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     if (selectedUnit == 'bag')
                       TextField(
                         controller: bagWeightController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
                         decoration: InputDecoration(
                           labelText: 'Bag weight (kg) - e.g., 50',
-                          helperText: 'Used to convert bags to ${inventoryUnitLabel(baseUnit)}',
+                          helperText:
+                              'Used to convert bags to ${inventoryUnitLabel(baseUnit)}',
                         ),
                       ),
                     const SizedBox(height: 8),
@@ -924,7 +993,8 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           double.tryParse(qtyController.text) ?? (entry['quantity'] as num);
       final newCost =
           double.tryParse(costController.text) ?? (entry['cost'] as double);
-      final newBagWeight = double.tryParse(bagWeightController.text) ?? (entry['bagWeightKg'] as num? ?? 0);
+      final newBagWeight = double.tryParse(bagWeightController.text) ??
+          (entry['bagWeightKg'] as num? ?? 0);
       setState(() {
         _selectedItems[id]!['quantity'] = newQty;
         _selectedItems[id]!['cost'] = newCost;
@@ -950,18 +1020,25 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   }
 
   bool _isBakeryBusiness() {
-    final businessType = context.read<BusinessProvider>().currentBusiness?.businessType ?? '';
-    final normalized = businessType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-    return normalized == 'bakery' || normalized == 'bakeryshop' || normalized == 'bakeshop';
+    final businessType =
+        context.read<BusinessProvider>().currentBusiness?.businessType ?? '';
+    final normalized =
+        businessType.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return normalized == 'bakery' ||
+        normalized == 'bakeryshop' ||
+        normalized == 'bakeshop';
   }
 
   Future<List<Map<String, dynamic>>> _loadBakeryWorkers() async {
-    final businessId = context.read<BusinessProvider>().currentBusiness?.id ?? '';
+    final businessId =
+        context.read<BusinessProvider>().currentBusiness?.id ?? '';
     if (businessId.isEmpty) return [];
 
     try {
-      final response = await ManagecareApiClient.instance.get('/api/workers/$businessId', query: {'limit': 100});
-      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      final response = await ManagecareApiClient.instance
+          .get('/api/workers/$businessId', query: {'limit': 100});
+      final rows =
+          ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
       return rows;
     } catch (e) {
       debugPrint('[ProcurementScreen] _loadBakeryWorkers error: $e');
@@ -970,16 +1047,20 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   }
 
   bool _isBakeryRole(Map<String, dynamic> worker) {
-    final roles = (worker['roles'] as List<dynamic>?)?.cast<String>() ?? <String>[];
-    final role = (worker['role'] ?? worker['position'] ?? '').toString().toLowerCase();
+    final roles =
+        (worker['roles'] as List<dynamic>?)?.cast<String>() ?? <String>[];
+    final role =
+        (worker['role'] ?? worker['position'] ?? '').toString().toLowerCase();
     return roles.any((r) => r.toString().toLowerCase().contains('baker')) ||
         role.contains('baker') ||
         role.contains('pastry');
   }
 
   bool _isSalesRepRole(Map<String, dynamic> worker) {
-    final roles = (worker['roles'] as List<dynamic>?)?.cast<String>() ?? <String>[];
-    final role = (worker['role'] ?? worker['position'] ?? '').toString().toLowerCase();
+    final roles =
+        (worker['roles'] as List<dynamic>?)?.cast<String>() ?? <String>[];
+    final role =
+        (worker['role'] ?? worker['position'] ?? '').toString().toLowerCase();
     return roles.any((r) => r.toString().toLowerCase().contains('sales')) ||
         role.contains('sales') ||
         role.contains('rep');
@@ -1025,6 +1106,140 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                     Text(
                         'Are you sure you want to increase stock for ${_selectedItems.length} items and record procurement?'),
                     const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest
+                            .withOpacity(0.45),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Theme.of(context).dividerColor,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.fact_check_outlined, size: 18),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Review selected items',
+                                  style: AppTextStyles.subtitle2.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                '${_selectedItems.length} item${_selectedItems.length == 1 ? '' : 's'}',
+                                style: AppTextStyles.caption.copyWith(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          if (_selectedItems.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Text(
+                                'No items selected.',
+                                style: AppTextStyles.body2.copyWith(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            )
+                          else
+                            ..._selectedItems.entries.toList().map((entry) {
+                              final value = entry.value;
+                              final product =
+                                  value['product'] as Map<String, dynamic>;
+                              final qty = (value['quantity'] as num?) ?? 0;
+                              final unit = canonicalizeInventoryUnit(
+                                (value['unit'] as String?) ??
+                                    product['unit']?.toString(),
+                              );
+                              final cost =
+                                  (value['cost'] as num?)?.toDouble() ?? 0.0;
+                              final total = qty.toDouble() * cost;
+                              final batchLabel =
+                                  (value['batchLabel'] ?? '').toString().trim();
+                              final expiry =
+                                  _coerceExpiryDate(value['expiryDate']);
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      (product['name'] ?? 'Unnamed product')
+                                          .toString(),
+                                      style: AppTextStyles.body2.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${formatInventoryQuantity(qty)} ${inventoryUnitLabel(unit)} x ₦${_currencyFormat.format(cost)} = ₦${_currencyFormat.format(total)}'
+                                      '${batchLabel.isNotEmpty ? ' • Batch: $batchLabel' : ''}'
+                                      '${expiry != null ? ' • Expires: ${DateFormat('dd MMM yyyy').format(expiry)}' : ''}',
+                                      style: AppTextStyles.caption.copyWith(
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        TextButton.icon(
+                                          onPressed: () async {
+                                            await _editSelectedItem(entry.key);
+                                            if (context.mounted)
+                                              setState(() {});
+                                          },
+                                          icon: const Icon(
+                                            Icons.edit_outlined,
+                                            size: 16,
+                                          ),
+                                          label: const Text('Edit'),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        TextButton.icon(
+                                          onPressed: () {
+                                            this.setState(() {
+                                              _selectedItems.remove(entry.key);
+                                            });
+                                            setState(() {});
+                                          },
+                                          icon: const Icon(
+                                            Icons.delete_outline,
+                                            size: 16,
+                                          ),
+                                          label: const Text('Remove'),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          const Divider(height: 16),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              'Total: ₦${_currencyFormat.format(_selectedItems.values.fold(0.0, (sum, item) => sum + (((item['quantity'] as num?)?.toDouble() ?? 0.0) * ((item['cost'] as num?)?.toDouble() ?? 0.0))))}',
+                              style: AppTextStyles.subtitle2.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
 
                     // Reference Image Upload Section
                     Container(
@@ -1047,8 +1262,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                     size: 18, color: AppColors.primary),
                                 SizedBox(width: 8),
                                 Expanded(
-                                  child: Text(
-                                      'Reference Image (optional)',
+                                  child: Text('Reference Image (optional)',
                                       style: TextStyle(
                                           fontWeight: FontWeight.w600,
                                           fontSize: 12)),
@@ -1230,7 +1444,8 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                         future: _loadBakeryWorkers(),
                         builder: (context, snapshot) {
                           final workers = snapshot.data ?? [];
-                          final bakerOptions = workers.where((w) => _isBakeryRole(w)).toList();
+                          final bakerOptions =
+                              workers.where((w) => _isBakeryRole(w)).toList();
                           return Column(
                             children: [
                               DropdownButtonFormField<String>(
@@ -1238,7 +1453,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                 items: bakerOptions
                                     .map((w) => DropdownMenuItem(
                                           value: (w['id'] ?? '').toString(),
-                                          child: Text((w['name'] ?? w['fullName'] ?? 'Unknown').toString()),
+                                          child: Text((w['name'] ??
+                                                  w['fullName'] ??
+                                                  'Unknown')
+                                              .toString()),
                                         ))
                                     .toList(),
                                 onChanged: (v) {
@@ -1248,10 +1466,14 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                   );
                                   setState(() {
                                     selectedBakerId = v;
-                                    selectedBakerName = (worker['name'] ?? worker['fullName'] ?? '').toString();
+                                    selectedBakerName = (worker['name'] ??
+                                            worker['fullName'] ??
+                                            '')
+                                        .toString();
                                   });
                                 },
-                                decoration: const InputDecoration(labelText: 'Baker (optional)'),
+                                decoration: const InputDecoration(
+                                    labelText: 'Baker (optional)'),
                               ),
                               const SizedBox(height: 12),
                               DropdownButtonFormField<String>(
@@ -1260,7 +1482,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                     .where((w) => _isSalesRepRole(w))
                                     .map((w) => DropdownMenuItem(
                                           value: (w['id'] ?? '').toString(),
-                                          child: Text((w['name'] ?? w['fullName'] ?? 'Unknown').toString()),
+                                          child: Text((w['name'] ??
+                                                  w['fullName'] ??
+                                                  'Unknown')
+                                              .toString()),
                                         ))
                                     .toList(),
                                 onChanged: (v) {
@@ -1270,10 +1495,14 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                                   );
                                   setState(() {
                                     selectedSalesRepId = v;
-                                    selectedSalesRepName = (worker['name'] ?? worker['fullName'] ?? '').toString();
+                                    selectedSalesRepName = (worker['name'] ??
+                                            worker['fullName'] ??
+                                            '')
+                                        .toString();
                                   });
                                 },
-                                decoration: const InputDecoration(labelText: 'Sales Rep (optional)'),
+                                decoration: const InputDecoration(
+                                    labelText: 'Sales Rep (optional)'),
                               ),
                             ],
                           );
@@ -1289,7 +1518,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                   onPressed: () => Navigator.of(context).pop(),
                   child: const Text('Cancel')),
               ElevatedButton(
-                  onPressed: isUploadingReferenceImage
+                  onPressed: isUploadingReferenceImage || _selectedItems.isEmpty
                       ? null
                       : () => Navigator.of(context).pop({
                             'supplierId': selectedSupplierId,
@@ -1310,7 +1539,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       },
     );
 
-    if (dialogResult == null) return;
+    if (dialogResult == null || _selectedItems.isEmpty) return;
 
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     if (businessId == null || businessId.isEmpty) return;
@@ -1325,15 +1554,15 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       String? storeName;
       if ((currentUser?.storeId ?? '').isNotEmpty) {
         try {
-          final stores = await ManagecareApiClient.instance.get('/api/stores/$businessId') as List;
+          final stores = await ManagecareApiClient.instance
+              .get('/api/stores/$businessId') as List;
           final match = stores.cast<Map<String, dynamic>>().firstWhere(
                 (s) => s['id'] == currentUser!.storeId,
                 orElse: () => const {},
               );
           storeName = (match['name'] as String?)?.trim();
         } catch (e) {
-          debugPrint(
-              '[ProcurementScreen] Failed to resolve store name: $e');
+          debugPrint('[ProcurementScreen] Failed to resolve store name: $e');
         }
       }
       final items = _selectedItems.entries.map((e) {
@@ -1403,15 +1632,17 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
 
       final totalCost = items.fold<double>(0.0, (sum, item) {
         final value = item['purchaseTotal'] ?? item['total'] ?? 0;
-        return sum + ((value is num)
-            ? value.toDouble()
-            : (double.tryParse(value.toString()) ?? 0.0));
+        return sum +
+            ((value is num)
+                ? value.toDouble()
+                : (double.tryParse(value.toString()) ?? 0.0));
       });
       final totalQuantity = items.fold<double>(0.0, (sum, item) {
         final value = item['purchaseQuantity'] ?? item['quantity'] ?? 0;
-        return sum + ((value is num)
-            ? value.toDouble()
-            : (double.tryParse(value.toString()) ?? 0.0));
+        return sum +
+            ((value is num)
+                ? value.toDouble()
+                : (double.tryParse(value.toString()) ?? 0.0));
       });
 
       String ownerEmail = '';
@@ -1425,15 +1656,13 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
               <String, dynamic>{};
           ownerEmail = ((ownerProfile['email'] as String?) ?? '').trim();
         } catch (e) {
-          debugPrint(
-              '[ProcurementScreen] Failed to resolve owner email: $e');
+          debugPrint('[ProcurementScreen] Failed to resolve owner email: $e');
         }
       }
       if (ownerEmail.isEmpty) {
         ownerEmail = (business?.email ?? '').trim();
       }
-      if (ownerEmail.isEmpty &&
-          currentUser?.id == business?.ownerId) {
+      if (ownerEmail.isEmpty && currentUser?.id == business?.ownerId) {
         ownerEmail = (currentUser?.email ?? '').trim();
       }
 
@@ -1447,16 +1676,14 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
           totalCost: totalCost,
           totalQuantity: totalQuantity,
           itemsCount: items.length,
-          createdByName:
-              currentUser?.fullName?.trim().isNotEmpty == true
-                  ? currentUser!.fullName
-                  : 'Business Team',
+          createdByName: currentUser?.fullName?.trim().isNotEmpty == true
+              ? currentUser!.fullName
+              : 'Business Team',
           createdByEmail: currentUser?.email,
           supplierName: dialogResult['supplierName']?.toString(),
           invoiceRef: dialogResult['invoiceRef']?.toString(),
           storeName: storeName,
-          referenceImageUrl:
-              dialogResult['referenceImageUrl']?.toString(),
+          referenceImageUrl: dialogResult['referenceImageUrl']?.toString(),
           createdAt: procurementCreatedAt,
         );
         try {

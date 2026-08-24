@@ -197,6 +197,8 @@ class SalesRepositorySupabase implements SalesRepository {
             (row['total_amount'] as num?)?.toDouble() ??
             0.0,
         'paymentMethod': row['payment_method'] ?? '',
+        if (row['payment_breakdown'] != null)
+          'paymentBreakdown': jsonEncode(row['payment_breakdown']),
         'status': row['status'] ?? 'completed',
         'notes': row['notes'],
         'createdBy': row['created_by'] ?? '',
@@ -448,6 +450,19 @@ class SalesRepositorySupabase implements SalesRepository {
 
   Map<String, dynamic> _buildApiPayload(Map<String, dynamic> saleData) {
     final items = <Map<String, dynamic>>[];
+    dynamic paymentBreakdown;
+    final rawPaymentBreakdown =
+        saleData['paymentBreakdown'] ?? saleData['payment_breakdown'];
+    if (rawPaymentBreakdown is String &&
+        rawPaymentBreakdown.trim().isNotEmpty) {
+      try {
+        paymentBreakdown = jsonDecode(rawPaymentBreakdown);
+      } catch (_) {
+        paymentBreakdown = null;
+      }
+    } else if (rawPaymentBreakdown is List) {
+      paymentBreakdown = rawPaymentBreakdown;
+    }
 
     if (saleData['items'] is List) {
       for (final raw in saleData['items'] as List) {
@@ -487,6 +502,7 @@ class SalesRepositorySupabase implements SalesRepository {
       'tax_amount': (saleData['taxAmount'] ?? saleData['tax'] ?? 0),
       'final_amount': (saleData['finalAmount'] ?? saleData['total'] ?? 0),
       'payment_method': saleData['paymentMethod']?.toString() ?? 'Cash',
+      if (paymentBreakdown != null) 'payment_breakdown': paymentBreakdown,
       'status': saleData['status']?.toString() ?? 'completed',
       'notes': saleData['notes']?.toString(),
       'created_by': saleData['createdBy']?.toString() ?? '',
@@ -525,6 +541,14 @@ class SalesRepositorySupabase implements SalesRepository {
         'taxAmount': (saleData['taxAmount'] ?? saleData['tax'] ?? 0).toString(),
         'finalAmount': (saleData['finalAmount'] ?? saleData['total'] ?? 0).toString(),
         'paymentMethod': paymentMethod,
+        if (saleData['paymentBreakdown'] != null ||
+            saleData['payment_breakdown'] != null)
+          'paymentBreakdown': saleData['paymentBreakdown'] is String
+              ? saleData['paymentBreakdown']
+              : jsonEncode(
+                  saleData['paymentBreakdown'] ??
+                      saleData['payment_breakdown'],
+                ),
         'saleType': saleData['saleType']?.toString() ??
             saleData['sale_type']?.toString() ??
             'retail',

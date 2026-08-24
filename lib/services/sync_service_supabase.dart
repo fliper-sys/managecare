@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
@@ -211,6 +212,18 @@ class SyncService {
     // fails every time. created_at is forwarded explicitly so a sale synced
     // the next day still lands on the day it actually happened, not the
     // sync day.
+    dynamic paymentBreakdown;
+    final rawPaymentBreakdown = saleData['paymentBreakdown'];
+    if (rawPaymentBreakdown is String && rawPaymentBreakdown.trim().isNotEmpty) {
+      try {
+        paymentBreakdown = jsonDecode(rawPaymentBreakdown);
+      } catch (_) {
+        paymentBreakdown = null;
+      }
+    } else if (rawPaymentBreakdown is List) {
+      paymentBreakdown = rawPaymentBreakdown;
+    }
+
     final payload = <String, dynamic>{
       'id': saleId,
       'customer_id': saleData['customerId'],
@@ -222,6 +235,7 @@ class SyncService {
       'tax_amount': saleData['taxAmount'],
       'final_amount': saleData['finalAmount'] ?? saleData['totalAmount'],
       'payment_method': saleData['paymentMethod'] ?? 'Cash',
+      if (paymentBreakdown != null) 'payment_breakdown': paymentBreakdown,
       'status': saleData['status'] ?? 'completed',
       'notes': saleData['notes'],
       'created_by': saleData['createdBy'],

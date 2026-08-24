@@ -2,6 +2,8 @@ abstract class HotelRepository {
   Future<List<Map<String, dynamic>>> fetchRooms(String businessId);
   Future<Map<String, dynamic>> createBooking(Map<String, dynamic> booking);
   Future<Map<String, dynamic>> createRoom(Map<String, dynamic> room);
+  Future<Map<String, dynamic>> updateRoom(
+      String businessId, String roomId, Map<String, dynamic> room);
   Future<List<Map<String, dynamic>>> fetchGuests(String businessId);
 
   /// Fetch reservations for the given business.

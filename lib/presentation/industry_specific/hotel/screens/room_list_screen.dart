@@ -410,8 +410,14 @@ class _RoomListScreenState extends State<RoomListScreen> {
                    if (canManageRooms)
                      IconButton(
                       icon: const Icon(Icons.edit_outlined),
-                      onPressed: () {
-                        // Reserved for future room edit flow.
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        final result = await Navigator.of(this.context).push(
+                          MaterialPageRoute(
+                            builder: (_) => CreateRoomScreen(room: room),
+                          ),
+                        );
+                        if (result == true && mounted) setState(() {});
                       },
                      )
                 ],
