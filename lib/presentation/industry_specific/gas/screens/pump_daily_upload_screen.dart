@@ -619,9 +619,18 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     final cashDifference = (shiftCloseCash - shiftOpeningCash).clamp(0.0, 999999999.0);
     if (cashDifference <= 0) return 0.0;
     final volumeFromCash = cashDifference / price;
-    final roundedVolume = double.parse(volumeFromCash.toStringAsFixed(3));
+    final roundedVolume = double.parse(volumeFromCash.toStringAsFixed(6));
     if (roundedVolume <= 0) return 0.001;
-    return roundedVolume < 0.001 ? 0.001 : roundedVolume;
+    return roundedVolume < 0.000001 ? 0.000001 : roundedVolume;
+  }
+
+  double _computeExpectedCash(
+    double shiftOpeningCash,
+    double shiftCloseCash,
+  ) {
+    final cashDifference =
+        (shiftCloseCash - shiftOpeningCash).clamp(0.0, 999999999.0);
+    return double.parse(cashDifference.toStringAsFixed(2));
   }
 
   String _uploadFingerprint({
@@ -870,7 +879,10 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
 
     try {
       final auth = context.read<AuthProvider>().currentUser;
-      final expectedAmount = calculatedSalesVolume * price;
+      final expectedAmount = _computeExpectedCash(
+        shiftOpeningCash,
+        shiftCloseCash,
+      );
 
       final paymentMethod = cash > 0 && pos > 0
           ? 'mixed'
@@ -1087,7 +1099,10 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                   shiftCloseCash,
                   price,
                 );
-                final expectedAmount = calculatedSalesVolume * price;
+                final expectedAmount = _computeExpectedCash(
+                  shiftOpeningCash,
+                  shiftCloseCash,
+                );
                 return ListView(
                   padding: const EdgeInsets.all(16),
                   children: [

@@ -179,6 +179,58 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     return double.tryParse(value.toString().replaceAll(',', '').trim()) ?? 0.0;
   }
 
+  double _expectedCashAmount(Map<String, dynamic> data, double soldVolume) {
+    final stored = _readDouble(data['expectedAmount']);
+    if (stored > 0) return stored;
+
+    final shiftOpeningCash = _readDouble(data['shiftOpeningCash']);
+    final shiftCloseCash = _readDouble(data['shiftCloseCash']);
+    final shiftCashDifference = shiftCloseCash - shiftOpeningCash;
+    if (shiftCashDifference > 0) {
+      return double.parse(shiftCashDifference.toStringAsFixed(2));
+    }
+
+    final productPrice = _readDouble(data['productPrice']);
+    if (soldVolume > 0 && productPrice > 0) {
+      return double.parse((soldVolume * productPrice).toStringAsFixed(2));
+    }
+
+    return 0.0;
+  }
+
+  String _cashBreakdownSummary(dynamic raw) {
+    final parts = <String>[];
+
+    void addPart(dynamic denomination, dynamic pieces) {
+      final denominationText = denomination?.toString().trim() ?? '';
+      final piecesValue = _readDouble(pieces);
+      if (denominationText.isEmpty || piecesValue <= 0) return;
+      final piecesText = piecesValue == piecesValue.roundToDouble()
+          ? piecesValue.toInt().toString()
+          : piecesValue.toStringAsFixed(2);
+      parts.add('₦$denominationText x $piecesText');
+    }
+
+    if (raw is List) {
+      for (final entry in raw) {
+        if (entry is Map) {
+          addPart(entry['denomination'], entry['pieces'] ?? entry['count']);
+        }
+      }
+    } else if (raw is Map) {
+      for (final entry in raw.entries) {
+        final value = entry.value;
+        if (value is Map) {
+          addPart(entry.key, value['pieces'] ?? value['count']);
+        } else {
+          addPart(entry.key, value);
+        }
+      }
+    }
+
+    return parts.join(', ');
+  }
+
   DateTime? _readDate(dynamic value) {
     if (value == null) return null;
     if (value is DateTime) return value;
@@ -241,8 +293,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
         0.0;
     final posAmount = (data['posAmount'] as num?)?.toDouble() ?? 0.0;
     final totalPaid = todayPumpCash + posAmount;
-    final expectedAmount = (data['expectedAmount'] as num?)?.toDouble() ??
-        ((data['cashDerivedVolume'] as num?)?.toDouble() ?? 0);
+    final expectedAmount = _expectedCashAmount(data, soldVolume);
     final volumeDifference = closingVolume - openingVolume;
     final discrepancySummary = (data['discrepancySummary'] as String?) ?? '';
     final openingCashDiff = calculateOpeningCashDifference(
@@ -796,6 +847,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                   ? recordedTotalPaid
                                   : todayPumpCash + posAmount;
                               final saleId = data['saleId']?.toString() ?? '';
+                              final cashBreakdownSummary =
+                                  _cashBreakdownSummary(data['cashBreakdown']);
                               final soldVolume =
                                   _readDouble(data['soldVolume']) > 0
                                       ? _readDouble(data['soldVolume'])
@@ -803,6 +856,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                           ? _readDouble(data['cashDerivedVolume'])
                                           : digitalClosingVolume -
                                               digitalOpeningVolume;
+                              final expectedAmount =
+                                  _expectedCashAmount(data, soldVolume);
                               final discrepancyNotes =
                                   (data['discrepancyNotes'] as List?)
                                       ?.whereType<String>()
@@ -855,35 +910,55 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                         ? 'Operator: ${data['workerName'] ?? 'N/A'}'
                                         : '${DateFormat.yMd().add_jm().format(uploadedAt)}\nOperator: ${data['workerName'] ?? 'N/A'}',
                                   ),
-                                  trailing: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      Text(
-                                        formatAmount(
-                                          soldVolume,
-                                          decimalDigits: 3,
+                                  trailing: SizedBox(
+                                    width: 150,
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          formatAmount(
+                                            soldVolume,
+                                            decimalDigits: 3,
+                                          ),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                         ),
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
+                                        const Text(
+                                          'Sold vol.',
+                                          style: TextStyle(fontSize: 12, color: Colors.black54),
                                         ),
-                                      ),
-                                      const Text(
-                                        'Sold vol.',
-                                        style: TextStyle(fontSize: 12, color: Colors.black54),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        formatAmount(
-                                          ((data['expectedAmount'] as num?)?.toDouble() ?? 0),
-                                          decimalDigits: 2,
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          formatAmount(
+                                            expectedAmount,
+                                            decimalDigits: 2,
+                                          ),
                                         ),
-                                      ),
-                                      const Text(
-                                        'Expected amount',
-                                        style: TextStyle(fontSize: 12, color: Colors.black54),
-                                      ),
-                                    ],
+                                        const Text(
+                                          'Expected amount',
+                                          style: TextStyle(fontSize: 12, color: Colors.black54),
+                                        ),
+                                        if (cashBreakdownSummary.isNotEmpty) ...[
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            cashBreakdownSummary,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.right,
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.black87,
+                                            ),
+                                          ),
+                                          const Text(
+                                            'Cash breakdown',
+                                            style: TextStyle(fontSize: 11, color: Colors.black54),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
                                   ),
                                   children: [
                                     Padding(
@@ -923,7 +998,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
-                                            'Expected cash: ${formatAmount(((data['expectedAmount'] as num?)?.toDouble() ?? 0), decimalDigits: 2)}',
+                                            'Expected cash: ${formatAmount(expectedAmount, decimalDigits: 2)}',
                                           ),
                                           if (todayPumpCash > 0)
                                             Text(

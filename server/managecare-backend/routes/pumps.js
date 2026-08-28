@@ -245,7 +245,7 @@ module.exports = function(pool) {
         return res.status(400).json({ error: 'Closing volume must be greater than opening volume' });
       }
       const shiftCashDifference = parseFloat(merged.shift_close_cash) - parseFloat(merged.shift_opening_cash);
-      const expectedAmount = parseFloat(merged.sold_volume) * parseFloat(existing.product_price);
+      const expectedAmount = Math.max(0, Math.round(shiftCashDifference * 100) / 100);
       const totalPaid = parseFloat(merged.cash_amount) + parseFloat(merged.pos_amount);
 
       const result = await client.query(
