@@ -1131,6 +1131,10 @@ class SubscriptionService {
     required String limitType,
   }) {
     final family = getPlanFamilyForBusinessType(businessType);
+    final rawTier = tierId.trim().toLowerCase();
+    if (limitType == 'workers' && rawTier == 'enterprise') {
+      return null;
+    }
     final normalizedTier = normalizeStoredPlanLevel(subscriptionTier: tierId);
     SubscriptionPlan? selected;
     for (final plan in plans) {

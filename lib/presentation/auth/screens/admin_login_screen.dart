@@ -149,7 +149,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Platform administration now has its own login page. Marketers sign in through a separate portal.',
+                        'Platform administration now has its own login page. Marketers and internal workers sign in through a separate portal.',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.82),
                           height: 1.5,
@@ -186,7 +186,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                'Use your admin credentials to access approvals, business controls, and marketer management.',
+                                'Use your admin credentials to access approvals, business controls, and team management.',
                                 style: TextStyle(
                                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                                   height: 1.5,
@@ -246,7 +246,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                               ),
                               const SizedBox(height: 12),
                               CustomButton(
-                                text: 'Go To Marketer Portal',
+                                text: 'Go To Marketer / Worker Portal',
                                 type: ButtonType.outlined,
                                 icon: Icons.campaign_outlined,
                                 onPressed: () {

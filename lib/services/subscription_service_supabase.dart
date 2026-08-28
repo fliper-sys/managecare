@@ -360,6 +360,8 @@ class SubscriptionServiceSupabase {
 
   static int? getLimitForBusinessType({required String? businessType, required String tierId, required String limitType}) {
     final family = getPlanFamilyForBusinessType(businessType);
+    final rawTier = tierId.trim().toLowerCase();
+    if (limitType == 'workers' && rawTier == 'enterprise') return null;
     final normalizedTier = normalizeStoredPlanLevel(subscriptionTier: tierId);
     SubscriptionPlan? selected;
     for (final plan in plans) {

@@ -236,6 +236,55 @@ class AdminProvider extends ChangeNotifier {
     return result;
   }
 
+  String _buildMergedBusinessKey(Map<String, dynamic> business) {
+    final id = _readString(business['id']);
+    if (id.isNotEmpty) return 'id:$id';
+
+    final ownerId = _readString(business['ownerId'] ?? business['userId']);
+    final ownerEmail =
+        _readString(business['ownerEmail'] ?? business['email']).toLowerCase();
+    final name =
+        _readString(business['name'] ?? business['businessName']).toLowerCase();
+    final type = _readString(business['businessType']).toLowerCase();
+
+    if (ownerId.isNotEmpty && name.isNotEmpty) {
+      return 'owner:$ownerId|name:$name|type:$type';
+    }
+    if (ownerEmail.isNotEmpty && name.isNotEmpty) {
+      return 'email:$ownerEmail|name:$name|type:$type';
+    }
+    return 'name:$name|type:$type';
+  }
+
+  List<Map<String, dynamic>> _dedupeBusinesses(
+    Iterable<Map<String, dynamic>> businesses,
+  ) {
+    final merged = <String, Map<String, dynamic>>{};
+
+    for (final business in businesses) {
+      final normalized = Map<String, dynamic>.from(business);
+      final key = _buildMergedBusinessKey(normalized);
+      final existing = merged[key];
+      merged[key] = existing == null
+          ? normalized
+          : {
+              ...existing,
+              ...normalized,
+              'id': _readString(existing['id']).isNotEmpty
+                  ? existing['id']
+                  : normalized['id'],
+            };
+    }
+
+    final result = merged.values.toList();
+    result.sort((a, b) {
+      final left = _readString(a['name'] ?? a['businessName']).toLowerCase();
+      final right = _readString(b['name'] ?? b['businessName']).toLowerCase();
+      return left.compareTo(right);
+    });
+    return result;
+  }
+
   Future<int> _computeRecognizedRevenue() async {
     double totalRevenue = 0.0;
     final recognizedKeys = <String>{};
@@ -433,8 +482,9 @@ class AdminProvider extends ChangeNotifier {
         final dashboard = await _adminRepository.fetchDashboard();
         final backendStats =
             Map<String, dynamic>.from(dashboard['stats'] as Map? ?? const {});
-        _allBusinesses =
-            List<Map<String, dynamic>>.from(dashboard['businesses'] as List);
+        _allBusinesses = _dedupeBusinesses(
+          List<Map<String, dynamic>>.from(dashboard['businesses'] as List),
+        );
         _allUsers = List<Map<String, dynamic>>.from(dashboard['users'] as List);
         _usersCollectionCount = (dashboard['usersCount'] as num?)?.toInt() ??
             _allUsers.where((u) => u['tableSource'] == 'users').length;
@@ -478,9 +528,9 @@ class AdminProvider extends ChangeNotifier {
       // Fetch all businesses
       final businessesSnapshot =
           await _firestore.collection('businesses').get();
-      _allBusinesses = businessesSnapshot.docs.map((doc) {
+      _allBusinesses = _dedupeBusinesses(businessesSnapshot.docs.map((doc) {
         return {'id': doc.id, ...doc.data()};
-      }).toList();
+      }));
 
       // Fetch all users
       final usersSnapshot = await _firestore.collection('users').get();

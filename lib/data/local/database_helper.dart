@@ -243,13 +243,6 @@ class DatabaseHelper {
         'saleType': 'TEXT',
       });
     }
-    if (oldVersion < 9) {
-      // Mixed payments are stored as JSON text locally so offline sales can
-      // retain their cash/card/transfer split until sync.
-      await _addColumnsIfMissing(db, 'sales', {
-        'paymentBreakdown': 'TEXT',
-      });
-    }
     if (oldVersion < 7) {
       await _addColumnsIfMissing(db, 'inventory', {
         'wholesalePrice': 'REAL',
@@ -261,6 +254,13 @@ class DatabaseHelper {
     if (oldVersion < 8) {
       await _addColumnsIfMissing(db, 'inventory', {
         'distributorPrice': 'REAL',
+      });
+    }
+    if (oldVersion < 9) {
+      // Mixed payments are stored as JSON text locally so offline sales can
+      // retain their cash/card/transfer split until sync.
+      await _addColumnsIfMissing(db, 'sales', {
+        'paymentBreakdown': 'TEXT',
       });
     }
   }

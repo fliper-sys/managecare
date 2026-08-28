@@ -424,18 +424,6 @@ class _DashboardPageState extends State<DashboardPage> {
                   children: [
                     Expanded(
                       child: _buildStatCard(
-                        'Revenue Report',
-                        formatCurrency(admin.stats.totalRevenue.toDouble()),
-                        Icons.analytics_rounded,
-                        const Color(0xFFF97316),
-                        'Categories and tiers',
-                        onTap: () =>
-                            Navigator.pushNamed(context, Routes.adminPayments),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStatCard(
                         'Restricted',
                         restrictedBusinesses.toString(),
                         Icons.gpp_bad_rounded,
@@ -448,22 +436,6 @@ class _DashboardPageState extends State<DashboardPage> {
                                 const AdminDashboardApp(initialIndex: 4),
                           ),
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildStatCard(
-                        'Revenue',
-                        formatCurrency(admin.stats.totalRevenue.toDouble()),
-                        Icons.attach_money_rounded,
-                        const Color(0xFF8B5CF6),
-                        '${admin.stats.pendingPayments} payment issues',
-                        onTap: () =>
-                            Navigator.pushNamed(context, Routes.adminPayments),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -490,11 +462,11 @@ class _DashboardPageState extends State<DashboardPage> {
                   children: [
                     Expanded(
                       child: _buildStatCard(
-                        'Transactions',
-                        admin.stats.totalTransactions.toString(),
-                        Icons.receipt_long_rounded,
-                        const Color(0xFFF59E0B),
-                        'Platform-wide',
+                        'Revenue',
+                        formatCurrency(admin.stats.totalRevenue.toDouble()),
+                        Icons.attach_money_rounded,
+                        const Color(0xFF8B5CF6),
+                        '${admin.stats.totalTransactions} transactions',
                         onTap: () =>
                             Navigator.pushNamed(context, Routes.adminPayments),
                       ),

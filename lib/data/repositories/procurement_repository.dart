@@ -180,12 +180,31 @@ class ProcurementRepository {
       return '';
     }
 
+    String itemNamesSummary(List<dynamic> items) {
+      final names = items
+          .whereType<Map>()
+          .map((item) => itemValue(item, [
+                'name',
+                'productName',
+                'product_name',
+                'itemName',
+                'item_name',
+              ]))
+          .where((name) => name.trim().isNotEmpty)
+          .toList();
+      if (names.isEmpty) return '';
+      if (names.length <= 3) return names.join('; ');
+      return '${names.take(3).join('; ')} +${names.length - 3} more';
+    }
+
     final rows = <List<String>>[];
-    rows.add(['Procurement ID', 'Date', 'Supplier', 'Invoice', 'Baker', 'Sales Rep', 'Total Quantity', 'Total Cost', 'Item Count']);
+    rows.add(['Procurement ID', 'Item Names', 'Date', 'Supplier', 'Invoice', 'Baker', 'Sales Rep', 'Total Quantity', 'Total Cost', 'Item Count']);
     for (final d in procurements) {
       final createdAt = DateTime.tryParse(d['createdAt']?.toString() ?? '') ?? DateTime.now();
+      final items = (d['items'] as List?)?.cast<dynamic>() ?? [];
       rows.add([
         (d['id'] ?? '').toString(),
+        itemNamesSummary(items),
         createdAt.toIso8601String(),
         (d['supplierName'] ?? '').toString(),
         (d['invoiceRef'] ?? '').toString(),
@@ -195,9 +214,8 @@ class ProcurementRepository {
         ((d['totalCost'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2),
         '${(d['itemsCount'] as num?)?.toInt() ?? (d['items'] as List?)?.length ?? 0}',
       ]);
-      final items = (d['items'] as List?)?.cast<dynamic>() ?? [];
       if (items.isNotEmpty) {
-        rows.add(['-- Date', 'Item Name', 'Qty', 'Unit', 'Purchase Unit', 'Purchase Unit Cost', 'Per Kg Cost', 'Unit Cost', 'Total']);
+        rows.add(['Item Name', '-- Date', 'Qty', 'Unit', 'Purchase Unit', 'Purchase Unit Cost', 'Per Kg Cost', 'Unit Cost', 'Total']);
         for (final it in items) {
           final item = it is Map ? it : <String, dynamic>{};
           final itemDate = DateTime.tryParse(
@@ -216,8 +234,8 @@ class ProcurementRepository {
             perKg = purchaseUnitCost.toStringAsFixed(2);
           }
           rows.add([
-            itemDate.toIso8601String(),
             itemValue(item, ['name', 'productName', 'product_name', 'itemName', 'item_name']),
+            itemDate.toIso8601String(),
             formatInventoryQuantity(asDouble(item['quantity'] ?? item['purchaseQuantity'] ?? item['purchase_quantity'])),
             unit,
             purchaseUnit,

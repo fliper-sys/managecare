@@ -1156,9 +1156,18 @@ class BusinessProvider with ChangeNotifier {
 
   int? getLimitFor(String limitType) {
     if (_currentBusiness == null) return null;
+    if (limitType == 'workers' &&
+        _currentBusiness!.subscriptionTier.trim().toLowerCase() ==
+            'enterprise') {
+      return null;
+    }
+    final storedPlan = _currentBusiness!.subscriptionPlan?.trim();
+    final storedTier = storedPlan != null && storedPlan.isNotEmpty
+        ? storedPlan
+        : _currentBusiness!.subscriptionTier;
     return SubscriptionService.getLimitForBusinessType(
       businessType: _currentBusiness!.businessType,
-      tierId: normalizedSubscriptionTier,
+      tierId: storedTier,
       limitType: limitType,
     );
   }

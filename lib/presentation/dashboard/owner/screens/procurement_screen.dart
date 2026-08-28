@@ -217,12 +217,6 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       }
 
       if (mounted) {
-        // attempt to load saved category for this business
-        final key = 'procurement_selected_category_${businessId ?? ''}';
-        await SharedPrefsHelper.instance.init();
-        final savedCat = restoreSavedCategory
-            ? SharedPrefsHelper.instance.getStringForKey(key)
-            : null;
         final cats = <String>{};
         for (final p in allProducts) {
           final c = (p['category'] ?? 'Uncategorized').toString().trim();
@@ -231,14 +225,10 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
         final categories = ['All', ...cats.toList()..sort()];
         final selectedCategory = widget.showIngredientsOnly
             ? 'Ingredient'
-            : (savedCat != null &&
-                    savedCat.isNotEmpty &&
-                    categories.contains(savedCat))
-                ? savedCat
-                : (_selectedCategory != null &&
-                        categories.contains(_selectedCategory))
-                    ? _selectedCategory
-                    : null;
+            : (_selectedCategory != null &&
+                    categories.contains(_selectedCategory))
+                ? _selectedCategory
+                : null;
         final filteredProducts =
             selectedCategory == null || selectedCategory == 'All'
                 ? allProducts

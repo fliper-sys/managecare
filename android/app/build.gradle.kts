@@ -20,7 +20,11 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "com.managecare"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Google Play requires Android 15+ apps with native libraries to support
+    // 16 KB memory page sizes. NDK r28 builds native code with 16 KB ELF
+    // alignment by default; relying on flutter.ndkVersion can pick an older
+    // SDK from older Flutter installs and trigger the Play Console warning.
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -48,6 +52,10 @@ android {
     }
 
     packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+
         resources {
             // 🔥 CRITICAL: Exclude READ_MEDIA permissions per Google Play policy
             // These permissions are automatically added by some dependencies like image_picker

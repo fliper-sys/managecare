@@ -1,80 +1,54 @@
-# Retail, Hospitality, Petroleum, Bakery, and Pharmacy Fixes Status
+# Retail, Hospitality, Petroleum, Bakery, Super Admin Fix Status
 
-Generated: 2026-08-24
+Updated: 2026-08-28
 
-This document summarizes the issues that were sent, the current implementation status, and the main files changed.
+This document tracks the request list and marks what has been completed in code.
+
+## Retail
+
+| # | Request | Status | Notes / Files |
+|---|---|---|---|
+| 1 | Not all products from inventory show under procurement. | Done | Procurement now reloads from the inventory-backed product repository and does not restore a stale category filter that can hide products. Main file: `lib/presentation/dashboard/owner/screens/procurement_screen.dart`. |
+| 2 | Exported procurement file is missing item names near the matching rows. | Done | Procurement CSV and PDF exports now include item names in the summary and put item name first in detailed rows. Main files: `lib/data/repositories/procurement_repository.dart`, `lib/services/report_export_service.dart`. |
+| 3 | Worker cart only converts all products to wholesale instead of allowing each product to be retail or wholesale. | Done | Worker sales now uses the shared sales screen, giving workers the same per-item Retail/Wholesale controls used by admin/owner sales. Main file: `lib/presentation/workers/screens/worker_sales_screen.dart`. |
+
+## Hospitality
+
+| # | Request | Status | Notes / Files |
+|---|---|---|---|
+| 1 | Check in guest, front desk, and check-in-guest are the same home feature; leave only check-in-guest. | Done / Confirmed | Hotel home quick actions expose the consolidated `Check-In / Guests` entry only. `Front Desk` is not shown on the hotel dashboard or owner dashboard hotel nav. Main files checked/updated: `lib/presentation/industry_specific/hotel/screens/hotel_dashboard_screen.dart`, `lib/presentation/dashboard/owner/owner_dashboard_screen.dart`. |
+| 2 | Bookings and new bookings are the same home feature; remove one. | Done / Confirmed | The hotel dashboards do not show separate Bookings/New Booking tiles. New Booking remains only as an action inside the check-in/booking workflow. Main files checked/updated: `lib/presentation/industry_specific/hotel/screens/hotel_dashboard_screen.dart`, `lib/presentation/dashboard/owner/owner_dashboard_screen.dart`. |
+
+## Petroleum
+
+| # | Request | Status | Notes / Files |
+|---|---|---|---|
+| 1 | Cash breakdown does not show under upload history; show it on the right side below sold volume and expected amount. | Done | Upload history now summarizes stored cash breakdown beside each upload under sold volume and expected amount. Main file: `lib/presentation/industry_specific/gas/screens/pump_upload_history_screen.dart`. |
+| 2 | Bank deposit feature has not been created. | Done / Existing Implementation Confirmed | Petroleum bank deposits screen, route, and dashboard entry already exist. Main files checked: `lib/presentation/industry_specific/gas/screens/petroleum_bank_deposit_screen.dart`, `lib/presentation/industry_specific/gas/screens/gas_dashboard_screen.dart`, `lib/core/constants/routes.dart`, `lib/routes/app_router.dart`. |
+
+## Bakery
+
+| # | Request | Status | Notes / Files |
+|---|---|---|---|
+| 1 | Admins/owners cannot set discount more than 100 because the system says discount cannot be more than 100. | Done | Product distributor discount handling now supports a fixed discount price separately from percentage discount, removing the old "more than 100" block for fixed prices. Main file: `lib/presentation/inventory/screens/inventory_list_screen.dart`. |
+
+## Super Admin
+
+| # | Request | Status | Notes / Files |
+|---|---|---|---|
+| 1 | Businesses under total businesses show twice, especially after new registration. | Done | Super admin business lists are now de-duplicated by business id, or by owner/email, name, and type when id is unavailable. Main file: `lib/providers/admin_provider.dart`. |
+| 2 | Active business tab should only show businesses with active subscription. | Done | Active Businesses now filters for active subscription flags or valid subscription end dates. Main file: `lib/app_admin/pages/business_subscription_overview_page.dart`. |
+| 3 | There are duplicate revenue tabs and transaction tab; remove duplicates because transactions are visible through revenue. | Done | Removed the duplicate Revenue Report dashboard card and standalone Transactions card/tab. Revenue remains the single entry. Main files: `lib/app_admin/app_admin_dashboard_screen.dart`, `lib/app_admin/pages/admin_payments_page.dart`. |
+| 4 | Workers created through super admin do not have anywhere to log in. | Done | The existing internal-worker login path is now visible as the Marketer / Worker Portal, and newly created workers are told to sign in there with their temporary password. Main files: `lib/presentation/marketer/marketer_login_screen.dart`, `lib/presentation/auth/screens/admin_login_screen.dart`, `lib/app_admin/pages/admin_workers_page.dart`. |
+
+## Subscription Tier Follow-Up
+
+| # | Request | Status | Notes / Files |
+|---|---|---|---|
+| 1 | Enterprise businesses should be able to add unlimited workers for all business types. | Done | Worker limits now return unlimited for enterprise subscriptions across the local and Supabase subscription services, and the business provider honors enterprise tier before older plan ids. Main files: `lib/core/constants/subscription_tiers.dart`, `lib/services/subscription_service.dart`, `lib/services/subscription_service_supabase.dart`, `lib/providers/business_provider.dart`. |
 
 ## Verification Notes
 
-- `node --check server/managecare-backend/routes/sales.js` passed.
-- `node --check server/managecare-backend/routes/hotel.js` passed.
-- `node --check server/managecare-backend/routes/pumps.js` passed.
-- `git diff --check` passed with only existing line-ending and local git config permission warnings.
-- `dart format` and targeted `dart analyze` were attempted, but both hung in this environment and were stopped.
-
-## Retail Fixes
-
-| # | Request Sent | Status | Notes / Files |
-|---|---|---|---|
-| 1 | Financial report breakdown formulas for total sales, gross profit, net profit, operating expenses, and COGS were wrong. | Done | Financial calculations were updated to use final sale revenue, returns, COGS from item cost data, and expenses. Main file: `lib/providers/reports_provider.dart`. |
-| 2 | Some inventory products were not showing under procurement, even after recreation. | Done | Procurement product loading now uses the inventory repository path and includes refresh behavior. Main files: `lib/presentation/dashboard/owner/screens/procurement_screen.dart`, `lib/data/repositories/procurement_repository.dart`. |
-| 3 | Downloaded procurement records did not show item name, unit type, or dates in product-related rows. | Done | Procurement CSV/PDF exports now include item name, date, quantity, unit, purchase unit, unit cost, and totals. Main files: `lib/data/repositories/procurement_repository.dart`, `lib/services/report_export_service.dart`. |
-| 4 | Workers could not choose wholesale or retail per product after carting items; only the whole cart could be converted. | Done | Per-item Retail/Wholesale chips are available in the cart and checkout sheet. Main files: `lib/presentation/sales/screens/sales_screen.dart`, `lib/providers/retail_provider.dart`. |
-| 5 | Retail business did not have mixed payment method. | Done | Mixed payment is supported online and offline, including local DB, sync, reports, receipt sheets, and backend endpoints. Main files: `lib/providers/retail_provider.dart`, `lib/data/local/database_helper.dart`, `lib/data/repositories/sales_repository_supabase.dart`, `lib/services/sync_service_supabase.dart`, `server/managecare-backend/routes/sales.js`, `functions/routes/sales.js`, `server/managecare-backend/migration_043.sql`. |
-| 6 | Procurement submit flow did not allow users to inspect and edit entries before submitting. | Done | Procurement confirmation now shows current selected entries with edit/remove actions before submit. Main file: `lib/presentation/dashboard/owner/screens/procurement_screen.dart`. |
-| 7 | Downloaded sales report showed two lists, with the useful report only after scrolling halfway; first report did not show sold items. | Done | Duplicate sale-level transaction table was removed from the generated PDF, leaving the item-level report with sold items. Main file: `lib/providers/reports_provider.dart`. |
-| 8 | Advanced procurement analysis should show most procured item within a time period, quantity procured, and total cost. | Done | Added procurement analysis card in advanced analytics. Main file: `lib/presentation/dashboard/analytics/advanced_analytics_dashboard_screen.dart`. |
-| Extra | Add offline display to procurement screen. | Done | Procurement screen includes offline-aware product/entry behavior and refresh support. Main file: `lib/presentation/dashboard/owner/screens/procurement_screen.dart`. |
-| Extra | Add product refresh button to procurement screen like sales screen. | Done | AppBar refresh action reloads all products and clears stale product filters. Main file: `lib/presentation/dashboard/owner/screens/procurement_screen.dart`. |
-| Extra | Add text printing USB feature to sales history for Windows from print sheet. | Done / Existing Path Confirmed | Sales history opens `PrintingActionSheet`, which shows `Plain Text (USB)` on Windows. Main files: `lib/presentation/sales/screens/sales_history_screen.dart`, `lib/presentation/shared/printing_action_sheet.dart`, `lib/services/windows_raw_print_service.dart`. |
-
-## Hospitality Fixes
-
-| # | Request Sent | Status | Notes / Files |
-|---|---|---|---|
-| 1 | Edit room details button under room management/settings was not working. | Done | Room edit now opens the room form prefilled and persists through repository update. Main files: `lib/presentation/industry_specific/hotel/screens/room_list_screen.dart`, `lib/presentation/industry_specific/hotel/screens/create_room_screen.dart`, `lib/providers/hotel_provider.dart`, `lib/data/repositories/industry_specific/hotel_repository.dart`, `lib/data/repositories/industry_specific/hotel_repository_impl.dart`. |
-| 2 | Checkout history showed unpaid even when payment had been made. | Done | Checkout now uses one paid checkout method that updates reservation/payment status and frees the room together. Main files: `lib/presentation/industry_specific/hotel/screens/check_out_screen.dart`, `lib/providers/hotel_provider.dart`. |
-| 3 | Hospitality work page/admin and worker hospitality section went blank from time to time. | Improved / Needs UI verification | Hotel dashboard is now stateful and reloads the provider when business context changes. Main file: `lib/presentation/industry_specific/hotel/screens/hotel_dashboard_screen.dart`. |
-| 4 | After guest check-in, homepage occupants/revenue/sales were not updated. | Improved / Needs UI verification | Dashboard now binds to business/provider initialization so occupancy and today's sales can refresh from provider state. Main file: `lib/presentation/industry_specific/hotel/screens/hotel_dashboard_screen.dart`. |
-| 5 | Tabs such as new bookings, front desk, bookings, check-ins should be removed because users can access them from the first check-in guest tab. | Already aligned / Needs UI verification | Current dashboard quick actions are consolidated around Check-In/Guests rather than separate new booking/front desk/check-in tabs. Main file checked: `lib/presentation/industry_specific/hotel/screens/hotel_dashboard_screen.dart`. |
-
-## Petroleum Fixes
-
-| # | Request Sent | Status | Notes / Files |
-|---|---|---|---|
-| 1 | Add cash breakdown on pump upload page for naira denominations and auto-sum into amount received in cash. | Done | Added denomination inputs for 1000, 500, 200, 100, 50, 20, 10, and 5 naira notes; cash total is auto-calculated and stored. Main files: `lib/presentation/industry_specific/gas/screens/pump_daily_upload_screen.dart`, `server/managecare-backend/routes/pumps.js`, `server/managecare-backend/migration_044.sql`, `server/managecare-backend/migration_026.sql`, `lib/presentation/industry_specific/gas/utils/pump_row_mapper.dart`. |
-| 2 | WhatsApp messages should carry inventory stock for petroleum products only. | Done | Petroleum WhatsApp stock output now filters to petroleum/fuel products instead of all inventory. Main file: `lib/services/whatsapp_service.dart`. |
-| 3 | Workers using web/mobile had no settings access such as dark mode. | Done | Worker dashboard now exposes settings access in quick navigation. Main file: `lib/presentation/dashboard/worker/worker_dashboard_screen.dart`. |
-| 4 | Upload history showed under retail sales history; upload history should only show under upload/general history. | Done | Retail sales history now filters fuel/pump-linked upload sales out of normal retail history and totals. Main file: `lib/providers/retail_provider.dart`. |
-| 5 | Add bank deposit tab/icon under expenses for managers/higher accounts with depositor, date/time, amount, bank details, receipt upload, and history. | Done | Added petroleum bank deposits screen, route, dashboard entry, backend endpoints, and migration. Main files: `lib/presentation/industry_specific/gas/screens/petroleum_bank_deposit_screen.dart`, `lib/presentation/industry_specific/gas/screens/gas_dashboard_screen.dart`, `lib/core/constants/routes.dart`, `lib/routes/app_router.dart`, `server/managecare-backend/routes/pumps.js`, `server/managecare-backend/migration_045.sql`. |
-| 6 | General sales history homepage revenue, volume, and transactions showed zero. | Done | Fuel metrics now combine standalone fuel sales and pump uploads while avoiding double counting linked sales. Main file: `lib/providers/retail_provider.dart`. |
-
-## Bakery Fixes
-
-| # | Request Sent | Status | Notes / Files |
-|---|---|---|---|
-| 1 | Distributor discount should not be limited to 100 naira; admins/users should set discount at their discretion. | Done | Product form now includes distributor discount percent input without the old fixed 100 naira limitation. Main file: `lib/presentation/industry_specific/retail/screens/add_product_screen.dart`. |
-| 2 | Bakery performance report should be taken to the report page. | Already done / Confirmed | Existing routes and report dashboard include Bakery Performance report. Main files checked: `lib/presentation/reports/screens/reports_dashboard_screen.dart`, `lib/core/constants/routes.dart`, `lib/routes/app_router.dart`. |
-
-## Pharmacy Fixes
-
-| # | Request Sent | Status | Notes / Files |
-|---|---|---|---|
-| 1 | Pharmacy colors should be changed to ManageCare colours. | Done | Pharmacy color constant now uses ManageCare primary, and hard-coded pharmacy green app bars were moved to `AppColors.pharmacy`. Main files: `lib/core/theme/colors.dart`, pharmacy screens under `lib/presentation/industry_specific/pharmacy/screens/`. |
-| 2 | Inventory items were not reflecting under new sale page; existing products showed "inventory item not found" when selling or performing actions. | Done | Pharmacy POS checkout now records through the shared REST sales repository instead of old Firestore inventory docs, matching the inventory-backed pharmacy repository. Main files: `lib/presentation/industry_specific/pharmacy/screens/pharmacy_pos_screen.dart`, `lib/data/repositories/industry_specific/pharmacy_repository_impl.dart`. |
-
-## Additional Files Added
-
-- `lib/presentation/industry_specific/gas/screens/petroleum_bank_deposit_screen.dart`
-- `server/managecare-backend/migration_043.sql`
-- `server/managecare-backend/migration_044.sql`
-- `server/managecare-backend/migration_045.sql`
-
-## Items That Still Need Manual App Testing
-
-- Run the Flutter app and verify procurement review/edit before submit on desktop/mobile.
-- Verify retail mixed payment sale offline, reconnect, and sync.
-- Verify Windows default-printer plain text USB print from sales history on an actual Windows machine with a configured printer.
-- Verify hospitality dashboard no longer blanks and updates occupancy/revenue after a check-in and checkout.
-- Verify pharmacy sale completes from inventory-backed products and stock reduces once.
-- Verify petroleum pump upload cash breakdown total and petroleum bank deposit receipt upload/history.
+- Targeted `dart format` was attempted but hung in this environment and was stopped.
+- Targeted `dart analyze` was attempted but also hung and was stopped.
+- Manual app testing is still recommended for procurement export layout, worker sales retail/wholesale cart selection, petroleum upload history display, and super admin worker login.

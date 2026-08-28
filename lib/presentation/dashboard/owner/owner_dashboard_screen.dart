@@ -1112,21 +1112,11 @@ Future<void> _loadRetailMetrics(String businessId) async {
                       actions.insert(
                         0,
                         _QuickActionItem(
-                          title: 'Check-in Guest',
-                          subtitle: 'Room assignment',
+                          title: 'Check-In / Guests',
+                          subtitle: 'Reception hub',
                           icon: Icons.hotel,
                           color: AppColors.hotel,
                           route: Routes.hotelCheckIn,
-                        ),
-                      );
-                      actions.insert(
-                        1,
-                        _QuickActionItem(
-                          title: 'New Booking',
-                          subtitle: 'Reserve room',
-                          icon: Icons.calendar_month,
-                          color: AppColors.hotel,
-                          route: Routes.hotelCreateBooking,
                         ),
                       );
                     } else if (businessType.contains('restaurant')) {
@@ -3163,36 +3153,15 @@ Future<void> _loadRetailMetrics(String businessId) async {
       case 'hotel':
         return [
           _QuickActionItem(
-            title: 'Front Desk',
-            subtitle: 'Check-in/out',
+            title: 'Check-In / Guests',
+            subtitle: 'Reception, bookings, and guest management',
             icon: Icons.hotel_rounded,
             color: Colors.blue,
-            route: Routes.hotelFrontDesk,
+            route: Routes.hotelCheckIn,
           ),
           // Room Management removed from dashboard per requirements doc —
           // it now lives under Settings → Room Management (a setup task,
           // not a daily operation).
-          _QuickActionItem(
-            title: 'Bookings',
-            subtitle: 'Manage reservations',
-            icon: Icons.calendar_today_rounded,
-            color: Colors.orange,
-            route: Routes.hotelBookings,
-          ),
-          _QuickActionItem(
-            title: 'Check-in',
-            subtitle: 'Guest arrival',
-            icon: Icons.login_rounded,
-            color: Colors.teal,
-            route: Routes.hotelCheckIn,
-          ),
-          _QuickActionItem(
-            title: 'Guests',
-            subtitle: 'Guest management',
-            icon: Icons.people_rounded,
-            color: Colors.purple,
-            route: Routes.hotelGuests,
-          ),
           _QuickActionItem(
             title: 'Housekeeping',
             subtitle: 'Room cleaning',

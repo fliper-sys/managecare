@@ -42,11 +42,12 @@ class _BusinessSubscriptionOverviewPageState
     return Scaffold(
       backgroundColor: context.adminBackground,
       appBar: AppBar(
-        title: const Text('Business Subscriptions'),
+        title: const Text('Active Businesses'),
       ),
       body: Consumer<AdminProvider>(
         builder: (context, admin, _) {
           final businesses = admin.allBusinesses.where((business) {
+            if (!_isActiveSubscription(business)) return false;
             if (_query.isEmpty) return true;
             final query = _query.toLowerCase();
             final name = (business['name'] ?? '').toString().toLowerCase();
@@ -101,7 +102,7 @@ class _BusinessSubscriptionOverviewPageState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Subscription Control',
+                        'Active Businesses',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 26,
@@ -110,7 +111,7 @@ class _BusinessSubscriptionOverviewPageState
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Track business owners, subscription start dates, due dates, and quickly grant new durations and tiers.',
+                        'Businesses shown here have an active subscription. Use the search to find a live business by name, owner, or tier.',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.78),
                           height: 1.45,
@@ -177,7 +178,7 @@ class _BusinessSubscriptionOverviewPageState
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'No businesses match your search',
+                          'No active businesses match your search',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
                             color: context.adminTextPrimary,
@@ -641,6 +642,20 @@ class _BusinessSubscriptionOverviewPageState
   }
 
   bool _isActiveSubscription(Map<String, dynamic> business) {
+    final activeFlag =
+        business['isSubscriptionActive'] ?? business['hasActiveSubscription'];
+    if (activeFlag is bool && activeFlag) return true;
+    if (activeFlag is num && activeFlag != 0) return true;
+    if (activeFlag != null) {
+      final normalized = activeFlag.toString().trim().toLowerCase();
+      if (normalized == 'true' ||
+          normalized == '1' ||
+          normalized == 'yes' ||
+          normalized == 'active') {
+        return true;
+      }
+    }
+
     final dueDate = _subscriptionEndDate(business);
     if (dueDate == null) return false;
     return dueDate.isAfter(DateTime.now());

@@ -294,7 +294,7 @@ class _AdminWorkersPageState extends State<AdminWorkersPage> {
                     builder: (_) => AlertDialog(
                       title: const Text('Worker created'),
                       content: SelectableText(
-                        'Share this temporary password with ${nameController.text.trim()} - it will not be shown again:\n\n$password',
+                        'Share this temporary password with ${nameController.text.trim()} - it will not be shown again.\n\nThey can sign in from the Marketer / Worker Portal with ${emailController.text.trim()}.\n\n$password',
                       ),
                       actions: [
                         TextButton(

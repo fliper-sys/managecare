@@ -542,15 +542,8 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                                     ),
                                     const SizedBox(width: 8),
                                     _buildTabButton(
-                                      'Transactions',
+                                      'Revenue',
                                       3,
-                                      _transactions.length,
-                                      Colors.blue,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    _buildTabButton(
-                                      'Revenue Report',
-                                      4,
                                       _transactions
                                           .where(_isTransactionRecognized)
                                           .length,
@@ -586,8 +579,7 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
                                   ),
                                 ],
                               ),
-                              if (_selectedTabIndex != 3 &&
-                                  _selectedTabIndex != 4) ...[
+                              if (_selectedTabIndex != 3) ...[
                                 const SizedBox(height: 16),
                                 TextField(
                                   onChanged: (value) => setState(
@@ -881,9 +873,6 @@ class _AdminPaymentsPageState extends State<AdminPaymentsPage> {
             : _declinedPayments;
 
     if (_selectedTabIndex == 3) {
-      return _buildStyledTransactionsList();
-    }
-    if (_selectedTabIndex == 4) {
       return _buildRevenueReport();
     }
 

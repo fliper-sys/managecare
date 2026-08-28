@@ -575,6 +575,23 @@ class ReportExportService {
         return '';
       }
 
+      String itemNamesSummary(List<dynamic> items) {
+        final names = items
+            .whereType<Map>()
+            .map((item) => itemValue(item, [
+                  'name',
+                  'productName',
+                  'product_name',
+                  'itemName',
+                  'item_name',
+                ]))
+            .where((name) => name.trim().isNotEmpty)
+            .toList();
+        if (names.isEmpty) return '';
+        if (names.length <= 3) return names.join('; ');
+        return '${names.take(3).join('; ')} +${names.length - 3} more';
+      }
+
       final pdf = pw.Document();
 
       pdf.addPage(pw.MultiPage(
@@ -592,12 +609,13 @@ class ReportExportService {
             columnWidths: {
               0: const pw.FlexColumnWidth(1.1),
               1: const pw.FlexColumnWidth(1.5),
-              2: const pw.FlexColumnWidth(1.5),
-              3: const pw.FlexColumnWidth(1),
-              4: const pw.FlexColumnWidth(1),
-              5: const pw.FlexColumnWidth(1),
-              6: const pw.FlexColumnWidth(0.8),
-              7: const pw.FlexColumnWidth(1),
+              2: const pw.FlexColumnWidth(2.0),
+              3: const pw.FlexColumnWidth(1.2),
+              4: const pw.FlexColumnWidth(0.9),
+              5: const pw.FlexColumnWidth(0.9),
+              6: const pw.FlexColumnWidth(0.9),
+              7: const pw.FlexColumnWidth(0.7),
+              8: const pw.FlexColumnWidth(1),
             },
             children: [
               pw.TableRow(
@@ -605,6 +623,7 @@ class ReportExportService {
                 children: [
                   _buildTableCell('Date', bold: true),
                   _buildTableCell('Procurement ID', bold: true),
+                  _buildTableCell('Items', bold: true),
                   _buildTableCell('Supplier', bold: true),
                   _buildTableCell('Invoice', bold: true),
                   _buildTableCell('Baker', bold: true),
@@ -621,6 +640,7 @@ class ReportExportService {
                 return pw.TableRow(children: [
                   _buildTableCell(dateStr),
                   _buildTableCell(p['id'] ?? ''),
+                  _buildTableCell(itemNamesSummary((p['items'] as List?) ?? [])),
                   _buildTableCell(p['supplierName'] ?? ''),
                   _buildTableCell(p['invoiceRef'] ?? ''),
                   _buildTableCell(p['bakerName'] ?? ''),
@@ -645,8 +665,8 @@ class ReportExportService {
               pw.Table(
                 border: pw.TableBorder.all(width: 0.5),
                 columnWidths: {
-                  0: const pw.FlexColumnWidth(1.2),
-                  1: const pw.FlexColumnWidth(2.4),
+                  0: const pw.FlexColumnWidth(2.4),
+                  1: const pw.FlexColumnWidth(1.2),
                   2: const pw.FlexColumnWidth(0.9),
                   3: const pw.FlexColumnWidth(1),
                   4: const pw.FlexColumnWidth(1.2),
@@ -655,8 +675,8 @@ class ReportExportService {
                 },
                 children: [
                   pw.TableRow(decoration: const pw.BoxDecoration(color: PdfColors.grey300), children: [
-                    _buildTableCell('Date', bold: true),
                     _buildTableCell('Item', bold: true),
+                    _buildTableCell('Date', bold: true),
                     _buildTableCell('Qty', bold: true),
                     _buildTableCell('Unit', bold: true),
                     _buildTableCell('Purchase Unit', bold: true),
@@ -671,8 +691,8 @@ class ReportExportService {
                         ? rawItemDate
                         : DateTime.tryParse((rawItemDate ?? '').toString());
                     return pw.TableRow(children: [
-                      _buildTableCell(itemDate == null ? '' : _dateFormat.format(itemDate)),
                       _buildTableCell(itemValue(item, ['name', 'productName', 'product_name', 'itemName', 'item_name'])),
+                      _buildTableCell(itemDate == null ? '' : _dateFormat.format(itemDate)),
                       _buildTableCell('${item['quantity'] ?? item['purchaseQuantity'] ?? item['purchase_quantity'] ?? 0}'),
                       _buildTableCell(itemValue(item, ['unit', 'inventoryUnit', 'inventory_unit'])),
                       _buildTableCell(itemValue(item, ['purchaseUnit', 'purchase_unit'])),

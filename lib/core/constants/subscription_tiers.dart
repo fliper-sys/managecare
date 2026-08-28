@@ -89,7 +89,7 @@ extension SubscriptionTierExtension on SubscriptionTier {
       case SubscriptionTier.professional:
         return 20;
       case SubscriptionTier.enterprise:
-        return 999;
+        return 999999;
     }
   }
 }

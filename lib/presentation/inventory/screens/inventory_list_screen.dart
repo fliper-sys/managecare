@@ -335,6 +335,11 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     final discountController = TextEditingController(
       text: ((item['distributorDiscountPercent'] as num?)?.toString() ?? '0'),
     );
+    final priceController = TextEditingController(
+      text: (item['distributorPrice'] as num?) == null
+          ? ''
+          : (item['distributorPrice'] as num).toString(),
+    );
     final businessProvider = context.read<BusinessProvider>();
     final businessId = businessProvider.currentBusiness?.id ?? '';
     if (businessId.isEmpty) {
@@ -356,7 +361,13 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Set the default distributor discount for ${item['name'] ?? 'this item'}.'),
+              Text('Set the default distributor discount or fixed distributor price for ${item['name'] ?? 'this item'}.'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: priceController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Discount price (optional)'),
+              ),
               const SizedBox(height: 12),
               TextField(
                 controller: discountController,
@@ -376,8 +387,19 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     if (confirmed != true) return;
 
     final discount = double.tryParse(discountController.text.trim()) ?? 0;
-    if (discount < 0 || discount > 100) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Discount must be between 0 and 100')));
+    final distributorPrice = priceController.text.trim().isEmpty
+        ? null
+        : double.tryParse(priceController.text.trim().replaceAll(',', ''));
+    if (discount < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Discount cannot be negative')));
+      return;
+    }
+    if (priceController.text.trim().isNotEmpty && distributorPrice == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid discount price')));
+      return;
+    }
+    if (distributorPrice != null && distributorPrice < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Discount price cannot be negative')));
       return;
     }
 
@@ -386,10 +408,14 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
         'businessId': businessId,
         'distributorDiscountPercent': discount,
         'discountPercent': discount,
+        if (distributorPrice != null) 'distributorPrice': distributorPrice,
       });
       await _loadInventory();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved ${discount.toStringAsFixed(0)}% distributor discount')));
+      final savedLabel = distributorPrice == null
+          ? '${discount.toStringAsFixed(0)}% distributor discount'
+          : 'distributor price ₦${distributorPrice.toStringAsFixed(2)}';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved $savedLabel')));
       context.read<RetailProvider>().loadProducts(forceRefresh: true);
     } catch (e) {
       if (!mounted) return;

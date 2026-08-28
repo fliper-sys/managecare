@@ -161,7 +161,7 @@ class _MarketerLoginScreenState extends State<MarketerLoginScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Marketer Portal',
+                        'Marketer & Worker Portal',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 32,
@@ -170,7 +170,7 @@ class _MarketerLoginScreenState extends State<MarketerLoginScreen> {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Manage registrations, follow up on pending businesses, and track commissions from one dedicated workspace.',
+                        'Manage marketer work or sign in as an internal ManageCare worker from one dedicated workspace.',
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.82),
                           height: 1.5,
@@ -192,6 +192,10 @@ class _MarketerLoginScreenState extends State<MarketerLoginScreen> {
                           _FeatureChip(
                             icon: Icons.account_balance_wallet_rounded,
                             label: 'Commission tracking',
+                          ),
+                          _FeatureChip(
+                            icon: Icons.engineering_rounded,
+                            label: 'Worker tasks',
                           ),
                         ],
                       ),
@@ -240,7 +244,7 @@ class _MarketerLoginScreenState extends State<MarketerLoginScreen> {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'Your marketer access is separate from app admin access.',
+                                  'Use marketer or internal worker credentials. App admin access stays separate.',
                                   style: TextStyle(
                                     color: bodyColor,
                                     height: 1.5,
@@ -273,7 +277,7 @@ class _MarketerLoginScreenState extends State<MarketerLoginScreen> {
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: Text(
-                                          'Use the marketer workspace for referrals, onboarding, and commission follow-ups.',
+                                          'Internal workers created by super admins can sign in here with their email and temporary password.',
                                           style: TextStyle(
                                             color: bodyColor,
                                             height: 1.45,
@@ -342,7 +346,7 @@ class _MarketerLoginScreenState extends State<MarketerLoginScreen> {
                                 ),
                                 const SizedBox(height: 24),
                                 CustomButton(
-                                  text: 'Sign In To Marketer Hub',
+                                  text: 'Sign In',
                                   icon: Icons.login_rounded,
                                   isLoading: provider.isLoading ||
                                       _isInternalWorkerLoading,
