@@ -127,6 +127,26 @@ module.exports = function(pool) {
     }
 
     try {
+      const expectedAmount = Number.parseFloat(b.expected_amount) || 0;
+      const totalPaid = Number.parseFloat(b.total_paid) || 0;
+      if (expectedAmount > 0 || totalPaid > 0) {
+        const duplicate = await pool.query(
+          `SELECT *
+           FROM pump_daily_uploads
+           WHERE business_id = $1
+             AND pump_id = $2
+             AND uploaded_at >= NOW() - INTERVAL '2 minutes'
+             AND ABS(COALESCE(expected_amount, 0) - $3) < 0.01
+             AND ABS(COALESCE(total_paid, 0) - $4) < 0.01
+           ORDER BY uploaded_at DESC
+           LIMIT 1`,
+          [businessId, b.pump_id, expectedAmount, totalPaid]
+        );
+        if (duplicate.rows.length > 0) {
+          return res.status(409).json({ error: 'A matching pump upload was already recorded moments ago.' });
+        }
+      }
+
       const result = await pool.query(
         `INSERT INTO pump_daily_uploads (
            business_id, pump_id, pump_number, product_id, product_name, product_unit, product_price,

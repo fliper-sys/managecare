@@ -25,6 +25,7 @@ This document tracks the request list and marks what has been completed in code.
 |---|---|---|---|
 | 1 | Cash breakdown does not show under upload history; show it on the right side below sold volume and expected amount. | Done | Upload history now summarizes stored cash breakdown beside each upload under sold volume and expected amount. Main file: `lib/presentation/industry_specific/gas/screens/pump_upload_history_screen.dart`. |
 | 2 | Bank deposit feature has not been created. | Done / Existing Implementation Confirmed | Petroleum bank deposits screen, route, and dashboard entry already exist. Main files checked: `lib/presentation/industry_specific/gas/screens/petroleum_bank_deposit_screen.dart`, `lib/presentation/industry_specific/gas/screens/gas_dashboard_screen.dart`, `lib/core/constants/routes.dart`, `lib/routes/app_router.dart`. |
+| 3 | Pump upload can create double or triple sales records for the same transaction. | Done | Pump upload sales now use a stable idempotent sale id, and backend checks block recent duplicate pump uploads/sales with matching time, amount, product, and quantity. Main files: `lib/providers/retail_provider.dart`, `lib/presentation/industry_specific/gas/screens/pump_daily_upload_screen.dart`, `server/managecare-backend/routes/pumps.js`, `server/managecare-backend/routes/sales.js`. |
 
 ## Bakery
 

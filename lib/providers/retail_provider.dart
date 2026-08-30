@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
@@ -618,6 +619,19 @@ class RetailProvider extends ChangeNotifier {
     if (value is num) return DateTime.fromMillisecondsSinceEpoch(value.toInt());
     return DateTime.tryParse(value?.toString() ?? '') ??
         DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  String _stableUuidFromKey(String key) {
+    final bytes = sha1.convert(utf8.encode(key)).bytes.take(16).toList();
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    String hex(int value) => value.toRadixString(16).padLeft(2, '0');
+    final parts = bytes.map(hex).join();
+    return '${parts.substring(0, 8)}-'
+        '${parts.substring(8, 12)}-'
+        '${parts.substring(12, 16)}-'
+        '${parts.substring(16, 20)}-'
+        '${parts.substring(20, 32)}';
   }
 
   double _readDouble(dynamic value) {
@@ -2241,6 +2255,7 @@ class RetailProvider extends ChangeNotifier {
     String? pumpId,
     String? pumpNumber,
     String? pumpName,
+    String? idempotencyKey,
   }) async {
     if (_businessId == null) throw Exception('No business selected');
 
@@ -2334,7 +2349,10 @@ class RetailProvider extends ChangeNotifier {
       saleData['workerName'] = workerName ?? 'Unknown';
     }
 
-    final orderId = 'SALE-${DateTime.now().millisecondsSinceEpoch}';
+    final cleanIdempotencyKey = idempotencyKey?.trim() ?? '';
+    final orderId = cleanIdempotencyKey.isEmpty
+        ? 'SALE-${DateTime.now().millisecondsSinceEpoch}'
+        : _stableUuidFromKey('fuel-sale:$_businessId:$cleanIdempotencyKey');
     saleData['id'] = orderId;
     saleData['orderId'] = orderId;
     saleData['status'] = 'completed';
@@ -2540,7 +2558,7 @@ class RetailProvider extends ChangeNotifier {
     // Return sale info for UI to show receipt/printing actions
     final result = {
       ...saleData,
-      'id': orderId,
+      'id': saleData['id'] ?? orderId,
       'createdAt': DateTime.now(),
       'total': paid,
       'quantity': qty,

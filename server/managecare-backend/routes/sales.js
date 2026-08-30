@@ -207,6 +207,51 @@ module.exports = function(pool) {
     const createdAt = created_at ? new Date(created_at) : null;
     const validCreatedAt = createdAt && !Number.isNaN(createdAt.getTime()) ? createdAt : null;
 
+    const firstItem = Array.isArray(items) && items.length > 0 ? items[0] : null;
+    const saleType = sale_type || 'retail';
+    const finalAmountNumber = Number.parseFloat(final_amount) || 0;
+    if (saleType === 'fuel' && firstItem && finalAmountNumber > 0) {
+      const productId = firstItem.product_id || null;
+      const quantity = Number.parseFloat(firstItem.quantity) || 0;
+      const duplicate = await pool.query(
+        `SELECT s.*, COALESCE(json_agg(si.*) FILTER (WHERE si.id IS NOT NULL), '[]') as items
+         FROM sales s
+         LEFT JOIN sale_items si ON si.sale_id = s.id
+         WHERE s.business_id = $1
+           AND s.sale_type = 'fuel'
+           AND ABS(COALESCE(s.final_amount, 0) - $2) < 0.01
+           AND COALESCE(s.worker_id::text, '') = COALESCE($3::text, '')
+           AND s.created_at BETWEEN COALESCE($4::timestamptz, NOW()) - INTERVAL '2 minutes'
+                            AND COALESCE($4::timestamptz, NOW()) + INTERVAL '2 minutes'
+           AND EXISTS (
+             SELECT 1
+             FROM sale_items dsi
+             WHERE dsi.sale_id = s.id
+               AND COALESCE(dsi.product_id::text, '') = COALESCE($5::text, '')
+               AND ABS(COALESCE(dsi.quantity, 0) - $6) < 0.000001
+           )
+         GROUP BY s.id
+         ORDER BY s.created_at DESC
+         LIMIT 1`,
+        [
+          businessId,
+          finalAmountNumber,
+          worker_id || null,
+          validCreatedAt,
+          productId,
+          quantity,
+        ]
+      );
+      if (duplicate.rows.length > 0) {
+        return res.status(200).json({
+          ...duplicate.rows[0],
+          items: duplicate.rows[0].items || [],
+          alreadyExisted: true,
+          duplicateMatchedBy: 'time_amount_product_quantity',
+        });
+      }
+    }
+
     // Create sale
     const saleResult = await pool.query(
       `INSERT INTO sales (id, business_id, customer_id, store_id, worker_id, worker_name,
@@ -218,7 +263,7 @@ module.exports = function(pool) {
        total_amount || final_amount, discount_amount || 0, tax_amount || 0, final_amount,
        payment_method,
        normalizePaymentBreakdownParam(payment_breakdown),
-       status || 'completed', notes || null, created_by || null, sale_type || 'retail',
+       status || 'completed', notes || null, created_by || null, saleType,
        validCreatedAt]
     );
     const sale = saleResult.rows[0];

@@ -901,6 +901,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         pumpId: _selectedPumpId,
         pumpNumber: pump['pumpNumber']?.toString(),
         pumpName: pump['productName']?.toString(),
+        idempotencyKey: uploadFingerprint,
       );
 
       final discrepancyNotes = buildDiscrepancyNotes(
