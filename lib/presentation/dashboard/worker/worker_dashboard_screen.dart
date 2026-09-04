@@ -339,18 +339,35 @@ class _WorkerDashboardScreenState extends State<WorkerDashboardScreen> {
         final isPetroleumStation = FuelStationScope.isPetroleumBusiness(
           primaryType,
         );
-        if (workerRole == 'pump_operator') {
-          print('[WorkerDashboard] Showing Pump Operator Dashboard');
-          dashboard = const _PumpOperatorDashboard();
-        } else if (workerRole == 'sales_rep' || workerRole == 'cashier') {
-          print('[WorkerDashboard] Showing Mini Mart Dashboard for station sales rep');
-          dashboard = const _StationSalesRepDashboard();
-        } else {
-          print('[WorkerDashboard] Showing Gas Dashboard');
+        final hasGlobalStationAccess = [
+          'owner',
+          'admin',
+          'sub_admin',
+          'manager',
+          'fuel_manager',
+        ].contains(workerRole);
+        if (hasGlobalStationAccess) {
+          print('[WorkerDashboard] Showing full station dashboard');
           dashboard = GasDashboardScreen(
             mode: isPetroleumStation
                 ? FuelStationMode.petroleum
                 : FuelStationMode.gas,
+          );
+        } else if (workerRole == 'pump_operator') {
+          print('[WorkerDashboard] Showing Pump Operator Dashboard');
+          dashboard = const _PumpOperatorDashboard(
+            canUploadReadings: true,
+            canViewDeclinedUploads: true,
+          );
+        } else if (workerRole == 'sales_rep' || workerRole == 'cashier') {
+          print(
+              '[WorkerDashboard] Showing Mini Mart Dashboard for station sales rep');
+          dashboard = const _StationSalesRepDashboard();
+        } else {
+          print('[WorkerDashboard] Showing limited station worker dashboard');
+          dashboard = const _PumpOperatorDashboard(
+            canUploadReadings: false,
+            canViewDeclinedUploads: false,
           );
         }
         break;
@@ -638,19 +655,26 @@ class _GrantedAdminShortcut {
 }
 
 class _PumpOperatorDashboard extends StatelessWidget {
-  const _PumpOperatorDashboard();
+  const _PumpOperatorDashboard({
+    required this.canUploadReadings,
+    required this.canViewDeclinedUploads,
+  });
+
+  final bool canUploadReadings;
+  final bool canViewDeclinedUploads;
 
   @override
   Widget build(BuildContext context) {
     final businessType =
         context.watch<BusinessProvider>().currentBusiness?.businessType.toLowerCase() ??
             'gas';
-    final isOwner = context.watch<AuthProvider>().currentUser?.isOwner == true;
     final isPetroleumStation = businessType.contains('petroleum') ||
         businessType.contains('petrol') ||
         businessType.contains('filling');
     final pumpRoute =
         isPetroleumStation ? Routes.petroleumPump : Routes.gasPump;
+    final pumpUploadRoute =
+        isPetroleumStation ? Routes.petroleumPumpUpload : Routes.gasPumpUpload;
 
     return WillPopScope(
       onWillPop: () async {
@@ -698,6 +722,27 @@ class _PumpOperatorDashboard extends StatelessWidget {
               icon: Icons.local_gas_station_rounded,
               onTap: () => Navigator.pushNamed(context, pumpRoute),
             ),
+            if (canUploadReadings) ...[
+              const SizedBox(height: 12),
+              _PumpOperatorActionCard(
+                title: 'Pump Upload',
+                subtitle: 'Submit end-of-shift readings for manager review',
+                icon: Icons.cloud_upload_rounded,
+                onTap: () => Navigator.pushNamed(context, pumpUploadRoute),
+              ),
+            ],
+            if (isPetroleumStation && canViewDeclinedUploads) ...[
+              const SizedBox(height: 12),
+              _PumpOperatorActionCard(
+                title: 'Upload Status',
+                subtitle: 'Correct rejected uploads and reregister them',
+                icon: Icons.assignment_return_rounded,
+                onTap: () => Navigator.pushNamed(
+                  context,
+                  Routes.petroleumDeclinedPumpUploads,
+                ),
+              ),
+            ],
           ],
         ),
       ),

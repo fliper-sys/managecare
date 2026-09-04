@@ -18,10 +18,13 @@ import '../presentation/industry_specific/gas/screens/gas_dashboard_screen.dart'
 import '../presentation/industry_specific/gas/screens/gas_pump_screen.dart';
 import '../presentation/industry_specific/gas/screens/gas_sales_history_screen.dart';
 import '../presentation/industry_specific/gas/screens/gas_stock_screen.dart';
+import '../presentation/industry_specific/gas/screens/manager_pump_upload_review_screen.dart';
 import '../presentation/industry_specific/gas/screens/pump_configuration_screen.dart';
 import '../presentation/industry_specific/gas/screens/pump_daily_upload_screen.dart';
 import '../presentation/industry_specific/gas/screens/pump_upload_history_screen.dart';
 import '../presentation/industry_specific/gas/screens/petroleum_bank_deposit_screen.dart';
+import '../presentation/industry_specific/gas/screens/petroleum_cash_tracking_screen.dart';
+import '../presentation/industry_specific/gas/screens/worker_declined_pump_uploads_screen.dart';
 import '../presentation/industry_specific/gas/utils/fuel_station_scope.dart';
 import '../presentation/industry_specific/wholesale/screens/warehouse_reports_screen.dart';
 import '../presentation/inventory/screens/bakery_resupply_screen.dart';
@@ -1003,7 +1006,12 @@ class AppRouter {
         return _buildRoute(const PumpConfigurationScreen());
 
       case Routes.gasPumpUpload:
-        return _buildRoute(const PumpDailyUploadScreen());
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(PumpDailyUploadScreen(
+          prefillUpload: args?['prefillUpload'] == null
+              ? null
+              : Map<String, dynamic>.from(args?['prefillUpload'] as Map),
+        ));
 
       case Routes.gasPumpUploadHistory:
         return _buildRoute(const PumpUploadHistoryScreen());
@@ -1026,13 +1034,27 @@ class AppRouter {
         return _buildRoute(const PumpConfigurationScreen());
 
       case Routes.petroleumPumpUpload:
-        return _buildRoute(const PumpDailyUploadScreen());
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(PumpDailyUploadScreen(
+          prefillUpload: args?['prefillUpload'] == null
+              ? null
+              : Map<String, dynamic>.from(args?['prefillUpload'] as Map),
+        ));
 
       case Routes.petroleumPumpUploadHistory:
         return _buildRoute(const PumpUploadHistoryScreen());
 
+      case Routes.petroleumPumpUploadReview:
+        return _buildRoute(const ManagerPumpUploadReviewScreen());
+
+      case Routes.petroleumDeclinedPumpUploads:
+        return _buildRoute(const WorkerDeclinedPumpUploadsScreen());
+
       case Routes.petroleumBankDeposits:
         return _buildRoute(const PetroleumBankDepositScreen());
+
+      case Routes.petroleumCashTracking:
+        return _buildRoute(const PetroleumCashTrackingScreen());
 
       case '/restaurant/history':
         return _buildRoute(const PendingOrdersAndCheckoutScreen());

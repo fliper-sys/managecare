@@ -423,6 +423,56 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     );
   }
 
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'approved':
+        return Colors.green.shade700;
+      case 'declined':
+      case 'faulty':
+        return Colors.red.shade700;
+      case 'pending_review':
+      default:
+        return Colors.orange.shade800;
+    }
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'approved':
+        return 'Approved';
+      case 'declined':
+        return 'Declined';
+      case 'faulty':
+        return 'Faulty';
+      case 'resubmitted':
+        return 'Resubmitted';
+      case 'pending_review':
+      default:
+        return 'Pending Review';
+    }
+  }
+
+  Widget _buildStatusChip(String status) {
+    final color = _statusColor(status);
+    return Container(
+      margin: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.35)),
+      ),
+      child: Text(
+        _statusLabel(status),
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
   Future<void> _pickDate({required bool isStart}) async {
     final now = DateTime.now();
     final initialDate = isStart ? _startDate : _endDate;
@@ -821,6 +871,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                             separatorBuilder: (_, __) => const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final data = rows[index];
+                              final status =
+                                  data['status']?.toString() ?? 'approved';
                               final uploadedAt = _readDate(data['uploadedAt']);
                               final openingUrl = data['openingPhotoUrl'] as String?;
                               final closingUrl = data['closingPhotoUrl'] as String?;
@@ -903,6 +955,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                             ),
                                           ),
                                         ),
+                                      _buildStatusChip(status),
                                     ],
                                   ),
                                   subtitle: Text(
@@ -1015,6 +1068,25 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                           if (saleId.isNotEmpty)
                                             Text(
                                               'Sales Id: $saleId',
+                                            ),
+                                          Text(
+                                            'Status: ${_statusLabel(status)}',
+                                          ),
+                                          if ((data['declineReason']
+                                                      ?.toString()
+                                                      .trim() ??
+                                                  '')
+                                              .isNotEmpty)
+                                            Text(
+                                              'Decline reason: ${data['declineReason']}',
+                                            ),
+                                          if ((data['reviewNote']
+                                                      ?.toString()
+                                                      .trim() ??
+                                                  '')
+                                              .isNotEmpty)
+                                            Text(
+                                              'Manager note: ${data['reviewNote']}',
                                             ),
                                           const SizedBox(height: 8),
                                           if (discrepancySummary.isNotEmpty)

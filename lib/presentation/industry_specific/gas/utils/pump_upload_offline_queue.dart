@@ -55,9 +55,20 @@ class PumpUploadOfflineQueue {
   }) async {
     final pending = await _load(businessId);
     final queuedId = 'PUMPUPLOAD-${DateTime.now().millisecondsSinceEpoch}';
+    final queuedAt = DateTime.now().toIso8601String();
+    final fingerprint = body['upload_fingerprint']?.toString();
+    if (fingerprint != null && fingerprint.isNotEmpty) {
+      final alreadyQueued = pending.any((entry) {
+        final pendingBody = entry['body'];
+        return pendingBody is Map &&
+            pendingBody['upload_fingerprint']?.toString() == fingerprint;
+      });
+      if (alreadyQueued) return;
+    }
+    body['submitted_at'] ??= queuedAt;
     pending.add({
       'queuedId': queuedId,
-      'queuedAt': DateTime.now().toIso8601String(),
+      'queuedAt': queuedAt,
       'body': body,
       'photoPaths': photoPaths,
     });

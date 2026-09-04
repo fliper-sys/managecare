@@ -11,6 +11,7 @@ import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
+import '../../../../services/managecare_api_client.dart';
 import '../utils/fuel_station_scope.dart';
 
 class GasDashboardScreen extends StatefulWidget {
@@ -33,6 +34,8 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
   int _transactions = 0;
   double _fuelStock = 0.0;
   int _fuelProductCount = 0;
+  int _pendingReviewCount = 0;
+  int _declinedUploadCount = 0;
   List<Map<String, dynamic>> _recentSales = [];
   DateTime _selectedDate = DateTime.now();
   StreamSubscription<Map<String, dynamic>>? _metricsSubscription;
@@ -95,6 +98,8 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
   Future<void> _loadMetrics() async {
     setState(() => _loading = true);
     final retail = context.read<RetailProvider>();
+    final business = context.read<BusinessProvider>().currentBusiness;
+    final user = context.read<AuthProvider>().currentUser;
 
     // Ensure products are loaded for price display
     if (retail.products.isEmpty) {
@@ -109,6 +114,10 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     final metrics = await retail.getFuelMetrics(start: start, end: end);
     final history =
         await retail.getFuelSalesHistory(start: start, end: end, limit: 5);
+    await _loadUploadCounts(
+      businessId: business?.id,
+      workerId: user?.id,
+    );
 
     final fuelProducts = retail.products.where((p) {
       final cat = p.category.toLowerCase();
@@ -155,6 +164,30 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     });
   }
 
+  Future<void> _loadUploadCounts({
+    required String? businessId,
+    required String? workerId,
+  }) async {
+    if (businessId == null || businessId.isEmpty) return;
+    try {
+      final response = await ManagecareApiClient.instance.get(
+        '/api/pumps/$businessId/uploads/counts',
+        query: {
+          if (workerId != null && workerId.isNotEmpty) 'workerId': workerId,
+        },
+      );
+      if (!mounted || response is! Map) return;
+      setState(() {
+        _pendingReviewCount =
+            (response['pending_review_count'] as num?)?.toInt() ?? 0;
+        _declinedUploadCount =
+            (response['declined_count'] as num?)?.toInt() ?? 0;
+      });
+    } catch (_) {
+      // Counts are dashboard decoration; core fuel metrics should still load.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -190,24 +223,30 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     final isMiniMartSeller = isPetroleumStation &&
         (stationRole == 'sales_rep' || stationRole == 'cashier');
     final isStationStaff = isPetroleumStation && stationRole == 'staff';
-    final hasFullStationAccess = ['owner', 'admin', 'sub_admin', 'manager'].contains(stationRole);
+    final hasFullStationAccess = auth.currentUser?.isOwner == true ||
+        ['owner', 'admin', 'sub_admin', 'manager', 'fuel_manager']
+            .contains(stationRole);
     final showAllOperations = !isPetroleumStation || hasFullStationAccess;
-    final canAccessFuelStock = WorkerPermissions.canAccessFuelStockForUser(
-      role,
-      permissions,
-    );
-    final canAccessPumpConfig = WorkerPermissions.canAccessPumpConfigurationForUser(
-      role,
-      permissions,
-    );
-    final canAccessProcurement = WorkerPermissions.canAccessProcurementForUser(
-      role,
-      permissions,
-    );
-    final canAccessExpenses = WorkerPermissions.canAccessExpensesForUser(
-      role,
-      permissions,
-    );
+    final canAccessFuelStock = hasFullStationAccess ||
+        WorkerPermissions.canAccessFuelStockForUser(
+          role,
+          permissions,
+        );
+    final canAccessPumpConfig = hasFullStationAccess ||
+        WorkerPermissions.canAccessPumpConfigurationForUser(
+          role,
+          permissions,
+        );
+    final canAccessProcurement = hasFullStationAccess ||
+        WorkerPermissions.canAccessProcurementForUser(
+          role,
+          permissions,
+        );
+    final canAccessExpenses = hasFullStationAccess ||
+        WorkerPermissions.canAccessExpensesForUser(
+          role,
+          permissions,
+        );
     final operationCards = <Widget>[
       if (showAllOperations || isPumpOperator || isStationStaff)
         _OperationCard(
@@ -223,19 +262,38 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
             color: Colors.brown,
             onTap: () => Navigator.pushNamed(context, stockRoute)
                 .then((_) => _loadMetrics())),
-      if (showAllOperations || isPumpOperator || isStationStaff)
+      if (showAllOperations || isPumpOperator)
         _OperationCard(
             title: 'Pump Upload',
             icon: Icons.cloud_upload_outlined,
             color: Colors.deepPurple,
             onTap: () => Navigator.pushNamed(context, pumpUploadRoute)
                 .then((_) => _loadMetrics())),
-      if (showAllOperations || isPumpOperator || isStationStaff)
+      if (showAllOperations || isPumpOperator)
         _OperationCard(
             title: 'Upload History',
             icon: Icons.fact_check_outlined,
             color: Colors.blueGrey,
+            badge: isPumpOperator && _declinedUploadCount > 0
+                ? _declinedUploadCount
+                : null,
             onTap: () => Navigator.pushNamed(context, pumpUploadHistoryRoute)),
+      if (isPetroleumStation && hasFullStationAccess)
+        _OperationCard(
+            title: 'Upload Review',
+            icon: Icons.pending_actions_outlined,
+            color: Colors.red.shade700,
+            badge: _pendingReviewCount > 0 ? _pendingReviewCount : null,
+            onTap: () =>
+                Navigator.pushNamed(context, Routes.petroleumPumpUploadReview)),
+      if (isPetroleumStation && isPumpOperator)
+        _OperationCard(
+            title: 'Upload Status',
+            icon: Icons.assignment_return_outlined,
+            color: Colors.red.shade700,
+            badge: _declinedUploadCount > 0 ? _declinedUploadCount : null,
+            onTap: () => Navigator.pushNamed(
+                context, Routes.petroleumDeclinedPumpUploads)),
       if (canAccessPumpConfig)
         _OperationCard(
             title: 'Pump Config',
@@ -269,6 +327,13 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
             color: Colors.green.shade700,
             onTap: () =>
                 Navigator.pushNamed(context, Routes.petroleumBankDeposits)),
+      if (isPetroleumStation && hasFullStationAccess)
+        _OperationCard(
+            title: 'Cash Tracking',
+            icon: Icons.payments_outlined,
+            color: Colors.green.shade800,
+            onTap: () =>
+                Navigator.pushNamed(context, Routes.petroleumCashTracking)),
       if (showAllOperations)
         _OperationCard(
             title: 'Printer settings',
@@ -696,12 +761,14 @@ class _OperationCard extends StatelessWidget {
   final String title;
   final IconData icon;
   final Color color;
+  final int? badge;
   final VoidCallback onTap;
 
   const _OperationCard(
       {required this.title,
       required this.icon,
       required this.color,
+      this.badge,
       required this.onTap});
 
   @override
@@ -721,11 +788,39 @@ class _OperationCard extends StatelessWidget {
                   offset: const Offset(0, 5))
             ]),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
-              child: Icon(icon, color: color, size: 28)),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.1),
+                      shape: BoxShape.circle),
+                  child: Icon(icon, color: color, size: 28)),
+              if (badge != null && badge! > 0)
+                Positioned(
+                  right: -6,
+                  top: -6,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade700,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: colorScheme.surface, width: 2),
+                    ),
+                    child: Text(
+                      badge! > 99 ? '99+' : badge.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
           const SizedBox(height: 12),
           Text(
             title,

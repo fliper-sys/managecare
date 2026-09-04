@@ -21,6 +21,8 @@ class _PetroleumBankDepositScreenState
     extends State<PetroleumBankDepositScreen> {
   final _depositorController = TextEditingController();
   final _amountController = TextEditingController();
+  final _depositedCashController = TextEditingController();
+  final _balanceCashController = TextEditingController();
   final _bankController = TextEditingController();
   final _accountNumberController = TextEditingController();
   final _accountNameController = TextEditingController();
@@ -42,6 +44,8 @@ class _PetroleumBankDepositScreenState
   void dispose() {
     _depositorController.dispose();
     _amountController.dispose();
+    _depositedCashController.dispose();
+    _balanceCashController.dispose();
     _bankController.dispose();
     _accountNumberController.dispose();
     _accountNameController.dispose();
@@ -125,6 +129,10 @@ class _PetroleumBankDepositScreenState
           'deposit_time':
               '${_depositTime.hour.toString().padLeft(2, '0')}:${_depositTime.minute.toString().padLeft(2, '0')}',
           'amount': amount,
+          'deposited_cash_entry': _readAmount(_depositedCashController.text) > 0
+              ? _readAmount(_depositedCashController.text)
+              : amount,
+          'balance_cash_at_hand': _readAmount(_balanceCashController.text),
           'bank_name': _bankController.text.trim(),
           'account_number': _accountNumberController.text.trim(),
           'account_name': _accountNameController.text.trim(),
@@ -135,6 +143,8 @@ class _PetroleumBankDepositScreenState
       );
       _depositorController.clear();
       _amountController.clear();
+      _depositedCashController.clear();
+      _balanceCashController.clear();
       _bankController.clear();
       _accountNumberController.clear();
       _accountNameController.clear();
@@ -178,6 +188,26 @@ class _PetroleumBankDepositScreenState
               inputFormatters: const [AmountInputFormatter()],
               decoration: const InputDecoration(
                 labelText: 'Amount deposited',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _depositedCashController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: const [AmountInputFormatter()],
+              decoration: const InputDecoration(
+                labelText: 'Deposited cash entry',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _balanceCashController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: const [AmountInputFormatter()],
+              decoration: const InputDecoration(
+                labelText: 'Balance cash at hand',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -286,7 +316,8 @@ class _PetroleumBankDepositScreenState
                     leading: const Icon(Icons.account_balance_outlined),
                     title: Text(currency.format(_readAmount(deposit['amount']))),
                     subtitle: Text(
-                      '${deposit['bank_name'] ?? ''} • ${deposit['depositor_name'] ?? ''}\n$date $time',
+                      '${deposit['bank_name'] ?? ''} • ${deposit['depositor_name'] ?? ''}\n'
+                      '$date $time • Balance: ${currency.format(_readAmount(deposit['balance_cash_at_hand']))}',
                     ),
                     isThreeLine: true,
                     trailing: deposit['receipt_url']?.toString().isNotEmpty ==

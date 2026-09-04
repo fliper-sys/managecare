@@ -18,7 +18,12 @@ import '../utils/pump_row_mapper.dart';
 import '../utils/pump_upload_offline_queue.dart';
 
 class PumpDailyUploadScreen extends StatefulWidget {
-  const PumpDailyUploadScreen({super.key});
+  const PumpDailyUploadScreen({
+    super.key,
+    this.prefillUpload,
+  });
+
+  final Map<String, dynamic>? prefillUpload;
 
   @override
   State<PumpDailyUploadScreen> createState() => _PumpDailyUploadScreenState();
@@ -93,9 +98,41 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _applyPrefillUpload();
       _loadCachedPumps();
       _syncPendingUploads();
     });
+  }
+
+  void _applyPrefillUpload() {
+    final upload = widget.prefillUpload;
+    if (upload == null || upload.isEmpty) return;
+    _selectedPumpId = upload['pumpId']?.toString();
+    _openingController.text = _formatPrefillNumber(upload['openingVolume']);
+    _closingController.text = _formatPrefillNumber(upload['closingVolume']);
+    _analogOpeningController.text =
+        _formatPrefillNumber(upload['analogOpeningVolume']);
+    _analogClosingController.text =
+        _formatPrefillNumber(upload['analogClosingVolume']);
+    _shiftOpeningCashController.text =
+        _formatPrefillNumber(upload['shiftOpeningCash']);
+    _shiftCloseCashController.text =
+        _formatPrefillNumber(upload['shiftCloseCash']);
+    _posController.text = _formatPrefillNumber(upload['posAmount']);
+    _openingPhotoUrl = upload['openingPhotoUrl']?.toString();
+    _closingPhotoUrl = upload['closingPhotoUrl']?.toString();
+    _shiftOpeningCashPhotoUrl =
+        upload['shiftOpeningCashPhotoUrl']?.toString();
+    _shiftCloseCashPhotoUrl = upload['shiftCloseCashPhotoUrl']?.toString();
+    _restoreCashBreakdown(upload['cashBreakdown']);
+    _syncCashTotalFromBreakdown(saveDraft: false);
+    if (mounted) setState(() {});
+  }
+
+  String _formatPrefillNumber(dynamic value) {
+    final parsed = _parseNumber(value);
+    if (parsed == null || parsed == 0) return '';
+    return parsed.toString();
   }
 
   Future<void> _syncPendingUploads() async {
@@ -811,12 +848,8 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
 
     final totalPaid = cash + pos;
 
-    // retail.fuelSale() below already queues the sale locally and reports
-    // success while offline; the upload POST used to have no such path and
-    // just threw, leaving a sale with no matching pump upload record (and a
-    // worker who retried after the "failed to save" error only piled up
-    // more queued sales). Checking connectivity once up front lets both
-    // halves take the same offline-queued path together instead.
+    // Pump uploads now enter manager review first. Stock deduction and sales
+    // registration happen only after a manager approves the upload.
     final isOnline = await ConnectivityHelper.hasInternetConnection();
 
     String? shiftOpeningCashPhotoUrl;
@@ -879,29 +912,10 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
 
     try {
       final auth = context.read<AuthProvider>().currentUser;
+      final submittedAt = DateTime.now().toIso8601String();
       final expectedAmount = _computeExpectedCash(
         shiftOpeningCash,
         shiftCloseCash,
-      );
-
-      final paymentMethod = cash > 0 && pos > 0
-          ? 'mixed'
-          : pos > 0
-              ? 'pos'
-              : 'cash';
-
-      // Use the cash-derived sales volume for the sale
-      final saleData = await retail.fuelSale(
-        productId: productId,
-        quantity: calculatedSalesVolume,
-        amountPaid: totalPaid > 0 ? totalPaid : null,
-        paymentMethod: paymentMethod,
-        workerId: auth?.id,
-        workerName: auth?.fullName ?? auth?.email,
-        pumpId: _selectedPumpId,
-        pumpNumber: pump['pumpNumber']?.toString(),
-        pumpName: pump['productName']?.toString(),
-        idempotencyKey: uploadFingerprint,
       );
 
       final discrepancyNotes = buildDiscrepancyNotes(
@@ -959,7 +973,13 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         'pos_amount': pos,
         'total_paid': totalPaid,
         'upload_fingerprint': uploadFingerprint,
-        'sale_id': saleData['id'] ?? saleData['orderId'],
+        'sale_id': null,
+        'status': 'pending_review',
+        'submitted_at': submittedAt,
+        'submitted_by': auth?.id,
+        'submitted_by_name': auth?.fullName ?? auth?.email,
+        if (widget.prefillUpload?['id'] != null)
+          'resubmitted_from_upload_id': widget.prefillUpload?['id'],
         'shift_opening_cash_photo_url': shiftOpeningCashPhotoUrl,
         'shift_close_cash_photo_url': shiftCloseCashPhotoUrl,
         'opening_photo_url': openingPhotoUrl,
@@ -1033,8 +1053,8 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         SnackBar(
           content: Text(
             queuedOffline
-                ? 'No connection - upload saved offline and will sync automatically once you\'re back online.'
-                : 'Pump upload saved',
+                ? 'No connection - upload saved offline. It will enter manager review once synced.'
+                : 'Pump upload submitted for manager review',
           ),
           duration: Duration(seconds: queuedOffline ? 4 : 3),
         ),

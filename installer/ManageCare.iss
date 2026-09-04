@@ -10,7 +10,7 @@
 ; Output goes to installer\Output\ManageCareSetup-<version>.exe
 
 #define MyAppName "Manage Care"
-#define MyAppVersion "2.0.84"
+#define MyAppVersion "2.0.87"
 #define MyAppPublisher "Manage Care"
 #define MyAppExeName "business_manager.exe"
 #define MyReleaseDir "..\build\windows\x64\runner\Release"

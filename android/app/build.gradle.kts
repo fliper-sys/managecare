@@ -53,7 +53,11 @@ android {
 
     packagingOptions {
         jniLibs {
-            useLegacyPackaging = true
+            // AGP 8.5.1+ zipaligns uncompressed native libraries for 16 KB
+            // page-size devices. Legacy packaging is only a fallback for
+            // older AGP versions and can trigger Play Console compatibility
+            // warnings on newer builds.
+            useLegacyPackaging = false
         }
 
         resources {

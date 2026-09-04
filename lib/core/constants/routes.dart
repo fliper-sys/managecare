@@ -103,6 +103,11 @@ class Routes {
   static const String petroleumPumpUpload = '/petroleum/pumps/upload';
   static const String petroleumPumpUploadHistory =
       '/petroleum/pumps/upload-history';
+  static const String petroleumPumpUploadReview =
+      '/petroleum/pumps/upload-review';
+  static const String petroleumDeclinedPumpUploads =
+      '/petroleum/pumps/declined-uploads';
+  static const String petroleumCashTracking = '/petroleum/cash-tracking';
   static const String petroleumBankDeposits = '/petroleum/bank-deposits';
 
   // Product Installation

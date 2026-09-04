@@ -6,6 +6,7 @@ import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/constants/routes.dart';
 import '../../../core/access_control.dart';
+import '../../../core/utils/worker_permissions.dart';
 import '../../../providers/reports_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';
@@ -82,6 +83,14 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
         businessType.contains('petroleum') ||
         businessType.contains('petrol') ||
         businessType.contains('filling');
+    final isPetroleumStation = businessType.contains('petroleum') ||
+        businessType.contains('petrol') ||
+        businessType.contains('filling');
+    final role =
+        WorkerPermissions.normalizeRole(authProvider.currentUser?.role ?? '');
+    final hasGlobalStationAccess = authProvider.currentUser?.isOwner == true ||
+        ['owner', 'admin', 'sub_admin', 'manager', 'fuel_manager']
+            .contains(role);
     final normalizedBusinessType =
         businessType.replaceAll(RegExp(r'[^a-z0-9]'), '');
     final isBakery = normalizedBusinessType == 'bakery' ||
@@ -379,6 +388,28 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
             if (isFuelStation) ...[
               const SizedBox(height: 12),
               _FuelStationReportSplitCard(businessId: currentBusinessId),
+            ],
+            if (isPetroleumStation && hasGlobalStationAccess) ...[
+              const SizedBox(height: 12),
+              _ReportCategoryCard(
+                title: 'Petroleum Cash Tracking',
+                description:
+                    'Approved pump cash, bank deposits, admin cash and balance',
+                icon: Icons.payments_outlined,
+                color: Colors.green.shade700,
+                onTap: () =>
+                    Navigator.pushNamed(context, Routes.petroleumCashTracking),
+              ),
+              const SizedBox(height: 12),
+              _ReportCategoryCard(
+                title: 'Petroleum Bank Deposits',
+                description:
+                    'Deposited cash entries, receipts and cash-at-hand balance',
+                icon: Icons.account_balance_outlined,
+                color: Colors.teal.shade700,
+                onTap: () =>
+                    Navigator.pushNamed(context, Routes.petroleumBankDeposits),
+              ),
             ],
             if (isBakery) ...[
               const SizedBox(height: 12),
