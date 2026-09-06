@@ -215,6 +215,14 @@ module.exports = function(pool) {
           asUuidOrNull(b.resubmitted_from_upload_id),
         ]
       );
+      if (asUuidOrNull(b.resubmitted_from_upload_id)) {
+        await pool.query(
+          `UPDATE pump_daily_uploads
+           SET status = 'resubmitted', updated_at = NOW()
+           WHERE id = $1 AND business_id = $2 AND status IN ('declined', 'faulty')`,
+          [b.resubmitted_from_upload_id, businessId]
+        );
+      }
       res.status(201).json(result.rows[0]);
     } catch (err) {
       if (err.code === '23505') {

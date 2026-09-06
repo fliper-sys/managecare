@@ -228,25 +228,16 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
             .contains(stationRole);
     final showAllOperations = !isPetroleumStation || hasFullStationAccess;
     final canAccessFuelStock = hasFullStationAccess ||
-        WorkerPermissions.canAccessFuelStockForUser(
-          role,
-          permissions,
-        );
+        WorkerPermissions.canAccessFuelStockForUser(role, permissions);
     final canAccessPumpConfig = hasFullStationAccess ||
         WorkerPermissions.canAccessPumpConfigurationForUser(
           role,
           permissions,
         );
     final canAccessProcurement = hasFullStationAccess ||
-        WorkerPermissions.canAccessProcurementForUser(
-          role,
-          permissions,
-        );
+        WorkerPermissions.canAccessProcurementForUser(role, permissions);
     final canAccessExpenses = hasFullStationAccess ||
-        WorkerPermissions.canAccessExpensesForUser(
-          role,
-          permissions,
-        );
+        WorkerPermissions.canAccessExpensesForUser(role, permissions);
     final operationCards = <Widget>[
       if (showAllOperations || isPumpOperator || isStationStaff)
         _OperationCard(
@@ -262,14 +253,14 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
             color: Colors.brown,
             onTap: () => Navigator.pushNamed(context, stockRoute)
                 .then((_) => _loadMetrics())),
-      if (showAllOperations || isPumpOperator)
+      if (showAllOperations || isPumpOperator || isStationStaff)
         _OperationCard(
             title: 'Pump Upload',
             icon: Icons.cloud_upload_outlined,
             color: Colors.deepPurple,
             onTap: () => Navigator.pushNamed(context, pumpUploadRoute)
                 .then((_) => _loadMetrics())),
-      if (showAllOperations || isPumpOperator)
+      if (showAllOperations || isPumpOperator || isStationStaff)
         _OperationCard(
             title: 'Upload History',
             icon: Icons.fact_check_outlined,

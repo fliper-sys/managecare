@@ -58,6 +58,10 @@ android {
             // older AGP versions and can trigger Play Console compatibility
             // warnings on newer builds.
             useLegacyPackaging = false
+            // flutter_libserialport is only used by the desktop POS customer
+            // display feature. Its Android libserialport.so is built with
+            // 4 KB ELF page alignment, so do not ship it in Play builds.
+            excludes += "**/libserialport.so"
         }
 
         resources {

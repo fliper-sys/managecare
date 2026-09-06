@@ -270,6 +270,7 @@ const pool = new Pool({
 
 // ── MinIO client (optional - for file storage) ──────────────
 let minioClient = null;
+let minioPublicClient = null;
 if (process.env.MINIO_ENDPOINT) {
   minioClient = new Minio.Client({
     endPoint: process.env.MINIO_ENDPOINT,
@@ -279,6 +280,19 @@ if (process.env.MINIO_ENDPOINT) {
     secretKey: process.env.MINIO_SECRET_KEY || 'minioadmin',
   });
   console.log('[MinIO] Client initialized for', process.env.MINIO_ENDPOINT);
+
+  // Keep server-side storage access separate from the endpoint embedded in
+  // presigned URLs. The internal endpoint may be localhost or a Docker name.
+  if (process.env.MINIO_PUBLIC_ENDPOINT) {
+    minioPublicClient = new Minio.Client({
+      endPoint: process.env.MINIO_PUBLIC_ENDPOINT,
+      port: parseInt(process.env.MINIO_PUBLIC_PORT) || parseInt(process.env.MINIO_PORT) || 9000,
+      useSSL: process.env.MINIO_PUBLIC_USE_SSL === 'true',
+      accessKey: process.env.MINIO_ACCESS_KEY || 'minioadmin',
+      secretKey: process.env.MINIO_SECRET_KEY || 'minioadmin',
+    });
+    console.log('[MinIO] Public URL client initialized for', process.env.MINIO_PUBLIC_ENDPOINT);
+  }
 }
 
 // ── Middleware ──────────────────────────────────────────────
@@ -2191,7 +2205,7 @@ app.use('/api/subscriptions', authMiddleware, subscriptionsRoutes(pool));
 app.use('/api/payments', authMiddleware, paymentsRoutes());
 app.use('/api/distributors', authMiddleware, distributorsRoutes(pool));
 app.use('/api/invoices', authMiddleware, invoicesRoutes(pool));
-app.use('/api/upload', authMiddleware, uploadRoutes(pool, minioClient));
+app.use('/api/upload', authMiddleware, uploadRoutes(pool, minioClient, minioPublicClient));
 // Separate routers for push and notifications
 const pushRouter = pushRoutes(pool);
 const notificationRouter = pushRoutes(pool);

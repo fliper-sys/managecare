@@ -12,6 +12,7 @@ import '../utils/pump_config_cache.dart';
 import '../utils/pump_row_mapper.dart';
 import '../utils/pump_upload_offline_queue.dart';
 import 'disputed_pump_uploads_screen.dart';
+import 'pump_daily_upload_screen.dart';
 
 class PumpUploadHistoryScreen extends StatefulWidget {
   const PumpUploadHistoryScreen({super.key});
@@ -59,9 +60,95 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     });
   }
 
+  Future<void> _editPendingUpload(
+    String businessId,
+    Map<String, dynamic> entry,
+  ) async {
+    final body = Map<String, dynamic>.from(entry['body'] as Map? ?? const {});
+    final paths = Map<String, dynamic>.from(
+      entry['photoPaths'] as Map? ?? const {},
+    );
+    final prefill = <String, dynamic>{
+      'queuedId': entry['queuedId'],
+      'pumpId': body['pump_id'],
+      'pumpNumber': body['pump_number'],
+      'openingVolume': body['opening_volume'],
+      'closingVolume': body['closing_volume'],
+      'analogOpeningVolume': body['analog_opening_volume'],
+      'analogClosingVolume': body['analog_closing_volume'],
+      'shiftOpeningCash': body['shift_opening_cash'],
+      'shiftCloseCash': body['shift_close_cash'],
+      'posAmount': body['pos_amount'],
+      'cashBreakdown': body['cash_breakdown'],
+      'openingPhotoUrl': body['opening_photo_url'],
+      'closingPhotoUrl': body['closing_photo_url'],
+      'shiftOpeningCashPhotoUrl': body['shift_opening_cash_photo_url'],
+      'shiftCloseCashPhotoUrl': body['shift_close_cash_photo_url'],
+      'openingPhotoPath': paths['opening_photo_url'],
+      'closingPhotoPath': paths['closing_photo_url'],
+      'shiftOpeningCashPhotoPath': paths['shift_opening_cash_photo_url'],
+      'shiftCloseCashPhotoPath': paths['shift_close_cash_photo_url'],
+    };
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PumpDailyUploadScreen(prefillUpload: prefill),
+      ),
+    );
+  }
+
+  Future<void> _showPendingUploads(String businessId) async {
+    final entries = await PumpUploadOfflineQueue.pendingEntries(businessId);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: entries.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('No offline uploads are waiting to sync.'),
+              )
+            : ListView.builder(
+                shrinkWrap: true,
+                itemCount: entries.length,
+                itemBuilder: (_, index) {
+                  final entry = entries[index];
+                  final body = Map<String, dynamic>.from(
+                    entry['body'] as Map? ?? const {},
+                  );
+                  final paths = Map<String, dynamic>.from(
+                    entry['photoPaths'] as Map? ?? const {},
+                  );
+                  final hasPhotos = paths.values.any(
+                    (value) => value?.toString().isNotEmpty == true,
+                  );
+                  return ListTile(
+                    leading: Icon(
+                      hasPhotos
+                          ? Icons.photo_library_outlined
+                          : Icons.upload_file,
+                    ),
+                    title: Text('Pump ${body['pump_number'] ?? ''}'),
+                    subtitle: Text(
+                      hasPhotos
+                          ? 'Photos saved on this device'
+                          : 'Waiting for upload',
+                    ),
+                    trailing: const Icon(Icons.edit_outlined),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _editPendingUpload(businessId, entry);
+                    },
+                  );
+                },
+              ),
+      ),
+    );
+  }
+
   void _syncCacheFromRows(String businessId, List<Map<String, dynamic>> rows) {
     final remotePumps = PumpConfigCache.sort(rows);
-    if (remotePumps.isEmpty || PumpConfigCache.same(remotePumps, _cachedPumps)) {
+    if (remotePumps.isEmpty ||
+        PumpConfigCache.same(remotePumps, _cachedPumps)) {
       return;
     }
 
@@ -79,7 +166,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
       try {
         final response = await ManagecareApiClient.instance
             .get('/api/pumps/$businessId/pumps', query: {'isActive': 'true'});
-        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        final rows =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
         yield rows.map(pumpRowToJson).toList();
       } catch (_) {
         // Swallow transient errors between polls so the stream stays alive.
@@ -96,7 +184,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
         if (_endDate != null) query['to'] = _endDate!.toIso8601String();
         final response = await ManagecareApiClient.instance
             .get('/api/pumps/$businessId/uploads', query: query);
-        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        final rows =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
         yield rows.map(pumpUploadRowToJson).toList();
       } catch (_) {
         // Swallow transient errors between polls so the stream stays alive.
@@ -280,11 +369,16 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     if (!mounted) return;
     final openingVolume = (data['openingVolume'] as num?)?.toDouble() ?? 0;
     final closingVolume = (data['closingVolume'] as num?)?.toDouble() ?? 0;
-    final previousClosingVolume = (data['previousClosingVolume'] as num?)?.toDouble();
-    final analogOpeningVolume = (data['analogOpeningVolume'] as num?)?.toDouble();
-    final analogClosingVolume = (data['analogClosingVolume'] as num?)?.toDouble() ?? 0;
-    final previousAnalogClosingVolume = (data['previousAnalogClosingVolume'] as num?)?.toDouble();
-    final previousShiftClosingCash = (data['previousShiftClosingCash'] as num?)?.toDouble();
+    final previousClosingVolume =
+        (data['previousClosingVolume'] as num?)?.toDouble();
+    final analogOpeningVolume =
+        (data['analogOpeningVolume'] as num?)?.toDouble();
+    final analogClosingVolume =
+        (data['analogClosingVolume'] as num?)?.toDouble() ?? 0;
+    final previousAnalogClosingVolume =
+        (data['previousAnalogClosingVolume'] as num?)?.toDouble();
+    final previousShiftClosingCash =
+        (data['previousShiftClosingCash'] as num?)?.toDouble();
     final soldVolume = (data['soldVolume'] as num?)?.toDouble() ?? 0;
     final shiftOpeningCash = data['shiftOpeningCash'];
     final shiftCloseCash = data['shiftCloseCash'];
@@ -300,16 +394,22 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
       previousShiftClosingCash: previousShiftClosingCash,
       shiftOpeningCash: shiftOpeningCash,
     );
-    final analogOpenDiff = analogOpeningVolume != null && previousAnalogClosingVolume != null
-        ? analogOpeningVolume - previousAnalogClosingVolume
-        : null;
+    final analogOpenDiff =
+        analogOpeningVolume != null && previousAnalogClosingVolume != null
+            ? analogOpeningVolume - previousAnalogClosingVolume
+            : null;
     final openingVolumeDiff = previousClosingVolume != null
         ? openingVolume - previousClosingVolume
         : null;
-    final shiftDifference = (double.tryParse(shiftCloseCash?.toString().replaceAll(',', '') ?? '') ?? 0.0) -
-        (double.tryParse(shiftOpeningCash?.toString().replaceAll(',', '') ?? '') ?? 0.0);
+    final shiftDifference = (double.tryParse(
+                shiftCloseCash?.toString().replaceAll(',', '') ?? '') ??
+            0.0) -
+        (double.tryParse(
+                shiftOpeningCash?.toString().replaceAll(',', '') ?? '') ??
+            0.0);
     final shiftVolVsDigitalDiff = soldVolume - volumeDifference;
-    final digitalVsAnalogDiff = volumeDifference - (analogClosingVolume - (analogOpeningVolume ?? 0));
+    final digitalVsAnalogDiff =
+        volumeDifference - (analogClosingVolume - (analogOpeningVolume ?? 0));
 
     await showModalBottomSheet<void>(
       context: context,
@@ -326,7 +426,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
             builder: (context, scrollController) => Container(
               decoration: BoxDecoration(
                 color: theme.colorScheme.surface,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(16)),
               ),
               child: ListView(
                 controller: scrollController,
@@ -345,7 +446,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                   ),
                   Text(
                     'Discrepancy details',
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 12),
                   if (discrepancySummary.isNotEmpty)
@@ -356,7 +458,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                   if (discrepancySummary.isNotEmpty) const SizedBox(height: 16),
                   Text(
                     'Validation values',
-                    style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 8),
                   if (previousClosingVolume != null)
@@ -415,7 +518,9 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600))),
+          Expanded(
+              child: Text(label,
+                  style: const TextStyle(fontWeight: FontWeight.w600))),
           const SizedBox(width: 12),
           Text(value, textAlign: TextAlign.right),
         ],
@@ -533,7 +638,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     return false;
   }
 
-  Future<void> _deleteUpload(String businessId, Map<String, dynamic> row) async {
+  Future<void> _deleteUpload(
+      String businessId, Map<String, dynamic> row) async {
     final isOwner = context.read<AuthProvider>().currentUser?.isOwner == true;
     if (!isOwner) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -546,7 +652,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Delete upload'),
-            content: const Text('Are you sure you want to delete this pump upload record?'),
+            content: const Text(
+                'Are you sure you want to delete this pump upload record?'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
@@ -554,7 +661,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
               ),
               TextButton(
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Delete', style: TextStyle(color: Colors.red)),
+                child:
+                    const Text('Delete', style: TextStyle(color: Colors.red)),
               ),
             ],
           ),
@@ -565,7 +673,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     try {
       final id = row['id']?.toString();
       if (id == null || id.isEmpty) return;
-      await ManagecareApiClient.instance.delete('/api/pumps/$businessId/uploads/$id');
+      await ManagecareApiClient.instance
+          .delete('/api/pumps/$businessId/uploads/$id');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Pump upload deleted')),
@@ -657,8 +766,7 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     final role = WorkerPermissions.normalizeRole(
       context.watch<AuthProvider>().currentUser?.role ?? '',
     );
-    final isOwner =
-        context.watch<AuthProvider>().currentUser?.isOwner == true;
+    final isOwner = context.watch<AuthProvider>().currentUser?.isOwner == true;
     final canManageDisputes =
         isOwner || WorkerPermissions.canManagePumpDisputes(role);
     final mustFilterOnePump = role == 'pump_operator';
@@ -692,17 +800,27 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                     return Container(
                       width: double.infinity,
                       color: Colors.amber.shade100,
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: Text(
-                        pending == 1
-                            ? '1 pump upload saved offline, waiting to sync'
-                            : '$pending pump uploads saved offline, waiting to sync',
-                        style: TextStyle(
-                          color: Colors.amber.shade900,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                        ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              pending == 1
+                                  ? '1 pump upload saved offline, waiting to sync'
+                                  : '$pending pump uploads saved offline, waiting to sync',
+                              style: TextStyle(
+                                color: Colors.amber.shade900,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => _showPendingUploads(businessId),
+                            child: const Text('View / edit'),
+                          ),
+                        ],
                       ),
                     );
                   },
@@ -858,26 +976,34 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                   _matchesSelectedPump(data) &&
                                   data['isDisputed'] != true)
                               .toList();
-                          if (snapshot.connectionState == ConnectionState.waiting &&
+                          if (snapshot.connectionState ==
+                                  ConnectionState.waiting &&
                               rows.isEmpty) {
-                            return const Center(child: CircularProgressIndicator());
+                            return const Center(
+                                child: CircularProgressIndicator());
                           }
                           if (rows.isEmpty) {
-                            return const Center(child: Text('No pump uploads yet'));
+                            return const Center(
+                                child: Text('No pump uploads yet'));
                           }
                           return ListView.separated(
                             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                             itemCount: rows.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 8),
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final data = rows[index];
                               final status =
                                   data['status']?.toString() ?? 'approved';
                               final uploadedAt = _readDate(data['uploadedAt']);
-                              final openingUrl = data['openingPhotoUrl'] as String?;
-                              final closingUrl = data['closingPhotoUrl'] as String?;
-                              final shiftOpeningCashUrl = data['shiftOpeningCashPhotoUrl'] as String?;
-                              final shiftCloseCashUrl = data['shiftCloseCashPhotoUrl'] as String?;
+                              final openingUrl =
+                                  data['openingPhotoUrl'] as String?;
+                              final closingUrl =
+                                  data['closingPhotoUrl'] as String?;
+                              final shiftOpeningCashUrl =
+                                  data['shiftOpeningCashPhotoUrl'] as String?;
+                              final shiftCloseCashUrl =
+                                  data['shiftCloseCashPhotoUrl'] as String?;
                               final shiftOpeningCash = data['shiftOpeningCash'];
                               final shiftCloseCash = data['shiftCloseCash'];
                               final digitalOpeningVolume =
@@ -901,27 +1027,28 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                               final saleId = data['saleId']?.toString() ?? '';
                               final cashBreakdownSummary =
                                   _cashBreakdownSummary(data['cashBreakdown']);
-                              final soldVolume =
-                                  _readDouble(data['soldVolume']) > 0
-                                      ? _readDouble(data['soldVolume'])
-                                      : _readDouble(data['cashDerivedVolume']) > 0
-                                          ? _readDouble(data['cashDerivedVolume'])
-                                          : digitalClosingVolume -
-                                              digitalOpeningVolume;
+                              final soldVolume = _readDouble(
+                                          data['soldVolume']) >
+                                      0
+                                  ? _readDouble(data['soldVolume'])
+                                  : _readDouble(data['cashDerivedVolume']) > 0
+                                      ? _readDouble(data['cashDerivedVolume'])
+                                      : digitalClosingVolume -
+                                          digitalOpeningVolume;
                               final expectedAmount =
                                   _expectedCashAmount(data, soldVolume);
                               final discrepancyNotes =
                                   (data['discrepancyNotes'] as List?)
-                                      ?.whereType<String>()
-                                      .toList() ??
-                                  <String>[];
+                                          ?.whereType<String>()
+                                          .toList() ??
+                                      <String>[];
                               final discrepancySummary =
-                                  (data['discrepancySummary'] as String?) ??
-                                  '';
+                                  (data['discrepancySummary'] as String?) ?? '';
                               final theme = Theme.of(context);
                               final colorScheme = theme.colorScheme;
                               final hasMismatch = _showMismatchBadge &&
-                                  (discrepancySummary.isNotEmpty || discrepancyNotes.isNotEmpty);
+                                  (discrepancySummary.isNotEmpty ||
+                                      discrepancyNotes.isNotEmpty);
                               return Card(
                                 child: ExpansionTile(
                                   leading: const CircleAvatar(
@@ -937,14 +1064,16 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                       ),
                                       if (hasMismatch)
                                         Container(
-                                          margin: const EdgeInsets.only(left: 8),
+                                          margin:
+                                              const EdgeInsets.only(left: 8),
                                           padding: const EdgeInsets.symmetric(
                                             vertical: 2,
                                             horizontal: 8,
                                           ),
                                           decoration: BoxDecoration(
                                             color: Colors.amber.shade100,
-                                            borderRadius: BorderRadius.circular(12),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
                                           ),
                                           child: Text(
                                             'Mismatch',
@@ -966,8 +1095,10 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                   trailing: SizedBox(
                                     width: 150,
                                     child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
                                       children: [
                                         Text(
                                           formatAmount(
@@ -980,7 +1111,9 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                         ),
                                         const Text(
                                           'Sold vol.',
-                                          style: TextStyle(fontSize: 12, color: Colors.black54),
+                                          style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.black54),
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
@@ -991,9 +1124,12 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                         ),
                                         const Text(
                                           'Expected amount',
-                                          style: TextStyle(fontSize: 12, color: Colors.black54),
+                                          style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.black54),
                                         ),
-                                        if (cashBreakdownSummary.isNotEmpty) ...[
+                                        if (cashBreakdownSummary
+                                            .isNotEmpty) ...[
                                           const SizedBox(height: 4),
                                           Text(
                                             cashBreakdownSummary,
@@ -1007,7 +1143,9 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                           ),
                                           const Text(
                                             'Cash breakdown',
-                                            style: TextStyle(fontSize: 11, color: Colors.black54),
+                                            style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.black54),
                                           ),
                                         ],
                                       ],
@@ -1091,32 +1229,41 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                           const SizedBox(height: 8),
                                           if (discrepancySummary.isNotEmpty)
                                             GestureDetector(
-                                              onTap: () => _showDiscrepancyDetails(data),
+                                              onTap: () =>
+                                                  _showDiscrepancyDetails(data),
                                               child: Container(
                                                 width: double.infinity,
-                                                padding: const EdgeInsets.all(10),
-                                                margin: const EdgeInsets.only(bottom: 8),
+                                                padding:
+                                                    const EdgeInsets.all(10),
+                                                margin: const EdgeInsets.only(
+                                                    bottom: 8),
                                                 decoration: BoxDecoration(
-                                                  color: colorScheme.secondaryContainer,
-                                                  borderRadius: BorderRadius.circular(8),
+                                                  color: colorScheme
+                                                      .secondaryContainer,
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
                                                   border: Border.all(
-                                                    color: colorScheme.outlineVariant,
+                                                    color: colorScheme
+                                                        .outlineVariant,
                                                   ),
                                                 ),
                                                 child: Row(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
                                                   children: [
                                                     Icon(
                                                       Icons.info_outline,
                                                       size: 18,
-                                                      color: colorScheme.onSecondaryContainer,
+                                                      color: colorScheme
+                                                          .onSecondaryContainer,
                                                     ),
                                                     const SizedBox(width: 8),
                                                     Expanded(
                                                       child: Text(
                                                         discrepancySummary,
                                                         style: TextStyle(
-                                                          color: colorScheme.onSecondaryContainer,
+                                                          color: colorScheme
+                                                              .onSecondaryContainer,
                                                           fontSize: 12,
                                                         ),
                                                       ),
@@ -1125,7 +1272,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                     Icon(
                                                       Icons.chevron_right,
                                                       size: 18,
-                                                      color: colorScheme.onSecondaryContainer,
+                                                      color: colorScheme
+                                                          .onSecondaryContainer,
                                                     ),
                                                   ],
                                                 ),
@@ -1133,29 +1281,39 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                             ),
                                           if (discrepancyNotes.isNotEmpty)
                                             Padding(
-                                              padding: const EdgeInsets.only(bottom: 8),
+                                              padding: const EdgeInsets.only(
+                                                  bottom: 8),
                                               child: Wrap(
                                                 spacing: 6,
                                                 runSpacing: 6,
                                                 children: discrepancyNotes
                                                     .map(
                                                       (note) => Container(
-                                                        padding: const EdgeInsets.symmetric(
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
                                                           horizontal: 8,
                                                           vertical: 4,
                                                         ),
-                                                        decoration: BoxDecoration(
-                                                          color: colorScheme.surfaceContainerHighest,
-                                                          borderRadius: BorderRadius.circular(999),
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: colorScheme
+                                                              .surfaceContainerHighest,
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(
+                                                                      999),
                                                           border: Border.all(
-                                                            color: colorScheme.outlineVariant,
+                                                            color: colorScheme
+                                                                .outlineVariant,
                                                           ),
                                                         ),
                                                         child: Text(
                                                           note,
                                                           style: TextStyle(
                                                             fontSize: 11,
-                                                            color: colorScheme.onSurfaceVariant,
+                                                            color: colorScheme
+                                                                .onSurfaceVariant,
                                                           ),
                                                         ),
                                                       ),
@@ -1163,11 +1321,14 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                     .toList(),
                                               ),
                                             ),
-                                          if (shiftOpeningCashUrl != null && shiftOpeningCashUrl.isNotEmpty)
+                                          if (shiftOpeningCashUrl != null &&
+                                              shiftOpeningCashUrl.isNotEmpty)
                                             Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
                                               children: [
-                                                const Text('Shift opening cash image'),
+                                                const Text(
+                                                    'Shift opening cash image'),
                                                 const SizedBox(height: 4),
                                                 GestureDetector(
                                                   onTap: () => _showImageDialog(
@@ -1175,16 +1336,22 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                     'Shift opening cash image',
                                                   ),
                                                   child: ClipRRect(
-                                                    borderRadius: BorderRadius.circular(8),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            8),
                                                     child: Image.network(
                                                       shiftOpeningCashUrl,
                                                       height: 160,
                                                       width: double.infinity,
                                                       fit: BoxFit.cover,
-                                                      errorBuilder: (context, error, stackTrace) => const SizedBox(
+                                                      errorBuilder: (context,
+                                                              error,
+                                                              stackTrace) =>
+                                                          const SizedBox(
                                                         height: 160,
                                                         child: Center(
-                                                          child: Text('Unable to load shift opening cash image'),
+                                                          child: Text(
+                                                              'Unable to load shift opening cash image'),
                                                         ),
                                                       ),
                                                     ),
@@ -1192,12 +1359,15 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                 ),
                                               ],
                                             ),
-                                          if (shiftCloseCashUrl != null && shiftCloseCashUrl.isNotEmpty)
+                                          if (shiftCloseCashUrl != null &&
+                                              shiftCloseCashUrl.isNotEmpty)
                                             Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
                                               children: [
                                                 const SizedBox(height: 12),
-                                                const Text('Shift close cash image'),
+                                                const Text(
+                                                    'Shift close cash image'),
                                                 const SizedBox(height: 4),
                                                 GestureDetector(
                                                   onTap: () => _showImageDialog(
@@ -1205,16 +1375,22 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                     'Shift close cash image',
                                                   ),
                                                   child: ClipRRect(
-                                                    borderRadius: BorderRadius.circular(8),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            8),
                                                     child: Image.network(
                                                       shiftCloseCashUrl,
                                                       height: 160,
                                                       width: double.infinity,
                                                       fit: BoxFit.cover,
-                                                      errorBuilder: (context, error, stackTrace) => const SizedBox(
+                                                      errorBuilder: (context,
+                                                              error,
+                                                              stackTrace) =>
+                                                          const SizedBox(
                                                         height: 160,
                                                         child: Center(
-                                                          child: Text('Unable to load shift close cash image'),
+                                                          child: Text(
+                                                              'Unable to load shift close cash image'),
                                                         ),
                                                       ),
                                                     ),
@@ -1223,7 +1399,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                               ],
                                             ),
                                           const SizedBox(height: 12),
-                                          if (openingUrl != null && openingUrl.isNotEmpty)
+                                          if (openingUrl != null &&
+                                              openingUrl.isNotEmpty)
                                             Column(
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
@@ -1237,18 +1414,21 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                   ),
                                                   child: ClipRRect(
                                                     borderRadius:
-                                                        BorderRadius.circular(8),
+                                                        BorderRadius.circular(
+                                                            8),
                                                     child: Image.network(
                                                       openingUrl,
                                                       height: 160,
                                                       width: double.infinity,
                                                       fit: BoxFit.cover,
-                                                      errorBuilder:
-                                                          (context, error, stackTrace) =>
-                                                              const SizedBox(
+                                                      errorBuilder: (context,
+                                                              error,
+                                                              stackTrace) =>
+                                                          const SizedBox(
                                                         height: 160,
                                                         child: Center(
-                                                          child: Text('Unable to load opening image'),
+                                                          child: Text(
+                                                              'Unable to load opening image'),
                                                         ),
                                                       ),
                                                     ),
@@ -1256,7 +1436,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                 ),
                                               ],
                                             ),
-                                          if (closingUrl != null && closingUrl.isNotEmpty)
+                                          if (closingUrl != null &&
+                                              closingUrl.isNotEmpty)
                                             Column(
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
@@ -1271,18 +1452,21 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                   ),
                                                   child: ClipRRect(
                                                     borderRadius:
-                                                        BorderRadius.circular(8),
+                                                        BorderRadius.circular(
+                                                            8),
                                                     child: Image.network(
                                                       closingUrl,
                                                       height: 160,
                                                       width: double.infinity,
                                                       fit: BoxFit.cover,
-                                                      errorBuilder:
-                                                          (context, error, stackTrace) =>
-                                                              const SizedBox(
+                                                      errorBuilder: (context,
+                                                              error,
+                                                              stackTrace) =>
+                                                          const SizedBox(
                                                         height: 160,
                                                         child: Center(
-                                                          child: Text('Unable to load closing image'),
+                                                          child: Text(
+                                                              'Unable to load closing image'),
                                                         ),
                                                       ),
                                                     ),
@@ -1299,7 +1483,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                 TextButton.icon(
                                                   onPressed: () =>
                                                       _markAsDisputed(
-                                                          businessId, rows[index]),
+                                                          businessId,
+                                                          rows[index]),
                                                   icon: const Icon(
                                                       Icons.flag_outlined),
                                                   label: const Text(
@@ -1313,7 +1498,8 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                     ),
                                                     onPressed: () =>
                                                         _deleteUpload(
-                                                            businessId, rows[index]),
+                                                            businessId,
+                                                            rows[index]),
                                                     icon: const Icon(
                                                         Icons.delete),
                                                     label: const Text('Delete'),

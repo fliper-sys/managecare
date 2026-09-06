@@ -1039,6 +1039,15 @@ class AuthProvider with ChangeNotifier {
       }
     }
 
+    final lower = msg.toLowerCase();
+    if (lower.contains('failed host lookup') ||
+        lower.contains('socketexception') ||
+        lower.contains('connection refused') ||
+        lower.contains('unable to connect') ||
+        lower.contains('connection timed out')) {
+      return 'Cannot reach the ManageCare server. Check your internet connection or contact support if this continues.';
+    }
+
     return msg.isEmpty ? fallback : msg;
   }
 

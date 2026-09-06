@@ -112,7 +112,12 @@ class MinioStorageService {
         if (attempt < retries) continue;
         return null;
       } on DioException catch (e) {
-        lastError = 'Upload failed (attempt $attempt): ${e.message}';
+        final responseError = e.response?.data is Map
+            ? (e.response?.data['error']?.toString())
+            : e.response?.data?.toString();
+        lastError = responseError == null || responseError.isEmpty
+            ? 'Upload failed (attempt $attempt): ${e.message}'
+            : 'Upload failed (${e.response?.statusCode}): $responseError';
         if (attempt < retries) continue;
         return null;
       } catch (e) {

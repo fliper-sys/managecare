@@ -45,6 +45,18 @@ class PumpUploadOfflineQueue {
     return pending.length;
   }
 
+  static Future<List<Map<String, dynamic>>> pendingEntries(
+    String businessId,
+  ) async {
+    return _load(businessId);
+  }
+
+  static Future<void> remove(String businessId, String queuedId) async {
+    final pending = await _load(businessId);
+    pending.removeWhere((entry) => entry['queuedId']?.toString() == queuedId);
+    await _save(businessId, pending);
+  }
+
   /// [body] is the same field set _saveUpload() would otherwise POST
   /// directly. Photo fields may carry a local file path instead of (or
   /// alongside) a URL - resolved at sync time once a connection exists.
@@ -52,9 +64,11 @@ class PumpUploadOfflineQueue {
     String businessId,
     Map<String, dynamic> body, {
     required Map<String, String?> photoPaths,
+    String? queuedId,
   }) async {
     final pending = await _load(businessId);
-    final queuedId = 'PUMPUPLOAD-${DateTime.now().millisecondsSinceEpoch}';
+    final entryId =
+        queuedId ?? 'PUMPUPLOAD-${DateTime.now().millisecondsSinceEpoch}';
     final queuedAt = DateTime.now().toIso8601String();
     final fingerprint = body['upload_fingerprint']?.toString();
     if (fingerprint != null && fingerprint.isNotEmpty) {
@@ -63,11 +77,14 @@ class PumpUploadOfflineQueue {
         return pendingBody is Map &&
             pendingBody['upload_fingerprint']?.toString() == fingerprint;
       });
-      if (alreadyQueued) return;
+      if (alreadyQueued && queuedId == null) return;
     }
     body['submitted_at'] ??= queuedAt;
+    if (queuedId != null) {
+      pending.removeWhere((entry) => entry['queuedId']?.toString() == queuedId);
+    }
     pending.add({
-      'queuedId': queuedId,
+      'queuedId': entryId,
       'queuedAt': queuedAt,
       'body': body,
       'photoPaths': photoPaths,

@@ -1,11 +1,19 @@
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../../core/utils/amount_formatter.dart';
+import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../services/managecare_api_client.dart';
+import '../../../../services/web_download.dart' as web_download;
 
 class PetroleumCashTrackingScreen extends StatefulWidget {
   const PetroleumCashTrackingScreen({super.key});
@@ -35,7 +43,20 @@ class _PetroleumCashTrackingScreenState
         0.0;
   }
 
+  bool _hasPetroleumCashAccess(dynamic user) {
+    final role = WorkerPermissions.normalizeRole(user?.role ?? '');
+    return user?.isOwner == true ||
+        role == 'owner' ||
+        role == 'admin' ||
+        role == 'sub_admin' ||
+        role == 'manager' ||
+        role == 'fuel_manager';
+  }
+
   Future<void> _recordAdminSubmission() async {
+    if (!_hasPetroleumCashAccess(context.read<AuthProvider>().currentUser)) {
+      return;
+    }
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     if (businessId == null || businessId.isEmpty) return;
     final receiverController = TextEditingController();
@@ -139,7 +160,85 @@ class _PetroleumCashTrackingScreenState
     }
   }
 
+  String _csvCell(dynamic value) {
+    final text = (value ?? '').toString().replaceAll('"', '""');
+    return '"$text"';
+  }
+
+  String _cashReportCsv() {
+    final rows = <List<dynamic>>[
+      ['Type', 'Date', 'Name', 'Pump/Bank/Admin', 'Cash', 'POS', 'Total', 'Balance', 'Note'],
+      for (final entry in _cashEntries)
+        [
+          'Pump Income',
+          entry['created_at'] ?? '',
+          entry['worker_name'] ?? '',
+          entry['pump_number'] ?? '',
+          entry['cash_amount'] ?? 0,
+          entry['pos_amount'] ?? 0,
+          entry['total_amount'] ?? 0,
+          '',
+          entry['note'] ?? '',
+        ],
+      for (final deposit in _bankDeposits)
+        [
+          'Bank Deposit',
+          '${deposit['deposit_date'] ?? ''} ${deposit['deposit_time'] ?? ''}',
+          deposit['depositor_name'] ?? '',
+          deposit['bank_name'] ?? '',
+          deposit['deposited_cash_entry'] ?? deposit['amount'] ?? 0,
+          '',
+          deposit['amount'] ?? 0,
+          deposit['balance_cash_at_hand'] ?? 0,
+          deposit['account_name'] ?? '',
+        ],
+      for (final entry in _adminSubmissions)
+        [
+          'Admin Submission',
+          '${entry['submission_date'] ?? ''} ${entry['submission_time'] ?? ''}',
+          entry['submitted_by_name'] ?? '',
+          entry['receiver_name'] ?? '',
+          entry['amount'] ?? 0,
+          '',
+          entry['amount'] ?? 0,
+          entry['balance_cash_at_hand'] ?? 0,
+          entry['note'] ?? '',
+        ],
+    ];
+    return rows.map((row) => row.map(_csvCell).join(',')).join('\n');
+  }
+
+  Future<void> _downloadCsv() async {
+    try {
+      final timestamp = DateFormat('yyyyMMdd_HHmm').format(DateTime.now());
+      final filename = 'petroleum_cash_report_$timestamp.csv';
+      final content = _cashReportCsv();
+      final bytes = Uint8List.fromList(content.codeUnits);
+      if (kIsWeb) {
+        web_download.downloadBytes(bytes, filename, 'text/csv');
+      } else {
+        final directory = await getTemporaryDirectory();
+        final file = File('${directory.path}/$filename');
+        await file.writeAsString(content);
+        await Share.shareXFiles([XFile(file.path)], text: 'Petroleum cash report');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cash report export ready')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to export cash report: $error')),
+      );
+    }
+  }
+
   Future<void> _load() async {
+    if (!_hasPetroleumCashAccess(context.read<AuthProvider>().currentUser)) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     if (businessId == null || businessId.isEmpty) return;
     setState(() => _loading = true);
@@ -181,6 +280,18 @@ class _PetroleumCashTrackingScreenState
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
+    if (!_hasPetroleumCashAccess(context.watch<AuthProvider>().currentUser)) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Petroleum Cash Tracking')),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text('Only managers and admins can access cash tracking.'),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Petroleum Cash Tracking'),
@@ -189,6 +300,11 @@ class _PetroleumCashTrackingScreenState
             tooltip: 'Cash given to admin',
             icon: const Icon(Icons.admin_panel_settings_outlined),
             onPressed: _recordAdminSubmission,
+          ),
+          IconButton(
+            tooltip: 'Download CSV',
+            icon: const Icon(Icons.download_outlined),
+            onPressed: _downloadCsv,
           ),
           IconButton(
             tooltip: 'Refresh',

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/utils/amount_formatter.dart';
+import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../services/email_service.dart';
@@ -61,7 +62,21 @@ class _PetroleumBankDepositScreenState
   String _businessId() =>
       context.read<BusinessProvider>().currentBusiness?.id ?? '';
 
+  bool _hasPetroleumCashAccess(dynamic user) {
+    final role = WorkerPermissions.normalizeRole(user?.role ?? '');
+    return user?.isOwner == true ||
+        role == 'owner' ||
+        role == 'admin' ||
+        role == 'sub_admin' ||
+        role == 'manager' ||
+        role == 'fuel_manager';
+  }
+
   Future<void> _loadDeposits() async {
+    if (!_hasPetroleumCashAccess(context.read<AuthProvider>().currentUser)) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
     final businessId = _businessId();
     if (businessId.isEmpty) return;
     setState(() => _loading = true);
@@ -167,6 +182,18 @@ class _PetroleumBankDepositScreenState
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.currency(locale: 'en_NG', symbol: '₦');
+    if (!_hasPetroleumCashAccess(context.watch<AuthProvider>().currentUser)) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Bank Deposits')),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text('Only managers and admins can access bank deposits.'),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('Bank Deposits')),
       body: RefreshIndicator(

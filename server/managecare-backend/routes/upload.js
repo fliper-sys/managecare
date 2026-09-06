@@ -26,7 +26,7 @@ const upload = multer({
   },
 });
 
-module.exports = function(pool, minioClient) {
+module.exports = function(pool, minioClient, minioPublicClient = minioClient) {
   router.use('/:businessId', requireBusinessMembership(pool));
 
   // POST /api/upload/:businessId - Upload file
@@ -53,10 +53,13 @@ module.exports = function(pool, minioClient) {
         { 'Content-Type': req.file.mimetype }
       );
 
-      // Generate URL
-      const protocol = process.env.MINIO_USE_SSL === 'true' ? 'https' : 'http';
-      const endpoint = process.env.MINIO_ENDPOINT || 'localhost:9000';
-      const url = `${protocol}://${endpoint}/${process.env.MINIO_BUCKET || 'managecare-files'}/${filename}`;
+      // Return a URL clients can actually reach even when MinIO is private or
+      // its endpoint is only visible inside the server network.
+      const url = await minioPublicClient.presignedGetObject(
+        process.env.MINIO_BUCKET || 'managecare-files',
+        filename,
+        7 * 24 * 60 * 60,
+      );
 
       return res.status(201).json({
         url,
