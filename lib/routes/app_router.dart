@@ -1018,7 +1018,7 @@ class AppRouter {
 
       case Routes.petroleumDashboard:
         return _buildRoute(
-          const GasDashboardScreen(mode: FuelStationMode.gas),
+          const GasDashboardScreen(mode: FuelStationMode.petroleum),
         );
 
       case Routes.petroleumPump:
@@ -1045,7 +1045,12 @@ class AppRouter {
         return _buildRoute(const PumpUploadHistoryScreen());
 
       case Routes.petroleumPumpUploadReview:
-        return _buildRoute(const ManagerPumpUploadReviewScreen());
+        final args = settings.arguments as Map<String, dynamic>?;
+        return _buildRoute(
+          ManagerPumpUploadReviewScreen(
+            initialUploadId: args?['uploadId']?.toString(),
+          ),
+        );
 
       case Routes.petroleumDeclinedPumpUploads:
         return _buildRoute(const WorkerDeclinedPumpUploadsScreen());

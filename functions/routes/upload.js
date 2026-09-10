@@ -26,6 +26,17 @@ const upload = multer({
 });
 
 module.exports = function(pool, minioClient) {
+  const bucketName = process.env.MINIO_BUCKET || 'managecare-files';
+  const publicUrlBase = (() => {
+    if (process.env.MINIO_PUBLIC_ENDPOINT) {
+      const protocol = process.env.MINIO_PUBLIC_USE_SSL === 'true' ? 'https' : 'http';
+      return `${protocol}://${process.env.MINIO_PUBLIC_ENDPOINT}`;
+    }
+    if (process.env.PUBLIC_URL) {
+      return process.env.PUBLIC_URL.replace(/\/$/, '');
+    }
+    return null;
+  })();
 
   // POST /api/upload/:businessId - Upload file
   router.post('/:businessId', upload.single('file'), asyncHandler(async (req, res) => {
@@ -44,17 +55,29 @@ module.exports = function(pool, minioClient) {
     if (minioClient) {
       // Upload to MinIO
       await minioClient.putObject(
-        process.env.MINIO_BUCKET || 'managecare-files',
+        bucketName,
         filename,
         req.file.buffer,
         req.file.size,
         { 'Content-Type': req.file.mimetype }
       );
 
-      // Generate URL
-      const protocol = process.env.MINIO_USE_SSL === 'true' ? 'https' : 'http';
-      const endpoint = process.env.MINIO_ENDPOINT || 'localhost:9000';
-      const url = `${protocol}://${endpoint}/${process.env.MINIO_BUCKET || 'managecare-files'}/${filename}`;
+      let url = null;
+      try {
+        url = await minioClient.presignedGetObject(bucketName, filename, 7 * 24 * 60 * 60);
+      } catch (presignError) {
+        console.warn('[upload] presignedGetObject failed, falling back to public URL:', presignError?.message || presignError);
+      }
+
+      if (!url && publicUrlBase) {
+        url = `${publicUrlBase}/${bucketName}/${filename}`;
+      }
+
+      if (!url) {
+        const protocol = process.env.MINIO_USE_SSL === 'true' ? 'https' : 'http';
+        const endpoint = process.env.MINIO_ENDPOINT || 'localhost:9000';
+        url = `${protocol}://${endpoint}/${bucketName}/${filename}`;
+      }
 
       return res.status(201).json({
         url,

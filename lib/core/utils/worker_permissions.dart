@@ -61,6 +61,8 @@ class WorkerPermissions {
       'view_orders',
       'view_reports',
       'view_low_stock',
+      'access_pump_upload_screen',
+      'review_pump_uploads',
     ],
     'sub_admin': [
       'sales',
@@ -111,6 +113,8 @@ class WorkerPermissions {
       'view_reports',
       'view_low_stock',
       'manage_staff',
+      'access_pump_upload_screen',
+      'review_pump_uploads',
     ],
     'chef': [
       'manage_menu',
@@ -268,6 +272,8 @@ class WorkerPermissions {
       'access_owner_dashboard',
       'access_fuel_stock_screen',
       'access_pump_configuration_screen',
+      'access_pump_upload_screen',
+      'review_pump_uploads',
       'manage_inventory',
       'procurement_management',
       'view_reports',
@@ -293,6 +299,8 @@ class WorkerPermissions {
       'access_owner_dashboard': 'Owner Dashboard',
       'access_fuel_stock_screen': 'Fuel Stock Screen',
       'access_pump_configuration_screen': 'Pump Configuration Screen',
+      'access_pump_upload_screen': 'Pump Upload Screen',
+      'review_pump_uploads': 'Review Pump Uploads',
       'attendance': 'Attendance',
       'payroll_view': 'Payroll View',
       'apply_discount': 'Apply Discount',
@@ -429,6 +437,19 @@ class WorkerPermissions {
       _fullAccessRoles.contains(normalizeRole(role)) ||
       normalizeRole(role) == 'manager' ||
       normalizeRole(role) == 'fuel_manager';
+
+  static bool canAccessPumpUploadsForUser(
+    String role,
+    List<String> permissions,
+  ) =>
+      hasEffectivePermission(role, permissions, 'access_pump_upload_screen') ||
+      hasEffectivePermission(role, permissions, 'review_pump_uploads');
+
+  static bool canReviewPumpUploadsForUser(
+    String role,
+    List<String> permissions,
+  ) =>
+      hasEffectivePermission(role, permissions, 'review_pump_uploads');
 
   static bool canApplyDiscount(String role) {
     final normalizedRole = normalizeRole(role);

@@ -30,6 +30,7 @@ class _PetroleumCashTrackingScreenState
   List<Map<String, dynamic>> _cashEntries = [];
   List<Map<String, dynamic>> _bankDeposits = [];
   List<Map<String, dynamic>> _adminSubmissions = [];
+  List<Map<String, dynamic>> _correctionLog = [];
 
   @override
   void initState() {
@@ -51,6 +52,108 @@ class _PetroleumCashTrackingScreenState
         role == 'sub_admin' ||
         role == 'manager' ||
         role == 'fuel_manager';
+  }
+
+  bool _canCorrectTotals(dynamic user) {
+    final role = WorkerPermissions.normalizeRole(user?.role ?? '');
+    return user?.isOwner == true ||
+        role == 'owner' ||
+        role == 'admin' ||
+        role == 'sub_admin';
+  }
+
+  Future<void> _editTotals() async {
+    final user = context.read<AuthProvider>().currentUser;
+    if (!_canCorrectTotals(user)) return;
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return;
+
+    final fields = <String, String>{
+      'cash_income': 'Pump Cash',
+      'pos_income': 'POS/Transfer',
+      'total_bank_deposits': 'Bank Deposits',
+      'total_admin_submissions': 'Admin Cash',
+      'balance_cash_at_hand': 'Cash At Hand',
+    };
+    final controllers = <String, TextEditingController>{
+      for (final field in fields.keys)
+        field: TextEditingController(
+          text: _amount(_summary[field]).toStringAsFixed(2),
+        ),
+    };
+    final noteController = TextEditingController(
+      text: _summary['correction_note']?.toString() ?? '',
+    );
+
+    try {
+      final save = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Correct cash totals'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final entry in fields.entries) ...[
+                  TextField(
+                    controller: controllers[entry.key],
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: const [AmountInputFormatter()],
+                    decoration: InputDecoration(labelText: entry.value),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                TextField(
+                  controller: noteController,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: 'Correction note',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Save correction'),
+            ),
+          ],
+        ),
+      );
+      if (save != true) return;
+
+      await ManagecareApiClient.instance.put(
+        '/api/pumps/$businessId/cash-summary/correction',
+        body: {
+          for (final entry in controllers.entries)
+            entry.key: _amount(entry.value.text),
+          'note': noteController.text.trim(),
+          'corrected_by': user?.id,
+          'corrected_by_name': user?.fullName ?? user?.email,
+        },
+      );
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cash totals correction saved')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to correct cash totals: $error')),
+      );
+    } finally {
+      for (final controller in controllers.values) {
+        controller.dispose();
+      }
+      noteController.dispose();
+    }
   }
 
   Future<void> _recordAdminSubmission() async {
@@ -257,6 +360,9 @@ class _PetroleumCashTrackingScreenState
         '/api/pumps/$businessId/admin-cash-submissions',
         query: {'limit': '100'},
       );
+      final correctionLog = await ManagecareApiClient.instance.get(
+        '/api/pumps/$businessId/cash-summary/correction-log',
+      );
       if (!mounted) return;
       setState(() {
         _summary = Map<String, dynamic>.from(summary as Map);
@@ -266,6 +372,8 @@ class _PetroleumCashTrackingScreenState
             ((deposits['data'] as List?) ?? []).cast<Map<String, dynamic>>();
         _adminSubmissions =
             ((admin['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        _correctionLog = ((correctionLog['data'] as List?) ?? [])
+          .cast<Map<String, dynamic>>();
         _loading = false;
       });
     } catch (error) {
@@ -301,6 +409,12 @@ class _PetroleumCashTrackingScreenState
             icon: const Icon(Icons.admin_panel_settings_outlined),
             onPressed: _recordAdminSubmission,
           ),
+          if (_canCorrectTotals(context.watch<AuthProvider>().currentUser))
+            IconButton(
+              tooltip: 'Correct totals',
+              icon: const Icon(Icons.edit_note_outlined),
+              onPressed: _editTotals,
+            ),
           IconButton(
             tooltip: 'Download CSV',
             icon: const Icon(Icons.download_outlined),
@@ -350,6 +464,35 @@ class _PetroleumCashTrackingScreenState
                       ),
                     ],
                   ),
+                  if (_summary['correction_note']?.toString().isNotEmpty == true)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Admin correction: ${_summary['correction_note']}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                  if (_correctionLog.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    _SectionTitle('Cash Total Edit History'),
+                    ..._correctionLog.map(
+                      (entry) => ListTile(
+                        leading: const Icon(Icons.history),
+                        title: Text(
+                          '${entry['corrected_by_name'] ?? 'Admin'} • ${entry['corrected_at'] ?? ''}',
+                        ),
+                        subtitle: Text(
+                          'Cash ${currency.format(_amount(entry['cash_income_before']))} → ${currency.format(_amount(entry['cash_income_after']))}\n'
+                          'Bank ${currency.format(_amount(entry['total_bank_deposits_before']))} → ${currency.format(_amount(entry['total_bank_deposits_after']))}\n'
+                          '${entry['note'] ?? ''}',
+                        ),
+                        isThreeLine: true,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 24),
                   _SectionTitle('Approved Pump Cash Income'),
                   ..._cashEntries.map(

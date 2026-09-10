@@ -80,7 +80,13 @@ module.exports = function(pool) {
     const { businessId } = req.params;
     const { pumpId, from, to, isDisputed, status, workerId, limit } = req.query;
 
-    let query = 'SELECT * FROM pump_daily_uploads WHERE business_id = $1';
+    let query = `SELECT p.*,
+                        EXISTS (
+                          SELECT 1 FROM pump_upload_adjustments a
+                          WHERE a.upload_id = p.id
+                            AND (a.action = 'adjusted' OR a.changes <> '[]'::jsonb)
+                        ) AS has_edits
+                 FROM pump_daily_uploads p WHERE p.business_id = $1`;
     const params = [businessId];
     let paramIndex = 2;
     if (pumpId) { query += ` AND pump_id = $${paramIndex++}`; params.push(pumpId); }
@@ -253,7 +259,38 @@ module.exports = function(pool) {
       }
 
       const merged = mergeReviewUpdates(existing, updates || {});
-      const soldVolume = Number.parseFloat(merged.sold_volume) || 0;
+      const reviewChanges = [];
+      for (const field of [
+        'opening_volume', 'closing_volume', 'analog_opening_volume',
+        'analog_closing_volume', 'shift_opening_cash', 'shift_close_cash',
+        'cash_amount', 'pos_amount', 'total_paid', 'product_price',
+      ]) {
+        const before = Number.parseFloat(existing[field]) || 0;
+        const after = Number.parseFloat(merged[field]) || 0;
+        if (Math.abs(before - after) >= 0.001) {
+          reviewChanges.push({ field: toCamel(field), oldValue: before, newValue: after });
+        }
+      }
+      for (const field of ['pump_number', 'product_name', 'product_unit']) {
+        if (existing[field] !== merged[field]) {
+          reviewChanges.push({
+            field: toCamel(field),
+            oldValue: existing[field],
+            newValue: merged[field],
+          });
+        }
+      }
+      if (JSON.stringify(existing.cash_breakdown || []) !==
+          JSON.stringify(merged.cash_breakdown || [])) {
+        reviewChanges.push({
+          field: 'cashBreakdown',
+          oldValue: existing.cash_breakdown || [],
+          newValue: merged.cash_breakdown || [],
+        });
+      }
+      const cashDifference = Math.max(0, (Number.parseFloat(merged.shift_close_cash) || 0) - (Number.parseFloat(merged.shift_opening_cash) || 0));
+      const productPrice = Number.parseFloat(merged.product_price) || 0;
+      const soldVolume = productPrice > 0 ? cashDifference / productPrice : 0;
       const totalPaid = Number.parseFloat(merged.total_paid) || 0;
       const cashAmount = Number.parseFloat(merged.cash_amount) || 0;
       const posAmount = Number.parseFloat(merged.pos_amount) || 0;
@@ -339,19 +376,24 @@ module.exports = function(pool) {
 
       const uploadResult = await client.query(
         `UPDATE pump_daily_uploads SET
-           opening_volume = $1, closing_volume = $2, digital_volume = $3, volume_difference = $3,
-           analog_opening_volume = $4, analog_closing_volume = $5, sold_volume = $6,
-           cash_derived_volume = $6, expected_amount = $7, shift_opening_cash = $8,
-           shift_close_cash = $9, shift_cash_difference = $10, today_pump_cash = $11,
-           cash_amount = $11, pos_amount = $12, total_paid = $13,
-           cash_breakdown = COALESCE($14::jsonb, '[]'::jsonb),
-           status = 'approved', reviewed_at = NOW(), reviewed_by = $15,
-           reviewed_by_name = $16, review_note = $17, approved_sale_id = $18,
-           sale_id = $18, approved_stock_deduction_applied = true, is_disputed = false,
+           pump_number = $1, product_name = $2, product_unit = $3, product_price = $4,
+           opening_volume = $5, closing_volume = $6, digital_volume = $7, volume_difference = $7,
+           analog_opening_volume = $8, analog_closing_volume = $9, sold_volume = $10,
+           cash_derived_volume = $10, expected_amount = $11, shift_opening_cash = $12,
+           shift_close_cash = $13, shift_cash_difference = $14, today_pump_cash = $15,
+           cash_amount = $15, pos_amount = $16, total_paid = $17,
+           cash_breakdown = COALESCE($18::jsonb, '[]'::jsonb),
+           status = 'approved', reviewed_at = NOW(), reviewed_by = $19,
+           reviewed_by_name = $20, review_note = $21, approved_sale_id = $22,
+           sale_id = $22, approved_stock_deduction_applied = true, is_disputed = false,
            updated_at = NOW()
-         WHERE id = $19 AND business_id = $20
+         WHERE id = $23 AND business_id = $24
          RETURNING *`,
         [
+          merged.pump_number || null,
+          merged.product_name || null,
+          merged.product_unit || null,
+          productPrice,
           merged.opening_volume || 0,
           merged.closing_volume || 0,
           merged.digital_volume || 0,
@@ -377,9 +419,10 @@ module.exports = function(pool) {
 
       await client.query(
         `INSERT INTO pump_upload_adjustments (business_id, upload_id, pump_id, pump_number, product_name, uploaded_at, action, changes, note, adjusted_by, adjusted_by_name)
-         VALUES ($1, $2, $3, $4, $5, $6, 'approved', '[]'::jsonb, $7, $8, $9)`,
+         VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7::jsonb, $8, $9, $10)`,
         [businessId, id, merged.pump_id, merged.pump_number, merged.product_name, merged.uploaded_at,
-         note || null, asUuidOrNull(reviewed_by), reviewed_by_name || null]
+          JSON.stringify(reviewChanges), note || null, asUuidOrNull(reviewed_by), reviewed_by_name || null,
+        ]
       );
 
       await client.query('COMMIT');
@@ -507,6 +550,7 @@ module.exports = function(pool) {
       const shiftCashDifference = parseFloat(merged.shift_close_cash) - parseFloat(merged.shift_opening_cash);
       const expectedAmount = Math.max(0, Math.round(shiftCashDifference * 100) / 100);
       const totalPaid = parseFloat(merged.cash_amount) + parseFloat(merged.pos_amount);
+      const soldVolume = Math.max(0, parseFloat(merged.shift_close_cash) - parseFloat(merged.shift_opening_cash)) * (parseFloat(merged.product_price) || 0);
 
       const result = await client.query(
         `UPDATE pump_daily_uploads SET
@@ -517,7 +561,7 @@ module.exports = function(pool) {
          WHERE id = $14 AND business_id = $15
          RETURNING *`,
         [merged.shift_opening_cash, merged.shift_close_cash, merged.opening_volume, merged.closing_volume,
-         merged.analog_opening_volume, merged.analog_closing_volume, merged.sold_volume, merged.cash_amount, merged.pos_amount,
+         merged.analog_opening_volume, merged.analog_closing_volume, soldVolume, merged.cash_amount, merged.pos_amount,
          digitalVolume, shiftCashDifference, expectedAmount, totalPaid, id, businessId]
       );
       const upload = result.rows[0];
@@ -701,10 +745,121 @@ module.exports = function(pool) {
       ...(admin.rows[0] || {}),
     };
     const cashIncome = Number.parseFloat(row.cash_income) || 0;
+    const posIncome = Number.parseFloat(row.pos_income) || 0;
     const bankDeposits = Number.parseFloat(row.total_bank_deposits) || 0;
     const adminSubmissions = Number.parseFloat(row.total_admin_submissions) || 0;
-    row.balance_cash_at_hand = cashIncome - bankDeposits - adminSubmissions;
+    const rawBalance = cashIncome - bankDeposits - adminSubmissions;
+    row.balance_cash_at_hand = rawBalance;
+    const correction = await pool.query(
+      `SELECT * FROM petroleum_cash_total_corrections
+       WHERE business_id = $1 LIMIT 1`,
+      [businessId]
+    );
+    if (correction.rows.length > 0) {
+      const saved = correction.rows[0];
+      const correctedCash = Number.parseFloat(saved.cash_income) || 0;
+      const correctedPos = Number.parseFloat(saved.pos_income) || 0;
+      const correctedDeposits = Number.parseFloat(saved.total_bank_deposits) || 0;
+      const correctedAdmin = Number.parseFloat(saved.total_admin_submissions) || 0;
+      row.cash_income = correctedCash + cashIncome - (Number.parseFloat(saved.base_cash_income) || 0);
+      row.pos_income = correctedPos + posIncome - (Number.parseFloat(saved.base_pos_income) || 0);
+      row.total_bank_deposits = correctedDeposits + bankDeposits - (Number.parseFloat(saved.base_total_bank_deposits) || 0);
+      row.total_admin_submissions = correctedAdmin + adminSubmissions - (Number.parseFloat(saved.base_total_admin_submissions) || 0);
+      row.balance_cash_at_hand = row.cash_income - row.total_bank_deposits - row.total_admin_submissions;
+      row.correction_note = saved.note;
+      row.corrected_by_name = saved.corrected_by_name;
+      row.corrected_at = saved.corrected_at;
+    }
     res.json(row);
+  }));
+
+  router.put('/:businessId/cash-summary/correction', requireCashTotalsAdmin, asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const b = req.body || {};
+    const fields = [
+      'cash_income', 'pos_income', 'total_bank_deposits',
+      'total_admin_submissions', 'balance_cash_at_hand',
+    ];
+    const values = fields.map((field) => {
+      const value = Number.parseFloat(b[field]);
+      return Number.isFinite(value) ? value : null;
+    });
+    if (values.some((value) => value === null)) {
+      return res.status(400).json({ error: 'All cash total corrections must be valid numbers' });
+    }
+    const rawTotals = await pool.query(
+      `SELECT
+         COALESCE((SELECT SUM(cash_amount) FROM petroleum_cash_entries WHERE business_id = $1), 0)::DECIMAL(12,2) AS cash_income,
+         COALESCE((SELECT SUM(pos_amount) FROM petroleum_cash_entries WHERE business_id = $1), 0)::DECIMAL(12,2) AS pos_income,
+         COALESCE((SELECT SUM(amount) FROM petroleum_bank_deposits WHERE business_id = $1), 0)::DECIMAL(12,2) AS total_bank_deposits,
+         COALESCE((SELECT SUM(amount) FROM petroleum_admin_cash_submissions WHERE business_id = $1), 0)::DECIMAL(12,2) AS total_admin_submissions`,
+      [businessId]
+    );
+    const raw = rawTotals.rows[0] || {};
+    const current = await pool.query(
+      `SELECT * FROM petroleum_cash_total_corrections WHERE business_id = $1 LIMIT 1`,
+      [businessId]
+    );
+    const previous = current.rows[0] || {};
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `INSERT INTO petroleum_cash_total_correction_log (
+           business_id, cash_income_before, cash_income_after,
+           pos_income_before, pos_income_after, total_bank_deposits_before,
+           total_bank_deposits_after, total_admin_submissions_before,
+           total_admin_submissions_after, balance_cash_at_hand_before,
+           balance_cash_at_hand_after, note, corrected_by, corrected_by_name
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [businessId, previous.cash_income || 0, values[0], previous.pos_income || 0, values[1],
+         previous.total_bank_deposits || 0, values[2], previous.total_admin_submissions || 0,
+         values[3], previous.balance_cash_at_hand || 0, values[4], b.note || null,
+         asUuidOrNull(b.corrected_by), b.corrected_by_name || null]
+      );
+      const result = await client.query(
+        `INSERT INTO petroleum_cash_total_corrections (
+         business_id, cash_income, pos_income, total_bank_deposits,
+         total_admin_submissions, balance_cash_at_hand, note,
+         corrected_by, corrected_by_name, base_cash_income, base_pos_income,
+         base_total_bank_deposits, base_total_admin_submissions
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       ON CONFLICT (business_id) DO UPDATE SET
+         cash_income = EXCLUDED.cash_income,
+         pos_income = EXCLUDED.pos_income,
+         total_bank_deposits = EXCLUDED.total_bank_deposits,
+         total_admin_submissions = EXCLUDED.total_admin_submissions,
+         balance_cash_at_hand = EXCLUDED.balance_cash_at_hand,
+         note = EXCLUDED.note,
+         corrected_by = EXCLUDED.corrected_by,
+         corrected_by_name = EXCLUDED.corrected_by_name,
+         base_cash_income = EXCLUDED.base_cash_income,
+         base_pos_income = EXCLUDED.base_pos_income,
+         base_total_bank_deposits = EXCLUDED.base_total_bank_deposits,
+         base_total_admin_submissions = EXCLUDED.base_total_admin_submissions,
+         corrected_at = NOW()
+       RETURNING *`,
+        [businessId, ...values, b.note || null, asUuidOrNull(b.corrected_by), b.corrected_by_name || null,
+         raw.cash_income || 0, raw.pos_income || 0, raw.total_bank_deposits || 0,
+         raw.total_admin_submissions || 0]
+      );
+      await client.query('COMMIT');
+      res.json(result.rows[0]);
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }));
+
+  router.get('/:businessId/cash-summary/correction-log', asyncHandler(async (req, res) => {
+    const result = await pool.query(
+      `SELECT * FROM petroleum_cash_total_correction_log
+       WHERE business_id = $1 ORDER BY corrected_at DESC LIMIT 200`,
+      [req.params.businessId]
+    );
+    res.json({ data: result.rows });
   }));
 
   router.get('/:businessId/admin-cash-submissions', asyncHandler(async (req, res) => {
@@ -776,6 +931,14 @@ function requirePumpReviewManager(req, res, next) {
     return next();
   }
   return res.status(403).json({ error: 'Only managers can review pump uploads' });
+}
+
+function requireCashTotalsAdmin(req, res, next) {
+  const membership = req.businessMembership || {};
+  const role = (membership.role || req.user?.role || '').toString().toLowerCase();
+  const allowed = new Set(['owner', 'admin', 'sub_admin']);
+  if (membership.is_owner || allowed.has(role)) return next();
+  return res.status(403).json({ error: 'Only admins can correct cash totals' });
 }
 
 function ifPositive(method, amount) {

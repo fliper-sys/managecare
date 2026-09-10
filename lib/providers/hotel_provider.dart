@@ -482,16 +482,18 @@ class HotelProvider extends ChangeNotifier {
     return 'registered';
   }
 
-  double getGuestTierDiscountRate({
-    String guestName = '',
-    String guestEmail = '',
-    String guestPhone = '',
+  String _tierForMetrics({
+    required int reservationCount,
+    required double totalSpend,
   }) {
-    switch (getGuestTier(
-      guestName: guestName,
-      guestEmail: guestEmail,
-      guestPhone: guestPhone,
-    )) {
+    if (reservationCount >= 10 || totalSpend >= 500000) return 'vip';
+    if (reservationCount >= 5 || totalSpend >= 250000) return 'gold';
+    if (reservationCount >= 2 || totalSpend >= 100000) return 'silver';
+    return 'registered';
+  }
+
+  double _discountRateForTier(String tier) {
+    switch (tier) {
       case 'vip':
         return 0.15;
       case 'gold':
@@ -503,6 +505,18 @@ class HotelProvider extends ChangeNotifier {
       default:
         return 0.0;
     }
+  }
+
+  double getGuestTierDiscountRate({
+    String guestName = '',
+    String guestEmail = '',
+    String guestPhone = '',
+  }) {
+    return _discountRateForTier(getGuestTier(
+      guestName: guestName,
+      guestEmail: guestEmail,
+      guestPhone: guestPhone,
+    ));
   }
 
   double calculateTieredHospitalityPrice(
@@ -521,19 +535,14 @@ class HotelProvider extends ChangeNotifier {
   }
 
   Map<String, dynamic> buildGuestSummary(Map<String, dynamic> guest) {
-    final tier = getGuestTier(
-      guestName: (guest['guestName'] ?? '').toString(),
-      guestEmail: (guest['guestEmail'] ?? '').toString(),
-      guestPhone: (guest['guestPhone'] ?? '').toString(),
+    final tier = _tierForMetrics(
+      reservationCount: (guest['reservationCount'] as num?)?.toInt() ?? 0,
+      totalSpend: (guest['totalSpend'] as num?)?.toDouble() ?? 0.0,
     );
     return {
       ...guest,
       'guestTier': tier,
-      'tierDiscountRate': getGuestTierDiscountRate(
-        guestName: (guest['guestName'] ?? '').toString(),
-        guestEmail: (guest['guestEmail'] ?? '').toString(),
-        guestPhone: (guest['guestPhone'] ?? '').toString(),
-      ),
+      'tierDiscountRate': _discountRateForTier(tier),
     };
   }
 

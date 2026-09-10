@@ -21,7 +21,6 @@ class PetroleumBankDepositScreen extends StatefulWidget {
 class _PetroleumBankDepositScreenState
     extends State<PetroleumBankDepositScreen> {
   final _depositorController = TextEditingController();
-  final _amountController = TextEditingController();
   final _depositedCashController = TextEditingController();
   final _balanceCashController = TextEditingController();
   final _bankController = TextEditingController();
@@ -44,7 +43,6 @@ class _PetroleumBankDepositScreenState
   @override
   void dispose() {
     _depositorController.dispose();
-    _amountController.dispose();
     _depositedCashController.dispose();
     _balanceCashController.dispose();
     _bankController.dispose();
@@ -122,13 +120,13 @@ class _PetroleumBankDepositScreenState
 
   Future<void> _saveDeposit() async {
     final businessId = _businessId();
-    final amount = _readAmount(_amountController.text);
+    final amount = _readAmount(_depositedCashController.text);
     if (businessId.isEmpty ||
         _depositorController.text.trim().isEmpty ||
         _bankController.text.trim().isEmpty ||
         amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter depositor, amount and bank')),
+        const SnackBar(content: Text('Enter depositor, deposited cash and bank')),
       );
       return;
     }
@@ -144,9 +142,7 @@ class _PetroleumBankDepositScreenState
           'deposit_time':
               '${_depositTime.hour.toString().padLeft(2, '0')}:${_depositTime.minute.toString().padLeft(2, '0')}',
           'amount': amount,
-          'deposited_cash_entry': _readAmount(_depositedCashController.text) > 0
-              ? _readAmount(_depositedCashController.text)
-              : amount,
+            'deposited_cash_entry': amount,
           'balance_cash_at_hand': _readAmount(_balanceCashController.text),
           'bank_name': _bankController.text.trim(),
           'account_number': _accountNumberController.text.trim(),
@@ -157,7 +153,6 @@ class _PetroleumBankDepositScreenState
         },
       );
       _depositorController.clear();
-      _amountController.clear();
       _depositedCashController.clear();
       _balanceCashController.clear();
       _bankController.clear();
@@ -210,21 +205,11 @@ class _PetroleumBankDepositScreenState
             ),
             const SizedBox(height: 12),
             TextField(
-              controller: _amountController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: const [AmountInputFormatter()],
-              decoration: const InputDecoration(
-                labelText: 'Amount deposited',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
               controller: _depositedCashController,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: const [AmountInputFormatter()],
               decoration: const InputDecoration(
-                labelText: 'Deposited cash entry',
+                labelText: 'Deposited cash amount',
                 border: OutlineInputBorder(),
               ),
             ),

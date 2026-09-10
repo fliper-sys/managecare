@@ -27,6 +27,28 @@ const upload = multer({
 });
 
 module.exports = function(pool, minioClient, minioPublicClient = minioClient) {
+  const publicClient = minioPublicClient || minioClient;
+  const bucketName = process.env.MINIO_BUCKET || 'managecare-files';
+  const publicUrlBase = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+  let bucketReady;
+
+  const ensureBucket = async () => {
+    if (!minioClient) return;
+    if (!bucketReady) {
+      bucketReady = (async () => {
+        const exists = await minioClient.bucketExists(bucketName);
+        if (!exists) {
+          await minioClient.makeBucket(bucketName);
+          console.log('[MinIO] Created bucket', bucketName);
+        }
+      })().catch((error) => {
+        bucketReady = undefined;
+        throw error;
+      });
+    }
+    await bucketReady;
+  };
+
   router.use('/:businessId', requireBusinessMembership(pool));
 
   // POST /api/upload/:businessId - Upload file
@@ -44,22 +66,22 @@ module.exports = function(pool, minioClient, minioPublicClient = minioClient) {
     const filename = `${businessId}/${folder || 'uploads'}/${timestamp}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
 
     if (minioClient) {
+      await ensureBucket();
       // Upload to MinIO
       await minioClient.putObject(
-        process.env.MINIO_BUCKET || 'managecare-files',
+        bucketName,
         filename,
         req.file.buffer,
         req.file.size,
         { 'Content-Type': req.file.mimetype }
       );
 
-      // Return a URL clients can actually reach even when MinIO is private or
-      // its endpoint is only visible inside the server network.
-      const url = await minioPublicClient.presignedGetObject(
-        process.env.MINIO_BUCKET || 'managecare-files',
-        filename,
-        7 * 24 * 60 * 60,
-      );
+      // Keep MinIO private and let the API proxy the object for browser
+      // clients. A presigned URL generated against the API hostname only
+      // works when that hostname is actually routed to MinIO's S3 port.
+      const url = publicUrlBase
+        ? `${publicUrlBase}/api/public-files?bucket=${encodeURIComponent(bucketName)}&key=${encodeURIComponent(filename)}`
+        : null;
 
       return res.status(201).json({
         url,

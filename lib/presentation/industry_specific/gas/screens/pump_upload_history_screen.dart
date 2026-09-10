@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/utils/amount_formatter.dart';
+import '../../../../core/constants/routes.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
@@ -557,24 +558,20 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     }
   }
 
-  Widget _buildStatusChip(String status) {
+  Widget _buildStatusButton(String status, VoidCallback? onPressed) {
     final color = _statusColor(status);
-    return Container(
-      margin: const EdgeInsets.only(left: 8),
-      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.35)),
-      ),
-      child: Text(
-        _statusLabel(status),
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+    final icon = switch (status) {
+      'approved' => Icons.check_circle_outline,
+      'declined' => Icons.cancel_outlined,
+      'faulty' => Icons.warning_amber_outlined,
+      'resubmitted' => Icons.replay_circle_filled_outlined,
+      _ => Icons.pending_actions_outlined,
+    };
+    return IconButton(
+      onPressed: onPressed,
+      tooltip: _statusLabel(status),
+      color: color,
+      icon: Icon(icon),
     );
   }
 
@@ -1084,7 +1081,30 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                             ),
                                           ),
                                         ),
-                                      _buildStatusChip(status),
+                                      if (data['hasEdits'] == true)
+                                        const Padding(
+                                          padding: EdgeInsets.only(left: 6),
+                                          child: Tooltip(
+                                            message: 'Edited during manager review',
+                                            child: Icon(
+                                              Icons.edit_note_outlined,
+                                              size: 18,
+                                              color: Colors.blueGrey,
+                                            ),
+                                          ),
+                                        ),
+                                      _buildStatusButton(
+                                        status,
+                                        status == 'pending_review'
+                                            ? () => Navigator.pushNamed(
+                                                  context,
+                                                  Routes.petroleumPumpUploadReview,
+                                                  arguments: {
+                                                    'uploadId': data['id'],
+                                                  },
+                                                )
+                                            : null,
+                                      ),
                                     ],
                                   ),
                                   subtitle: Text(
@@ -1093,8 +1113,9 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                         : '${DateFormat.yMd().add_jm().format(uploadedAt)}\nOperator: ${data['workerName'] ?? 'N/A'}',
                                   ),
                                   trailing: SizedBox(
-                                    width: 150,
+                                    width: 112,
                                     child: Column(
+                                      mainAxisSize: MainAxisSize.min,
                                       mainAxisAlignment:
                                           MainAxisAlignment.center,
                                       crossAxisAlignment:
@@ -1128,26 +1149,6 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                               fontSize: 12,
                                               color: Colors.black54),
                                         ),
-                                        if (cashBreakdownSummary
-                                            .isNotEmpty) ...[
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            cashBreakdownSummary,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            textAlign: TextAlign.right,
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.black87,
-                                            ),
-                                          ),
-                                          const Text(
-                                            'Cash breakdown',
-                                            style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.black54),
-                                          ),
-                                        ],
                                       ],
                                     ),
                                   ),
@@ -1191,6 +1192,10 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                           Text(
                                             'Expected cash: ${formatAmount(expectedAmount, decimalDigits: 2)}',
                                           ),
+                                          if (cashBreakdownSummary.isNotEmpty)
+                                            Text(
+                                              'Cash breakdown: $cashBreakdownSummary',
+                                            ),
                                           if (todayPumpCash > 0)
                                             Text(
                                               'Pump cash: ${_readCurrencyValue(todayPumpCash)}',
@@ -1405,12 +1410,12 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.start,
                                               children: [
-                                                const Text('Closing image'),
+                                                const Text('Opening image'),
                                                 const SizedBox(height: 4),
                                                 GestureDetector(
                                                   onTap: () => _showImageDialog(
                                                     openingUrl,
-                                                    'Closing image',
+                                                    'Opening image',
                                                   ),
                                                   child: ClipRRect(
                                                     borderRadius:
@@ -1443,12 +1448,12 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                                   CrossAxisAlignment.start,
                                               children: [
                                                 const SizedBox(height: 12),
-                                                const Text('Opening image'),
+                                                const Text('Closing image'),
                                                 const SizedBox(height: 4),
                                                 GestureDetector(
                                                   onTap: () => _showImageDialog(
                                                     closingUrl,
-                                                    'Opening image',
+                                                    'Closing image',
                                                   ),
                                                   child: ClipRRect(
                                                     borderRadius:

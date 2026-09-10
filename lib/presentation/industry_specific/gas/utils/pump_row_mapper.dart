@@ -81,6 +81,7 @@ Map<String, dynamic> pumpUploadRowToJson(Map<String, dynamic> row) => {
       'uploadedAt': row['uploaded_at'],
       'createdAt': row['created_at'],
       'category': row['category'],
+      'hasEdits': row['has_edits'] == true,
     };
 
 Map<String, dynamic> pumpUploadAdjustmentRowToJson(Map<String, dynamic> row) => {

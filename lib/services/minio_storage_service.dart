@@ -47,16 +47,21 @@ class MinioStorageService {
       lastError = 'File not found: ${file.path}';
       return null;
     }
-    final bytes = await file.readAsBytes();
-    final filename = file.path.split('/').last;
-    return uploadBytes(
-      bytes: bytes,
-      filename: filename,
-      businessId: businessId,
-      folder: folder,
-      onProgress: onProgress,
-      retries: retries,
-    );
+    try {
+      final bytes = await file.readAsBytes();
+      final filename = file.path.split('/').last;
+      return uploadBytes(
+        bytes: bytes,
+        filename: filename,
+        businessId: businessId,
+        folder: folder,
+        onProgress: onProgress,
+        retries: retries,
+      );
+    } catch (error) {
+      lastError = 'Unable to read image file: $error';
+      return null;
+    }
   }
 
   /// Upload raw bytes and return the public URL.

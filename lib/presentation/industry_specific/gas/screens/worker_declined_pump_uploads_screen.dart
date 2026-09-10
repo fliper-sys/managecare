@@ -23,7 +23,7 @@ class _WorkerDeclinedPumpUploadsScreenState
 
   Stream<List<Map<String, dynamic>>> _uploadStatuses(
     String businessId,
-    String workerId,
+    String? workerId,
   ) async* {
     while (true) {
       try {
@@ -43,12 +43,16 @@ class _WorkerDeclinedPumpUploadsScreenState
 
   Future<List<Map<String, dynamic>>> _fetchByStatus(
     String businessId,
-    String workerId,
+    String? workerId,
     String status,
   ) async {
     final response = await ManagecareApiClient.instance.get(
       '/api/pumps/$businessId/uploads',
-      query: {'status': status, 'workerId': workerId, 'limit': '100'},
+      query: {
+        'status': status,
+        if (workerId != null && workerId.isNotEmpty) 'workerId': workerId,
+        'limit': '100',
+      },
     );
     final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
     return rows.map(pumpUploadRowToJson).toList();
@@ -74,7 +78,11 @@ class _WorkerDeclinedPumpUploadsScreenState
     final user = context.watch<AuthProvider>().currentUser;
     final workerId = user?.id ?? '';
     final role = WorkerPermissions.normalizeRole(user?.role ?? '');
-    final canViewStatus = role == 'pump_operator';
+    final hasStationManagementAccess = user?.isOwner == true ||
+      ['owner', 'admin', 'sub_admin', 'manager', 'fuel_manager']
+        .contains(role);
+    final canViewStatus = role == 'pump_operator' || hasStationManagementAccess;
+    final queryWorkerId = role == 'pump_operator' ? workerId : null;
     final dateFormat = DateFormat.yMMMd().add_jm();
 
     return Scaffold(
@@ -83,10 +91,11 @@ class _WorkerDeclinedPumpUploadsScreenState
           ? const Center(
               child: Text('Only pump operators can view upload status'),
             )
-          : businessId == null || businessId.isEmpty || workerId.isEmpty
-          ? const Center(child: Text('No worker/business selected'))
+            : businessId == null || businessId.isEmpty ||
+                (role == 'pump_operator' && workerId.isEmpty)
+            ? const Center(child: Text('No worker/business selected'))
           : StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _uploadStatuses(businessId, workerId),
+              stream: _uploadStatuses(businessId, queryWorkerId),
               builder: (context, snapshot) {
                 final rows = snapshot.data ?? [];
                 if (snapshot.connectionState == ConnectionState.waiting &&

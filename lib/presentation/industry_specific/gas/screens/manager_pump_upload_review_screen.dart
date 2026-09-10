@@ -9,7 +9,9 @@ import '../../../../services/managecare_api_client.dart';
 import '../utils/pump_row_mapper.dart';
 
 class ManagerPumpUploadReviewScreen extends StatefulWidget {
-  const ManagerPumpUploadReviewScreen({super.key});
+  const ManagerPumpUploadReviewScreen({super.key, this.initialUploadId});
+
+  final String? initialUploadId;
 
   @override
   State<ManagerPumpUploadReviewScreen> createState() =>
@@ -19,6 +21,7 @@ class ManagerPumpUploadReviewScreen extends StatefulWidget {
 class _ManagerPumpUploadReviewScreenState
     extends State<ManagerPumpUploadReviewScreen> {
   static const _pollInterval = Duration(seconds: 15);
+  String? _openedUploadId;
 
   Stream<List<Map<String, dynamic>>> _pendingUploads(String businessId) async* {
     while (true) {
@@ -47,8 +50,123 @@ class _ManagerPumpUploadReviewScreenState
     return DateTime.tryParse(value.toString());
   }
 
+  Widget _cashBreakdown(dynamic raw) {
+    final entries = (raw as List?)
+            ?.whereType<Map>()
+            .map((entry) => Map<String, dynamic>.from(entry))
+            .where((entry) => _readDouble(entry['amount']) > 0)
+            .toList() ??
+        <Map<String, dynamic>>[];
+    if (entries.isEmpty) return const SizedBox.shrink();
+    final total = entries.fold<double>(
+      0,
+      (sum, entry) => sum + _readDouble(entry['amount']),
+    );
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Cash denomination breakdown',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            ...entries.map(
+              (entry) => Text(
+                '${entry['denomination'] ?? ''} x ${entry['pieces'] ?? 0} = ${_readDouble(entry['amount']).toStringAsFixed(2)}',
+              ),
+            ),
+            const Divider(),
+            Text(
+              'Counted cash total: ${total.toStringAsFixed(2)}',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cashBreakdownEditor(
+    dynamic raw,
+    Map<int, Map<String, TextEditingController>> controllers,
+  ) {
+    final entries = (raw as List?)
+            ?.whereType<Map>()
+            .map((entry) => Map<String, dynamic>.from(entry))
+            .where((entry) => _readDouble(entry['denomination']) > 0)
+            .toList() ??
+        <Map<String, dynamic>>[];
+    if (entries.isEmpty) {
+      return const Text('No cash denomination breakdown recorded.');
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Editable cash denomination breakdown',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 6),
+        ...entries.asMap().entries.map((indexed) {
+          final index = indexed.key;
+          final entry = indexed.value;
+          final entryControllers = {
+            'denomination': TextEditingController(
+              text: _readDouble(entry['denomination']).toStringAsFixed(0),
+            ),
+            'pieces': TextEditingController(
+              text: (entry['pieces'] ?? 0).toString(),
+            ),
+            'amount': TextEditingController(
+              text: _readDouble(entry['amount']).toStringAsFixed(2),
+            ),
+          };
+          controllers[index] = entryControllers;
+          return Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: entryControllers['denomination'],
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Denomination'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: entryControllers['pieces'],
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Pieces'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  controller: entryControllers['amount'],
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'Amount'),
+                ),
+              ),
+            ],
+          );
+        }),
+      ],
+    );
+  }
+
   Future<void> _openReview(String businessId, Map<String, dynamic> upload) async {
     final fields = <String, String>{
+      'pump_number': 'Pump number',
+      'product_name': 'Product name',
+      'product_unit': 'Product unit',
+      'product_price': 'Product price',
       'opening_volume': 'Opening volume',
       'closing_volume': 'Closing volume',
       'analog_opening_volume': 'Analog opening volume',
@@ -60,6 +178,10 @@ class _ManagerPumpUploadReviewScreenState
       'pos_amount': 'POS/transfer amount',
     };
     final source = <String, dynamic>{
+      'pump_number': upload['pumpNumber'],
+      'product_name': upload['productName'],
+      'product_unit': upload['productUnit'],
+      'product_price': upload['productPrice'],
       'opening_volume': upload['openingVolume'],
       'closing_volume': upload['closingVolume'],
       'analog_opening_volume': upload['analogOpeningVolume'],
@@ -72,8 +194,28 @@ class _ManagerPumpUploadReviewScreenState
     };
     final controllers = {
       for (final key in fields.keys)
-        key: TextEditingController(text: _readDouble(source[key]).toString())
+        key: TextEditingController(
+          text: key == 'pump_number' ||
+                  key == 'product_name' ||
+                  key == 'product_unit'
+              ? source[key]?.toString() ?? ''
+              : _readDouble(source[key]).toString(),
+        )
     };
+    final breakdownControllers = <int, Map<String, TextEditingController>>{};
+    List<Map<String, dynamic>> adjustments = [];
+    try {
+      final response = await ManagecareApiClient.instance.get(
+        '/api/pumps/$businessId/upload-adjustments',
+        query: {'uploadId': upload['id'], 'limit': '50'},
+      );
+      adjustments = ((response['data'] as List?) ?? [])
+          .whereType<Map>()
+          .map((row) => Map<String, dynamic>.from(row))
+          .toList();
+    } catch (_) {
+      // The review remains usable if the audit endpoint is temporarily unavailable.
+    }
     final noteController = TextEditingController();
     final reasonController = TextEditingController();
 
@@ -86,11 +228,52 @@ class _ManagerPumpUploadReviewScreenState
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                _reviewImage(upload['shiftOpeningCashPhotoUrl'], 'Shift opening cash image'),
+                _reviewImage(upload['shiftCloseCashPhotoUrl'], 'Shift close cash image'),
+                _reviewImage(upload['openingPhotoUrl'], 'Opening pump volume image'),
+                _reviewImage(upload['closingPhotoUrl'], 'Closing pump volume image'),
+                _cashBreakdownEditor(
+                  upload['cashBreakdown'],
+                  breakdownControllers,
+                ),
+                const SizedBox(height: 12),
+                ExpansionTile(
+                  initiallyExpanded: adjustments.isNotEmpty,
+                  title: const Text('Marked review log'),
+                  children: adjustments.isEmpty
+                      ? [
+                          const ListTile(
+                            title: Text('No previous review changes recorded'),
+                          ),
+                        ]
+                      : adjustments.map((adjustment) {
+                          final changes = (adjustment['changes'] as List?)
+                                  ?.whereType<Map>()
+                                  .toList() ??
+                              const <Map>[];
+                          return ListTile(
+                            title: Text(
+                              '${adjustment['action'] ?? 'change'} by ${adjustment['adjusted_by_name'] ?? 'N/A'}',
+                            ),
+                            subtitle: Text(
+                              changes.isEmpty
+                                  ? (adjustment['note']?.toString() ?? '')
+                                  : changes
+                                      .map((change) =>
+                                          '${change['field']}: ${change['oldValue']} -> ${change['newValue']}')
+                                      .join('\n'),
+                            ),
+                          );
+                        }).toList(),
+                ),
                 for (final entry in fields.entries) ...[
                   TextField(
                     controller: controllers[entry.key],
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: entry.key == 'pump_number' ||
+                        entry.key == 'product_name' ||
+                        entry.key == 'product_unit'
+                      ? TextInputType.text
+                      : const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(labelText: entry.value),
                   ),
                   const SizedBox(height: 8),
@@ -139,8 +322,20 @@ class _ManagerPumpUploadReviewScreenState
           body: {
             'updates': {
               for (final entry in controllers.entries)
-                entry.key: double.tryParse(entry.value.text.trim()) ?? 0,
-              'cash_breakdown': upload['cashBreakdown'] ?? [],
+                entry.key: entry.key == 'pump_number' ||
+                        entry.key == 'product_name' ||
+                        entry.key == 'product_unit'
+                    ? entry.value.text.trim()
+                    : double.tryParse(entry.value.text.trim()) ?? 0,
+              'cash_breakdown': [
+                for (final entry in breakdownControllers.entries)
+                  {
+                    'denomination':
+                        double.tryParse(entry.value['denomination']!.text) ?? 0,
+                    'pieces': int.tryParse(entry.value['pieces']!.text) ?? 0,
+                    'amount': double.tryParse(entry.value['amount']!.text) ?? 0,
+                  },
+              ],
             },
             'note': noteController.text.trim(),
             'reviewed_by': auth?.id,
@@ -170,7 +365,6 @@ class _ManagerPumpUploadReviewScreenState
           ),
         ),
       );
-      setState(() {});
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -183,6 +377,38 @@ class _ManagerPumpUploadReviewScreenState
       noteController.dispose();
       reasonController.dispose();
     }
+  }
+
+  Widget _reviewImage(dynamic value, String label) {
+    final url = value?.toString() ?? '';
+    if (url.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          SizedBox(
+            width: 320,
+            height: 140,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                url,
+                width: double.infinity,
+                height: 140,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox(
+                  height: 60,
+                  child: Center(child: Text('Image unavailable')),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -203,6 +429,21 @@ class _ManagerPumpUploadReviewScreenState
               stream: _pendingUploads(businessId),
               builder: (context, snapshot) {
                 final rows = snapshot.data ?? [];
+                final targetId = widget.initialUploadId;
+                if (targetId != null &&
+                    targetId.isNotEmpty &&
+                    _openedUploadId != targetId) {
+                  final target = rows.cast<Map<String, dynamic>?>().firstWhere(
+                        (row) => row?['id']?.toString() == targetId,
+                        orElse: () => null,
+                      );
+                  if (target != null) {
+                    _openedUploadId = targetId;
+                    WidgetsBinding.instance.addPostFrameCallback(
+                      (_) => _openReview(businessId, target),
+                    );
+                  }
+                }
                 if (snapshot.connectionState == ConnectionState.waiting &&
                     rows.isEmpty) {
                   return const Center(child: CircularProgressIndicator());

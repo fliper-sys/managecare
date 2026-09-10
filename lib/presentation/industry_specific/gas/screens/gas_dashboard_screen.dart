@@ -116,7 +116,10 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
         await retail.getFuelSalesHistory(start: start, end: end, limit: 5);
     await _loadUploadCounts(
       businessId: business?.id,
-      workerId: user?.id,
+      workerId: WorkerPermissions.normalizeRole(user?.role ?? '') ==
+          'pump_operator'
+          ? user?.id
+          : null,
     );
 
     final fuelProducts = retail.products.where((p) {
@@ -277,7 +280,7 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
             badge: _pendingReviewCount > 0 ? _pendingReviewCount : null,
             onTap: () =>
                 Navigator.pushNamed(context, Routes.petroleumPumpUploadReview)),
-      if (isPetroleumStation && isPumpOperator)
+      if (isPetroleumStation && (isPumpOperator || hasFullStationAccess))
         _OperationCard(
             title: 'Upload Status',
             icon: Icons.assignment_return_outlined,

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -496,32 +497,61 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     setState(() => _uploadingPhotoKind = kind);
 
     try {
-      final picked = await ImagePicker().pickImage(
-        source: ImageSource.camera,
-        imageQuality: 80,
-        maxWidth: 1600,
-      );
-      if (picked == null) return;
-      if (!kIsWeb) {
-        _setPhotoDraft(kind: kind, path: picked.path);
-      }
-
       String? url;
-      if (kIsWeb) {
-        final bytes = await picked.readAsBytes();
-        final filename = picked.name.isNotEmpty ? picked.name : 'photo.jpg';
-        url = await MinioStorageService().uploadBytes(
-          bytes: bytes,
-          filename: filename,
-          businessId: businessId,
-          folder: 'pump-uploads',
+      if (kIsWeb || (!kIsWeb && Platform.isWindows)) {
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.image,
+          allowMultiple: false,
+          withData: kIsWeb,
         );
+        final file = result?.files.single;
+        if (file == null) return;
+        if (kIsWeb) {
+          final bytes = file.bytes;
+          if (bytes == null || bytes.isEmpty) return;
+          url = await MinioStorageService().uploadBytes(
+            bytes: bytes,
+            filename: file.name,
+            businessId: businessId,
+            folder: 'pump-uploads',
+          );
+        } else {
+          final path = file.path;
+          if (path == null || path.isEmpty) return;
+          _setPhotoDraft(kind: kind, path: path);
+          url = await MinioStorageService().uploadFile(
+            file: File(path),
+            businessId: businessId,
+            folder: 'pump-uploads',
+          );
+        }
       } else {
-        url = await MinioStorageService().uploadFile(
-          file: File(picked.path),
-          businessId: businessId,
-          folder: 'pump-uploads',
+        final picked = await ImagePicker().pickImage(
+          source: ImageSource.camera,
+          imageQuality: 80,
+          maxWidth: 1600,
         );
+        if (picked == null) return;
+        if (!kIsWeb) {
+          _setPhotoDraft(kind: kind, path: picked.path);
+        }
+
+        if (kIsWeb) {
+          final bytes = await picked.readAsBytes();
+          final filename = picked.name.isNotEmpty ? picked.name : 'photo.jpg';
+          url = await MinioStorageService().uploadBytes(
+            bytes: bytes,
+            filename: filename,
+            businessId: businessId,
+            folder: 'pump-uploads',
+          );
+        } else {
+          url = await MinioStorageService().uploadFile(
+            file: File(picked.path),
+            businessId: businessId,
+            folder: 'pump-uploads',
+          );
+        }
       }
       if (!mounted) return;
       if (url == null || url.isEmpty) {
@@ -530,7 +560,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
           SnackBar(
             content: Text(
               uploadError == null || uploadError.isEmpty
-                  ? 'Photo saved locally. It will upload on submit.'
+                  ? 'Photo saved locally. It will upload when connection is available.'
                   : 'Photo saved locally. Upload failed: $uploadError',
             ),
             duration: const Duration(seconds: 5),
@@ -541,10 +571,15 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       _setPhotoDraft(kind: kind, url: url);
     } catch (error) {
       if (!mounted) return;
+      final uploadError = MinioStorageService().lastError;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-              'Photo saved locally. It will upload when connection is available.'),
+            uploadError == null || uploadError.isEmpty
+                ? 'Photo saved locally. Upload failed: $error'
+                : 'Photo saved locally. Upload failed: $uploadError',
+          ),
+          duration: const Duration(seconds: 6),
         ),
       );
     } finally {
@@ -719,7 +754,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     final cashDifference =
         (shiftCloseCash - shiftOpeningCash).clamp(0.0, 999999999.0);
     if (cashDifference <= 0) return 0.0;
-    final volumeFromCash = cashDifference / price;
+    final volumeFromCash = cashDifference * price;
     final roundedVolume = double.parse(volumeFromCash.toStringAsFixed(6));
     if (roundedVolume <= 0) return 0.001;
     return roundedVolume < 0.000001 ? 0.000001 : roundedVolume;

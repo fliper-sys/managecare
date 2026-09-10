@@ -304,6 +304,34 @@ app.use(express.urlencoded({ extended: true }));
 // Raw text parser ONLY for ADMS routes (device sends plain text, not JSON)
 app.use('/iclock', express.text({ type: '*/*' }));
 
+// Public image delivery for browser and Flutter image widgets. Uploads are
+// authenticated, but Image.network cannot attach the app's bearer token.
+app.get('/api/public-files', async (req, res) => {
+  const bucket = req.query.bucket?.toString();
+  const key = req.query.key?.toString();
+  if (!minioClient || !bucket || !key || bucket !== (process.env.MINIO_BUCKET || 'managecare-files')) {
+    return res.status(404).send('File not found');
+  }
+
+  try {
+    const stat = await minioClient.statObject(bucket, key);
+    res.setHeader('Content-Type', stat.metaData?.['content-type'] || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    const objectStream = await minioClient.getObject(bucket, key);
+    objectStream.on('error', (error) => {
+      if (!res.headersSent) res.status(404).send('File not found');
+      else res.destroy(error);
+    });
+    objectStream.pipe(res);
+  } catch (error) {
+    if (error.code === 'NotFound' || error.code === 'NoSuchKey') {
+      return res.status(404).send('File not found');
+    }
+    console.error('[Public files] Failed to read object:', error.message || error);
+    return res.status(500).send('Unable to load file');
+  }
+});
+
 const normalizeEmail = (email) => (email || '').trim().toLowerCase();
 
 function signAccessToken(user, role = 'authenticated') {
