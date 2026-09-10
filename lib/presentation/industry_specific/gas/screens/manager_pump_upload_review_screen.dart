@@ -50,47 +50,6 @@ class _ManagerPumpUploadReviewScreenState
     return DateTime.tryParse(value.toString());
   }
 
-  Widget _cashBreakdown(dynamic raw) {
-    final entries = (raw as List?)
-            ?.whereType<Map>()
-            .map((entry) => Map<String, dynamic>.from(entry))
-            .where((entry) => _readDouble(entry['amount']) > 0)
-            .toList() ??
-        <Map<String, dynamic>>[];
-    if (entries.isEmpty) return const SizedBox.shrink();
-    final total = entries.fold<double>(
-      0,
-      (sum, entry) => sum + _readDouble(entry['amount']),
-    );
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Cash denomination breakdown',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            ...entries.map(
-              (entry) => Text(
-                '${entry['denomination'] ?? ''} x ${entry['pieces'] ?? 0} = ${_readDouble(entry['amount']).toStringAsFixed(2)}',
-              ),
-            ),
-            const Divider(),
-            Text(
-              'Counted cash total: ${total.toStringAsFixed(2)}',
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _cashBreakdownEditor(
     dynamic raw,
     Map<int, Map<String, TextEditingController>> controllers,
@@ -373,6 +332,11 @@ class _ManagerPumpUploadReviewScreenState
     } finally {
       for (final controller in controllers.values) {
         controller.dispose();
+      }
+      for (final entry in breakdownControllers.values) {
+        for (final controller in entry.values) {
+          controller.dispose();
+        }
       }
       noteController.dispose();
       reasonController.dispose();
