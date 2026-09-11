@@ -669,6 +669,20 @@ class _GasPumpScreenState extends State<GasPumpScreen> {
                                       debugPrint('[GasPump] Receipt handling error: $e');
                                     }
 
+                                    if (mounted) {
+                                      setState(() {
+                                        _amountController.clear();
+                                        _qtyController.clear();
+                                        _selectedProductId = null;
+                                        _selectedPumpId = null;
+                                        _selectedPumpNumber = null;
+                                        _selectedPumpName = null;
+                                      });
+                                      if (Navigator.of(context).canPop()) {
+                                        Navigator.of(context).pop();
+                                      }
+                                    }
+
                                     // Stay on the pump screen after completion.
                                     // Receipt and printing are handled by the
                                     // post-sale action sheet above; forcing the

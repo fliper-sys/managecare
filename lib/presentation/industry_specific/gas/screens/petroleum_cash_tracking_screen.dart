@@ -164,9 +164,6 @@ class _PetroleumCashTrackingScreenState
     if (businessId == null || businessId.isEmpty) return;
     final receiverController = TextEditingController();
     final amountController = TextEditingController();
-    final balanceController = TextEditingController(
-      text: _amount(_summary['balance_cash_at_hand']).toStringAsFixed(2),
-    );
     final noteController = TextEditingController();
 
     try {
@@ -191,16 +188,6 @@ class _PetroleumCashTrackingScreenState
                           const TextInputType.numberWithOptions(decimal: true),
                       inputFormatters: const [AmountInputFormatter()],
                       decoration: const InputDecoration(labelText: 'Amount'),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: balanceController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: const [AmountInputFormatter()],
-                      decoration: const InputDecoration(
-                        labelText: 'Balance cash at hand',
-                      ),
                     ),
                     const SizedBox(height: 8),
                     TextField(
@@ -239,7 +226,6 @@ class _PetroleumCashTrackingScreenState
         body: {
           'receiver_name': receiverController.text.trim(),
           'amount': amount,
-          'balance_cash_at_hand': _amount(balanceController.text),
           'note': noteController.text.trim(),
           'submitted_by': user?.id,
           'submitted_by_name': user?.fullName ?? user?.email,
@@ -258,7 +244,6 @@ class _PetroleumCashTrackingScreenState
     } finally {
       receiverController.dispose();
       amountController.dispose();
-      balanceController.dispose();
       noteController.dispose();
     }
   }

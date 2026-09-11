@@ -649,6 +649,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   String? _receiptUploadErrorMessage;
   String? _uploadedReceiptUrl;
   XFile? _receiptImage;
+  String _receiptPaymentMethod = 'cash';
 
   static const List<String> _categories = [
     'utilities',
@@ -888,7 +889,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     }
   }
 
-  void _addSingleExpense(String description, double amount, String category) {
+  void _addSingleExpense(
+    String description,
+    double amount,
+    String category, {
+    String paymentMethod = 'cash',
+  }) {
     if (description.isEmpty || amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill all fields')),
@@ -900,6 +906,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           description: description,
           amount: amount,
           category: category,
+          paymentMethod: paymentMethod,
         );
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -925,6 +932,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               description: entry.description,
               amount: entry.amount,
               category: entry.category,
+            paymentMethod: entry.paymentMethod,
             );
         count++;
       }
@@ -963,6 +971,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             amount: double.parse(_receiptAmountController.text),
             category: 'procurement', // Receipt uploads are typically procurement
             receiptUrl: _uploadedReceiptUrl!,
+            paymentMethod: _receiptPaymentMethod,
           );
 
       if (mounted) {
@@ -1070,6 +1079,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     final descriptionCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
     String selectedCategory = 'utilities';
+    String selectedPaymentMethod = 'cash';
 
     return StatefulBuilder(
       builder: (context, setState) => Column(
@@ -1113,13 +1123,33 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             ),
           ),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String>(
+            initialValue: selectedPaymentMethod,
+            items: const [
+              DropdownMenuItem(value: 'cash', child: Text('Cash')),
+              DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+            ],
+            onChanged: (value) {
+              setState(() => selectedPaymentMethod = value ?? 'cash');
+            },
+            decoration: InputDecoration(
+              labelText: 'Payment method',
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          ),
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
               onPressed: () {
-                _addSingleExpense(descriptionCtrl.text,
-                    double.tryParse(amountCtrl.text) ?? 0, selectedCategory);
+                _addSingleExpense(
+                  descriptionCtrl.text,
+                  double.tryParse(amountCtrl.text) ?? 0,
+                  selectedCategory,
+                  paymentMethod: selectedPaymentMethod,
+                );
                 Navigator.pop(context);
               },
               style: ElevatedButton.styleFrom(
@@ -1183,6 +1213,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     final descriptionCtrl = TextEditingController();
     final amountCtrl = TextEditingController();
     String selectedCategory = 'utilities';
+    String selectedPaymentMethod = 'cash';
 
     return StatefulBuilder(
       builder: (context, setState) => Column(
@@ -1226,6 +1257,21 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             ),
           ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            initialValue: selectedPaymentMethod,
+            items: const [
+              DropdownMenuItem(value: 'cash', child: Text('Cash')),
+              DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+            ],
+            onChanged: (value) =>
+                setState(() => selectedPaymentMethod = value ?? 'cash'),
+            decoration: InputDecoration(
+              labelText: 'Payment method',
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          ),
           const SizedBox(height: 16),
           Row(
             children: [
@@ -1251,10 +1297,12 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                           description: desc,
                           amount: amount,
                           category: selectedCategory,
+                          paymentMethod: selectedPaymentMethod,
                         ));
                         descriptionCtrl.clear();
                         amountCtrl.clear();
                         selectedCategory = 'utilities';
+                        selectedPaymentMethod = 'cash';
                       });
                     }
                   },
@@ -1402,6 +1450,21 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           ),
         ),
         const SizedBox(height: 24),
+          DropdownButtonFormField<String>(
+            initialValue: _receiptPaymentMethod,
+            items: const [
+              DropdownMenuItem(value: 'cash', child: Text('Cash')),
+              DropdownMenuItem(value: 'transfer', child: Text('Transfer')),
+            ],
+            onChanged: (value) {
+              setState(() => _receiptPaymentMethod = value ?? 'cash');
+            },
+            decoration: InputDecoration(
+              labelText: 'Payment method',
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          ),
+          const SizedBox(height: 24),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
@@ -1430,10 +1493,12 @@ class ExpenseEntry {
   final String description;
   final double amount;
   final String category;
+  final String paymentMethod;
 
   ExpenseEntry({
     required this.description,
     required this.amount,
     required this.category,
+    this.paymentMethod = 'cash',
   });
 }

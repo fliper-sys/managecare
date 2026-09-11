@@ -307,7 +307,7 @@ module.exports = function(pool) {
       const saleResult = await client.query(
         `INSERT INTO sales (business_id, worker_id, worker_name, total_amount, discount_amount, tax_amount,
           final_amount, payment_method, payment_breakdown, status, notes, created_by, sale_type, created_at)
-         VALUES ($1, $2, $3, $4, 0, 0, $4, $5, $6::jsonb, 'completed', $7, $8, 'fuel', NOW())
+         VALUES ($1, $2, $3, $4, 0, 0, $4, $5, $6::jsonb, 'completed', $7, $8, 'fuel', COALESCE($9::timestamptz, NOW()))
          RETURNING *`,
         [
           businessId,
@@ -321,6 +321,7 @@ module.exports = function(pool) {
           ].filter(Boolean)),
           `Approved pump upload ${id}`,
           asUuidOrNull(reviewed_by) || merged.worker_id || null,
+          existing.submitted_at || existing.uploaded_at || null,
         ]
       );
       const sale = saleResult.rows[0];
@@ -679,7 +680,12 @@ module.exports = function(pool) {
          recorded_by, recorded_by_name, submitted_at
        ) VALUES (
          $1, $2, COALESCE($3::date, CURRENT_DATE), COALESCE($4::time, CURRENT_TIME), $5,
-         $6, $7, $8, $9, $10, $11, $12, $13, NOW()
+         $6,
+         COALESCE((SELECT SUM(cash_amount) FROM petroleum_cash_entries WHERE business_id = $1), 0)
+           - COALESCE((SELECT SUM(amount) FROM petroleum_bank_deposits WHERE business_id = $1), 0)
+           - COALESCE((SELECT SUM(amount) FROM petroleum_admin_cash_submissions WHERE business_id = $1), 0)
+           - $5,
+         $8, $9, $10, $11, $12, $13, NOW()
        )
        RETURNING *`,
       [
@@ -748,7 +754,14 @@ module.exports = function(pool) {
     const posIncome = Number.parseFloat(row.pos_income) || 0;
     const bankDeposits = Number.parseFloat(row.total_bank_deposits) || 0;
     const adminSubmissions = Number.parseFloat(row.total_admin_submissions) || 0;
-    const rawBalance = cashIncome - bankDeposits - adminSubmissions;
+    const expenses = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0)::DECIMAL(12,2) AS cash_expenses
+       FROM expenses WHERE business_id = $1 AND COALESCE(payment_method, 'cash') = 'cash'`,
+      [businessId]
+    );
+    const cashExpenses = Number.parseFloat(expenses.rows[0]?.cash_expenses) || 0;
+    row.cash_expenses = cashExpenses;
+    const rawBalance = cashIncome - bankDeposits - adminSubmissions - cashExpenses;
     row.balance_cash_at_hand = rawBalance;
     const correction = await pool.query(
       `SELECT * FROM petroleum_cash_total_corrections
@@ -765,7 +778,7 @@ module.exports = function(pool) {
       row.pos_income = correctedPos + posIncome - (Number.parseFloat(saved.base_pos_income) || 0);
       row.total_bank_deposits = correctedDeposits + bankDeposits - (Number.parseFloat(saved.base_total_bank_deposits) || 0);
       row.total_admin_submissions = correctedAdmin + adminSubmissions - (Number.parseFloat(saved.base_total_admin_submissions) || 0);
-      row.balance_cash_at_hand = row.cash_income - row.total_bank_deposits - row.total_admin_submissions;
+      row.balance_cash_at_hand = row.cash_income - row.total_bank_deposits - row.total_admin_submissions - cashExpenses;
       row.correction_note = saved.note;
       row.corrected_by_name = saved.corrected_by_name;
       row.corrected_at = saved.corrected_at;
@@ -883,7 +896,12 @@ module.exports = function(pool) {
          business_id, submitted_by, submitted_by_name, receiver_name, amount,
          balance_cash_at_hand, submission_date, submission_time, note
        ) VALUES (
-         $1, $2, $3, $4, $5, $6, COALESCE($7::date, CURRENT_DATE), COALESCE($8::time, CURRENT_TIME), $9
+         $1, $2, $3, $4, $5,
+         COALESCE((SELECT SUM(cash_amount) FROM petroleum_cash_entries WHERE business_id = $1), 0)
+           - COALESCE((SELECT SUM(amount) FROM petroleum_bank_deposits WHERE business_id = $1), 0)
+           - COALESCE((SELECT SUM(amount) FROM petroleum_admin_cash_submissions WHERE business_id = $1), 0)
+           - $5,
+         COALESCE($7::date, CURRENT_DATE), COALESCE($8::time, CURRENT_TIME), $9
        )
        RETURNING *`,
       [
@@ -1000,9 +1018,10 @@ function mergeReviewUpdates(existing, updates) {
   merged.shift_cash_difference = shiftClose - shiftOpening;
   merged.today_pump_cash = cash;
   merged.total_paid = cash + pos;
-  if ((Number.parseFloat(merged.sold_volume) || 0) <= 0) {
-    merged.sold_volume = merged.cash_derived_volume || merged.digital_volume;
-  }
+  const productPrice = Number.parseFloat(merged.product_price) || 0;
+  merged.sold_volume = productPrice > 0 && merged.shift_cash_difference > 0
+    ? merged.shift_cash_difference / productPrice
+    : 0;
   merged.cash_derived_volume = merged.sold_volume;
   if ((Number.parseFloat(merged.expected_amount) || 0) <= 0) {
     merged.expected_amount = merged.total_paid;

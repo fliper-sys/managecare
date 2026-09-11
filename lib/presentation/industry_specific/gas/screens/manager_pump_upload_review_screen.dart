@@ -91,7 +91,7 @@ class _ManagerPumpUploadReviewScreenState
               Expanded(
                 child: TextField(
                   controller: entryControllers['denomination'],
-                  keyboardType: TextInputType.number,
+                  readOnly: true,
                   decoration: const InputDecoration(labelText: 'Denomination'),
                 ),
               ),
@@ -100,6 +100,21 @@ class _ManagerPumpUploadReviewScreenState
                 child: TextField(
                   controller: entryControllers['pieces'],
                   keyboardType: TextInputType.number,
+                  onChanged: (value) {
+                    final denomination =
+                        double.tryParse(entryControllers['denomination']!.text) ??
+                            0;
+                    final pieces = int.tryParse(value) ?? 0;
+                    final amountController = entryControllers['amount']!;
+                    amountController.value = TextEditingValue(
+                      text: (denomination * pieces).toStringAsFixed(2),
+                      selection: TextSelection.collapsed(
+                        offset: (denomination * pieces)
+                            .toStringAsFixed(2)
+                            .length,
+                      ),
+                    );
+                  },
                   decoration: const InputDecoration(labelText: 'Pieces'),
                 ),
               ),
@@ -107,9 +122,7 @@ class _ManagerPumpUploadReviewScreenState
               Expanded(
                 child: TextField(
                   controller: entryControllers['amount'],
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
+                  readOnly: true,
                   decoration: const InputDecoration(labelText: 'Amount'),
                 ),
               ),
@@ -122,10 +135,6 @@ class _ManagerPumpUploadReviewScreenState
 
   Future<void> _openReview(String businessId, Map<String, dynamic> upload) async {
     final fields = <String, String>{
-      'pump_number': 'Pump number',
-      'product_name': 'Product name',
-      'product_unit': 'Product unit',
-      'product_price': 'Product price',
       'opening_volume': 'Opening volume',
       'closing_volume': 'Closing volume',
       'analog_opening_volume': 'Analog opening volume',
@@ -137,15 +146,16 @@ class _ManagerPumpUploadReviewScreenState
       'pos_amount': 'POS/transfer amount',
     };
     final source = <String, dynamic>{
-      'pump_number': upload['pumpNumber'],
-      'product_name': upload['productName'],
-      'product_unit': upload['productUnit'],
-      'product_price': upload['productPrice'],
       'opening_volume': upload['openingVolume'],
       'closing_volume': upload['closingVolume'],
       'analog_opening_volume': upload['analogOpeningVolume'],
       'analog_closing_volume': upload['analogClosingVolume'],
-      'sold_volume': upload['soldVolume'],
+        'sold_volume': _readDouble(upload['productPrice']) > 0
+          ? ((_readDouble(upload['shiftCloseCash']) -
+                _readDouble(upload['shiftOpeningCash'])) /
+              _readDouble(upload['productPrice']))
+            .clamp(0.0, double.infinity)
+          : upload['soldVolume'],
       'shift_opening_cash': upload['shiftOpeningCash'],
       'shift_close_cash': upload['shiftCloseCash'],
       'cash_amount': upload['cashAmount'],
@@ -154,11 +164,7 @@ class _ManagerPumpUploadReviewScreenState
     final controllers = {
       for (final key in fields.keys)
         key: TextEditingController(
-          text: key == 'pump_number' ||
-                  key == 'product_name' ||
-                  key == 'product_unit'
-              ? source[key]?.toString() ?? ''
-              : _readDouble(source[key]).toString(),
+            text: _readDouble(source[key]).toString(),
         )
     };
     final breakdownControllers = <int, Map<String, TextEditingController>>{};
@@ -228,11 +234,9 @@ class _ManagerPumpUploadReviewScreenState
                 for (final entry in fields.entries) ...[
                   TextField(
                     controller: controllers[entry.key],
-                    keyboardType: entry.key == 'pump_number' ||
-                        entry.key == 'product_name' ||
-                        entry.key == 'product_unit'
-                      ? TextInputType.text
-                      : const TextInputType.numberWithOptions(decimal: true),
+                    readOnly: entry.key == 'sold_volume',
+                    keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(labelText: entry.value),
                   ),
                   const SizedBox(height: 8),
@@ -281,18 +285,16 @@ class _ManagerPumpUploadReviewScreenState
           body: {
             'updates': {
               for (final entry in controllers.entries)
-                entry.key: entry.key == 'pump_number' ||
-                        entry.key == 'product_name' ||
-                        entry.key == 'product_unit'
-                    ? entry.value.text.trim()
-                    : double.tryParse(entry.value.text.trim()) ?? 0,
+                entry.key: double.tryParse(entry.value.text.trim()) ?? 0,
               'cash_breakdown': [
                 for (final entry in breakdownControllers.entries)
                   {
                     'denomination':
                         double.tryParse(entry.value['denomination']!.text) ?? 0,
                     'pieces': int.tryParse(entry.value['pieces']!.text) ?? 0,
-                    'amount': double.tryParse(entry.value['amount']!.text) ?? 0,
+                    'amount':
+                        (double.tryParse(entry.value['denomination']!.text) ?? 0) *
+                            (int.tryParse(entry.value['pieces']!.text) ?? 0),
                   },
               ],
             },
