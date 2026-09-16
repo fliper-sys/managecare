@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
+import 'package:uuid/uuid.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 
@@ -14,6 +15,7 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/customer_provider.dart';
 import '../../../../data/models/customer_model.dart';
+import '../../../../data/repositories/industry_specific/drink_repository_impl.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../services/subscription_service.dart';
 import '../../../../widgets/custom_button.dart';
@@ -59,7 +61,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         final retail = Provider.of<RetailProvider>(context, listen: false);
         final auth = Provider.of<AuthProvider>(context, listen: false);
@@ -70,6 +72,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         if (businessId.isNotEmpty) {
           customers.setBusinessId(businessId);
           drinkProvider.setBusinessId(businessId);
+          await drinkProvider.initialize(
+            repository: DrinkRepositoryImpl(businessId: businessId),
+          );
           drinkProvider.loadSavedBarTables();
         }
         if (customers.customers.isEmpty && !customers.isLoading) {
@@ -269,11 +274,12 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
     final totalAmount =
         lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
+    final roomChargeOrderId = const Uuid().v4();
 
     try {
       provider.createOrder(
         Order(
-          id: 'room_charge_${DateTime.now().millisecondsSinceEpoch}',
+          id: roomChargeOrderId,
           lines: lines,
           status: 'served',
         ),
@@ -286,7 +292,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         amount: totalAmount,
         category: 'mini_bar',
         source: 'bar_room_charge',
-        sourceOrderId: 'bar_room_${DateTime.now().millisecondsSinceEpoch}',
+        sourceOrderId: roomChargeOrderId,
         createdById: authProvider.currentUser?.id,
         createdByName: authProvider.currentUser?.fullName,
         metadata: {
@@ -938,56 +944,41 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         return;
       }
 
-      final order = Order(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        lines: lines,
-      );
-
-      // Deduct from provider inventory only after payment is confirmed
-      provider.createOrder(order);
-
-      final saleData = {
+      final createdSale = await provider.repository!.createSale({
         'businessId': businessId,
-        'items': itemsList,
-        'subtotal': totalAmount,
-        'total': totalAmount,
-        'totalAmount': totalAmount,
-        'finalAmount': totalAmount,
+        'items': itemsList
+            .map((item) => {
+                  'product_id': item['productId'],
+                  'product_name': item['productName'],
+                  'quantity': item['quantity'],
+                  'unit_price': item['unitPrice'],
+                  'discount': 0,
+                  'total': item['total'],
+                })
+            .toList(),
+        'total_amount': totalAmount,
+        'discount_amount': 0.0,
+        'tax_amount': 0.0,
+        'final_amount': totalAmount,
         'status': 'completed',
-        'paymentMethod': paymentMethod,
-        'category': 'Drinks/Bar',
-        'createdAt': FieldValue.serverTimestamp(),
-        'customerId': _selectedCustomer?.id,
-        'customerName': _resolvedCustomerName(),
-        'customerPhone': _selectedCustomer?.phone,
-        'customerEmail': _selectedCustomer?.email,
-        if (_tableLabelController.text.trim().isNotEmpty)
-          'tableLabel': _tableLabelController.text.trim(),
-        if (_notesController.text.trim().isNotEmpty)
-          'notes': _notesController.text.trim(),
-        if (authProvider.currentUser?.id != null)
-          'workerId': authProvider.currentUser!.id,
-        if (authProvider.currentUser?.fullName != null)
-          'workerName': authProvider.currentUser!.fullName,
-        if ((_selectedStoreId ?? authProvider.currentUser?.storeId) != null)
-          'storeId': (_selectedStoreId ?? authProvider.currentUser?.storeId),
-      };
-
-      // Save sale to Firestore and persist orderId
-      final firestore = FirebaseFirestore.instance;
-      final saleRef = await firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('sales')
-          .add(saleData);
-      // Update the document with the generated orderId for easier tracking
-      await saleRef.update({
-        'orderId': saleRef.id,
-        'totalAmount': totalAmount,
-        'finalAmount': totalAmount,
-        'paymentMethod': paymentMethod,
-        if ((_selectedStoreId ?? authProvider.currentUser?.storeId) != null) 'storeId': (_selectedStoreId ?? authProvider.currentUser?.storeId),
+        'payment_method': paymentMethod,
+        'sale_type': 'bar',
+        'customer_id': _selectedCustomer?.id,
+        'worker_id': authProvider.currentUser?.id,
+        'worker_name': authProvider.currentUser?.fullName,
+        'store_id': _selectedStoreId ?? authProvider.currentUser?.storeId,
+        'notes': [
+          if (_tableLabelController.text.trim().isNotEmpty)
+            'Table: ${_tableLabelController.text.trim()}',
+          if (_notesController.text.trim().isNotEmpty)
+            _notesController.text.trim(),
+        ].join(' | '),
       });
+      final saleId = createdSale['id']?.toString() ?? '';
+
+      // The sales API decrements the authoritative Postgres inventory. Keep
+      // the POS stock model in sync before mirroring the new quantity locally.
+      provider.consumeStockAfterSale(lines);
 
       if (_selectedCustomer != null) {
         try {
@@ -1004,22 +995,39 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         }
       }
 
-      // Update inventory in Firestore for each drink
+      // Ensure the inventory document exists before updating stock. Some
+      // migrated bar products are created in the generic inventory collection
+      // without a matching Firestore record yet, which causes a not-found error.
+      final firestore = FirebaseFirestore.instance;
       for (final line in lines) {
         final stock = provider.getStock(line.drinkId);
-        if (stock != null) {
-          final drink = provider.getDrinkById(line.drinkId);
-          await firestore
-              .collection('businesses')
-              .doc(businessId)
-              .collection('inventory')
-              .doc(line.drinkId)
-              .update({
-            'quantity': stock.totalBottles(drink?.bottlesPerCarton ?? 1),
-            'cartons': stock.cartons,
+        if (stock == null) continue;
+
+        final drink = provider.getDrinkById(line.drinkId);
+        final inventoryDoc = firestore
+            .collection('businesses')
+            .doc(businessId)
+            .collection('inventory')
+            .doc(line.drinkId);
+
+        await inventoryDoc.set({
+          'id': line.drinkId,
+          'businessId': businessId,
+          'name': drink?.name ?? 'Drink',
+          'category': drink?.category ?? 'Drinks',
+          'quantity': stock.totalBottles(drink?.bottlesPerCarton ?? 1),
+          'cartons': stock.cartons,
+          'bottles': stock.bottles,
+          'unitPrice': drink?.pricePerBottle ?? 0.0,
+          'unit': 'bottle',
+          'metadata': {
             'bottles': stock.bottles,
-          });
-        }
+            'cartons': stock.cartons,
+            'emoji': drink?.emoji,
+            'imageUrl': drink?.imageUrl,
+          },
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       }
 
       // Clear cart locally
@@ -1027,9 +1035,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
       if (!mounted) return;
 
-      // Build unified sale map using the saved saleRef id
+      // Build unified sale map using the saved sale id
       final saleMap = {
-        'id': saleRef.id,
+        'id': saleId,
         'items': itemsList,
         'subtotal': totalAmount,
         'discount': 0.0,
@@ -1073,7 +1081,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                     })
                 .toList(),
             paymentMethod: paymentMethod,
-            receiptNumber: saleRef.id,
+            receiptNumber: saleId,
             businessId: business?.id,
           );
 
@@ -1085,7 +1093,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
               channel: 'email',
               recipient: ownerEmail,
               success: success,
-              orderId: saleRef.id,
+              orderId: saleId,
             );
           } catch (e) {
             debugPrint('[BarPOS] Notification log failed: $e');
@@ -1484,12 +1492,14 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                         itemCount: drinks.length,
                         itemBuilder: (context, index) {
                       final d = drinks[index];
-                      final inStock = provider.getTotalBottles(d.id) > 0;
+                      final availableStock = provider.getAvailableStock(d.id);
+                      final inStock = availableStock > 0;
                       final cartQty = _cart[d.id] ?? 0;
 
                       return _DrinkCard(
                         drink: d,
                         inStock: inStock,
+                        availableStock: availableStock,
                         cartQuantity: cartQty,
                         onAdd: () => _addToCart(d.id),
                         onRemove: () {
@@ -2108,6 +2118,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 class _DrinkCard extends StatelessWidget {
   final dynamic drink;
   final bool inStock;
+  final int availableStock;
   final int cartQuantity;
   final VoidCallback onAdd;
   final VoidCallback onRemove;
@@ -2115,6 +2126,7 @@ class _DrinkCard extends StatelessWidget {
   const _DrinkCard({
     required this.drink,
     required this.inStock,
+    required this.availableStock,
     required this.cartQuantity,
     required this.onAdd,
     required this.onRemove,
@@ -2216,7 +2228,7 @@ class _DrinkCard extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              inStock ? 'Available' : 'Out',
+                              inStock ? 'Available: $availableStock' : 'Out of stock',
                               style: AppTextStyles.caption.copyWith(
                                 color: inStock ? Colors.green : Colors.red,
                                 fontWeight: FontWeight.w600,

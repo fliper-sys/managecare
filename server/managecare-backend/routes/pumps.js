@@ -778,7 +778,12 @@ module.exports = function(pool) {
       row.pos_income = correctedPos + posIncome - (Number.parseFloat(saved.base_pos_income) || 0);
       row.total_bank_deposits = correctedDeposits + bankDeposits - (Number.parseFloat(saved.base_total_bank_deposits) || 0);
       row.total_admin_submissions = correctedAdmin + adminSubmissions - (Number.parseFloat(saved.base_total_admin_submissions) || 0);
-      row.balance_cash_at_hand = row.cash_income - row.total_bank_deposits - row.total_admin_submissions - cashExpenses;
+      const baseCashExpenses = Number.parseFloat(saved.base_cash_expenses) || 0;
+      const cashDelta = (cashIncome - (Number.parseFloat(saved.base_cash_income) || 0)) -
+        (bankDeposits - (Number.parseFloat(saved.base_total_bank_deposits) || 0)) -
+        (adminSubmissions - (Number.parseFloat(saved.base_total_admin_submissions) || 0)) -
+        (cashExpenses - baseCashExpenses);
+      row.balance_cash_at_hand = (Number.parseFloat(saved.balance_cash_at_hand) || 0) + cashDelta;
       row.correction_note = saved.note;
       row.corrected_by_name = saved.corrected_by_name;
       row.corrected_at = saved.corrected_at;
@@ -836,7 +841,8 @@ module.exports = function(pool) {
          total_admin_submissions, balance_cash_at_hand, note,
          corrected_by, corrected_by_name, base_cash_income, base_pos_income,
          base_total_bank_deposits, base_total_admin_submissions
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         , base_cash_expenses
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (business_id) DO UPDATE SET
          cash_income = EXCLUDED.cash_income,
          pos_income = EXCLUDED.pos_income,
@@ -850,11 +856,12 @@ module.exports = function(pool) {
          base_pos_income = EXCLUDED.base_pos_income,
          base_total_bank_deposits = EXCLUDED.base_total_bank_deposits,
          base_total_admin_submissions = EXCLUDED.base_total_admin_submissions,
+         base_cash_expenses = EXCLUDED.base_cash_expenses,
          corrected_at = NOW()
        RETURNING *`,
         [businessId, ...values, b.note || null, asUuidOrNull(b.corrected_by), b.corrected_by_name || null,
          raw.cash_income || 0, raw.pos_income || 0, raw.total_bank_deposits || 0,
-         raw.total_admin_submissions || 0]
+         raw.total_admin_submissions || 0, cashExpenses]
       );
       await client.query('COMMIT');
       res.json(result.rows[0]);

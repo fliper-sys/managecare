@@ -87,10 +87,10 @@ class BillingScreen extends StatelessWidget {
                   final room = provider.getRoomById(reservation.roomId);
                   final charges = provider.buildFolioCharges(reservation);
                   final total = provider.getReservationBalance(reservation);
-                  final guestSales = provider.getSalesForGuest(reservation.guestId);
-                  final roomSales = provider.getSalesForRoom(reservation.roomId);
-                  final linkedSales = [...guestSales, ...roomSales]
-                    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                  final attachedCharges = provider
+                      .getFolioChargesForReservation(reservation.id)
+                      .where((charge) => charge.source == 'bar_room_charge')
+                      .toList();
                   return Card(
                     margin: const EdgeInsets.only(bottom: 14),
                     child: Padding(
@@ -129,7 +129,7 @@ class BillingScreen extends StatelessWidget {
                             charges: charges,
                             total: total,
                           ),
-                          if (linkedSales.isNotEmpty) ...[
+                          if (attachedCharges.isNotEmpty) ...[
                             const SizedBox(height: 10),
                             const Text(
                               'Linked Orders & Sales',
@@ -139,8 +139,8 @@ class BillingScreen extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 8),
-                            ...linkedSales.take(4).map(
-                              (sale) => Padding(
+                            ...attachedCharges.take(4).map(
+                              (charge) => Padding(
                                 padding: const EdgeInsets.only(bottom: 6),
                                 child: Row(
                                   children: [
@@ -152,14 +152,12 @@ class BillingScreen extends StatelessWidget {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: Text(
-                                        sale.description?.isNotEmpty == true
-                                            ? sale.description!
-                                            : 'Attached sale',
+                                        '${charge.description} • Room charge',
                                         style: const TextStyle(fontSize: 13),
                                       ),
                                     ),
                                     Text(
-                                      formatCurrency(sale.amount),
+                                      formatCurrency(charge.amount),
                                       style: const TextStyle(
                                         fontSize: 13,
                                         fontWeight: FontWeight.w600,

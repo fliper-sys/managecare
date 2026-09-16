@@ -56,10 +56,20 @@ class CheckOutScreen extends StatelessWidget {
                       floor: 0,
                     );
                 final balance = provider.getReservationBalance(r);
-                final guestSales = provider.getSalesForGuest(r.guestId);
-                final roomSales = provider.getSalesForRoom(r.roomId);
-                final attachedSales = [...guestSales, ...roomSales]
-                  ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                final billStatus = balance <= 0.01
+                  ? 'Paid'
+                  : r.paymentStatus.toLowerCase() == 'partial'
+                    ? 'Partially paid'
+                    : 'Due at checkout';
+                final billStatusColor = balance <= 0.01
+                  ? Colors.green
+                  : r.paymentStatus.toLowerCase() == 'partial'
+                    ? Colors.orange
+                    : Colors.red;
+                final attachedCharges = provider
+                    .getFolioChargesForReservation(r.id)
+                    .where((charge) => charge.source == 'bar_room_charge')
+                    .toList();
                 return Card(
                   child: Padding(
                     padding: const EdgeInsets.all(12),
@@ -97,7 +107,53 @@ class CheckOutScreen extends StatelessWidget {
                                   },
                           ),
                         ),
-                        if (attachedSales.isNotEmpty) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: billStatusColor.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: billStatusColor.withOpacity(0.35),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                balance <= 0.01
+                                    ? Icons.check_circle_outline
+                                    : Icons.receipt_long_outlined,
+                                size: 18,
+                                color: billStatusColor,
+                              ),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Bill status:',
+                                style: TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                billStatus,
+                                style: TextStyle(
+                                  color: billStatusColor,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                formatCurrency(balance),
+                                style: TextStyle(
+                                  color: billStatusColor,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (attachedCharges.isNotEmpty) ...[
                           const Divider(),
                           const Text(
                             'Attached Orders & Sales',
@@ -107,8 +163,8 @@ class CheckOutScreen extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          ...attachedSales.take(3).map(
-                            (sale) => Padding(
+                          ...attachedCharges.take(3).map(
+                            (charge) => Padding(
                               padding: const EdgeInsets.only(bottom: 6),
                               child: Row(
                                 children: [
@@ -120,14 +176,12 @@ class CheckOutScreen extends StatelessWidget {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      sale.description?.isNotEmpty == true
-                                          ? sale.description!
-                                          : 'Attached sale',
+                                        '${charge.description} • Room charge',
                                       style: const TextStyle(fontSize: 12.5),
                                     ),
                                   ),
                                   Text(
-                                    formatCurrency(sale.amount),
+                                    formatCurrency(charge.amount),
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w600,
                                       fontSize: 12.5,

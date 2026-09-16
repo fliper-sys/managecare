@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import '../services/whatsapp_service.dart';
 import '../services/notification_and_email_service.dart';
 import '../services/sync_service.dart';
@@ -394,6 +395,46 @@ abstract class DrinkRepository {
 }
 
 class DrinkProvider extends ChangeNotifier {
+  static bool isDrinkCategory(String? category) {
+    if (category == null || category.trim().isEmpty) return true;
+    final normalized = category.trim().toLowerCase();
+    return normalized.contains('drink') ||
+        normalized.contains('beverage') ||
+        normalized.contains('beer') ||
+        normalized.contains('wine') ||
+        normalized.contains('whiskey') ||
+        normalized.contains('whisky') ||
+        normalized.contains('liqueur') ||
+        normalized.contains('liquor') ||
+        normalized.contains('vodka') ||
+        normalized.contains('gin') ||
+        normalized.contains('rum') ||
+        normalized.contains('tequila') ||
+        normalized.contains('cognac') ||
+        normalized.contains('brandy') ||
+        normalized.contains('champagne') ||
+        normalized.contains('cider') ||
+        normalized.contains('sake') ||
+        normalized.contains('spirit') ||
+        normalized.contains('cocktail') ||
+        normalized.contains('bar') ||
+        normalized.contains('alcohol') ||
+        normalized.contains('alcoholic') ||
+        normalized.contains('alcolic') ||
+        normalized.contains('juice') ||
+        normalized.contains('soda') ||
+        normalized.contains('soft drink') ||
+        normalized.contains('carbonated') ||
+        normalized.contains('mixer') ||
+        normalized.contains('water') ||
+        normalized.contains('energy drink') ||
+        normalized.contains('sports drink') ||
+        normalized.contains('smoothie') ||
+        normalized.contains('milkshake') ||
+        normalized.contains('tea') ||
+        normalized.contains('coffee');
+  }
+
   DrinkRepository? repository;
   StreamSubscription<List<DrinkItem>>? _drinksSub;
   StreamSubscription<List<StockItem>>? _inventorySub;
@@ -409,6 +450,13 @@ class DrinkProvider extends ChangeNotifier {
   final List<BarInvoice> invoices = [];
   final List<Shift> shifts = [];
   final List<String> savedBarTables = [];
+
+  int getAvailableStock(String drinkId) {
+    final drink = getDrinkById(drinkId);
+    final stock = getStock(drinkId);
+    if (drink == null || stock == null) return 0;
+    return stock.totalBottles(drink.bottlesPerCarton);
+  }
 
   DrinkProvider({this.repository}) {
     _initSampleData();
@@ -485,6 +533,10 @@ class DrinkProvider extends ChangeNotifier {
   /// load drinks, inventory and orders from persistent storage.
   Future<void> initialize({required DrinkRepository repository}) async {
     this.repository = repository;
+    drinks.clear();
+    inventory.clear();
+    orders.clear();
+    invoices.clear();
     try {
       final fetchedDrinks = await repository.fetchDrinks();
       drinks
@@ -805,6 +857,11 @@ class DrinkProvider extends ChangeNotifier {
     }
   }
 
+  void consumeStockAfterSale(List<OrderLine> lines) {
+    _applyStockConsumption(lines);
+    notifyListeners();
+  }
+
   void _restoreStockConsumption(List<OrderLine> lines) {
     for (final line in lines) {
       final drink = getDrinkById(line.drinkId);
@@ -1067,7 +1124,7 @@ class DrinkProvider extends ChangeNotifier {
     final total =
         (subtotal + safeTax - safeDiscount).clamp(0.0, double.infinity).toDouble();
     final invoice = BarInvoice(
-      id: 'bar_invoice_${now.microsecondsSinceEpoch}',
+      id: const Uuid().v4(),
       businessId: businessId,
       invoiceNumber:
           'INV-${now.millisecondsSinceEpoch.toString().substring(5)}',
@@ -1270,6 +1327,7 @@ class DrinkProvider extends ChangeNotifier {
     }
 
     final saleData = {
+      'id': invoice.id,
       'businessId': businessId,
       'items': items,
       'subtotal': invoice.subtotal,
@@ -1295,7 +1353,12 @@ class DrinkProvider extends ChangeNotifier {
     for (final line in invoice.lines) {
       final stock = getStock(line.drinkId);
       if (stock != null) {
-        await _persistStockItem(line.drinkId, stock);
+        try {
+          await _persistStockItem(line.drinkId, stock);
+        } catch (e) {
+          debugPrint(
+              '[DrinkProvider] Stock mirror failed after sale ${line.drinkId}: $e');
+        }
       }
     }
 

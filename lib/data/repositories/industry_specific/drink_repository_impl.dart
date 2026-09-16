@@ -28,7 +28,7 @@ class DrinkRepositoryImpl implements DrinkRepository {
             Dio(BaseOptions(
               baseUrl: '${SupabaseConfig.url}/api',
               connectTimeout: const Duration(seconds: 10),
-              receiveTimeout: const Duration(seconds: 15),
+              receiveTimeout: const Duration(seconds: 30),
             )),
         _supabase = supabase ?? Supabase.instance.client;
 
@@ -43,8 +43,10 @@ class DrinkRepositoryImpl implements DrinkRepository {
       final data = e.response?.data;
       if (data is Map && data['error'] != null) return data['error'].toString();
       if (data is String) return data;
+      if (data != null) return data.toString();
     } catch (_) {}
-    return e.message ?? 'Unknown error';
+    return 'HTTP ${e.response?.statusCode ?? 'network'}: '
+      '${e.message ?? e.error ?? 'Unknown error'}';
   }
 
   static const _pollInterval = Duration(seconds: 15);
@@ -96,7 +98,12 @@ class DrinkRepositoryImpl implements DrinkRepository {
   Future<List<DrinkItem>> fetchDrinks() async {
     try {
       final rows = await _fetchAllInventoryPages();
-      return rows.map((r) => _drinkFromRow(Map<String, dynamic>.from(r as Map))).toList();
+      return rows
+          .whereType<Map>()
+          .map((r) => Map<String, dynamic>.from(r))
+          .where((row) => DrinkProvider.isDrinkCategory((row['category'] ?? '').toString()))
+          .map((r) => _drinkFromRow(r))
+          .toList();
     } on DioException catch (e) {
       throw Exception('Failed to fetch drinks: ${_extractError(e)}');
     }
@@ -152,8 +159,10 @@ class DrinkRepositoryImpl implements DrinkRepository {
 
   StockItem _stockFromRow(Map<String, dynamic> row) {
     final metadata = (row['metadata'] is Map) ? Map<String, dynamic>.from(row['metadata'] as Map) : <String, dynamic>{};
-    final bottles = (metadata['bottles'] as num?)?.toInt() ?? (row['quantity'] as num?)?.toInt() ?? 0;
-    final cartons = (metadata['cartons'] as num?)?.toInt() ?? 0;
+    final bottles = int.tryParse('${row['quantity'] ?? ''}') ??
+      int.tryParse('${metadata['bottles'] ?? ''}') ??
+      0;
+    final cartons = int.tryParse('${metadata['cartons'] ?? ''}') ?? 0;
     return StockItem(drinkId: (row['id'] ?? '').toString(), bottles: bottles, cartons: cartons);
   }
 
@@ -161,7 +170,12 @@ class DrinkRepositoryImpl implements DrinkRepository {
   Future<List<StockItem>> fetchInventory() async {
     try {
       final rows = await _fetchAllInventoryPages();
-      return rows.map((r) => _stockFromRow(Map<String, dynamic>.from(r as Map))).toList();
+      return rows
+          .whereType<Map>()
+          .map((r) => Map<String, dynamic>.from(r))
+          .where((row) => DrinkProvider.isDrinkCategory((row['category'] ?? '').toString()))
+          .map((r) => _stockFromRow(r))
+          .toList();
     } on DioException catch (e) {
       throw Exception('Failed to fetch inventory: ${_extractError(e)}');
     }
@@ -300,37 +314,55 @@ class DrinkRepositoryImpl implements DrinkRepository {
 
   @override
   Future<void> saveInvoice(Map<String, dynamic> data) async {
-    try {
-      await _http.post(
-        '/drink/$businessId/invoices',
-        data: {
-          'id': data['id'],
-          'invoice_number': data['invoiceNumber'],
-          'invoice_type': data['invoiceType'],
-          'status': data['status'],
-          'customer_id': data['customerId'],
-          'customer_name': data['customerName'],
-          'customer_phone': data['customerPhone'],
-          'customer_email': data['customerEmail'],
-          'table_label': data['tableLabel'],
-          'notes': data['notes'],
-          'lines': data['lines'],
-          'subtotal': data['subtotal'],
-          'tax': data['tax'],
-          'discount': data['discount'],
-          'total': data['total'],
-          'converted_at': data['convertedAt'],
-          'linked_sale_id': data['linkedSaleId'],
-          'payment_method': data['paymentMethod'],
-          'worker_id': data['workerId'],
-          'worker_name': data['workerName'],
-          'store_id': data['storeId'],
-        },
-        options: Options(headers: _headers),
-      );
-    } on DioException catch (e) {
-      throw Exception('Failed to save invoice: ${_extractError(e)}');
+    final payload = {
+      'id': data['id'],
+      'invoice_number': data['invoiceNumber'],
+      'invoice_type': data['invoiceType'],
+      'status': data['status'],
+      'customer_id': data['customerId'],
+      'customer_name': data['customerName'],
+      'customer_phone': data['customerPhone'],
+      'customer_email': data['customerEmail'],
+      'table_label': data['tableLabel'],
+      'notes': data['notes'],
+      'lines': data['lines'],
+      'subtotal': data['subtotal'],
+      'tax': data['tax'],
+      'discount': data['discount'],
+      'total': data['total'],
+        'converted_at': data['convertedAt'] is DateTime
+          ? (data['convertedAt'] as DateTime).toIso8601String()
+          : data['convertedAt']?.toString(),
+      'linked_sale_id': data['linkedSaleId'],
+      'payment_method': data['paymentMethod'],
+      'worker_id': data['workerId'],
+      'worker_name': data['workerName'],
+      'store_id': data['storeId'],
+    };
+
+    DioException? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await _http.post(
+          '/drink/$businessId/invoices',
+          data: payload,
+          options: Options(headers: _headers),
+        );
+        return;
+      } on DioException catch (e) {
+        lastError = e;
+        final retryable = e.type == DioExceptionType.connectionError ||
+            e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.receiveTimeout ||
+            e.type == DioExceptionType.sendTimeout;
+        if (!retryable || attempt == 2) break;
+        await Future<void>.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+      }
     }
+    throw Exception(
+      'Failed to save invoice (${lastError?.requestOptions.uri}): '
+      '${_extractError(lastError!)}',
+    );
   }
 
   @override
@@ -401,11 +433,11 @@ class DrinkRepositoryImpl implements DrinkRepository {
       final items = (saleData['items'] as List<dynamic>? ?? const []).map((raw) {
         final item = Map<String, dynamic>.from(raw as Map);
         return {
-          'product_id': item['productId'],
-          'product_name': item['productName'],
+          'product_id': item['productId'] ?? item['product_id'],
+          'product_name': item['productName'] ?? item['product_name'],
           'quantity': item['quantity'],
-          'unit_price': item['unitPrice'],
-          'discount': 0,
+          'unit_price': item['unitPrice'] ?? item['unit_price'],
+          'discount': item['discount'] ?? 0,
           'total': item['total'],
         };
       }).toList();
@@ -414,15 +446,15 @@ class DrinkRepositoryImpl implements DrinkRepository {
         '/sales/$businessId',
         data: {
           'id': saleData['id'],
-          'customer_id': saleData['customerId'],
-          'store_id': saleData['storeId'],
-          'worker_id': saleData['workerId'],
-          'worker_name': saleData['workerName'],
-          'total_amount': saleData['subtotal'] ?? saleData['total'],
-          'discount_amount': saleData['discount'] ?? 0,
-          'tax_amount': saleData['tax'] ?? 0,
-          'final_amount': saleData['total'] ?? saleData['totalAmount'] ?? saleData['finalAmount'],
-          'payment_method': saleData['paymentMethod'],
+          'customer_id': saleData['customerId'] ?? saleData['customer_id'],
+          'store_id': saleData['storeId'] ?? saleData['store_id'],
+          'worker_id': saleData['workerId'] ?? saleData['worker_id'],
+          'worker_name': saleData['workerName'] ?? saleData['worker_name'],
+          'total_amount': saleData['subtotal'] ?? saleData['total_amount'] ?? saleData['total'],
+          'discount_amount': saleData['discount'] ?? saleData['discount_amount'] ?? 0,
+          'tax_amount': saleData['tax'] ?? saleData['tax_amount'] ?? 0,
+          'final_amount': saleData['total'] ?? saleData['finalAmount'] ?? saleData['final_amount'] ?? saleData['totalAmount'],
+          'payment_method': saleData['paymentMethod'] ?? saleData['payment_method'],
           'status': saleData['status'] ?? 'completed',
           'notes': saleData['notes'],
           'created_by': saleData['workerId'],

@@ -564,13 +564,27 @@ class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
         onTap: () => Navigator.pushNamed(context, Routes.restaurantKitchen),
       ));
 
-      // Merge Bar POS and Bar Orders into one Bar button
       actions.add(_buildActionCard(
         context,
         icon: Icons.local_bar_outlined,
-        label: 'Bar',
+        label: 'Bar POS',
         color: Colors.indigo,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelBar),
+        onTap: () => Navigator.pushNamed(context, Routes.drinkPos),
+      ));
+
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.receipt_long_outlined,
+        label: 'Tabs & Invoices',
+        color: Colors.blueGrey,
+        onTap: () => Navigator.pushNamed(context, Routes.drinkTabs),
+      ));
+      actions.add(_buildActionCard(
+        context,
+        icon: Icons.history_outlined,
+        label: 'Bar Order History',
+        color: Colors.brown,
+        onTap: () => Navigator.pushNamed(context, Routes.drinkOrdersHistory),
       ));
 
       actions.add(_buildActionCard(

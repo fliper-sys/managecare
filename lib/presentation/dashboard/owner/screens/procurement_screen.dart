@@ -135,7 +135,8 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
     try {
       // Prefer the currently selected business (supports owners with multiple businesses)
       final businessProvider = context.read<BusinessProvider>();
-      final businessId = businessProvider.currentBusiness?.id;
+        final businessId = businessProvider.currentBusiness?.id ??
+          context.read<AuthProvider>().currentUser?.businessId;
 
       if (businessId == null || businessId.isEmpty) {
         if (mounted) {
@@ -256,7 +257,7 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
   }
 
   void _filterProducts() {
-    final query = _searchController.text;
+    final query = _searchController.text.trim();
     setState(() {
       final base = query.isEmpty
           ? _products
@@ -264,14 +265,27 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
               final name = (product['name'] ?? '').toString();
               final sku = (product['sku'] ?? '').toString();
               final barcode = (product['barcode'] ?? '').toString();
-              final category = (product['category'] ?? '').toString();
 
-              // Use enhanced search for all fields with fuzzy matching
+              // Match inventory and new sale: name/barcode plus SKU, with the
+              // shared fuzzy and formatted-barcode behavior.
               return SearchUtils.matchesSearchQuery(
                       name, barcode.isNotEmpty ? barcode : null, query) ||
-                  SearchUtils.matchesSearchQuery(sku, null, query) ||
-                  SearchUtils.matchesSearchQuery(category, null, query);
+                  SearchUtils.matchesSearchQuery(sku, null, query);
             }).toList();
+
+      if (query.isNotEmpty) {
+        base.sort((a, b) {
+          final nameA = (a['name'] ?? '').toString();
+          final nameB = (b['name'] ?? '').toString();
+          final barcodeA = (a['barcode'] ?? '').toString();
+          final barcodeB = (b['barcode'] ?? '').toString();
+          final scoreA = SearchUtils.calculateRelevanceScore(
+              nameA, barcodeA.isNotEmpty ? barcodeA : null, query);
+          final scoreB = SearchUtils.calculateRelevanceScore(
+              nameB, barcodeB.isNotEmpty ? barcodeB : null, query);
+          return scoreB.compareTo(scoreA);
+        });
+      }
 
       if (_selectedCategory == null || _selectedCategory == 'All') {
         _filteredProducts = base.toList();
