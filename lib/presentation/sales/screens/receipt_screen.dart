@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -435,6 +436,56 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     );
   }
 
+  List<String> _paymentBreakdownLines(Map<String, dynamic> sale) {
+    dynamic raw = sale['paymentBreakdown'] ?? sale['payment_breakdown'];
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        raw = jsonDecode(raw);
+      } catch (_) {
+        return [];
+      }
+    }
+
+    if (raw is! List) return [];
+
+    return raw.whereType<Map>().map((entry) {
+      final method = _displayPaymentMethod(
+        (entry['method'] ?? entry['name'] ?? entry['payment'] ?? '').toString(),
+      );
+      if (method.isEmpty) return '';
+      final amount = entry['amount'];
+      final amountText = amount == null || amount.toString().trim().isEmpty
+          ? ''
+          : ': ${formatCurrency(_asDouble(amount))}';
+      final transactionId = (entry['transactionId'] ?? '').toString().trim();
+      final transactionText = transactionId.isEmpty ? '' : ' • $transactionId';
+      return '  ${method.toUpperCase()}$transactionText$amountText';
+    }).where((line) => line.isNotEmpty).toList();
+  }
+
+  String _displayPaymentMethod(String rawMethod) {
+    final normalized = rawMethod.trim().toLowerCase().replaceAll('-', '_');
+    const labels = {
+      'cash': 'Cash',
+      'card': 'Card',
+      'credit_card': 'Card',
+      'debit_card': 'Card',
+      'transfer': 'Transfer',
+      'bank_transfer': 'Transfer',
+      'mobile': 'Mobile Money',
+      'mobile_money': 'Mobile Money',
+      'mobilemoney': 'Mobile Money',
+    };
+    if (labels.containsKey(normalized)) return labels[normalized]!;
+    if (normalized.isEmpty) return '';
+    return normalized
+        .split('_')
+        .map((word) => word.isEmpty
+            ? word
+            : '${word[0].toUpperCase()}${word.substring(1)}')
+        .join(' ');
+  }
+
   /// Generate formatted receipt text
   String _generateReceiptText() {
     final sale = _normalizeSale(widget.sale);
@@ -530,7 +581,15 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     buffer.writeln('\nTOTAL: ${formatCurrency(totalDisplay)}');
 
     if (receiptSettings?.showPaymentMethod ?? true) {
-      buffer.writeln('Payment: ${sale['paymentMethod'] ?? 'Cash'}');
+      final paymentLines = _paymentBreakdownLines(sale);
+      if (paymentLines.isEmpty) {
+        buffer.writeln('Payment: ${sale['paymentMethod'] ?? 'Cash'}');
+      } else {
+        buffer.writeln('Payment:');
+        for (final line in paymentLines) {
+          buffer.writeln(line);
+        }
+      }
       if (sale['finalAmount'] != null) {
         buffer.writeln(
           'Final: ${formatCurrency(_asDouble(sale['finalAmount']))}',

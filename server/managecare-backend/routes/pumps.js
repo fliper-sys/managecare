@@ -814,6 +814,14 @@ module.exports = function(pool) {
       [businessId]
     );
     const raw = rawTotals.rows[0] || {};
+    const expenses = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0)::DECIMAL(12,2) AS cash_expenses
+       FROM expenses
+       WHERE business_id = $1
+         AND COALESCE(payment_method, 'cash') = 'cash'`,
+      [businessId]
+    );
+    const cashExpenses = Number.parseFloat(expenses.rows[0]?.cash_expenses) || 0;
     const current = await pool.query(
       `SELECT * FROM petroleum_cash_total_corrections WHERE business_id = $1 LIMIT 1`,
       [businessId]

@@ -6,6 +6,8 @@ import '../../../../core/utils/currency.dart';
 import '../../../../providers/business_provider.dart';
 import '../providers/restaurant_provider.dart';
 import '../../../../providers/retail_provider.dart';
+import '../../../../providers/auth_provider.dart';
+import '../../../../core/utils/worker_permissions.dart';
 
 class ManageMenuScreen extends StatefulWidget {
   const ManageMenuScreen({super.key});
@@ -134,6 +136,19 @@ class _ManageMenuScreenState extends State<ManageMenuScreen> {
   }
 
   Future<bool> _ensureCanManageMenu({required bool isNew}) async {
+    final user = context.read<AuthProvider>().currentUser;
+    if (user == null ||
+        !WorkerPermissions.hasEffectivePermission(
+          user.role,
+          user.permissions,
+          'manage_menu',
+        )) {
+      await _showBlockedDialog(
+        title: 'Permission required',
+        message: 'Only managers and administrators can manage the menu.',
+      );
+      return false;
+    }
     final businessProvider = context.read<BusinessProvider>();
     final access = await businessProvider.canAccessFeatureEnhanced(
       'product_management',

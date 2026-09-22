@@ -173,8 +173,13 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
       // equivalent yet - inventory itself is now the single source.
       final documentItems = <Map<String, dynamic>>[];
 
-      // Merge and deduplicate using helper: prefer explicit inventory collection items over document-sourced ones
-      var allProducts = mergeInventoryMaps(products, documentItems);
+      // Procurement must show every inventory row, just like Inventory. Do
+      // not deduplicate by name/SKU because separate stock records can share
+      // either value and still need independent procurement history.
+      var allProducts = <Map<String, dynamic>>[
+        ...products,
+        ...documentItems,
+      ];
       if (widget.showIngredientsOnly) {
         allProducts = allProducts.where(isIngredientInventoryItem).toList();
       }
@@ -608,6 +613,28 @@ class _ProcurementScreenState extends State<ProcurementScreen> {
                       itemCount: _categories.length,
                     ),
                   ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: scheme.onPrimary.withOpacity(0.16),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Loaded products: ${_products.length}  |  Showing: ${_filteredProducts.length}',
+                      style: TextStyle(
+                        color: scheme.onPrimary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

@@ -68,10 +68,11 @@ class _PetroleumCashTrackingScreenState
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     if (businessId == null || businessId.isEmpty) return;
 
-    // Only the cash-at-hand baseline is user-editable. The other totals are
-    // submitted unchanged because the correction endpoint requires a complete
-    // snapshot to preserve its existing correction model.
     const fields = <String, String>{
+      'cash_income': 'Pump Cash Income',
+      'pos_income': 'POS / Transfer Income',
+      'total_bank_deposits': 'Bank Deposits',
+      'total_admin_submissions': 'Admin Cash',
       'balance_cash_at_hand': 'Cash At Hand',
     };
     final correction = await showDialog<Map<String, String>>(
@@ -91,12 +92,8 @@ class _PetroleumCashTrackingScreenState
       await ManagecareApiClient.instance.put(
         '/api/pumps/$businessId/cash-summary/correction',
         body: {
-          'cash_income': _amount(_summary['cash_income']),
-          'pos_income': _amount(_summary['pos_income']),
-          'total_bank_deposits': _amount(_summary['total_bank_deposits']),
-          'total_admin_submissions':
-              _amount(_summary['total_admin_submissions']),
-          'balance_cash_at_hand': _amount(correction['balance_cash_at_hand']),
+          for (final field in fields.keys)
+            field: _amount(correction[field]),
           'note': correction['note']?.trim() ?? '',
           'corrected_by': user?.id,
           'corrected_by_name': user?.fullName ?? user?.email,

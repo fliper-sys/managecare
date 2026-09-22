@@ -374,6 +374,14 @@ class HotelProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> refresh() async {
+    if (_businessId == null || _businessId!.isEmpty) return;
+    if (repository != null) {
+      await _init();
+    }
+    notifyListeners();
+  }
+
   Future<void> _init() async {
     if (_businessId == null || _businessId!.isEmpty || repository == null)
       return;

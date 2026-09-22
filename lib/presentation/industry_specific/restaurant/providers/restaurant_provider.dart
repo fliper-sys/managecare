@@ -1201,18 +1201,31 @@ class RestaurantProvider extends ChangeNotifier {
   Future<void> createOrder(RestaurantOrder order) async {
     RestaurantOrder persistedOrder = order;
 
-    if (_businessId.isNotEmpty) {
-      final response = await _api.post('/api/restaurant/$_businessId/orders', body: _orderPayload(order));
-      persistedOrder = RestaurantOrder.fromJson(_orderRowToJson(Map<String, dynamic>.from(response as Map)));
+    // Keep the order available immediately, matching the bar flow. A remote
+    // outage must not make a paid table or room order disappear locally.
+    _orders.removeWhere((existing) => existing.id == order.id);
+    _orders.insert(0, order);
+    await _persistOrdersCache();
+    notifyListeners();
 
-      final index = _orders.indexWhere((o) => o.id == persistedOrder.id);
-      if (index != -1) {
-        _orders[index] = persistedOrder;
-      } else {
-        _orders.insert(0, persistedOrder);
+    if (_businessId.isNotEmpty) {
+      try {
+        final response = await _api.post('/api/restaurant/$_businessId/orders', body: _orderPayload(order));
+        persistedOrder = RestaurantOrder.fromJson(
+          _orderRowToJson(Map<String, dynamic>.from(response as Map)),
+        );
+
+        final index = _orders.indexWhere((o) => o.id == order.id);
+        if (index != -1) {
+          _orders[index] = persistedOrder;
+        } else {
+          _orders.insert(0, persistedOrder);
+        }
+      } catch (e) {
+        _error = e.toString();
+        debugPrint('[RestaurantProvider] Remote order write failed; kept local order: $e');
       }
     } else {
-      _orders.insert(0, order);
       persistedOrder = order;
     }
 

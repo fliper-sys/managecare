@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../core/constants/routes.dart';
-import '../../../core/access_control.dart';
 import '../../../core/utils/worker_permissions.dart';
 import '../../../providers/reports_provider.dart';
 import '../../../providers/business_provider.dart';
@@ -131,7 +130,11 @@ class _ReportsDashboardScreenState extends State<ReportsDashboardScreen> {
         }
       });
     }
-    if (!AccessControl.canViewReports(context)) {
+    final canViewReports = WorkerPermissions.canAccessReportsForUser(
+      authProvider.currentUser?.role ?? '',
+      authProvider.currentUser?.permissions ?? const [],
+    );
+    if (!canViewReports) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('Reports & Analytics'),

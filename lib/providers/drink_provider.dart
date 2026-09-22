@@ -737,7 +737,7 @@ class DrinkProvider extends ChangeNotifier {
   }
 
   // Orders
-  void createOrder(Order o) async {
+  Future<void> createOrder(Order o) async {
     orders.add(o);
     _applyStockConsumption(o.lines);
 

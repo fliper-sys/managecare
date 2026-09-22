@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 import 'dart:typed_data';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -26,6 +27,7 @@ import '../../../../services/receipt_manager.dart';
 import '../../../../services/web_download.dart' as web_download;
 import '../../../../services/web_email_receipt_service.dart';
 import '../../../../services/pdf_receipt_generator.dart';
+import '../../../../core/utils/worker_permissions.dart';
 
 // Helpers
 String _safeIdSuffix(String id) => id.length >= 6 ? id.substring(id.length - 6) : id;
@@ -65,6 +67,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       final business = context.read<BusinessProvider>().currentBusiness;
       if (business != null) {
         context.read<RestaurantProvider>().setBusinessId(business.id);
+        final hotelProvider = context.read<hotel.HotelProvider>();
+        await hotelProvider.setBusinessId(business.id);
         await context.read<RestaurantProvider>().initializeTables(businessId: business.id);
         await context.read<RestaurantProvider>().initializeMenu(businessId: business.id);
 
@@ -85,6 +89,20 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       _applyInitialRoomChargeSelection();
     });
   }
+
+  bool get _canApplyDiscount {
+    final user = context.read<AuthProvider>().currentUser;
+    return user != null &&
+        WorkerPermissions.hasEffectivePermission(
+          user.role,
+          user.permissions,
+          'apply_discount',
+        );
+  }
+
+  double get _requestedDiscount => _canApplyDiscount
+      ? (double.tryParse(_discountController.text) ?? 0)
+      : 0;
 
   @override
   void dispose() {
@@ -390,15 +408,26 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final business = Provider.of<BusinessProvider>(context, listen: false)
         .currentBusiness;
-    final businessId = business?.id ?? auth.currentUser?.businessId ?? 'unknown';
+    final businessId = business?.id ??
+        auth.currentUser?.primaryBusinessId ??
+        auth.currentUser?.businessId ??
+        '';
+    if (businessId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Business ID not found')),
+      );
+      return;
+    }
+    final restaurantProvider = context.read<RestaurantProvider>();
+    restaurantProvider.setBusinessId(businessId);
 
     _taxRate = (double.tryParse(_taxRateController.text) ?? 0) / 100;
-    _discount = double.tryParse(_discountController.text) ?? 0;
+    _discount = _requestedDiscount;
 
     final tax = _subtotal * _taxRate;
     final total = _subtotal + tax - _discount;
     final order = RestaurantOrder(
-      id: 'order_${DateTime.now().millisecondsSinceEpoch}',
+      id: const Uuid().v4(),
       businessId: businessId,
       customerName: reservation.guestName,
       customerEmail: reservation.guestEmail,
@@ -422,7 +451,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     );
 
     try {
-      await context.read<RestaurantProvider>().createOrder(order);
+      await restaurantProvider.createOrder(order);
       await hotelProvider.addReservationCharge(
         reservationId: reservation.id,
         description:
@@ -484,7 +513,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
     // Read tax and discount from text controllers
     _taxRate = (double.tryParse(_taxRateController.text) ?? 0) / 100;
-    _discount = double.tryParse(_discountController.text) ?? 0;
+    _discount = _requestedDiscount;
 
     final tax = _subtotal * _taxRate;
     final total = _subtotal + tax - _discount;
@@ -674,7 +703,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
       // Persist sale and complete order
       final order = RestaurantOrder(
-        id: 'order_${DateTime.now().millisecondsSinceEpoch}',
+        id: const Uuid().v4(),
         businessId: businessId ?? 'unknown',
         tableId: _selectedTableId,
         tableNumber: _selectedTableNumber,
@@ -700,7 +729,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           return {
             'menuItemId': item.menuItemId,
             'menuItemName': item.menuItemName,
+            'product_id': item.menuItemId,
+            'product_name': item.menuItemName,
             'quantity': item.quantity,
+            'unit_price': item.price,
             'unitPrice': item.price,
             'specialInstructions': item.specialInstructions,
             'selectedOptions': item.selectedOptions,
@@ -734,7 +766,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           if (order.customerEmail != null) 'customerEmail': order.customerEmail,
           'createdAt': DateTime.now().toIso8601String(),
           if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
-          if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
+          if (auth.currentUser?.id != null) ...{
+            'workerId': auth.currentUser!.id,
+            'created_by': auth.currentUser!.id,
+          },
           if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
         };
 
@@ -819,7 +854,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           'category': 'Restaurant',
           if (order.customerName != null) 'customerName': order.customerName,
           if (order.customerEmail != null) 'customerEmail': order.customerEmail,
-          if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
+          if (auth.currentUser?.id != null) ...{
+            'workerId': auth.currentUser!.id,
+            'created_by': auth.currentUser!.id,
+          },
           if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
           'timestamp': DateTime.now().toIso8601String(),
           if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
@@ -916,7 +954,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
     // Read tax and discount from text controllers
     _taxRate = (double.tryParse(_taxRateController.text) ?? 0) / 100;
-    _discount = double.tryParse(_discountController.text) ?? 0;
+    _discount = _requestedDiscount;
 
     final tax = _subtotal * _taxRate;
     final total = _subtotal + tax - _discount;
@@ -930,7 +968,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       return {
         'menuItemId': item.menuItemId,
         'menuItemName': item.menuItemName,
+        'product_id': item.menuItemId,
+        'product_name': item.menuItemName,
         'quantity': item.quantity,
+        'unit_price': item.price,
         'unitPrice': item.price,
         'specialInstructions': item.specialInstructions,
         'selectedOptions': item.selectedOptions,
@@ -941,7 +982,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     // Save sale using offline-aware service
     try {
       final order = RestaurantOrder(
-        id: 'order_${DateTime.now().millisecondsSinceEpoch}',
+        id: const Uuid().v4(),
         businessId: businessId,
         tableId: _selectedTableId,
         tableNumber: _selectedTableNumber,
@@ -985,7 +1026,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         'orderTargetLabel': order.orderTargetLabel,
         'customerName': order.customerName,
         'customerEmail': order.customerEmail,
-        if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
+        if (auth.currentUser?.id != null) ...{
+          'workerId': auth.currentUser!.id,
+          'created_by': auth.currentUser!.id,
+        },
         if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
         if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
       };
@@ -1112,7 +1156,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         'orderTargetLabel': order.orderTargetLabel,
         'customerName': order.customerName,
         'customerEmail': order.customerEmail,
-        if (auth.currentUser?.id != null) 'workerId': auth.currentUser!.id,
+        if (auth.currentUser?.id != null) ...{
+          'workerId': auth.currentUser!.id,
+          'created_by': auth.currentUser!.id,
+        },
         if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
         if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
         'timestamp': DateTime.now().toIso8601String(),
@@ -1355,6 +1402,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                           width: 80,
                           child: TextFormField(
                             controller: _discountController,
+                            enabled: _canApplyDiscount,
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             decoration: InputDecoration(
                               hintText: '0',
@@ -1458,7 +1506,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     try {
       // Read tax and discount from text controllers
       final taxRate = (double.tryParse(_taxRateController.text) ?? 0) / 100;
-      final discount = double.tryParse(_discountController.text) ?? 0;
+      final discount = _requestedDiscount;
       final tax = _subtotal * taxRate;
       final total = _subtotal + tax - discount;
 
@@ -1568,7 +1616,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
     // Read tax and discount from text controllers
     _taxRate = (double.tryParse(_taxRateController.text) ?? 0) / 100;
-    _discount = double.tryParse(_discountController.text) ?? 0;
+    _discount = _requestedDiscount;
 
     final tax = _subtotal * _taxRate;
     final total = _subtotal + tax - _discount;
@@ -1578,7 +1626,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     final businessId = business?.id ?? auth.currentUser?.businessId ?? 'unknown';
 
     final order = RestaurantOrder(
-      id: 'order_${DateTime.now().millisecondsSinceEpoch}',
+      id: const Uuid().v4(),
       businessId: businessId,
       tableId: _selectedTableId,
       tableNumber: _selectedTableNumber,
@@ -2217,6 +2265,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                   width: 80,
                                   child: TextFormField(
                                     controller: _discountController,
+                                    enabled: _canApplyDiscount,
                                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                     decoration: InputDecoration(
                                       hintText: '0',

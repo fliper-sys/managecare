@@ -267,7 +267,7 @@ module.exports = function(pool) {
        total_amount || final_amount, discount_amount || 0, tax_amount || 0, final_amount,
        payment_method,
         normalizePaymentBreakdownParam(payment_breakdown),
-        status || 'completed', notes || null, created_by || null, saleType,
+        status || 'completed', notes || null, created_by || worker_id || null, saleType,
        validCreatedAt]
     );
     const sale = saleResult.rows[0];
