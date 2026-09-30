@@ -29,7 +29,8 @@ class MenuOptionChoice {
     this.priceModifier = 0.0,
   });
 
-  factory MenuOptionChoice.fromJson(Map<String, dynamic> json) => MenuOptionChoice(
+  factory MenuOptionChoice.fromJson(Map<String, dynamic> json) =>
+      MenuOptionChoice(
         id: json['id'] as String,
         name: json['name'] as String,
         priceModifier: (json['priceModifier'] as num?)?.toDouble() ?? 0.0,
@@ -57,7 +58,8 @@ class MenuOption {
         id: json['id'] as String,
         name: json['name'] as String,
         choices: (json['choices'] as List<dynamic>?)
-                ?.map((e) => MenuOptionChoice.fromJson(e as Map<String, dynamic>))
+                ?.map(
+                    (e) => MenuOptionChoice.fromJson(e as Map<String, dynamic>))
                 .toList() ??
             [],
       );
@@ -87,10 +89,9 @@ class MenuIngredient {
   factory MenuIngredient.fromJson(Map<String, dynamic> json) => MenuIngredient(
         productId: (json['productId'] ?? '').toString(),
         productName: (json['productName'] ?? json['name'] ?? '').toString(),
-        quantityPerPortion:
-            (json['quantityPerPortion'] as num?)?.toDouble() ??
-                (json['quantity'] as num?)?.toDouble() ??
-                0.0,
+        quantityPerPortion: (json['quantityPerPortion'] as num?)?.toDouble() ??
+            (json['quantity'] as num?)?.toDouble() ??
+            0.0,
         unit: (json['unit'] ?? 'unit').toString(),
         unitCost: (json['unitCost'] as num?)?.toDouble() ??
             (json['cost'] as num?)?.toDouble() ??
@@ -143,8 +144,9 @@ class MenuItem {
 
   factory MenuItem.fromJson(Map<String, dynamic> json) => MenuItem(
         id: (json['id'] ?? '').toString(),
-        name: (json['name'] ?? json['menuItemName'] ?? json['productName'] ?? '')
-            .toString(),
+        name:
+            (json['name'] ?? json['menuItemName'] ?? json['productName'] ?? '')
+                .toString(),
         category: (json['category'] ?? 'Menu').toString(),
         price: (json['price'] as num?)?.toDouble() ?? 0.0,
         cost: (json['cost'] as num?)?.toDouble(),
@@ -161,8 +163,8 @@ class MenuItem {
                 .toList() ??
             [],
         ingredients: (json['ingredients'] as List<dynamic>?)
-                ?.map((e) =>
-                    MenuIngredient.fromJson(Map<String, dynamic>.from(e as Map)))
+                ?.map((e) => MenuIngredient.fromJson(
+                    Map<String, dynamic>.from(e as Map)))
                 .toList() ??
             [],
       );
@@ -182,7 +184,8 @@ class MenuItem {
         'inventoryProductId': inventoryProductId,
         'inventoryStock': inventoryStock,
         'options': options.map((o) => o.toJson()).toList(),
-        'ingredients': ingredients.map((ingredient) => ingredient.toJson()).toList(),
+        'ingredients':
+            ingredients.map((ingredient) => ingredient.toJson()).toList(),
       };
 }
 
@@ -237,7 +240,8 @@ class OrderItem {
                     1.0)),
         inventoryProductId: json['inventoryProductId'] as String?,
         selectedOptions: (json['selectedOptions'] as List<dynamic>?)
-                ?.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>))
+                ?.map(
+                    (e) => Map<String, dynamic>.from(e as Map<String, dynamic>))
                 .toList() ??
             [],
       );
@@ -319,7 +323,8 @@ class RestaurantOrder {
   final String? assignedChefId;
   final String? assignedWaiterId;
   final List<String> paymentMethods; // e.g., ['cash','card']
-  final List<Map<String, dynamic>> paymentBreakdown; // list of {method, amount, transactionId}
+  final List<Map<String, dynamic>>
+      paymentBreakdown; // list of {method, amount, transactionId}
   final DateTime createdAt;
   final DateTime? completedAt;
   final String? notes;
@@ -382,8 +387,15 @@ class RestaurantOrder {
             ((json['status'] as String?) == 'completed' ? 'paid' : 'pending'),
         assignedChefId: json['assignedChefId'] as String?,
         assignedWaiterId: json['assignedWaiterId'] as String?,
-        paymentMethods: (json['paymentMethods'] as List<dynamic>?)?.map((e) => e as String).toList() ?? [],
-        paymentBreakdown: (json['paymentBreakdown'] as List<dynamic>?)?.map((e) => Map<String, dynamic>.from(e as Map<String, dynamic>)).toList() ?? [],
+        paymentMethods: (json['paymentMethods'] as List<dynamic>?)
+                ?.map((e) => e as String)
+                .toList() ??
+            [],
+        paymentBreakdown: (json['paymentBreakdown'] as List<dynamic>?)
+                ?.map(
+                    (e) => Map<String, dynamic>.from(e as Map<String, dynamic>))
+                .toList() ??
+            [],
         createdAt: _parseDateOrNow(json['createdAt']),
         completedAt: _parseNullableDate(json['completedAt']),
         notes: json['notes'] as String?,
@@ -587,8 +599,7 @@ class RestaurantWasteRecord {
       type: (json['type'] ?? 'spoilage').toString(),
       reason: (json['reason'] ?? '').toString(),
       costImpact: (json['costImpact'] as num?)?.toDouble() ?? 0.0,
-      remainingQuantity:
-          (json['remainingQuantity'] as num?)?.toDouble() ?? 0.0,
+      remainingQuantity: (json['remainingQuantity'] as num?)?.toDouble() ?? 0.0,
       recordedAt: _parseDateOrNow(json['recordedAt']),
       recordedById: json['recordedById']?.toString(),
       recordedByName: json['recordedByName']?.toString(),
@@ -696,7 +707,8 @@ class RestaurantProvider extends ChangeNotifier {
   List<RestaurantWasteRecord> get wasteRecords => _wasteRecords;
   bool get isLoading => _isLoading;
   String? get error => _error;
-  List<String> get availablePaymentMethods => RestaurantProvider.supportedPaymentMethods;
+  List<String> get availablePaymentMethods =>
+      RestaurantProvider.supportedPaymentMethods;
   List<RestaurantOrder> get recentOrders {
     final items = [..._orders];
     items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -750,9 +762,7 @@ class RestaurantProvider extends ChangeNotifier {
     final raw = box.get(_cacheKey(segment, businessId));
     if (raw is! List) return const [];
 
-    return raw
-        .map((item) => Map<String, dynamic>.from(item as Map))
-        .toList();
+    return raw.map((item) => Map<String, dynamic>.from(item as Map)).toList();
   }
 
   Future<void> _persistOrdersCache() async {
@@ -831,9 +841,16 @@ class RestaurantProvider extends ChangeNotifier {
     for (final table in _tables) {
       if (table.id.isEmpty) continue;
       try {
-        await _api.put('/api/restaurant/$_businessId/tables/${table.id}', body: _tablePayload(table));
+        await _api
+            .put('/api/restaurant/$_businessId/tables/${table.id}', body: {
+          'status': table.status,
+          'assigned_waiter_id': table.assignedWaiterId,
+          'assigned_waiter_name': table.assignedWaiterName,
+          'reserved_until': table.reservedUntil?.toIso8601String(),
+        });
       } catch (e) {
-        debugPrint('[RestaurantProvider] _persistTableStatuses error for ${table.id}: $e');
+        debugPrint(
+            '[RestaurantProvider] _persistTableStatuses error for ${table.id}: $e');
       }
     }
   }
@@ -841,15 +858,14 @@ class RestaurantProvider extends ChangeNotifier {
   Future<void> _refreshDerivedTableStates() async {
     if (_tables.isEmpty) return;
 
-    final openTableIds = _orders
-        .where(_isTableOpenOrder)
-        .map((order) => order.tableId!)
-        .toSet();
+    final openTableIds =
+        _orders.where(_isTableOpenOrder).map((order) => order.tableId!).toSet();
     final reservedByReservation = <String, DateTime?>{};
     for (final reservation in _reservations) {
       final tableId = reservation.tableId;
       if (tableId == null || tableId.isEmpty) continue;
-      if (reservation.status == 'confirmed' || reservation.status == 'pending') {
+      if (reservation.status == 'confirmed' ||
+          reservation.status == 'pending') {
         reservedByReservation[tableId] =
             reservation.reservationDateTime.add(const Duration(hours: 2));
       }
@@ -872,7 +888,8 @@ class RestaurantProvider extends ChangeNotifier {
         nextReservedUntil = null;
       }
 
-      if (table.status != nextStatus || table.reservedUntil != nextReservedUntil) {
+      if (table.status != nextStatus ||
+          table.reservedUntil != nextReservedUntil) {
         changed = true;
         return TableInfo(
           id: table.id,
@@ -986,13 +1003,17 @@ class RestaurantProvider extends ChangeNotifier {
           notifyListeners();
         }
         final response = await _api.get('/api/restaurant/$bid/menu');
-        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
-        final fetchedItems = rows.map((r) => MenuItem.fromJson(_menuRowToJson(r))).toList();
+        final rows =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        final fetchedItems =
+            rows.map((r) => MenuItem.fromJson(_menuRowToJson(r))).toList();
         if (fetchedItems.isNotEmpty || !hadCachedItems) {
           _menuItems = fetchedItems;
         }
         await _persistMenuCache();
-        if (kDebugMode) print('[RestaurantProvider] initializeMenu: loaded ${_menuItems.length} items for business $bid');
+        if (kDebugMode)
+          print(
+              '[RestaurantProvider] initializeMenu: loaded ${_menuItems.length} items for business $bid');
       } else {
         // no business configured yet - keep empty list
         _menuItems = [];
@@ -1013,7 +1034,10 @@ class RestaurantProvider extends ChangeNotifier {
     for (final m in _menuItems) {
       // Try find match by barcode/sku or name
       final matched = retail.products.firstWhere(
-          (p) => (p.barcode != null && p.barcode!.isNotEmpty && p.barcode == m.id) ||
+          (p) =>
+              (p.barcode != null &&
+                  p.barcode!.isNotEmpty &&
+                  p.barcode == m.id) ||
               p.name.toLowerCase() == m.name.toLowerCase(),
           orElse: () => Product(
                 id: '',
@@ -1051,8 +1075,10 @@ class RestaurantProvider extends ChangeNotifier {
 
   Future<void> addMenuItem(MenuItem item) async {
     if (_businessId.isNotEmpty) {
-      final response = await _api.post('/api/restaurant/$_businessId/menu', body: _menuPayload(item));
-      final created = MenuItem.fromJson(_menuRowToJson(Map<String, dynamic>.from(response as Map)));
+      final response = await _api.post('/api/restaurant/$_businessId/menu',
+          body: _menuPayload(item));
+      final created = MenuItem.fromJson(
+          _menuRowToJson(Map<String, dynamic>.from(response as Map)));
       _menuItems.add(created);
     } else {
       _menuItems.add(item);
@@ -1084,7 +1110,8 @@ class RestaurantProvider extends ChangeNotifier {
             )
           : updatedItem;
       if (_businessId.isNotEmpty) {
-        await _api.put('/api/restaurant/$_businessId/menu/$id', body: _menuPayload(itemToStore));
+        await _api.put('/api/restaurant/$_businessId/menu/$id',
+            body: _menuPayload(itemToStore));
       }
       _menuItems[index] = itemToStore;
       await _persistMenuCache();
@@ -1180,11 +1207,16 @@ class RestaurantProvider extends ChangeNotifier {
           notifyListeners();
         }
         final response = await _api.get('/api/restaurant/$bid/orders');
-        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
-        _orders = rows.map((r) => RestaurantOrder.fromJson(_orderRowToJson(r))).toList();
+        final rows =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        _orders = rows
+            .map((r) => RestaurantOrder.fromJson(_orderRowToJson(r)))
+            .toList();
         _orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
         await _persistOrdersCache();
-        if (kDebugMode) print('[RestaurantProvider] initializeOrders: loaded ${_orders.length} orders for business $bid');
+        if (kDebugMode)
+          print(
+              '[RestaurantProvider] initializeOrders: loaded ${_orders.length} orders for business $bid');
       } else {
         // no business configured yet - start empty
         _orders = [];
@@ -1210,7 +1242,8 @@ class RestaurantProvider extends ChangeNotifier {
 
     if (_businessId.isNotEmpty) {
       try {
-        final response = await _api.post('/api/restaurant/$_businessId/orders', body: _orderPayload(order));
+        final response = await _api.post('/api/restaurant/$_businessId/orders',
+            body: _orderPayload(order));
         persistedOrder = RestaurantOrder.fromJson(
           _orderRowToJson(Map<String, dynamic>.from(response as Map)),
         );
@@ -1223,7 +1256,8 @@ class RestaurantProvider extends ChangeNotifier {
         }
       } catch (e) {
         _error = e.toString();
-        debugPrint('[RestaurantProvider] Remote order write failed; kept local order: $e');
+        debugPrint(
+            '[RestaurantProvider] Remote order write failed; kept local order: $e');
       }
     } else {
       persistedOrder = order;
@@ -1281,13 +1315,15 @@ class RestaurantProvider extends ChangeNotifier {
       final order = _orders[index];
       final updatedOrder = order.copyWith(
         status: newStatus,
-        completedAt: newStatus == 'completed' ? DateTime.now() : order.completedAt,
+        completedAt:
+            newStatus == 'completed' ? DateTime.now() : order.completedAt,
       );
 
       _orders[index] = updatedOrder;
 
       if (_businessId.isNotEmpty && order.id.isNotEmpty) {
-        await _api.put('/api/restaurant/$_businessId/orders/${order.id}', body: {
+        await _api
+            .put('/api/restaurant/$_businessId/orders/${order.id}', body: {
           'status': newStatus,
           'completed_at': updatedOrder.completedAt?.toIso8601String(),
           'payment_status': updatedOrder.paymentStatus,
@@ -1322,12 +1358,13 @@ class RestaurantProvider extends ChangeNotifier {
           await _logOrderNotification(
             businessId: businessId,
             type: 'restaurant_order_${newStatus.replaceAll('-', '_')}',
-            recipient:
-                updatedOrder.customerName ?? 'Table ${updatedOrder.tableNumber ?? 'N/A'}',
+            recipient: updatedOrder.customerName ??
+                'Table ${updatedOrder.tableNumber ?? 'N/A'}',
             orderId: updatedOrder.id,
           );
         } catch (e) {
-          debugPrint('[RestaurantProvider] updateOrderStatus notification error: $e');
+          debugPrint(
+              '[RestaurantProvider] updateOrderStatus notification error: $e');
         }
       }
 
@@ -1407,7 +1444,8 @@ class RestaurantProvider extends ChangeNotifier {
           orderId: updatedOrder.id,
         );
       } catch (e) {
-        debugPrint('[RestaurantProvider] updateOrderPaymentStatus notification error: $e');
+        debugPrint(
+            '[RestaurantProvider] updateOrderPaymentStatus notification error: $e');
       }
     }
 
@@ -1439,11 +1477,15 @@ class RestaurantProvider extends ChangeNotifier {
           notifyListeners();
         }
         final response = await _api.get('/api/restaurant/$bid/tables');
-        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
-        _tables = rows.map((r) => TableInfo.fromJson(_tableRowToJson(r))).toList();
+        final rows =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        _tables =
+            rows.map((r) => TableInfo.fromJson(_tableRowToJson(r))).toList();
         _tables.sort((a, b) => a.tableNumber.compareTo(b.tableNumber));
         await _persistTablesCache();
-        if (kDebugMode) print('[RestaurantProvider] initializeTables: loaded ${_tables.length} tables for business $bid');
+        if (kDebugMode)
+          print(
+              '[RestaurantProvider] initializeTables: loaded ${_tables.length} tables for business $bid');
       } else {
         // no business configured yet - start empty
         _tables = [];
@@ -1499,8 +1541,10 @@ class RestaurantProvider extends ChangeNotifier {
 
   Future<void> addTable(TableInfo table) async {
     if (_businessId.isNotEmpty) {
-      final response = await _api.post('/api/restaurant/$_businessId/tables', body: _tablePayload(table));
-      final created = TableInfo.fromJson(_tableRowToJson(Map<String, dynamic>.from(response as Map)));
+      final response = await _api.post('/api/restaurant/$_businessId/tables',
+          body: _tablePayload(table));
+      final created = TableInfo.fromJson(
+          _tableRowToJson(Map<String, dynamic>.from(response as Map)));
       _tables.add(created);
     } else {
       _tables.add(table);
@@ -1513,7 +1557,8 @@ class RestaurantProvider extends ChangeNotifier {
     final index = _tables.indexWhere((t) => t.id == table.id);
     if (index != -1) {
       if (_businessId.isNotEmpty && table.id.isNotEmpty) {
-        await _api.put('/api/restaurant/$_businessId/tables/${table.id}', body: _tablePayload(table));
+        await _api.put('/api/restaurant/$_businessId/tables/${table.id}',
+            body: _tablePayload(table));
       }
       _tables[index] = table;
       await _persistTablesCache();
@@ -1553,8 +1598,11 @@ class RestaurantProvider extends ChangeNotifier {
           notifyListeners();
         }
         final response = await _api.get('/api/restaurant/$bid/reservations');
-        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
-        _reservations = rows.map((r) => Reservation.fromJson(_reservationRowToJson(r))).toList();
+        final rows =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        _reservations = rows
+            .map((r) => Reservation.fromJson(_reservationRowToJson(r)))
+            .toList();
         _reservations.sort(
           (a, b) => a.reservationDateTime.compareTo(b.reservationDateTime),
         );
@@ -1592,7 +1640,8 @@ class RestaurantProvider extends ChangeNotifier {
         'customer_name': reservation.customerName,
         'customer_phone': reservation.customerPhone,
         'guest_count': reservation.guestCount,
-        'reservation_date_time': reservation.reservationDateTime.toIso8601String(),
+        'reservation_date_time':
+            reservation.reservationDateTime.toIso8601String(),
         'status': reservation.status,
         'special_requests': reservation.specialRequests,
         'table_id': reservation.tableId,
@@ -1603,8 +1652,11 @@ class RestaurantProvider extends ChangeNotifier {
 
   Future<void> createReservation(Reservation reservation) async {
     if (_businessId.isNotEmpty) {
-      final response = await _api.post('/api/restaurant/$_businessId/reservations', body: _reservationPayload(reservation));
-      final created = Reservation.fromJson(_reservationRowToJson(Map<String, dynamic>.from(response as Map)));
+      final response = await _api.post(
+          '/api/restaurant/$_businessId/reservations',
+          body: _reservationPayload(reservation));
+      final created = Reservation.fromJson(
+          _reservationRowToJson(Map<String, dynamic>.from(response as Map)));
       _reservations.add(created);
       // mark table reserved if provided
       if (created.tableId != null && created.tableId!.isNotEmpty) {
@@ -1618,7 +1670,8 @@ class RestaurantProvider extends ChangeNotifier {
               status: 'reserved',
               assignedWaiterId: table.assignedWaiterId,
               assignedWaiterName: table.assignedWaiterName,
-              reservedUntil: created.reservationDateTime.add(Duration(hours: 2)));
+              reservedUntil:
+                  created.reservationDateTime.add(Duration(hours: 2)));
         }
       }
     } else {
@@ -1629,7 +1682,8 @@ class RestaurantProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> updateReservationStatus(String reservationId, String newStatus) async {
+  Future<void> updateReservationStatus(
+      String reservationId, String newStatus) async {
     final index = _reservations.indexWhere((res) => res.id == reservationId);
     if (index != -1) {
       final reservation = _reservations[index];
@@ -1652,7 +1706,9 @@ class RestaurantProvider extends ChangeNotifier {
       _reservations[index] = updated;
 
       if (_businessId.isNotEmpty && reservation.id.isNotEmpty) {
-        await _api.put('/api/restaurant/$_businessId/reservations/${reservation.id}', body: {'status': newStatus});
+        await _api.put(
+            '/api/restaurant/$_businessId/reservations/${reservation.id}',
+            body: {'status': newStatus});
       }
 
       // if confirmed, mark table reserved
@@ -1665,9 +1721,12 @@ class RestaurantProvider extends ChangeNotifier {
             tableNumber: table.tableNumber,
             capacity: table.capacity,
             status: 'reserved',
-            assignedWaiterId: reservation.assignedWaiterId ?? table.assignedWaiterId,
-            assignedWaiterName: reservation.assignedWaiterName ?? table.assignedWaiterName,
-            reservedUntil: reservation.reservationDateTime.add(Duration(hours: 2)),
+            assignedWaiterId:
+                reservation.assignedWaiterId ?? table.assignedWaiterId,
+            assignedWaiterName:
+                reservation.assignedWaiterName ?? table.assignedWaiterName,
+            reservedUntil:
+                reservation.reservationDateTime.add(Duration(hours: 2)),
           );
         }
       }
@@ -1724,8 +1783,10 @@ class RestaurantProvider extends ChangeNotifier {
           notifyListeners();
         }
         final response = await _api.get('/api/restaurant/$bid/staff');
-        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
-        _servers = rows.map((r) => Server.fromJson(_serverRowToJson(r))).toList();
+        final rows =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        _servers =
+            rows.map((r) => Server.fromJson(_serverRowToJson(r))).toList();
         await _persistServersCache();
       } else {
         _servers = [];
@@ -1740,8 +1801,10 @@ class RestaurantProvider extends ChangeNotifier {
 
   Future<void> addServer(Server server) async {
     if (_businessId.isNotEmpty) {
-      final response = await _api.post('/api/restaurant/$_businessId/staff', body: _serverPayload(server));
-      final created = Server.fromJson(_serverRowToJson(Map<String, dynamic>.from(response as Map)));
+      final response = await _api.post('/api/restaurant/$_businessId/staff',
+          body: _serverPayload(server));
+      final created = Server.fromJson(
+          _serverRowToJson(Map<String, dynamic>.from(response as Map)));
       _servers.add(created);
     } else {
       _servers.add(server);
@@ -1754,7 +1817,8 @@ class RestaurantProvider extends ChangeNotifier {
     final index = _servers.indexWhere((s) => s.id == server.id);
     if (index != -1) {
       if (_businessId.isNotEmpty && server.id.isNotEmpty) {
-        await _api.put('/api/restaurant/$_businessId/staff/${server.id}', body: _serverPayload(server));
+        await _api.put('/api/restaurant/$_businessId/staff/${server.id}',
+            body: _serverPayload(server));
       }
       _servers[index] = server;
       await _persistServersCache();
@@ -1788,7 +1852,8 @@ class RestaurantProvider extends ChangeNotifier {
         }
 
         final response = await _api.get('/api/restaurant/$bid/waste');
-        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        final rows =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
         _wasteRecords = rows
             .map((r) => RestaurantWasteRecord.fromJson(_wasteRowToJson(r)))
             .toList()
@@ -1841,7 +1906,8 @@ class RestaurantProvider extends ChangeNotifier {
       throw Exception('Waste quantity must be greater than zero.');
     }
 
-    final response = await _api.post('/api/restaurant/$_businessId/waste', body: {
+    final response =
+        await _api.post('/api/restaurant/$_businessId/waste', body: {
       'product_id': productId,
       'product_name': productName,
       'quantity': quantity,
@@ -1851,7 +1917,8 @@ class RestaurantProvider extends ChangeNotifier {
       'recorded_by_id': recordedById,
       'recorded_by_name': recordedByName,
     });
-    final record = RestaurantWasteRecord.fromJson(_wasteRowToJson(Map<String, dynamic>.from(response as Map)));
+    final record = RestaurantWasteRecord.fromJson(
+        _wasteRowToJson(Map<String, dynamic>.from(response as Map)));
 
     _wasteRecords = [record, ..._wasteRecords]
       ..sort((a, b) => b.recordedAt.compareTo(a.recordedAt));
@@ -1897,7 +1964,7 @@ class RestaurantProvider extends ChangeNotifier {
     };
   }
 
-  /// Reset provider state - called during logout to clear all cached data  
+  /// Reset provider state - called during logout to clear all cached data
   void reset() {
     _businessId = '';
     _menuItems.clear();
@@ -1911,7 +1978,4 @@ class RestaurantProvider extends ChangeNotifier {
     print('[RestaurantProvider] State cleared and ready for next business');
     notifyListeners();
   }
-
-
 }
-

@@ -551,7 +551,10 @@ module.exports = function(pool) {
       const shiftCashDifference = parseFloat(merged.shift_close_cash) - parseFloat(merged.shift_opening_cash);
       const expectedAmount = Math.max(0, Math.round(shiftCashDifference * 100) / 100);
       const totalPaid = parseFloat(merged.cash_amount) + parseFloat(merged.pos_amount);
-      const soldVolume = Math.max(0, parseFloat(merged.shift_close_cash) - parseFloat(merged.shift_opening_cash)) * (parseFloat(merged.product_price) || 0);
+      const productPrice = parseFloat(merged.product_price) || 0;
+      const soldVolume = productPrice > 0
+        ? Math.max(0, parseFloat(merged.shift_close_cash) - parseFloat(merged.shift_opening_cash)) / productPrice
+        : 0;
 
       const result = await client.query(
         `UPDATE pump_daily_uploads SET

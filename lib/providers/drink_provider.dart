@@ -384,7 +384,12 @@ abstract class DrinkRepository {
   /// Sums completed sales for this business. Pass [period] ('today') for a
   /// server-side date filter, or an explicit [start]/[end] range; omitting
   /// both sums all-time.
-  Future<double> getSalesTotal({String? period, DateTime? start, DateTime? end});
+  Future<double> getSalesTotal({
+    String? period,
+    DateTime? start,
+    DateTime? end,
+    String? saleType,
+  });
 
   /// Merges bar-specific extras (preferred table, common purchases) into a
   /// customer's metadata. Doesn't bump total_spent/total_transactions -
@@ -1495,6 +1500,27 @@ class DrinkProvider extends ChangeNotifier {
       debugPrint(
           '[DrinkProvider] Error fetching remote sales total: $e, falling back to in-memory');
       return getTotalSales();
+    }
+  }
+
+  Future<double> getSalesTotal({
+    DateTime? start,
+    DateTime? end,
+    String? saleType,
+  }) async {
+    if (_businessId == null || _businessId!.isEmpty || repository == null) {
+      return getTotalSales();
+    }
+
+    try {
+      return await repository!.getSalesTotal(
+        start: start,
+        end: end,
+        saleType: saleType,
+      );
+    } catch (e) {
+      debugPrint('[DrinkProvider] Failed to fetch sales total: $e');
+      return 0.0;
     }
   }
 

@@ -1387,6 +1387,10 @@ class BusinessProvider with ChangeNotifier {
     final primary = bt.contains('/') ? bt.split('/').last : bt;
 
     switch (primary) {
+      case 'administrative':
+      case 'admin_services':
+      case 'professional_services':
+        return '/administrative';
       case 'pharmacy':
         return '/pharmacy';
       case 'retail':

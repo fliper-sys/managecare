@@ -231,6 +231,7 @@ import '../presentation/dashboard/owner/screens/procurement_screen.dart';
 import '../presentation/dashboard/owner/screens/procurement_history_screen.dart';
 import '../presentation/dashboard/owner/screens/bakery_procurement_history_screen.dart';
 import '../presentation/dashboard/owner/screens/bakery_baker_performance_report_screen.dart';
+import '../presentation/industry_specific/administrative/screens/administrative_dashboard_screen.dart';
 
 class AppRouter {
   Route<dynamic>? onGenerateRoute(RouteSettings settings) {
@@ -238,6 +239,9 @@ class AppRouter {
       // Auth Routes
       case Routes.splash:
         return _buildRoute(const SplashScreen());
+
+      case Routes.administrativeDashboard:
+        return _buildRoute(const AdministrativeDashboardScreen());
 
       case Routes.login:
         return _buildRoute(const LoginScreen());

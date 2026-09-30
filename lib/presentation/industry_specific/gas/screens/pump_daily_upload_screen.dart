@@ -695,8 +695,9 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       productData = null;
     }
 
-    final currentPrice =
-        (productData?['price'] as num?)?.toDouble() ?? fallbackPrice;
+    final currentPrice = (productData?['unit_price'] as num?)?.toDouble() ??
+        (productData?['price'] as num?)?.toDouble() ??
+        fallbackPrice;
 
     if (currentPrice > 0 && (currentPrice - fallbackPrice).abs() > 0.0001) {
       final pumpId = pump['id']?.toString();

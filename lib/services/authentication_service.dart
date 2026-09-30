@@ -81,11 +81,8 @@ class AuthenticationService {
     bool allowSelfRecovery = false,
   }) async {
     try {
-      var profile = await _db
-          .from('profiles')
-          .select()
-          .eq('id', userId)
-          .maybeSingle();
+      var profile =
+          await _db.from('profiles').select().eq('id', userId).maybeSingle();
 
       if (profile == null) {
         return const ResolvedUserAccess(
@@ -122,10 +119,37 @@ class AuthenticationService {
         recoveredAccount = true;
       }
 
-      final memberships = await _db
+      var memberships = List<Map<String, dynamic>>.from(await _db
           .from('business_members')
-          .select('business_id, role, is_owner, permissions, store_id, is_active')
-          .eq('user_id', userId);
+          .select(
+              'business_id, role, is_owner, permissions, store_id, is_active')
+          .eq('user_id', userId));
+
+      Map<String, dynamic>? legacyBusiness;
+      if (memberships.isEmpty) {
+        final token = _auth.currentSession?.accessToken;
+        if (token != null && token.isNotEmpty) {
+          try {
+            final response = await http.get(
+              Uri.parse('${SupabaseConfig.url}/api/session/worker-membership'),
+              headers: {'Authorization': 'Bearer $token'},
+            );
+            if (response.statusCode == 200) {
+              final payload = jsonDecode(response.body) as Map<String, dynamic>;
+              final membership = payload['membership'];
+              if (membership is Map) {
+                memberships = [Map<String, dynamic>.from(membership)];
+              }
+              final business = payload['business'];
+              if (business is Map) {
+                legacyBusiness = Map<String, dynamic>.from(business);
+              }
+            }
+          } catch (_) {
+            // Keep normal sign-in behavior if legacy-worker lookup is unavailable.
+          }
+        }
+      }
 
       final businessIds = memberships
           .map((m) => m['business_id'] as String)
@@ -133,10 +157,14 @@ class AuthenticationService {
 
       final businessesById = <String, Map<String, dynamic>>{};
       if (businessIds.isNotEmpty) {
-        final rows = await _db.from('businesses').select().inFilter('id', businessIds);
+        final rows =
+            await _db.from('businesses').select().inFilter('id', businessIds);
         for (final row in rows) {
           businessesById[row['id'] as String] = row;
         }
+      }
+      if (legacyBusiness != null) {
+        businessesById[legacyBusiness!['id'] as String] = legacyBusiness!;
       }
 
       var usableMemberships = memberships
@@ -148,10 +176,16 @@ class AuthenticationService {
       if (usableMemberships.isEmpty && memberships.isNotEmpty) {
         // Every membership points at a deleted business. Only an owner can
         // recover one (a worker has to wait for the owner to do it).
-        final deletedOwned = memberships.where((m) => m['is_owner'] == true).toList()
+        final deletedOwned = memberships
+            .where((m) => m['is_owner'] == true)
+            .toList()
           ..sort((a, b) {
-            final aDate = businessesById[a['business_id']]?['deleted_at']?.toString() ?? '';
-            final bDate = businessesById[b['business_id']]?['deleted_at']?.toString() ?? '';
+            final aDate =
+                businessesById[a['business_id']]?['deleted_at']?.toString() ??
+                    '';
+            final bDate =
+                businessesById[b['business_id']]?['deleted_at']?.toString() ??
+                    '';
             return bDate.compareTo(aDate);
           });
 
@@ -298,7 +332,8 @@ class AuthenticationService {
       isActive: (currentMembership?['is_active'] as bool?) ?? true,
       isOwner: (currentMembership?['is_owner'] as bool?) ?? !hasMembership,
       pin: profile['pin'] as String?,
-      hasActiveSubscription: (business?['is_subscription_active'] as bool?) ?? false,
+      hasActiveSubscription:
+          (business?['is_subscription_active'] as bool?) ?? false,
       subscriptionPlan: business?['subscription_plan'] as String?,
       subscriptionStartDate: business?['subscription_start_date'] != null
           ? DateTime.tryParse(business!['subscription_start_date'] as String)
@@ -306,8 +341,10 @@ class AuthenticationService {
       subscriptionEndDate: business?['subscription_end_date'] != null
           ? DateTime.tryParse(business!['subscription_end_date'] as String)
           : null,
-      createdAt: DateTime.tryParse(profile['created_at'] as String? ?? '') ?? DateTime.now(),
-      updatedAt: DateTime.tryParse(profile['updated_at'] as String? ?? '') ?? DateTime.now(),
+      createdAt: DateTime.tryParse(profile['created_at'] as String? ?? '') ??
+          DateTime.now(),
+      updatedAt: DateTime.tryParse(profile['updated_at'] as String? ?? '') ??
+          DateTime.now(),
     );
   }
 
@@ -366,8 +403,8 @@ class AuthenticationService {
       throw Exception(body['error'] ?? 'Failed to create worker');
     }
 
-    final randomPin =
-        pin ?? (1000 + (DateTime.now().millisecondsSinceEpoch % 9000)).toString();
+    final randomPin = pin ??
+        (1000 + (DateTime.now().millisecondsSinceEpoch % 9000)).toString();
 
     return UserModel(
       id: body['id'] as String,

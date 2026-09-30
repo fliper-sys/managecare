@@ -45,8 +45,11 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Lottie.asset('assets/lottie/website-building-of-shopping-sale.json',
-                  width: 160, height: 160, repeat: true),
+              Lottie.asset(
+                  'assets/lottie/website-building-of-shopping-sale.json',
+                  width: 160,
+                  height: 160,
+                  repeat: true),
               const SizedBox(height: 12),
               Text('Work Hub',
                   style: AppTextStyles.heading4
@@ -57,22 +60,27 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                   style: AppTextStyles.body2Secondary,
                   textAlign: TextAlign.center),
               const SizedBox(height: 16),
-              Wrap(spacing: 12, runSpacing: 12, alignment: WrapAlignment.center, children: [
-                ElevatedButton.icon(
-                    onPressed: () => Navigator.pushNamed(context, Routes.sales),
-                    icon: const Icon(Icons.point_of_sale),
-                    label: const Text('New Sale')),
-                OutlinedButton.icon(
-                    onPressed: () =>
-                        Navigator.pushNamed(context, Routes.drinkOrders),
-                    icon: const Icon(Icons.receipt_long),
-                    label: const Text('Open Orders')),
-                OutlinedButton.icon(
-                    onPressed: () =>
-                        Navigator.pushNamed(context, Routes.drinkTabs),
-                    icon: const Icon(Icons.tab),
-                    label: const Text('Open Tabs')),
-              ])
+              Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    ElevatedButton.icon(
+                        onPressed: () =>
+                            Navigator.pushNamed(context, Routes.sales),
+                        icon: const Icon(Icons.point_of_sale),
+                        label: const Text('New Sale')),
+                    OutlinedButton.icon(
+                        onPressed: () =>
+                            Navigator.pushNamed(context, Routes.drinkOrders),
+                        icon: const Icon(Icons.receipt_long),
+                        label: const Text('Open Orders')),
+                    OutlinedButton.icon(
+                        onPressed: () =>
+                            Navigator.pushNamed(context, Routes.drinkTabs),
+                        icon: const Icon(Icons.tab),
+                        label: const Text('Open Tabs')),
+                  ])
             ],
           ),
         ),
@@ -114,15 +122,27 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
   }
 
   bool _canManageBarInventory(AuthProvider authProvider) {
-    final role = authProvider.currentUser?.role ?? '';
+    final user = authProvider.currentUser;
     return authProvider.isOwnerUser ||
-        WorkerPermissions.canManageInventory(role);
+        WorkerPermissions.hasEffectivePermission(
+          user?.role ?? '',
+          user?.permissions ?? const [],
+          'manage_inventory',
+        ) ||
+        WorkerPermissions.hasEffectivePermission(
+          user?.role ?? '',
+          user?.permissions ?? const [],
+          'access_inventory_screen',
+        );
   }
 
   bool _canManageBarProcurement(AuthProvider authProvider) {
-    final role = authProvider.currentUser?.role ?? '';
+    final user = authProvider.currentUser;
     return authProvider.isOwnerUser ||
-        WorkerPermissions.hasPermission(role, 'procurement_management');
+        WorkerPermissions.canAccessProcurementForUser(
+          user?.role ?? '',
+          user?.permissions ?? const [],
+        );
   }
 
   void _showPermissionDenied(String message) {
@@ -187,8 +207,9 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
     final authProvider = Provider.of<AuthProvider>(context);
     final canManageInventory = _canManageBarInventory(authProvider);
     final canManageProcurement = _canManageBarProcurement(authProvider);
-    final isRestrictedWorker =
-        !authProvider.isOwnerUser && !canManageInventory && !canManageProcurement;
+    final isRestrictedWorker = !authProvider.isOwnerUser &&
+        !canManageInventory &&
+        !canManageProcurement;
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -366,7 +387,8 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                                       );
                                       return;
                                     }
-                                    Navigator.pushNamed(context, Routes.drinkPos);
+                                    Navigator.pushNamed(
+                                        context, Routes.drinkPos);
                                   },
                                 ),
                               ],
@@ -447,7 +469,8 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                                                     ),
                                                     PopupMenuItem(
                                                       value: 'stock',
-                                                      child: Text('Adjust Stock'),
+                                                      child:
+                                                          Text('Adjust Stock'),
                                                     ),
                                                   ],
                                                   onSelected: (v) {
@@ -504,9 +527,8 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                                                   color: isLow
                                                       ? Colors.orange
                                                       : Colors.green,
-                                                  backgroundColor:
-                                                      colorScheme
-                                                          .surfaceContainerHighest,
+                                                  backgroundColor: colorScheme
+                                                      .surfaceContainerHighest,
                                                   minHeight: 6),
                                               const SizedBox(height: 6),
                                               Row(children: [
@@ -741,8 +763,7 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                   const SizedBox(height: 4),
                   Text('$lowStockCount items need restocking',
                       style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
-                          fontSize: 12))
+                          color: Colors.white.withOpacity(0.9), fontSize: 12))
                 ])),
             Container(
                 padding:
@@ -800,10 +821,9 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                 borderRadius: BorderRadius.circular(12)),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Icon(icon,
-                  color:
-                      isSelected
-                          ? const Color(0xFF5D4037)
-                          : colorScheme.onSurfaceVariant,
+                  color: isSelected
+                      ? const Color(0xFF5D4037)
+                      : colorScheme.onSurfaceVariant,
                   size: 24),
               const SizedBox(height: 4),
               Text(label,
@@ -890,7 +910,6 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                 color: Colors.blue,
                 onTap: () => Navigator.pushNamed(context, Routes.drinkPos),
               ),
-             
               _ActionTile(
                 icon: Icons.receipt_long,
                 label: 'Orders',
@@ -907,7 +926,8 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                 icon: Icons.print,
                 label: 'Printer Settings',
                 color: Colors.teal,
-                onTap: () => Navigator.pushNamed(context, Routes.printerSettings),
+                onTap: () =>
+                    Navigator.pushNamed(context, Routes.printerSettings),
               ),
               if (canManageProcurement)
                 _ActionTile(
@@ -921,7 +941,8 @@ class _DrinkDashboardScreenState extends State<DrinkDashboardScreen>
                   icon: Icons.inventory_2_outlined,
                   label: 'Inventory',
                   color: Colors.indigo,
-                  onTap: () => Navigator.pushNamed(context, Routes.drinkInventory),
+                  onTap: () =>
+                      Navigator.pushNamed(context, Routes.drinkInventory),
                 ),
               _ActionTile(
                 icon: Icons.support_agent_rounded,
@@ -995,4 +1016,3 @@ class _ActionTile extends StatelessWidget {
     );
   }
 }
-

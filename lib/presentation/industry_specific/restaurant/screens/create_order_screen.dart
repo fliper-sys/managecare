@@ -30,7 +30,8 @@ import '../../../../services/pdf_receipt_generator.dart';
 import '../../../../core/utils/worker_permissions.dart';
 
 // Helpers
-String _safeIdSuffix(String id) => id.length >= 6 ? id.substring(id.length - 6) : id;
+String _safeIdSuffix(String id) =>
+    id.length >= 6 ? id.substring(id.length - 6) : id;
 
 class CreateOrderScreen extends StatefulWidget {
   const CreateOrderScreen({
@@ -51,14 +52,15 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   String? _selectedRoomChargeLabel;
   final List<OrderItem> _selectedItems = [];
   double _subtotal = 0;
-  double _taxRate = 0.0;  // Changed to 0% default
-  double _discount = 0.0;  // Changed to editable field
+  double _taxRate = 0.0; // Changed to 0% default
+  double _discount = 0.0; // Changed to editable field
 
   final TextEditingController _menuSearchController = TextEditingController();
-  final TextEditingController _taxRateController = TextEditingController(text: '0');
-  final TextEditingController _discountController = TextEditingController(text: '0');
+  final TextEditingController _taxRateController =
+      TextEditingController(text: '0');
+  final TextEditingController _discountController =
+      TextEditingController(text: '0');
   String _menuQuery = '';
-
 
   @override
   void initState() {
@@ -69,12 +71,18 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         context.read<RestaurantProvider>().setBusinessId(business.id);
         final hotelProvider = context.read<hotel.HotelProvider>();
         await hotelProvider.setBusinessId(business.id);
-        await context.read<RestaurantProvider>().initializeTables(businessId: business.id);
-        await context.read<RestaurantProvider>().initializeMenu(businessId: business.id);
+        await context
+            .read<RestaurantProvider>()
+            .initializeTables(businessId: business.id);
+        await context
+            .read<RestaurantProvider>()
+            .initializeMenu(businessId: business.id);
 
         // If this business uses retail inventory, load products and sync prices
         await context.read<RetailProvider>().initialize(business.id);
-        context.read<RestaurantProvider>().syncMenuWithRetail(context.read<RetailProvider>());
+        context
+            .read<RestaurantProvider>()
+            .syncMenuWithRetail(context.read<RetailProvider>());
       } else {
         await context.read<RestaurantProvider>().initializeTables();
         await context.read<RestaurantProvider>().initializeMenu();
@@ -100,9 +108,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         );
   }
 
-  double get _requestedDiscount => _canApplyDiscount
-      ? (double.tryParse(_discountController.text) ?? 0)
-      : 0;
+  double get _requestedDiscount =>
+      _canApplyDiscount ? (double.tryParse(_discountController.text) ?? 0) : 0;
 
   @override
   void dispose() {
@@ -111,8 +118,6 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     _discountController.dispose();
     super.dispose();
   }
-
-
 
   void _updateItemQuantity(int index, int newQuantity) {
     if (newQuantity <= 0) {
@@ -140,7 +145,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   }
 
   void _updateSubtotal() {
-    _subtotal = _selectedItems.fold<double>(0.0, (sum, item) => sum + item.subtotal);
+    _subtotal =
+        _selectedItems.fold<double>(0.0, (sum, item) => sum + item.subtotal);
     setState(() {});
   }
 
@@ -194,7 +200,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     return null;
   }
 
-  String _safeIdSuffix(String id) => id.length >= 6 ? id.substring(id.length - 6) : id;
+  String _safeIdSuffix(String id) =>
+      id.length >= 6 ? id.substring(id.length - 6) : id;
 
   void _showItemOptionsDialog(MenuItem item) async {
     int qty = 1;
@@ -203,7 +210,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
     // Initialize defaults (first choice if exists)
     for (final opt in item.options) {
-      selectedChoices[opt.id] = opt.choices.isNotEmpty ? opt.choices.first : null;
+      selectedChoices[opt.id] =
+          opt.choices.isNotEmpty ? opt.choices.first : null;
     }
 
     await showDialog(
@@ -239,10 +247,12 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                             items: opt.choices.map((ch) {
                               return DropdownMenuItem<MenuOptionChoice?>(
                                 value: ch,
-                                child: Text('${ch.name} ${ch.priceModifier != 0 ? '(${formatCurrency(ch.priceModifier)}/add)' : ''}'),
+                                child: Text(
+                                    '${ch.name} ${ch.priceModifier != 0 ? '(${formatCurrency(ch.priceModifier)}/add)' : ''}'),
                               );
                             }).toList(),
-                            onChanged: (val) => setState(() => selectedChoices[opt.id] = val),
+                            onChanged: (val) =>
+                                setState(() => selectedChoices[opt.id] = val),
                           ),
                         ],
                       ),
@@ -252,31 +262,42 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      IconButton(onPressed: () => setState(() => qty = (qty - 1) < 1 ? 1 : qty - 1), icon: const Icon(Icons.remove)),
+                      IconButton(
+                          onPressed: () =>
+                              setState(() => qty = (qty - 1) < 1 ? 1 : qty - 1),
+                          icon: const Icon(Icons.remove)),
                       Text('$qty', style: AppTextStyles.body1),
-                      IconButton(onPressed: () => setState(() => qty = qty + 1), icon: const Icon(Icons.add)),
+                      IconButton(
+                          onPressed: () => setState(() => qty = qty + 1),
+                          icon: const Icon(Icons.add)),
                     ],
                   ),
                   const SizedBox(height: 8),
                   TextField(
-                    decoration: const InputDecoration(hintText: 'Special instructions (optional)'),
+                    decoration: const InputDecoration(
+                        hintText: 'Special instructions (optional)'),
                     onChanged: (v) => special = v,
                   ),
                   const SizedBox(height: 12),
-                  Text('Unit: ${formatCurrency(unitPrice())}', style: AppTextStyles.body1),
-                  Text('Subtotal: ${formatCurrency(unitPrice() * qty)}', style: AppTextStyles.body1),
+                  Text('Unit: ${formatCurrency(unitPrice())}',
+                      style: AppTextStyles.body1),
+                  Text('Subtotal: ${formatCurrency(unitPrice() * qty)}',
+                      style: AppTextStyles.body1),
                 ],
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancel')),
               TextButton(
                 onPressed: () {
                   final selectedOptions = selectedChoices.entries.map((e) {
                     final c = e.value;
                     return {
                       'optionId': e.key,
-                      'optionName': item.options.firstWhere((o) => o.id == e.key).name,
+                      'optionName':
+                          item.options.firstWhere((o) => o.id == e.key).name,
                       'choiceId': c?.id,
                       'choiceName': c?.name,
                       'price': c?.priceModifier ?? 0.0,
@@ -298,7 +319,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     quantity: qty,
                     subtotal: subtotal,
                     inventoryProductId: item.inventoryProductId,
-                    selectedOptions: selectedOptions.cast<Map<String, dynamic>>(),
+                    selectedOptions:
+                        selectedOptions.cast<Map<String, dynamic>>(),
                     specialInstructions: special.isNotEmpty ? special : null,
                   );
 
@@ -399,15 +421,16 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         hotelProvider.getReservationById(_selectedRoomChargeReservationId!);
     if (reservation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selected room booking could not be found')),
+        const SnackBar(
+            content: Text('Selected room booking could not be found')),
       );
       return;
     }
 
     final room = hotelProvider.getRoomById(reservation.roomId);
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final business = Provider.of<BusinessProvider>(context, listen: false)
-        .currentBusiness;
+    final business =
+        Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
     final businessId = business?.id ??
         auth.currentUser?.primaryBusinessId ??
         auth.currentUser?.businessId ??
@@ -471,6 +494,7 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                 (item) => {
                   'name': item.menuItemName,
                   'quantity': item.quantity,
+                  'unitPrice': item.price,
                   'total': item.subtotal,
                 },
               )
@@ -507,7 +531,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
   Future<void> _payAndCompleteOrder() async {
     if (_selectedItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add items before paying')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Add items before paying')));
       return;
     }
 
@@ -538,18 +563,25 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const SizedBox(height: 8),
-                Text('Total: ${formatCurrency(total)}', style: AppTextStyles.heading3),
+                Text('Total: ${formatCurrency(total)}',
+                    style: AppTextStyles.heading3),
                 const SizedBox(height: 12),
                 TextField(
-                  decoration: const InputDecoration(hintText: 'Customer name (optional)'),
+                  decoration: const InputDecoration(
+                      hintText: 'Customer name (optional)'),
                   onChanged: (v) => customerName = v,
                 ),
                 const SizedBox(height: 8),
                 TextField(
-                  decoration: const InputDecoration(hintText: 'Customer email (optional)'),
+                  decoration: const InputDecoration(
+                      hintText: 'Customer email (optional)'),
                   onChanged: (v) => customerEmail = v,
                 ),
-                const SizedBox(height: 12),                Align(alignment: Alignment.centerLeft, child: Text('Select payment method(s)', style: AppTextStyles.subtitle1)),
+                const SizedBox(height: 12),
+                Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Select payment method(s)',
+                        style: AppTextStyles.subtitle1)),
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
@@ -577,11 +609,16 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                 const SizedBox(height: 12),
                 // Allocation inputs when multiple methods selected
                 if (selectedPaymentMethods.isNotEmpty) ...[
-                  Align(alignment: Alignment.centerLeft, child: Text('Allocate amounts per method', style: AppTextStyles.subtitle1)),
+                  Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('Allocate amounts per method',
+                          style: AppTextStyles.subtitle1)),
                   const SizedBox(height: 8),
                   Column(
                     children: selectedPaymentMethods.map((m) {
-                      final controller = TextEditingController(text: paymentAllocations[m]?.toStringAsFixed(2) ?? '0.00');
+                      final controller = TextEditingController(
+                          text: paymentAllocations[m]?.toStringAsFixed(2) ??
+                              '0.00');
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 6),
                         child: Row(
@@ -592,8 +629,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                               width: 140,
                               child: TextField(
                                 controller: controller,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                decoration: const InputDecoration(hintText: 'Amount'),
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                        decimal: true),
+                                decoration:
+                                    const InputDecoration(hintText: 'Amount'),
                                 onChanged: (v) {
                                   final val = double.tryParse(v) ?? 0.0;
                                   setState(() => paymentAllocations[m] = val);
@@ -607,20 +647,31 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                   ),
                   const SizedBox(height: 8),
                   Builder(builder: (ctx) {
-                    final allocated = paymentAllocations.values.fold<double>(0.0, (s, a) => s + a);
-                    return Text('Allocated: ${formatCurrency(allocated)} / ${formatCurrency(total)}', style: AppTextStyles.caption.copyWith(color: allocated < total ? Colors.orange : Colors.green));
+                    final allocated = paymentAllocations.values
+                        .fold<double>(0.0, (s, a) => s + a);
+                    return Text(
+                        'Allocated: ${formatCurrency(allocated)} / ${formatCurrency(total)}',
+                        style: AppTextStyles.caption.copyWith(
+                            color: allocated < total
+                                ? Colors.orange
+                                : Colors.green));
                   }),
                 ],
                 const SizedBox(height: 12),
-                Align(alignment: Alignment.centerLeft, child: Text('Assign server (optional)', style: AppTextStyles.subtitle1)),
+                Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Assign server (optional)',
+                        style: AppTextStyles.subtitle1)),
                 const SizedBox(height: 8),
                 DropdownButton<String?>(
                   isExpanded: true,
                   value: selectedServerId,
                   hint: const Text('Select server (optional)'),
                   items: [
-                    const DropdownMenuItem<String?>(value: null, child: Text('No server')),
-                    ...servers.map((s) => DropdownMenuItem<String?>(value: s.id, child: Text(s.name)))
+                    const DropdownMenuItem<String?>(
+                        value: null, child: Text('No server')),
+                    ...servers.map((s) => DropdownMenuItem<String?>(
+                        value: s.id, child: Text(s.name)))
                   ],
                   onChanged: (v) => setState(() => selectedServerId = v),
                 ),
@@ -628,8 +679,12 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Proceed to Pay')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Proceed to Pay')),
           ],
         );
       },
@@ -644,15 +699,18 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     }
 
     // Validate allocations sum to total
-    final allocatedSum = paymentAllocations.values.fold<double>(0.0, (s, a) => s + a);
+    final allocatedSum =
+        paymentAllocations.values.fold<double>(0.0, (s, a) => s + a);
     if ((allocatedSum - total).abs() > 0.01) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Allocated amounts must sum to total')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Allocated amounts must sum to total')));
       return;
     }
 
     // Process payment (mock on web or when PaymentService forces mock)
     try {
-      final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+      final business =
+          Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
       final auth = Provider.of<AuthProvider>(context, listen: false);
       final businessId = business?.id ?? auth.currentUser?.businessId;
 
@@ -664,40 +722,49 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
         if (method == 'card' || method == 'pos') {
           final publicKey = await PaymentService().getPublicKey() ?? '';
-          final txRef = 'rest-${DateTime.now().millisecondsSinceEpoch}-${method}';
+          final txRef =
+              'rest-${DateTime.now().millisecondsSinceEpoch}-${method}';
           final result = await PaymentService().processPayment(
             context: context,
             amount: amountForMethod,
             currency: 'NGN',
             email: customerEmail,
-            fullName: customerName.isNotEmpty ? customerName : (auth.currentUser?.fullName ?? 'Guest'),
+            fullName: customerName.isNotEmpty
+                ? customerName
+                : (auth.currentUser?.fullName ?? 'Guest'),
             txRef: txRef,
             publicKey: publicKey,
             businessId: businessId,
           );
 
           if (result['success'] != true) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment failed for $method: ${result['message'] ?? 'unknown'}'), backgroundColor: AppColors.error));
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(
+                    'Payment failed for $method: ${result['message'] ?? 'unknown'}'),
+                backgroundColor: AppColors.error));
             return;
           }
 
           paymentBreakdown.add({
             'method': method,
             'amount': amountForMethod,
-            'transactionId': result['transactionId'] ?? result['txRef'] ?? txRef,
+            'transactionId':
+                result['transactionId'] ?? result['txRef'] ?? txRef,
           });
         } else {
           // Manual methods: mark as success with manual id
           paymentBreakdown.add({
             'method': method,
             'amount': amountForMethod,
-            'transactionId': 'manual-${DateTime.now().millisecondsSinceEpoch}-$method',
+            'transactionId':
+                'manual-${DateTime.now().millisecondsSinceEpoch}-$method',
           });
         }
       }
 
       if (paymentBreakdown.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No payment allocated')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No payment allocated')));
         return;
       }
 
@@ -724,168 +791,187 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         orderTargetLabel: _resolveOrderTargetLabel(),
       );
 
-        // Save sale to Firestore
-        final itemsList = _selectedItems.map((item) {
-          return {
-            'menuItemId': item.menuItemId,
-            'menuItemName': item.menuItemName,
-            'product_id': item.menuItemId,
-            'product_name': item.menuItemName,
-            'quantity': item.quantity,
-            'unit_price': item.price,
-            'unitPrice': item.price,
-            'specialInstructions': item.specialInstructions,
-            'selectedOptions': item.selectedOptions,
-            'total': item.subtotal,
-          };
-        }).toList();
-
-        final saleData = {
-          'businessId': order.businessId,
-          'orderId': order.id,
-          'items': itemsList,
-          'tableNumber': order.tableNumber,
-          'roomId': order.roomId,
-          'guestId': order.guestId,
-          'orderTargetType': order.orderTargetType,
-          'orderTargetLabel': order.orderTargetLabel,
-          'orderType': order.orderType,
-          'subtotal': order.subtotal,
-          'tax': order.tax,
-          'discount': order.discount,
-          'total': order.total,
-          'totalAmount': order.total,
-          'finalAmount': order.total,
-          'paymentStatus': 'paid',
-          'status': 'completed',
-          'paymentMethods': selectedPaymentMethods,
-          'paymentMethod': selectedPaymentMethods.isNotEmpty ? selectedPaymentMethods.first : 'cash',
-          'paymentBreakdown': paymentBreakdown,
-          'category': 'Restaurant',
-          if (order.customerName != null) 'customerName': order.customerName,
-          if (order.customerEmail != null) 'customerEmail': order.customerEmail,
-          'createdAt': DateTime.now().toIso8601String(),
-          if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
-          if (auth.currentUser?.id != null) ...{
-            'workerId': auth.currentUser!.id,
-            'created_by': auth.currentUser!.id,
-          },
-          if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
+      // Save sale to Firestore
+      final itemsList = _selectedItems.map((item) {
+        return {
+          'menuItemId': item.menuItemId,
+          'menuItemName': item.menuItemName,
+          'product_id': item.menuItemId,
+          'product_name': item.menuItemName,
+          'quantity': item.quantity,
+          'unit_price': item.price,
+          'unitPrice': item.price,
+          'specialInstructions': item.specialInstructions,
+          'selectedOptions': item.selectedOptions,
+          'total': item.subtotal,
         };
+      }).toList();
 
-        // Check connectivity up front rather than relying on the Firestore
-        // write to throw — with offline persistence enabled, writes resolve
-        // locally without an exception even with no network, which would
-        // otherwise make the offline fallback below almost never trigger for
-        // genuinely offline sales.
-        final hasNetwork = await ConnectivityHelper.hasInternetConnection();
+      final saleData = {
+        'businessId': order.businessId,
+        'orderId': order.id,
+        'items': itemsList,
+        'tableNumber': order.tableNumber,
+        'roomId': order.roomId,
+        'guestId': order.guestId,
+        'orderTargetType': order.orderTargetType,
+        'orderTargetLabel': order.orderTargetLabel,
+        'orderType': order.orderType,
+        'subtotal': order.subtotal,
+        'tax': order.tax,
+        'discount': order.discount,
+        'total': order.total,
+        'totalAmount': order.total,
+        'finalAmount': order.total,
+        'paymentStatus': 'paid',
+        'status': 'completed',
+        'paymentMethods': selectedPaymentMethods,
+        'paymentMethod': selectedPaymentMethods.isNotEmpty
+            ? selectedPaymentMethods.first
+            : 'cash',
+        'paymentBreakdown': paymentBreakdown,
+        'category': 'Restaurant',
+        if (order.customerName != null) 'customerName': order.customerName,
+        if (order.customerEmail != null) 'customerEmail': order.customerEmail,
+        'createdAt': DateTime.now().toIso8601String(),
+        if (auth.currentUser?.storeId != null &&
+            (auth.currentUser?.storeId ?? '').isNotEmpty)
+          'storeId': auth.currentUser!.storeId,
+        if (auth.currentUser?.id != null) ...{
+          'workerId': auth.currentUser!.id,
+          'created_by': auth.currentUser!.id,
+        },
+        if (auth.currentUser?.fullName != null)
+          'workerName': auth.currentUser!.fullName,
+      };
 
-        String saleId;
-        var isOfflineSale = false;
+      // Check connectivity up front rather than relying on the Firestore
+      // write to throw — with offline persistence enabled, writes resolve
+      // locally without an exception even with no network, which would
+      // otherwise make the offline fallback below almost never trigger for
+      // genuinely offline sales.
+      final hasNetwork = await ConnectivityHelper.hasInternetConnection();
 
-        if (!hasNetwork) {
-          debugPrint('[CreateOrderScreen] No network detected, saving sale offline');
+      String saleId;
+      var isOfflineSale = false;
+
+      if (!hasNetwork) {
+        debugPrint(
+            '[CreateOrderScreen] No network detected, saving sale offline');
+        saleId = await _saveRestaurantSaleOffline(saleData);
+        isOfflineSale = true;
+      } else {
+        try {
+          final created = await SalesRepositorySupabase().createSale({
+            'businessId': order.businessId,
+            'customer_id': null,
+            'store_id': saleData['storeId'],
+            'worker_id': saleData['workerId'],
+            'worker_name': saleData['workerName'],
+            'total_amount': order.subtotal,
+            'discount_amount': order.discount,
+            'tax_amount': order.tax,
+            'final_amount': order.total,
+            'payment_method': saleData['paymentMethod'],
+            'status': 'completed',
+            'sale_type': 'restaurant',
+            'items': itemsList
+                .map((it) => {
+                      'product_id': it['menuItemId'],
+                      'product_name': it['menuItemName'],
+                      'quantity': it['quantity'],
+                      'unit_price': it['unitPrice'],
+                      'discount': 0,
+                      'total': it['total'],
+                    })
+                .toList(),
+          });
+          saleId = (created is Map ? created['id']?.toString() : null) ?? '';
+        } catch (e) {
+          debugPrint(
+              '[CreateOrderScreen] Remote sale write failed, saving locally: $e');
           saleId = await _saveRestaurantSaleOffline(saleData);
           isOfflineSale = true;
-        } else {
-          try {
-            final created = await SalesRepositorySupabase().createSale({
-              'businessId': order.businessId,
-              'customer_id': null,
-              'store_id': saleData['storeId'],
-              'worker_id': saleData['workerId'],
-              'worker_name': saleData['workerName'],
-              'total_amount': order.subtotal,
-              'discount_amount': order.discount,
-              'tax_amount': order.tax,
-              'final_amount': order.total,
-              'payment_method': saleData['paymentMethod'],
-              'status': 'completed',
-              'sale_type': 'restaurant',
-              'items': itemsList.map((it) => {
-                    'product_id': it['menuItemId'],
-                    'product_name': it['menuItemName'],
-                    'quantity': it['quantity'],
-                    'unit_price': it['unitPrice'],
-                    'discount': 0,
-                    'total': it['total'],
-                  }).toList(),
-            });
-            saleId = (created is Map ? created['id']?.toString() : null) ?? '';
-          } catch (e) {
-            debugPrint('[CreateOrderScreen] Remote sale write failed, saving locally: $e');
-            saleId = await _saveRestaurantSaleOffline(saleData);
-            isOfflineSale = true;
-          }
         }
+      }
 
-        // Add completed order to provider
-        await context.read<RestaurantProvider>().createOrder(order);
+      // Add completed order to provider
+      await context.read<RestaurantProvider>().createOrder(order);
 
-        await _deductInventoryForItems(_selectedItems);
+      await _deductInventoryForItems(_selectedItems);
 
-        // Show receipt and post sale actions
-        if (!mounted) return;
-        final firstTx = paymentBreakdown.isNotEmpty ? (paymentBreakdown.first['transactionId'] ?? '') : '';
-        final saleMap = {
-          'id': saleId,
-          'saleId': saleId,
-          'businessId': order.businessId,
-          'orderId': order.id,
-          'items': itemsList,
-          'tableNumber': order.tableNumber,
-          'roomId': order.roomId,
-          'guestId': order.guestId,
-          'orderTargetType': order.orderTargetType,
-          'orderTargetLabel': order.orderTargetLabel,
-          'orderType': order.orderType,
-          'subtotal': order.subtotal,
-          'tax': order.tax,
-          'discount': order.discount,
-          'total': order.total,
-          'totalAmount': order.total,
-          'finalAmount': order.total,
-          'paymentStatus': 'paid',
-          'status': 'completed',
-          'paymentMethods': selectedPaymentMethods,
-          'paymentBreakdown': paymentBreakdown,
-          'paymentMethod': selectedPaymentMethods.isNotEmpty ? selectedPaymentMethods.first : 'cash',
-          'paymentTransactionId': firstTx,
-          'category': 'Restaurant',
-          if (order.customerName != null) 'customerName': order.customerName,
-          if (order.customerEmail != null) 'customerEmail': order.customerEmail,
-          if (auth.currentUser?.id != null) ...{
-            'workerId': auth.currentUser!.id,
-            'created_by': auth.currentUser!.id,
-          },
-          if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
-          'timestamp': DateTime.now().toIso8601String(),
-          if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
-        };
+      // Show receipt and post sale actions
+      if (!mounted) return;
+      final firstTx = paymentBreakdown.isNotEmpty
+          ? (paymentBreakdown.first['transactionId'] ?? '')
+          : '';
+      final saleMap = {
+        'id': saleId,
+        'saleId': saleId,
+        'businessId': order.businessId,
+        'orderId': order.id,
+        'items': itemsList,
+        'tableNumber': order.tableNumber,
+        'roomId': order.roomId,
+        'guestId': order.guestId,
+        'orderTargetType': order.orderTargetType,
+        'orderTargetLabel': order.orderTargetLabel,
+        'orderType': order.orderType,
+        'subtotal': order.subtotal,
+        'tax': order.tax,
+        'discount': order.discount,
+        'total': order.total,
+        'totalAmount': order.total,
+        'finalAmount': order.total,
+        'paymentStatus': 'paid',
+        'status': 'completed',
+        'paymentMethods': selectedPaymentMethods,
+        'paymentBreakdown': paymentBreakdown,
+        'paymentMethod': selectedPaymentMethods.isNotEmpty
+            ? selectedPaymentMethods.first
+            : 'cash',
+        'paymentTransactionId': firstTx,
+        'category': 'Restaurant',
+        if (order.customerName != null) 'customerName': order.customerName,
+        if (order.customerEmail != null) 'customerEmail': order.customerEmail,
+        if (auth.currentUser?.id != null) ...{
+          'workerId': auth.currentUser!.id,
+          'created_by': auth.currentUser!.id,
+        },
+        if (auth.currentUser?.fullName != null)
+          'workerName': auth.currentUser!.fullName,
+        'timestamp': DateTime.now().toIso8601String(),
+        if (auth.currentUser?.storeId != null &&
+            (auth.currentUser?.storeId ?? '').isNotEmpty)
+          'storeId': auth.currentUser!.storeId,
+      };
 
-        await ReceiptManager.handlePostSale(
-          context,
-          saleMap,
-          invoiceGeneratedBeforeCheckout: true,
-        );
+      await ReceiptManager.handlePostSale(
+        context,
+        saleMap,
+        invoiceGeneratedBeforeCheckout: true,
+      );
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(isOfflineSale
-                ? 'Sale recorded offline — order completed and will sync when online'
-                : 'Payment successful and order completed'),
-            backgroundColor: isOfflineSale ? AppColors.warning : AppColors.success,
-          ),
-        );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isOfflineSale
+              ? 'Sale recorded offline — order completed and will sync when online'
+              : 'Payment successful and order completed'),
+          backgroundColor:
+              isOfflineSale ? AppColors.warning : AppColors.success,
+        ),
+      );
 
-        // Clear local cart
-        _selectedItems.clear();
-        _selectedTableId = null;
-        _selectedTableNumber = null;
-        _updateSubtotal();
-        setState(() {});
+      // Clear local cart
+      _selectedItems.clear();
+      _selectedTableId = null;
+      _selectedTableNumber = null;
+      _updateSubtotal();
+      setState(() {});
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment error: $e'), backgroundColor: AppColors.error));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Payment error: $e'),
+          backgroundColor: AppColors.error));
     }
   }
 
@@ -896,7 +982,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   /// root `sales` collection and `businesses/{id}/sales` once it uploads,
   /// matching where the online path writes directly. Returns the
   /// locally-generated sale id to use in place of a Firestore doc id.
-  Future<String> _saveRestaurantSaleOffline(Map<String, dynamic> saleData) async {
+  Future<String> _saveRestaurantSaleOffline(
+      Map<String, dynamic> saleData) async {
     final dbHelper = DatabaseHelper.instance;
     final saleId = 'SALE-${DateTime.now().millisecondsSinceEpoch}';
 
@@ -921,7 +1008,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     final items = (saleData['items'] as List<dynamic>?) ?? const [];
     for (final raw in items) {
       final item = Map<String, dynamic>.from(raw as Map);
-      final itemId = '${DateTime.now().millisecondsSinceEpoch}-${item['menuItemId'] ?? ''}';
+      final itemId =
+          '${DateTime.now().millisecondsSinceEpoch}-${item['menuItemId'] ?? ''}';
       await dbHelper.insert('sale_items', {
         'id': itemId,
         'saleId': saleId,
@@ -935,7 +1023,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     }
 
     await dbHelper.addToSyncQueue(
-        entityType: 'sale', entityId: saleId, action: 'create', data: localSale);
+        entityType: 'sale',
+        entityId: saleId,
+        action: 'create',
+        data: localSale);
 
     // Try to trigger a background sync (no-op if still offline)
     try {
@@ -948,7 +1039,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
 
   Future<void> _confirmPaymentForAdmin() async {
     if (_selectedItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add items before confirming')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Add items before confirming')));
       return;
     }
 
@@ -959,9 +1051,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     final tax = _subtotal * _taxRate;
     final total = _subtotal + tax - _discount;
 
-    final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+    final business =
+        Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final businessId = business?.id ?? auth.currentUser?.businessId ?? 'unknown';
+    final businessId =
+        business?.id ?? auth.currentUser?.businessId ?? 'unknown';
 
     // Build items list
     final itemsList = _selectedItems.map((item) {
@@ -1030,8 +1124,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           'workerId': auth.currentUser!.id,
           'created_by': auth.currentUser!.id,
         },
-        if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
-        if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
+        if (auth.currentUser?.fullName != null)
+          'workerName': auth.currentUser!.fullName,
+        if (auth.currentUser?.storeId != null &&
+            (auth.currentUser?.storeId ?? '').isNotEmpty)
+          'storeId': auth.currentUser!.storeId,
       };
 
       final hasNetwork = await ConnectivityHelper.hasInternetConnection();
@@ -1054,19 +1151,22 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
             'payment_method': 'confirmed',
             'status': 'completed',
             'sale_type': 'restaurant',
-            'items': itemsList.map((it) => {
-                  'product_id': it['menuItemId'],
-                  'product_name': it['menuItemName'],
-                  'quantity': it['quantity'],
-                  'unit_price': it['unitPrice'],
-                  'discount': 0,
-                  'total': it['total'],
-                }).toList(),
+            'items': itemsList
+                .map((it) => {
+                      'product_id': it['menuItemId'],
+                      'product_name': it['menuItemName'],
+                      'quantity': it['quantity'],
+                      'unit_price': it['unitPrice'],
+                      'discount': 0,
+                      'total': it['total'],
+                    })
+                .toList(),
           });
           saleId = (created is Map ? created['id']?.toString() : null) ?? '';
           isOffline = false;
         } catch (e) {
-          debugPrint('[CreateOrderScreen] Remote sale write failed, saving locally: $e');
+          debugPrint(
+              '[CreateOrderScreen] Remote sale write failed, saving locally: $e');
           saleId = await _saveRestaurantSaleOffline(saleData);
           isOffline = true;
         }
@@ -1089,7 +1189,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       // Send notification email to admin/owner (only if online)
       if (!isOffline) {
         String ownerEmail = business?.email ?? '';
-        if (ownerEmail.isEmpty && business?.ownerId != null && business!.ownerId.isNotEmpty) {
+        if (ownerEmail.isEmpty &&
+            business?.ownerId != null &&
+            business!.ownerId.isNotEmpty) {
           try {
             final ownerProfile = await Supabase.instance.client
                     .from('profiles')
@@ -1119,7 +1221,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
             debugPrint('[RestaurantPOS] Failed to send sales notification: $e');
           }
         } else {
-          debugPrint('[RestaurantPOS] No owner email configured to send sales notification');
+          debugPrint(
+              '[RestaurantPOS] No owner email configured to send sales notification');
         }
       }
 
@@ -1160,18 +1263,22 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           'workerId': auth.currentUser!.id,
           'created_by': auth.currentUser!.id,
         },
-        if (auth.currentUser?.fullName != null) 'workerName': auth.currentUser!.fullName,
-        if (auth.currentUser?.storeId != null && (auth.currentUser?.storeId ?? '').isNotEmpty) 'storeId': auth.currentUser!.storeId,
+        if (auth.currentUser?.fullName != null)
+          'workerName': auth.currentUser!.fullName,
+        if (auth.currentUser?.storeId != null &&
+            (auth.currentUser?.storeId ?? '').isNotEmpty)
+          'storeId': auth.currentUser!.storeId,
         'timestamp': DateTime.now().toIso8601String(),
       };
 
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Text(isOffline ? 'Payment Saved Offline' : 'Payment Confirmed'),
+          title:
+              Text(isOffline ? 'Payment Saved Offline' : 'Payment Confirmed'),
           content: Text(isOffline
-            ? 'Payment recorded locally. It will sync when online. You can print or view the receipt.'
-            : 'Payment recorded. You can print or view the receipt.'),
+              ? 'Payment recorded locally. It will sync when online. You can print or view the receipt.'
+              : 'Payment recorded. You can print or view the receipt.'),
           actions: [
             TextButton(
               onPressed: () async {
@@ -1204,7 +1311,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                   createdAt: DateTime.now(),
                 ); */
                 // Print receipt via thermal printer
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Receipt sent to printer'), backgroundColor: AppColors.success));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Receipt sent to printer'),
+                    backgroundColor: AppColors.success));
               },
               child: const Text('Print Receipt'),
             ),
@@ -1219,7 +1328,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
               },
               child: const Text('View Receipt'),
             ),
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close')),
           ],
         ),
       );
@@ -1232,14 +1343,18 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       setState(() {});
 
       final successMessage = isOffline
-        ? 'Payment saved offline and will sync when online'
-        : 'Payment confirmed and admin notified';
+          ? 'Payment saved offline and will sync when online'
+          : 'Payment confirmed and admin notified';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(successMessage), backgroundColor: AppColors.success),
+        SnackBar(
+            content: Text(successMessage), backgroundColor: AppColors.success),
       );
     } catch (e) {
       debugPrint('[RestaurantPOS] Confirm payment failed: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Confirm failed: $e'), backgroundColor: AppColors.error));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Confirm failed: $e'),
+            backgroundColor: AppColors.error));
     }
   }
 
@@ -1267,15 +1382,18 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: AppColors.primary.withOpacity(0.1),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                  border: const Border(bottom: BorderSide(color: AppColors.border)),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(16)),
+                  border:
+                      const Border(bottom: BorderSide(color: AppColors.border)),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
                       'Order Summary',
-                      style: AppTextStyles.heading3.copyWith(color: AppColors.primary),
+                      style: AppTextStyles.heading3
+                          .copyWith(color: AppColors.primary),
                     ),
                     IconButton(
                       icon: const Icon(Icons.close),
@@ -1291,7 +1409,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     ? Center(
                         child: Text(
                           'No items added',
-                          style: AppTextStyles.body1.copyWith(color: AppColors.textSecondary),
+                          style: AppTextStyles.body1
+                              .copyWith(color: AppColors.textSecondary),
                         ),
                       )
                     : ListView.builder(
@@ -1313,38 +1432,56 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                 children: [
                                   Text(
                                     item.menuItemName,
-                                    style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600),
+                                    style: AppTextStyles.body2
+                                        .copyWith(fontWeight: FontWeight.w600),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                   if (item.selectedOptions.isNotEmpty)
                                     Padding(
-                                      padding: const EdgeInsets.only(top: 6, bottom: 6),
+                                      padding: const EdgeInsets.only(
+                                          top: 6, bottom: 6),
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: item.selectedOptions.map((opt) => Text('${opt['optionName']}: ${opt['choiceName'] ?? ''}${(opt['price'] != null && (opt['price'] as num).toDouble() != 0.0) ? ' (${formatCurrency((opt['price'] as num).toDouble())}/add)' : ''}', style: AppTextStyles.caption)).toList(),
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: item.selectedOptions
+                                            .map((opt) => Text(
+                                                '${opt['optionName']}: ${opt['choiceName'] ?? ''}${(opt['price'] != null && (opt['price'] as num).toDouble() != 0.0) ? ' (${formatCurrency((opt['price'] as num).toDouble())}/add)' : ''}',
+                                                style: AppTextStyles.caption))
+                                            .toList(),
                                       ),
                                     ),
                                   const SizedBox(height: 4),
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     children: [
                                       Text(
                                         formatCurrency(item.subtotal),
-                                        style: AppTextStyles.caption.copyWith(color: AppColors.success),
+                                        style: AppTextStyles.caption
+                                            .copyWith(color: AppColors.success),
                                       ),
                                       Row(
                                         children: [
                                           GestureDetector(
-                                            onTap: () => setState(() => _updateItemQuantity(index, item.quantity - 1)),
-                                            child: const Icon(Icons.remove_circle_outline, size: 16),
+                                            onTap: () => setState(() =>
+                                                _updateItemQuantity(
+                                                    index, item.quantity - 1)),
+                                            child: const Icon(
+                                                Icons.remove_circle_outline,
+                                                size: 16),
                                           ),
                                           const SizedBox(width: 4),
-                                          Text('${item.quantity}', style: AppTextStyles.caption),
+                                          Text('${item.quantity}',
+                                              style: AppTextStyles.caption),
                                           const SizedBox(width: 4),
                                           GestureDetector(
-                                            onTap: () => setState(() => _updateItemQuantity(index, item.quantity + 1)),
-                                            child: const Icon(Icons.add_circle_outline, size: 16),
+                                            onTap: () => setState(() =>
+                                                _updateItemQuantity(
+                                                    index, item.quantity + 1)),
+                                            child: const Icon(
+                                                Icons.add_circle_outline,
+                                                size: 16),
                                           ),
                                         ],
                                       ),
@@ -1372,17 +1509,21 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     // Editable Tax Field
                     Row(
                       children: [
-                        Expanded(child: Text('Tax (%)', style: AppTextStyles.body2)),
+                        Expanded(
+                            child: Text('Tax (%)', style: AppTextStyles.body2)),
                         SizedBox(
                           width: 80,
                           child: TextFormField(
                             controller: _taxRateController,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
                             decoration: InputDecoration(
                               hintText: '0',
                               isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 8),
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(4)),
                             ),
                             onChanged: (_) => setState(() {}),
                           ),
@@ -1397,18 +1538,23 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                     // Editable Discount Field
                     Row(
                       children: [
-                        Expanded(child: Text('Discount (₦)', style: AppTextStyles.body2)),
+                        Expanded(
+                            child: Text('Discount (₦)',
+                                style: AppTextStyles.body2)),
                         SizedBox(
                           width: 80,
                           child: TextFormField(
                             controller: _discountController,
                             enabled: _canApplyDiscount,
-                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true),
                             decoration: InputDecoration(
                               hintText: '0',
                               isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 8),
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(4)),
                             ),
                             onChanged: (_) => setState(() {}),
                           ),
@@ -1416,22 +1562,27 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                         const SizedBox(width: 8),
                         Text(
                             '-₦${(double.tryParse(_discountController.text) ?? 0).toStringAsFixed(2)}',
-                            style: AppTextStyles.caption.copyWith(color: AppColors.success)),
+                            style: AppTextStyles.caption
+                                .copyWith(color: AppColors.success)),
                       ],
                     ),
                     const Divider(),
                     _TotalRow(
                       label: 'Total',
                       amount: _subtotal +
-                          (_subtotal * ((double.tryParse(_taxRateController.text) ?? 0) / 100)) -
+                          (_subtotal *
+                              ((double.tryParse(_taxRateController.text) ?? 0) /
+                                  100)) -
                           (double.tryParse(_discountController.text) ?? 0),
                       isBold: true,
                     ),
                     const SizedBox(height: 16),
                     CustomButton(
-                    text: 'Generate PDF Receipt',
+                      text: 'Generate PDF Receipt',
                       backgroundColor: Colors.blue,
-                      onPressed: _selectedItems.isNotEmpty ? () => _generatePdfReceipt() : null,
+                      onPressed: _selectedItems.isNotEmpty
+                          ? () => _generatePdfReceipt()
+                          : null,
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -1439,7 +1590,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                         Expanded(
                           child: CustomButton(
                             text: 'Create & Print',
-                            onPressed: (_selectedItems.isNotEmpty && _selectedTableId != null)
+                            onPressed: (_selectedItems.isNotEmpty &&
+                                    _selectedTableId != null)
                                 ? () {
                                     _createAndPrintOrder(context);
                                     Navigator.pop(context);
@@ -1498,7 +1650,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   Future<void> _generatePdfReceipt() async {
     if (_selectedItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Add items to cart before generating receipt')),
+        const SnackBar(
+            content: Text('Add items to cart before generating receipt')),
       );
       return;
     }
@@ -1510,7 +1663,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       final tax = _subtotal * taxRate;
       final total = _subtotal + tax - discount;
 
-      final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+      final business =
+          Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
       final auth = Provider.of<AuthProvider>(context, listen: false);
 
       // Convert cart items to the format expected by PDF generator
@@ -1528,7 +1682,8 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
         };
       }).toList();
 
-      final receiptNumber = 'RCPT-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
+      final receiptNumber =
+          'RCPT-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}';
 
       final pdfBytes = await PdfReceiptGenerator.generateReceiptPdfBytes(
         businessName: business?.name ?? 'Business',
@@ -1621,9 +1776,11 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     final tax = _subtotal * _taxRate;
     final total = _subtotal + tax - _discount;
 
-    final business = Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
+    final business =
+        Provider.of<BusinessProvider>(context, listen: false).currentBusiness;
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final businessId = business?.id ?? auth.currentUser?.businessId ?? 'unknown';
+    final businessId =
+        business?.id ?? auth.currentUser?.businessId ?? 'unknown';
 
     final order = RestaurantOrder(
       id: const Uuid().v4(),
@@ -1697,7 +1854,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                               // Note: SaleModel could be used for detailed kitchen receipt printing in future
                               // Send kitchen receipt to printer
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Kitchen receipt sent to printer'), backgroundColor: AppColors.success),
+                                const SnackBar(
+                                    content:
+                                        Text('Kitchen receipt sent to printer'),
+                                    backgroundColor: AppColors.success),
                               );
                             } catch (e) {
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -1738,7 +1898,10 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                                 invoiceGeneratedBeforeCheckout: true,
                               );
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Customer receipt sent to printer'), backgroundColor: AppColors.success),
+                                const SnackBar(
+                                    content: Text(
+                                        'Customer receipt sent to printer'),
+                                    backgroundColor: AppColors.success),
                               );
                             } catch (e) {
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -1773,585 +1936,669 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        title: const Text('Create Order'),
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        actions: [
-          // Cart Button (visible on small screens)
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Consumer<RestaurantProvider>(
-              builder: (context, _, __) {
-                return Stack(
-                  children: [
-                    Center(
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.shopping_cart),
-                        label: Text('${_selectedItems.length}'),
-                        onPressed: _selectedItems.isEmpty
-                            ? null
-                            : () => _showOrderSummaryModal(context),
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          title: const Text('Create Order'),
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          actions: [
+            // Cart Button (visible on small screens)
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Consumer<RestaurantProvider>(
+                builder: (context, _, __) {
+                  return Stack(
+                    children: [
+                      Center(
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.shopping_cart),
+                          label: Text('${_selectedItems.length}'),
+                          onPressed: _selectedItems.isEmpty
+                              ? null
+                              : () => _showOrderSummaryModal(context),
+                        ),
                       ),
-                    ),
-                    if (_selectedItems.isNotEmpty)
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: const BoxDecoration(
-                            color: AppColors.error,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Text(
-                            '${_selectedItems.length}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
+                      if (_selectedItems.isNotEmpty)
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: const BoxDecoration(
+                              color: AppColors.error,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              '${_selectedItems.length}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
-                );
-              },
+                    ],
+                  );
+                },
+              ),
             ),
-          ),
-        ],
-      ),
-      body: Consumer<RestaurantProvider>(
-        builder: (context, provider, _) {
+          ],
+        ),
+        body: Consumer<RestaurantProvider>(builder: (context, provider, _) {
           final hotelProvider = context.watch<hotel.HotelProvider>();
           final roomChargeReservations = hotelProvider.checkedInReservations
             ..sort((a, b) => a.checkOut.compareTo(b.checkOut));
-          return LayoutBuilder(builder: (context, constraints) {
+          return LayoutBuilder(
+            builder: (context, constraints) {
               final isSmall = constraints.maxWidth < 800;
               return Flex(
                 direction: isSmall ? Axis.vertical : Axis.horizontal,
                 children: [
-              // Left Side - Menu & Items
-              Expanded(
-                flex: 2,
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (roomChargeReservations.isNotEmpty) ...[
-                          const Text(
-                            'Charge To Room',
-                            style: AppTextStyles.heading3,
-                          ),
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: roomChargeReservations.map((reservation) {
-                              final room = hotelProvider.getRoomById(
-                                reservation.roomId,
-                              );
-                              final roomLabel =
-                                  'Room ${room?.number ?? reservation.roomId}';
-                              final isSelected =
-                                  _selectedRoomChargeReservationId ==
-                                      reservation.id;
-                              return GestureDetector(
-                                onTap: () => _selectRoomCharge(
-                                  reservation,
-                                  roomLabel,
-                                ),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 12,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isSelected
-                                        ? Colors.deepPurple
-                                        : AppColors.surface,
-                                    border: Border.all(
-                                      color: isSelected
-                                          ? Colors.deepPurple
-                                          : AppColors.border,
-                                    ),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        roomLabel,
-                                        style: AppTextStyles.body1.copyWith(
-                                          color: isSelected
-                                              ? Colors.white
-                                              : AppColors.textPrimary,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      Text(
-                                        reservation.guestName,
-                                        style: AppTextStyles.caption.copyWith(
-                                          color: isSelected
-                                              ? Colors.white70
-                                              : AppColors.textSecondary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                          const SizedBox(height: 24),
-                        ],
-
-                        // Table Selection
-                        const Text('Select Table',
-                            style: AppTextStyles.heading3),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: provider.getSelectableTables().map((table) {
-                            final isSelected = _selectedTableId == table.id;
-                            return GestureDetector(
-                              onTap: () => _selectTable(table),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 12),
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? AppColors.primary
-                                      : AppColors.surface,
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? AppColors.primary
-                                        : AppColors.border,
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      'Table ${table.tableNumber}',
-                                      style: AppTextStyles.body1.copyWith(
-                                        color: isSelected
-                                            ? Colors.white
-                                            : AppColors.textPrimary,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    Text(
-                                      'Capacity: ${table.capacity}',
-                                      style: AppTextStyles.caption.copyWith(
-                                        color: isSelected
-                                            ? Colors.white70
-                                            : AppColors.textSecondary,
-                                      ),
-                                    ),
-                                    Text(
-                                      table.status.toUpperCase(),
-                                      style: AppTextStyles.caption.copyWith(
-                                        color: isSelected
-                                            ? Colors.white70
-                                            : (table.status == 'occupied'
-                                                ? Colors.orange
-                                                : AppColors.textSecondary),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Menu Items
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  // Left Side - Menu & Items
+                  Expanded(
+                    flex: 2,
+                    child: SingleChildScrollView(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Menu Items', style: AppTextStyles.heading3),
-                            SizedBox(
-                              width: 260,
-                              child: TextField(
-                                controller: _menuSearchController,
-                                decoration: const InputDecoration(
-                                  hintText: 'Search menu...',
-                                  isDense: true,
-                                  prefixIcon: Icon(Icons.search),
-                                ),
+                            if (roomChargeReservations.isNotEmpty) ...[
+                              const Text(
+                                'Charge To Room',
+                                style: AppTextStyles.heading3,
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Builder(builder: (context) {
-                          final items = provider.menuItems.where((m) => m.name.toLowerCase().contains(_menuQuery)).toList();
-                          return ListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: items.length,
-                            itemBuilder: (context, index) {
-                              final item = items[index];
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: InkWell(
-                                onTap: () => _showItemOptionsDialog(item),
-                                child: Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.surface,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: AppColors.border),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              item.name,
-                                              style: AppTextStyles.body1
-                                                  .copyWith(
-                                                      fontWeight:
-                                                          FontWeight.w600),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Row(
-                                              children: [
-                                                Text(
-                                                  formatCurrency(item.price),
-                                                  style: AppTextStyles.body2
-                                                      .copyWith(
-                                                          color: AppColors
-                                                              .success),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Text(
-                                                  '${item.preparationTime} min',
-                                                  style: AppTextStyles.caption
-                                                      .copyWith(
-                                                          color: AppColors
-                                                              .textSecondary),
-                                                ),
-                                                if (item.inventoryProductId != null)
-                                                  Padding(
-                                                    padding: const EdgeInsets.only(left: 8.0),
-                                                    child: Container(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                      decoration: BoxDecoration(
-                                                        color: Colors.grey.shade100,
-                                                        borderRadius: BorderRadius.circular(6),
-                                                        border: Border.all(color: AppColors.border),
-                                                      ),
-                                                      child: Text(
-                                                        'Stock: ${item.inventoryStock ?? '—'}',
-                                                        style: AppTextStyles.caption,
-                                                      ),
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const Icon(Icons.add_circle,
-                                          color: AppColors.primary, size: 28),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                         );
-                         }
-                         ), 
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-
-              // Right Side - Order Summary (Only on Large Screens)
-              if (!isSmall)
-                Expanded(
-                  flex: 1,
-                  child: Container(
-                    decoration: const BoxDecoration(
-                      color: AppColors.surface,
-                      border: Border(left: BorderSide(color: AppColors.border)),
-                    ),
-                    child: Column(
-                      children: [
-                        // Order Summary Header
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.1),
-                            border: const Border(
-                                bottom: BorderSide(color: AppColors.border)),
-                          ),
-                          child: Text(
-                            'Order Summary',
-                            style: AppTextStyles.heading3
-                                .copyWith(color: AppColors.primary),
-                          ),
-                        ),
-
-                        // Selected Items
-                        Expanded(
-                          child: _selectedItems.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    'No items added',
-                                    style: AppTextStyles.body1
-                                        .copyWith(color: AppColors.textSecondary),
-                                  ),
-                                )
-                              : ListView.builder(
-                                  itemCount: _selectedItems.length,
-                                  itemBuilder: (context, index) {
-                                    final item = _selectedItems[index];
-                                    return Padding(
-                                      padding: const EdgeInsets.all(12),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children:
+                                    roomChargeReservations.map((reservation) {
+                                  final room = hotelProvider.getRoomById(
+                                    reservation.roomId,
+                                  );
+                                  final roomLabel =
+                                      'Room ${room?.number ?? reservation.roomId}';
+                                  final isSelected =
+                                      _selectedRoomChargeReservationId ==
+                                          reservation.id;
+                                  return GestureDetector(
+                                    onTap: () => _selectRoomCharge(
+                                      reservation,
+                                      roomLabel,
+                                    ),
                                     child: Container(
-                                      padding: const EdgeInsets.all(8),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 12,
+                                      ),
                                       decoration: BoxDecoration(
-                                        color: AppColors.background,
+                                        color: isSelected
+                                            ? Colors.deepPurple
+                                            : AppColors.surface,
+                                        border: Border.all(
+                                          color: isSelected
+                                              ? Colors.deepPurple
+                                              : AppColors.border,
+                                        ),
                                         borderRadius: BorderRadius.circular(8),
-                                        border:
-                                            Border.all(color: AppColors.border),
                                       ),
                                       child: Column(
+                                        mainAxisSize: MainAxisSize.min,
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            item.menuItemName,
-                                            style: AppTextStyles.body2.copyWith(
-                                                fontWeight: FontWeight.w600),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          if (item.selectedOptions.isNotEmpty)
-                                            Padding(
-                                              padding: const EdgeInsets.only(top: 6, bottom: 6),
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: item.selectedOptions.map((opt) {
-                                                  final optionPrice =
-                                                      (opt['price'] as num?)
-                                                              ?.toDouble() ??
-                                                          0.0;
-                                                  return Text(
-                                                    '${opt['optionName']}: ${opt['choiceName'] ?? ''}${optionPrice != 0.0 ? ' (+${formatCurrency(optionPrice)})' : ''}',
-                                                    style: AppTextStyles.caption,
-                                                  );
-                                                }).toList(),
-                                              ),
+                                            roomLabel,
+                                            style: AppTextStyles.body1.copyWith(
+                                              color: isSelected
+                                                  ? Colors.white
+                                                  : AppColors.textPrimary,
+                                              fontWeight: FontWeight.w600,
                                             ),
-                                          const SizedBox(height: 4),
-                                          Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.spaceBetween,
-                                            children: [
-                                              Text(
-                                                formatCurrency(item.subtotal),
-                                                style: AppTextStyles.caption
-                                                    .copyWith(
-                                                        color:
-                                                            AppColors.success),
-                                              ),
-                                              Row(
-                                                children: [
-                                                  GestureDetector(
-                                                    onTap: () =>
-                                                        _updateItemQuantity(
-                                                            index,
-                                                            item.quantity - 1),
-                                                    child: const Icon(
-                                                        Icons
-                                                            .remove_circle_outline,
-                                                        size: 16),
-                                                  ),
-                                                  const SizedBox(width: 4),
-                                                  Text('${item.quantity}',
-                                                      style: AppTextStyles
-                                                          .caption),
-                                                  const SizedBox(width: 4),
-                                                  GestureDetector(
-                                                    onTap: () =>
-                                                        _updateItemQuantity(
-                                                            index,
-                                                            item.quantity + 1),
-                                                    child: const Icon(
-                                                        Icons
-                                                            .add_circle_outline,
-                                                        size: 16),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
+                                          ),
+                                          Text(
+                                            reservation.guestName,
+                                            style:
+                                                AppTextStyles.caption.copyWith(
+                                              color: isSelected
+                                                  ? Colors.white70
+                                                  : AppColors.textSecondary,
+                                            ),
                                           ),
                                         ],
                                       ),
                                     ),
                                   );
-                                },
+                                }).toList(),
                               ),
-                      ),
+                              const SizedBox(height: 24),
+                            ],
 
-                      // Order Totals
-                      Container(
-                        padding: const EdgeInsets.all(16),
+                            // Table Selection
+                            const Text('Select Table',
+                                style: AppTextStyles.heading3),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children:
+                                  provider.getSelectableTables().map((table) {
+                                final isSelected = _selectedTableId == table.id;
+                                return GestureDetector(
+                                  onTap: () => _selectTable(table),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 12),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? AppColors.primary
+                                          : AppColors.surface,
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? AppColors.primary
+                                            : AppColors.border,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          'Table ${table.tableNumber}',
+                                          style: AppTextStyles.body1.copyWith(
+                                            color: isSelected
+                                                ? Colors.white
+                                                : AppColors.textPrimary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        Text(
+                                          'Capacity: ${table.capacity}',
+                                          style: AppTextStyles.caption.copyWith(
+                                            color: isSelected
+                                                ? Colors.white70
+                                                : AppColors.textSecondary,
+                                          ),
+                                        ),
+                                        Text(
+                                          table.status.toUpperCase(),
+                                          style: AppTextStyles.caption.copyWith(
+                                            color: isSelected
+                                                ? Colors.white70
+                                                : (table.status == 'occupied'
+                                                    ? Colors.orange
+                                                    : AppColors.textSecondary),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 24),
+
+                            // Menu Items
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Menu Items',
+                                    style: AppTextStyles.heading3),
+                                SizedBox(
+                                  width: 260,
+                                  child: TextField(
+                                    controller: _menuSearchController,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Search menu...',
+                                      isDense: true,
+                                      prefixIcon: Icon(Icons.search),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Builder(builder: (context) {
+                              final items = provider.menuItems
+                                  .where((m) =>
+                                      m.name.toLowerCase().contains(_menuQuery))
+                                  .toList();
+                              return ListView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: items.length,
+                                itemBuilder: (context, index) {
+                                  final item = items[index];
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: InkWell(
+                                      onTap: () => _showItemOptionsDialog(item),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.surface,
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          border: Border.all(
+                                              color: AppColors.border),
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    item.name,
+                                                    style: AppTextStyles.body1
+                                                        .copyWith(
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w600),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Row(
+                                                    children: [
+                                                      Text(
+                                                        formatCurrency(
+                                                            item.price),
+                                                        style: AppTextStyles
+                                                            .body2
+                                                            .copyWith(
+                                                                color: AppColors
+                                                                    .success),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Text(
+                                                        '${item.preparationTime} min',
+                                                        style: AppTextStyles
+                                                            .caption
+                                                            .copyWith(
+                                                                color: AppColors
+                                                                    .textSecondary),
+                                                      ),
+                                                      if (item.inventoryProductId !=
+                                                          null)
+                                                        Padding(
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .only(
+                                                                  left: 8.0),
+                                                          child: Container(
+                                                            padding:
+                                                                const EdgeInsets
+                                                                    .symmetric(
+                                                                    horizontal:
+                                                                        8,
+                                                                    vertical:
+                                                                        4),
+                                                            decoration:
+                                                                BoxDecoration(
+                                                              color: Colors.grey
+                                                                  .shade100,
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                          6),
+                                                              border: Border.all(
+                                                                  color: AppColors
+                                                                      .border),
+                                                            ),
+                                                            child: Text(
+                                                              'Stock: ${item.inventoryStock ?? '—'}',
+                                                              style:
+                                                                  AppTextStyles
+                                                                      .caption,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const Icon(Icons.add_circle,
+                                                color: AppColors.primary,
+                                                size: 28),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              );
+                            }),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Right Side - Order Summary (Only on Large Screens)
+                  if (!isSmall)
+                    Expanded(
+                      flex: 1,
+                      child: Container(
                         decoration: const BoxDecoration(
-                          color: AppColors.background,
+                          color: AppColors.surface,
                           border:
-                              Border(top: BorderSide(color: AppColors.border)),
+                              Border(left: BorderSide(color: AppColors.border)),
                         ),
                         child: Column(
                           children: [
-                            _TotalRow(label: 'Subtotal', amount: _subtotal),
-                            const SizedBox(height: 12),
-                            // Editable Tax Field
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text('Tax (%)',
-                                      style: AppTextStyles.body2),
-                                ),
-                                SizedBox(
-                                  width: 80,
-                                  child: TextFormField(
-                                    controller: _taxRateController,
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    decoration: InputDecoration(
-                                      hintText: '0',
-                                      isDense: true,
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
+                            // Order Summary Header
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withOpacity(0.1),
+                                border: const Border(
+                                    bottom:
+                                        BorderSide(color: AppColors.border)),
+                              ),
+                              child: Text(
+                                'Order Summary',
+                                style: AppTextStyles.heading3
+                                    .copyWith(color: AppColors.primary),
+                              ),
+                            ),
+
+                            // Selected Items
+                            Expanded(
+                              child: _selectedItems.isEmpty
+                                  ? Center(
+                                      child: Text(
+                                        'No items added',
+                                        style: AppTextStyles.body1.copyWith(
+                                            color: AppColors.textSecondary),
+                                      ),
+                                    )
+                                  : ListView.builder(
+                                      itemCount: _selectedItems.length,
+                                      itemBuilder: (context, index) {
+                                        final item = _selectedItems[index];
+                                        return Padding(
+                                          padding: const EdgeInsets.all(12),
+                                          child: Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.background,
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              border: Border.all(
+                                                  color: AppColors.border),
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  item.menuItemName,
+                                                  style: AppTextStyles.body2
+                                                      .copyWith(
+                                                          fontWeight:
+                                                              FontWeight.w600),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                                if (item
+                                                    .selectedOptions.isNotEmpty)
+                                                  Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                            top: 6, bottom: 6),
+                                                    child: Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      children: item
+                                                          .selectedOptions
+                                                          .map((opt) {
+                                                        final optionPrice = (opt[
+                                                                        'price']
+                                                                    as num?)
+                                                                ?.toDouble() ??
+                                                            0.0;
+                                                        return Text(
+                                                          '${opt['optionName']}: ${opt['choiceName'] ?? ''}${optionPrice != 0.0 ? ' (+${formatCurrency(optionPrice)})' : ''}',
+                                                          style: AppTextStyles
+                                                              .caption,
+                                                        );
+                                                      }).toList(),
+                                                    ),
+                                                  ),
+                                                const SizedBox(height: 4),
+                                                Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment
+                                                          .spaceBetween,
+                                                  children: [
+                                                    Text(
+                                                      formatCurrency(
+                                                          item.subtotal),
+                                                      style: AppTextStyles
+                                                          .caption
+                                                          .copyWith(
+                                                              color: AppColors
+                                                                  .success),
+                                                    ),
+                                                    Row(
+                                                      children: [
+                                                        GestureDetector(
+                                                          onTap: () =>
+                                                              _updateItemQuantity(
+                                                                  index,
+                                                                  item.quantity -
+                                                                      1),
+                                                          child: const Icon(
+                                                              Icons
+                                                                  .remove_circle_outline,
+                                                              size: 16),
+                                                        ),
+                                                        const SizedBox(
+                                                            width: 4),
+                                                        Text('${item.quantity}',
+                                                            style: AppTextStyles
+                                                                .caption),
+                                                        const SizedBox(
+                                                            width: 4),
+                                                        GestureDetector(
+                                                          onTap: () =>
+                                                              _updateItemQuantity(
+                                                                  index,
+                                                                  item.quantity +
+                                                                      1),
+                                                          child: const Icon(
+                                                              Icons
+                                                                  .add_circle_outline,
+                                                              size: 16),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      },
                                     ),
-                                    onChanged: (_) => setState(() {}),
+                            ),
+
+                            // Order Totals
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: const BoxDecoration(
+                                color: AppColors.background,
+                                border: Border(
+                                    top: BorderSide(color: AppColors.border)),
+                              ),
+                              child: Column(
+                                children: [
+                                  _TotalRow(
+                                      label: 'Subtotal', amount: _subtotal),
+                                  const SizedBox(height: 12),
+                                  // Editable Tax Field
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text('Tax (%)',
+                                            style: AppTextStyles.body2),
+                                      ),
+                                      SizedBox(
+                                        width: 80,
+                                        child: TextFormField(
+                                          controller: _taxRateController,
+                                          keyboardType: const TextInputType
+                                              .numberWithOptions(decimal: true),
+                                          decoration: InputDecoration(
+                                            hintText: '0',
+                                            isDense: true,
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                    horizontal: 8, vertical: 8),
+                                            border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(4)),
+                                          ),
+                                          onChanged: (_) => setState(() {}),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                          '₦${(_subtotal * ((double.tryParse(_taxRateController.text) ?? 0) / 100)).toStringAsFixed(2)}',
+                                          style: AppTextStyles.caption),
+                                    ],
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                    '₦${(_subtotal * ((double.tryParse(_taxRateController.text) ?? 0) / 100)).toStringAsFixed(2)}',
-                                    style: AppTextStyles.caption),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            // Editable Discount Field
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text('Discount (₦)',
-                                      style: AppTextStyles.body2),
-                                ),
-                                SizedBox(
-                                  width: 80,
-                                  child: TextFormField(
-                                    controller: _discountController,
-                                    enabled: _canApplyDiscount,
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                    decoration: InputDecoration(
-                                      hintText: '0',
-                                      isDense: true,
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(4)),
-                                    ),
-                                    onChanged: (_) => setState(() {}),
+                                  const SizedBox(height: 12),
+                                  // Editable Discount Field
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text('Discount (₦)',
+                                            style: AppTextStyles.body2),
+                                      ),
+                                      SizedBox(
+                                        width: 80,
+                                        child: TextFormField(
+                                          controller: _discountController,
+                                          enabled: _canApplyDiscount,
+                                          keyboardType: const TextInputType
+                                              .numberWithOptions(decimal: true),
+                                          decoration: InputDecoration(
+                                            hintText: '0',
+                                            isDense: true,
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                    horizontal: 8, vertical: 8),
+                                            border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(4)),
+                                          ),
+                                          onChanged: (_) => setState(() {}),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                          '-₦${(double.tryParse(_discountController.text) ?? 0).toStringAsFixed(2)}',
+                                          style: AppTextStyles.caption.copyWith(
+                                              color: AppColors.success)),
+                                    ],
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                    '-₦${(double.tryParse(_discountController.text) ?? 0).toStringAsFixed(2)}',
-                                    style: AppTextStyles.caption.copyWith(color: AppColors.success)),
-                              ],
-                            ),
-                            const Divider(),
-                            _TotalRow(
-                              label: 'Total',
-                              amount: _subtotal +
-                                  (_subtotal * ((double.tryParse(_taxRateController.text) ?? 0) / 100)) -
-                                  (double.tryParse(_discountController.text) ?? 0),
-                              isBold: true,
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: CustomButton(
-                                    text: 'Generate PDF Receipt',
-                                    backgroundColor: Colors.blue,
-                                    onPressed: _selectedItems.isNotEmpty ? () => _generatePdfReceipt() : null,
+                                  const Divider(),
+                                  _TotalRow(
+                                    label: 'Total',
+                                    amount: _subtotal +
+                                        (_subtotal *
+                                            ((double.tryParse(_taxRateController
+                                                        .text) ??
+                                                    0) /
+                                                100)) -
+                                        (double.tryParse(
+                                                _discountController.text) ??
+                                            0),
+                                    isBold: true,
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: CustomButton(
-                                    text: 'Create & Print Order',
-                                    onPressed: (_selectedItems.isNotEmpty && _selectedTableId != null)
-                                        ? () => _createAndPrintOrder(context)
+                                  const SizedBox(height: 16),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: CustomButton(
+                                          text: 'Generate PDF Receipt',
+                                          backgroundColor: Colors.blue,
+                                          onPressed: _selectedItems.isNotEmpty
+                                              ? () => _generatePdfReceipt()
+                                              : null,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: CustomButton(
+                                          text: 'Create & Print Order',
+                                          onPressed: (_selectedItems
+                                                      .isNotEmpty &&
+                                                  _selectedTableId != null)
+                                              ? () =>
+                                                  _createAndPrintOrder(context)
+                                              : null,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: AsyncCustomButton(
+                                          text: 'Pay & Complete',
+                                          backgroundColor: AppColors.success,
+                                          onPressed: _selectedItems.isNotEmpty
+                                              ? () async =>
+                                                  await _payAndCompleteOrder()
+                                              : null,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: AsyncCustomButton(
+                                          text: 'Confirm',
+                                          backgroundColor: AppColors.primary,
+                                          onPressed: _selectedItems.isNotEmpty
+                                              ? () async =>
+                                                  await _confirmPaymentForAdmin()
+                                              : null,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  AsyncCustomButton(
+                                    text: 'Charge To Room',
+                                    backgroundColor: Colors.deepPurple,
+                                    onPressed: (_selectedItems.isNotEmpty &&
+                                            _selectedRoomChargeReservationId !=
+                                                null)
+                                        ? () async => await _chargeOrderToRoom()
                                         : null,
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: AsyncCustomButton(
-                                    text: 'Pay & Complete',
-                                    backgroundColor: AppColors.success,
-                                    onPressed: _selectedItems.isNotEmpty ? () async => await _payAndCompleteOrder() : null,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: AsyncCustomButton(
-                                    text: 'Confirm',
-                                    backgroundColor: AppColors.primary,
-                                    onPressed: _selectedItems.isNotEmpty ? () async => await _confirmPaymentForAdmin() : null,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            AsyncCustomButton(
-                              text: 'Charge To Room',
-                              backgroundColor: Colors.deepPurple,
-                              onPressed: (_selectedItems.isNotEmpty &&
-                                      _selectedRoomChargeReservationId != null)
-                                  ? () async => await _chargeOrderToRoom()
-                                  : null,
+                                ],
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+                    ),
+                ],
+              );
+            },
           );
-        },
-      );}
-    ));
+        }));
   }
 }
 
@@ -2573,7 +2820,8 @@ class _CustomerReceipt extends StatelessWidget {
                     Text('TABLE',
                         style: AppTextStyles.caption
                             .copyWith(fontWeight: FontWeight.w600)),
-                    Text('${order.tableNumber ?? 'N/A'}', style: AppTextStyles.heading2),
+                    Text('${order.tableNumber ?? 'N/A'}',
+                        style: AppTextStyles.heading2),
                   ],
                 ),
                 Column(
@@ -2638,8 +2886,7 @@ class _CustomerReceipt extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text('Subtotal', style: AppTextStyles.body2),
-                Text(formatCurrency(subtotal),
-                    style: AppTextStyles.body2),
+                Text(formatCurrency(subtotal), style: AppTextStyles.body2),
               ],
             ),
           ),
@@ -2685,7 +2932,9 @@ class _CustomerReceipt extends StatelessWidget {
 
           // Payments
           if (order.paymentBreakdown.isNotEmpty) ...[
-            Text('PAYMENTS', style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w600)),
+            Text('PAYMENTS',
+                style:
+                    AppTextStyles.body1.copyWith(fontWeight: FontWeight.w600)),
             const Divider(),
             Column(
               children: order.paymentBreakdown.map((pb) {
@@ -2697,8 +2946,13 @@ class _CustomerReceipt extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Expanded(child: Text('$method${tx != null && tx.toString().isNotEmpty ? ' • ${tx.toString()}' : ''}', style: AppTextStyles.body2)),
-                      Text(formatCurrency(amount.toDouble()), style: AppTextStyles.body2.copyWith(fontWeight: FontWeight.w600)),
+                      Expanded(
+                          child: Text(
+                              '$method${tx != null && tx.toString().isNotEmpty ? ' • ${tx.toString()}' : ''}',
+                              style: AppTextStyles.body2)),
+                      Text(formatCurrency(amount.toDouble()),
+                          style: AppTextStyles.body2
+                              .copyWith(fontWeight: FontWeight.w600)),
                     ],
                   ),
                 );
@@ -2715,7 +2969,12 @@ class _CustomerReceipt extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Payment', style: AppTextStyles.caption),
-                  Text(order.paymentMethods.isNotEmpty ? order.paymentMethods.first.toUpperCase() : 'CASH', style: AppTextStyles.body1.copyWith(fontWeight: FontWeight.w600)),
+                  Text(
+                      order.paymentMethods.isNotEmpty
+                          ? order.paymentMethods.first.toUpperCase()
+                          : 'CASH',
+                      style: AppTextStyles.body1
+                          .copyWith(fontWeight: FontWeight.w600)),
                 ],
               ),
             ),
@@ -2737,4 +2996,3 @@ class _CustomerReceipt extends StatelessWidget {
     );
   }
 }
-

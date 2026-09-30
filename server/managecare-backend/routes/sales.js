@@ -95,11 +95,13 @@ module.exports = function(pool) {
   // GET /api/sales/:businessId/summary - Sales summary
   router.get('/:businessId/summary', asyncHandler(async (req, res) => {
     const { businessId } = req.params;
-    const { period, startDate, endDate } = req.query;
+    const { period, startDate, endDate, saleType } = req.query;
 
     let dateFilter;
+    const params = [businessId];
     if (startDate && endDate) {
-      dateFilter = `s.created_at >= '${startDate}' AND s.created_at <= '${endDate}'`;
+      params.push(startDate, endDate);
+      dateFilter = 's.created_at >= $2 AND s.created_at <= $3';
     } else if (period === 'today') {
       dateFilter = "s.created_at >= CURRENT_DATE AND s.created_at < CURRENT_DATE + INTERVAL '1 day'";
     } else if (period === 'week') {
@@ -109,6 +111,9 @@ module.exports = function(pool) {
     } else {
       dateFilter = "s.created_at >= date_trunc('month', CURRENT_DATE)";
     }
+    const saleTypeFilter = saleType
+      ? ` AND s.sale_type = $${params.push(saleType)}`
+      : '';
 
     const result = await pool.query(`
       SELECT
@@ -124,12 +129,12 @@ module.exports = function(pool) {
       LEFT JOIN (
         SELECT payment_method, SUM(final_amount)::DECIMAL(12,2) as total
         FROM sales s
-        WHERE business_id = $1 AND ${dateFilter}
+        WHERE business_id = $1 AND ${dateFilter}${saleTypeFilter}
         GROUP BY payment_method
       ) pmt ON pmt.payment_method = s.payment_method
-      WHERE s.business_id = $1 AND s.status = 'completed' AND ${dateFilter}
+      WHERE s.business_id = $1 AND s.status = 'completed' AND ${dateFilter}${saleTypeFilter}
       GROUP BY s.business_id
-    `, [businessId]);
+    `, params);
 
     if (result.rows.length === 0) {
       return res.json({

@@ -8,7 +8,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireFields, asyncHandler } = require('../middleware/validation');
-const { requireBusinessMembership } = require('../middleware/auth');
+const { requireBusinessMembership, requireBusinessPermission } = require('../middleware/auth');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const nullableUuid = (value) => value && UUID_RE.test(value) ? value : null;
@@ -26,7 +26,7 @@ module.exports = function(pool) {
     res.json({ data: result.rows });
   }));
 
-  router.post('/:businessId/bar-tables', requireFields('label'), asyncHandler(async (req, res) => {
+  router.post('/:businessId/bar-tables', requireBusinessPermission('table_management'), requireFields('label'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { label } = req.body;
     const result = await pool.query(
@@ -39,7 +39,7 @@ module.exports = function(pool) {
     res.status(201).json(result.rows[0]);
   }));
 
-  router.delete('/:businessId/bar-tables/:label', asyncHandler(async (req, res) => {
+  router.delete('/:businessId/bar-tables/:label', requireBusinessPermission('table_management'), asyncHandler(async (req, res) => {
     const { businessId, label } = req.params;
     await pool.query(
       'DELETE FROM bar_tables WHERE business_id = $1 AND label = $2',

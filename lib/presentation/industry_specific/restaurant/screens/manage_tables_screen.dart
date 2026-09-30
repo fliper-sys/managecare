@@ -58,12 +58,7 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
 
   Future<bool> _ensureCanManageTables({required bool isNew}) async {
     final user = context.read<AuthProvider>().currentUser;
-    if (user == null ||
-        !WorkerPermissions.hasEffectivePermission(
-          user.role,
-          user.permissions,
-          'table_management',
-        )) {
+    if (user == null || !_hasTableManagementPermission()) {
       await _showBlockedDialog(
         title: 'Permission required',
         message: 'Only managers and administrators can manage tables.',
@@ -99,6 +94,16 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
     }
 
     return true;
+  }
+
+  bool _hasTableManagementPermission() {
+    final user = context.read<AuthProvider>().currentUser;
+    return user != null &&
+        WorkerPermissions.hasEffectivePermission(
+          user.role,
+          user.permissions,
+          'table_management',
+        );
   }
 
   Future<void> _showTableDialog({TableInfo? editing}) async {
@@ -245,6 +250,7 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
   }
 
   Future<void> _deleteTable(TableInfo table) async {
+    if (!await _ensureCanManageTables(isNew: false)) return;
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -286,6 +292,7 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final canManageTables = _hasTableManagementPermission();
 
     return Scaffold(
       backgroundColor:
@@ -296,11 +303,12 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         actions: [
-          IconButton(
-            onPressed: () => _showTableDialog(),
-            icon: const Icon(Icons.add),
-            tooltip: 'Add table',
-          ),
+          if (canManageTables)
+            IconButton(
+              onPressed: () => _showTableDialog(),
+              icon: const Icon(Icons.add),
+              tooltip: 'Add table',
+            ),
         ],
       ),
       body: Consumer<RestaurantProvider>(
@@ -353,11 +361,12 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
                         ),
                       ),
                       const SizedBox(height: 18),
-                      ElevatedButton.icon(
-                        onPressed: () => _showTableDialog(),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add First Table'),
-                      ),
+                      if (canManageTables)
+                        ElevatedButton.icon(
+                          onPressed: () => _showTableDialog(),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add First Table'),
+                        ),
                     ],
                   ),
                 ),
@@ -445,16 +454,18 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
                       spacing: 10,
                       runSpacing: 10,
                       children: [
-                        OutlinedButton.icon(
-                          onPressed: () => _showTableDialog(editing: table),
-                          icon: const Icon(Icons.edit_outlined),
-                          label: const Text('Edit'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () => _deleteTable(table),
-                          icon: const Icon(Icons.delete_outline),
-                          label: const Text('Delete'),
-                        ),
+                        if (canManageTables) ...[
+                          OutlinedButton.icon(
+                            onPressed: () => _showTableDialog(editing: table),
+                            icon: const Icon(Icons.edit_outlined),
+                            label: const Text('Edit'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => _deleteTable(table),
+                            icon: const Icon(Icons.delete_outline),
+                            label: const Text('Delete'),
+                          ),
+                        ],
                       ],
                     ),
                   ],

@@ -470,12 +470,20 @@ class DrinkRepositoryImpl implements DrinkRepository {
   }
 
   @override
-  Future<double> getSalesTotal({String? period, DateTime? start, DateTime? end}) async {
+  Future<double> getSalesTotal({
+    String? period,
+    DateTime? start,
+    DateTime? end,
+    String? saleType,
+  }) async {
     try {
       final queryParams = <String, dynamic>{};
       if (period != null) queryParams['period'] = period;
       if (start != null) queryParams['startDate'] = start.toIso8601String();
       if (end != null) queryParams['endDate'] = end.toIso8601String();
+      if (saleType != null && saleType.isNotEmpty) {
+        queryParams['saleType'] = saleType;
+      }
       if (period == null && start == null && end == null) {
         // Summary defaults to "this month" server-side; pass an explicit
         // wide range to approximate an all-time total.

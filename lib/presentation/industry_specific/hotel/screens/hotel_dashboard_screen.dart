@@ -11,6 +11,7 @@ import '../../../../providers/business_provider.dart';
 import '../../../../providers/hotel_provider.dart';
 import '../../../../providers/drink_provider.dart';
 import '../../../industry_specific/restaurant/providers/restaurant_provider.dart';
+import '../../../../data/repositories/industry_specific/drink_repository_impl.dart';
 
 class HotelDashboardScreen extends StatefulWidget {
   const HotelDashboardScreen({super.key});
@@ -39,6 +40,8 @@ class _HotelNavigationItem {
 
 class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
   String? _loadedBusinessId;
+  Future<double>? _barSalesLast24Hours;
+  Future<double>? _barRevenueForPeriod;
   String _selectedCategory = 'General';
   String _searchQuery = '';
   String _selectedRevenuePeriod = 'Daily';
@@ -53,11 +56,7 @@ class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
   Future<void> _refreshDashboard() async {
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     if (businessId == null || businessId.isEmpty) return;
-    await context.read<HotelProvider>().refresh();
-    await context.read<RestaurantProvider>().initializeOrders(
-          businessId: businessId,
-        );
-    if (mounted) setState(() {});
+    await _loadDashboardData(businessId, refreshHotel: true);
   }
 
   @override
@@ -71,9 +70,54 @@ class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
     }
     _loadedBusinessId = businessId;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      context.read<HotelProvider>().setBusinessId(businessId);
+      if (!mounted || _loadedBusinessId != businessId) return;
+      _loadDashboardData(businessId);
     });
+  }
+
+  Future<void> _loadDashboardData(
+    String businessId, {
+    bool refreshHotel = false,
+  }) async {
+    final hotelProvider = context.read<HotelProvider>();
+    final restaurantProvider = context.read<RestaurantProvider>();
+    final drinkProvider = context.read<DrinkProvider>();
+
+    await hotelProvider.setBusinessId(businessId);
+    if (refreshHotel) await hotelProvider.refresh();
+    await restaurantProvider.initializeOrders(businessId: businessId);
+    drinkProvider.setBusinessId(businessId);
+    await drinkProvider.initialize(
+      repository: DrinkRepositoryImpl(businessId: businessId),
+    );
+
+    if (!mounted || _loadedBusinessId != businessId) return;
+    final now = DateTime.now();
+    setState(() {
+      _barSalesLast24Hours = drinkProvider.getSalesTotal(
+        start: now.subtract(const Duration(hours: 24)),
+        end: now,
+        saleType: 'bar',
+      );
+      _barRevenueForPeriod = drinkProvider.getSalesTotal(
+        start: _revenuePeriodStart(now),
+        end: now,
+        saleType: 'bar',
+      );
+    });
+  }
+
+  DateTime _revenuePeriodStart(DateTime now) {
+    final today = DateTime(now.year, now.month, now.day);
+    switch (_selectedRevenuePeriod) {
+      case 'Weekly':
+        return today.subtract(Duration(days: now.weekday - 1));
+      case 'Monthly':
+        return DateTime(now.year, now.month, 1);
+      case 'Daily':
+      default:
+        return today;
+    }
   }
 
     // --- SUMMARY HEADER (Revenue, Active Rooms, Customers) ---
@@ -443,10 +487,6 @@ class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
             (order.paymentStatus == 'paid' ||
                 order.paymentStatus == 'room_charge'))
         .fold<double>(0, (total, order) => total + order.total);
-    final barRevenue = drinkProvider.orders
-        .where((order) =>
-            order.createdAt.isAfter(start) && order.status == 'paid')
-        .fold<double>(0, (total, order) => total + order.total());
     final roomRevenue = hotelProvider.reservations
         .where((reservation) =>
             reservation.createdAt.isAfter(start) &&
@@ -480,9 +520,15 @@ class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
             ButtonSegment(value: 'Monthly', label: Text('Monthly')),
           ],
           selected: {_selectedRevenuePeriod},
-          onSelectionChanged: (selection) => setState(
-            () => _selectedRevenuePeriod = selection.first,
-          ),
+          onSelectionChanged: (selection) {
+            setState(() => _selectedRevenuePeriod = selection.first);
+            final now = DateTime.now();
+            _barRevenueForPeriod = context.read<DrinkProvider>().getSalesTotal(
+              start: _revenuePeriodStart(now),
+              end: now,
+              saleType: 'bar',
+            );
+          },
         ),
         const SizedBox(height: 12),
         Container(
@@ -497,7 +543,15 @@ class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
               const Divider(height: 20),
               _buildRevenueRow('Restaurant', restaurantRevenue, Icons.restaurant_outlined, Colors.redAccent),
               const Divider(height: 20),
-              _buildRevenueRow('Bar', barRevenue, Icons.local_bar_outlined, Colors.indigo),
+              FutureBuilder<double>(
+                future: _barRevenueForPeriod,
+                builder: (context, snapshot) => _buildRevenueRow(
+                  'Bar',
+                  snapshot.data ?? 0,
+                  Icons.local_bar_outlined,
+                  Colors.indigo,
+                ),
+              ),
             ],
           ),
         ),
@@ -625,14 +679,10 @@ class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
     final now = DateTime.now();
     final since = now.subtract(const Duration(hours: 24));
     final restaurantProvider = context.read<RestaurantProvider>();
-    final drinkProvider = context.read<DrinkProvider>();
     final restaurantSales = restaurantProvider.orders
         .where((order) =>
             order.createdAt.isAfter(since) && order.status != 'cancelled')
         .fold<double>(0, (sum, order) => sum + order.total);
-    final barSales = drinkProvider.orders
-        .where((order) => order.createdAt.isAfter(since) && order.status != 'cancelled')
-        .fold<double>(0, (sum, order) => sum + order.total());
     final roomBookings = hotelProvider.reservations
         .where((reservation) => reservation.createdAt.isAfter(since))
         .length;
@@ -641,7 +691,16 @@ class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
       children: [
         Expanded(child: _buildSummaryPill('Restaurant (24h)', formatCurrency(restaurantSales, decimalDigits: 0), Colors.red)),
         const SizedBox(width: 10),
-        Expanded(child: _buildSummaryPill('Bar (24h)', formatCurrency(barSales, decimalDigits: 0), Colors.indigo)),
+        Expanded(
+          child: FutureBuilder<double>(
+            future: _barSalesLast24Hours,
+            builder: (context, snapshot) => _buildSummaryPill(
+              'Bar (24h)',
+              formatCurrency(snapshot.data ?? 0, decimalDigits: 0),
+              Colors.indigo,
+            ),
+          ),
+        ),
         const SizedBox(width: 10),
         Expanded(child: _buildSummaryPill('Room bookings (24h)', roomBookings.toString(), Colors.blue)),
       ],
