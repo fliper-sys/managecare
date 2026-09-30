@@ -434,11 +434,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
   }) async {
     final user = context.read<AuthProvider>().currentUser;
     if (user == null ||
-        !WorkerPermissions.hasEffectivePermission(
-          user.role,
-          user.permissions,
-          'table_management',
-        )) {
+        !WorkerPermissions.canManageHospitalityTables(user.role)) {
       await _showBlockedDialog(
         title: 'Permission required',
         message: 'Only managers and administrators can manage bar tables.',
@@ -480,11 +476,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
   bool _hasBarTableManagementPermission() {
     final user = context.read<AuthProvider>().currentUser;
     return user != null &&
-        WorkerPermissions.hasEffectivePermission(
-          user.role,
-          user.permissions,
-          'table_management',
-        );
+        WorkerPermissions.canManageHospitalityTables(user.role);
   }
 
   Future<void> _showSavedTableManager() async {
@@ -1029,41 +1021,6 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         } catch (e) {
           debugPrint('[BarPOS] Failed to update customer stats: $e');
         }
-      }
-
-      // Ensure the inventory document exists before updating stock. Some
-      // migrated bar products are created in the generic inventory collection
-      // without a matching Firestore record yet, which causes a not-found error.
-      final firestore = FirebaseFirestore.instance;
-      for (final line in lines) {
-        final stock = provider.getStock(line.drinkId);
-        if (stock == null) continue;
-
-        final drink = provider.getDrinkById(line.drinkId);
-        final inventoryDoc = firestore
-            .collection('businesses')
-            .doc(businessId)
-            .collection('inventory')
-            .doc(line.drinkId);
-
-        await inventoryDoc.set({
-          'id': line.drinkId,
-          'businessId': businessId,
-          'name': drink?.name ?? 'Drink',
-          'category': drink?.category ?? 'Drinks',
-          'quantity': stock.totalBottles(drink?.bottlesPerCarton ?? 1),
-          'cartons': stock.cartons,
-          'bottles': stock.bottles,
-          'unitPrice': drink?.pricePerBottle ?? 0.0,
-          'unit': 'bottle',
-          'metadata': {
-            'bottles': stock.bottles,
-            'cartons': stock.cartons,
-            'emoji': drink?.emoji,
-            'imageUrl': drink?.imageUrl,
-          },
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
       }
 
       // Clear cart locally

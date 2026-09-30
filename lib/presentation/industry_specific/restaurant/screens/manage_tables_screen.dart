@@ -99,11 +99,7 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
   bool _hasTableManagementPermission() {
     final user = context.read<AuthProvider>().currentUser;
     return user != null &&
-        WorkerPermissions.hasEffectivePermission(
-          user.role,
-          user.permissions,
-          'table_management',
-        );
+        WorkerPermissions.canManageHospitalityTables(user.role);
   }
 
   Future<void> _showTableDialog({TableInfo? editing}) async {

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/constants/routes.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/drink_provider.dart';
 
 class DrinkInventoryScreen extends StatefulWidget {
@@ -20,107 +23,128 @@ class _DrinkInventoryScreenState extends State<DrinkInventoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final auth = context.watch<AuthProvider>();
+    final user = auth.currentUser;
+    final canAccessProcurement = user != null &&
+        (auth.isOwnerUser ||
+            WorkerPermissions.canAccessProcurementForUser(
+              user.role,
+              user.permissions,
+            ));
     return Scaffold(
-      appBar:
-          AppBar(title: const Text('Inventory'), backgroundColor: Colors.brown),
-      body: Consumer<DrinkProvider>(
-        builder: (context, provider, _) {
-          return RefreshIndicator(
-            onRefresh: _refreshInventory,
-            color: Colors.brown,
-            child: ListView.builder(
-            padding: const EdgeInsets.all(12),
-            itemCount: provider.drinks.length,
-            itemBuilder: (context, index) {
-              final drink = provider.drinks[index];
-              final stock = provider.getStock(drink.id);
-              return Card(
-                margin: const EdgeInsets.symmetric(vertical: 8),
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: drink.imageUrl != null
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.network(drink.imageUrl!,
-                                  width: 48, height: 48, fit: BoxFit.cover),
-                            )
-                          : Container(
-                              width: 48,
-                              height: 48,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: Colors.brown[100],
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(drink.emoji,
-                                  style: const TextStyle(fontSize: 28)),
-                            ),
-                      title: Text(drink.name,
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text(
-                        '${stock?.bottles ?? 0} bottles • ${stock?.cartons ?? 0} cartons',
-                        style: TextStyle(color: Colors.grey[600]),
+        appBar: AppBar(
+          title: const Text('Inventory'),
+          backgroundColor: Colors.brown,
+          actions: [
+            if (canAccessProcurement)
+              IconButton(
+                tooltip: 'Procurement',
+                icon: const Icon(Icons.shopping_cart_checkout),
+                onPressed: () =>
+                    Navigator.pushNamed(context, Routes.procurement),
+              ),
+          ],
+        ),
+        body: Consumer<DrinkProvider>(
+          builder: (context, provider, _) {
+            return RefreshIndicator(
+                onRefresh: _refreshInventory,
+                color: Colors.brown,
+                child: ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: provider.drinks.length,
+                  itemBuilder: (context, index) {
+                    final drink = provider.drinks[index];
+                    final stock = provider.getStock(drink.id);
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 8),
-                      child: Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
+                      child: Column(
                         children: [
-                          _StockButton(
-                            icon: Icons.remove,
-                            label: 'B-',
-                            onPressed: () =>
-                                provider.adjustStock(drink.id, bottleDelta: -1),
+                          ListTile(
+                            leading: drink.imageUrl != null
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(drink.imageUrl!,
+                                        width: 48,
+                                        height: 48,
+                                        fit: BoxFit.cover),
+                                  )
+                                : Container(
+                                    width: 48,
+                                    height: 48,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: Colors.brown[100],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(drink.emoji,
+                                        style: const TextStyle(fontSize: 28)),
+                                  ),
+                            title: Text(drink.name,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold)),
+                            subtitle: Text(
+                              '${stock?.bottles ?? 0} bottles • ${stock?.cartons ?? 0} cartons',
+                              style: TextStyle(color: Colors.grey[600]),
+                            ),
                           ),
-                          _StockButton(
-                            icon: Icons.add,
-                            label: 'B+',
-                            onPressed: () =>
-                                provider.adjustStock(drink.id, bottleDelta: 1),
-                          ),
-                          _StockButton(
-                            icon: Icons.remove_circle_outline,
-                            label: 'C-',
-                            onPressed: () =>
-                                provider.adjustStock(drink.id, cartonDelta: -1),
-                          ),
-                          _StockButton(
-                            icon: Icons.add_circle_outline,
-                            label: 'C+',
-                            onPressed: () =>
-                                provider.adjustStock(drink.id, cartonDelta: 1),
-                          ),
-                          ElevatedButton.icon(
-                            icon: const Icon(Icons.edit, size: 18),
-                            label: const Text('Edit'),
-                            onPressed: () => showDialog(
-                              context: context,
-                              builder: (_) => _AddStockDialog(
-                                drink: drink,
-                                provider: provider,
-                              ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 8),
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                _StockButton(
+                                  icon: Icons.remove,
+                                  label: 'B-',
+                                  onPressed: () => provider
+                                      .adjustStock(drink.id, bottleDelta: -1),
+                                ),
+                                _StockButton(
+                                  icon: Icons.add,
+                                  label: 'B+',
+                                  onPressed: () => provider
+                                      .adjustStock(drink.id, bottleDelta: 1),
+                                ),
+                                _StockButton(
+                                  icon: Icons.remove_circle_outline,
+                                  label: 'C-',
+                                  onPressed: () => provider
+                                      .adjustStock(drink.id, cartonDelta: -1),
+                                ),
+                                _StockButton(
+                                  icon: Icons.add_circle_outline,
+                                  label: 'C+',
+                                  onPressed: () => provider
+                                      .adjustStock(drink.id, cartonDelta: 1),
+                                ),
+                                ElevatedButton.icon(
+                                  icon: const Icon(Icons.edit, size: 18),
+                                  label: const Text('Edit'),
+                                  onPressed: () => showDialog(
+                                    context: context,
+                                    builder: (_) => _AddStockDialog(
+                                      drink: drink,
+                                      provider: provider,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ));
-            },
-          ));
-        }
-      
+                    );
+                  },
+                ));
+          },
+        ));
+  }
 }
 
 class _StockButton extends StatelessWidget {
@@ -210,4 +234,3 @@ class _AddStockDialogState extends State<_AddStockDialog> {
     );
   }
 }
-

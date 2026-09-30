@@ -96,16 +96,14 @@ class OrderLine {
       drinkId: (json['drinkId'] ?? json['productId'] ?? '').toString(),
       quantityBottles:
           _readDrinkInt(json['quantityBottles'] ?? json['quantity']),
-      modifiers: (json['modifiers'] as List<dynamic>?)
-              ?.map((item) {
-                final map = Map<String, dynamic>.from(item as Map);
-                return Modifier(
-                  id: (map['id'] ?? '').toString(),
-                  name: (map['name'] ?? '').toString(),
-                  price: _readDrinkDouble(map['price']),
-                );
-              })
-              .toList() ??
+      modifiers: (json['modifiers'] as List<dynamic>?)?.map((item) {
+            final map = Map<String, dynamic>.from(item as Map);
+            return Modifier(
+              id: (map['id'] ?? '').toString(),
+              name: (map['name'] ?? '').toString(),
+              price: _readDrinkDouble(map['price']),
+            );
+          }).toList() ??
           const [],
       unitPrice: _readDrinkDouble(json['unitPrice'] ?? json['price']),
     );
@@ -199,10 +197,10 @@ class BarInvoice {
                 OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
             .toList() ??
         (json['items'] as List<dynamic>?)
-                ?.map((item) =>
-                    OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
-                .toList() ??
-            const <OrderLine>[];
+            ?.map((item) =>
+                OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
+            .toList() ??
+        const <OrderLine>[];
     final calculatedSubtotal =
         parsedLines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
     final storedSubtotal = _readDrinkDouble(json['subtotal']);
@@ -396,7 +394,8 @@ abstract class DrinkRepository {
   /// those are already recorded by the sale itself (createSale carries the
   /// customer id, which the backend uses to update those stats), so a
   /// second increment here would double-count.
-  Future<void> mergeCustomerMetadata(String customerId, Map<String, dynamic> metadata);
+  Future<void> mergeCustomerMetadata(
+      String customerId, Map<String, dynamic> metadata);
 }
 
 class DrinkProvider extends ChangeNotifier {
@@ -472,7 +471,8 @@ class DrinkProvider extends ChangeNotifier {
   }
 
   Future<void> loadSavedBarTables() async {
-    if (_businessId == null || _businessId!.isEmpty || repository == null) return;
+    if (_businessId == null || _businessId!.isEmpty || repository == null)
+      return;
 
     try {
       final labels = await repository!.fetchBarTables();
@@ -515,7 +515,10 @@ class DrinkProvider extends ChangeNotifier {
   Future<void> deleteSavedBarTable(String label) async {
     final businessId = _businessId;
     final trimmed = label.trim();
-    if (businessId == null || businessId.isEmpty || trimmed.isEmpty || repository == null) return;
+    if (businessId == null ||
+        businessId.isEmpty ||
+        trimmed.isEmpty ||
+        repository == null) return;
 
     savedBarTables.removeWhere(
       (table) => table.trim().toLowerCase() == trimmed.toLowerCase(),
@@ -743,25 +746,25 @@ class DrinkProvider extends ChangeNotifier {
 
   // Orders
   Future<void> createOrder(Order o) async {
+    if (repository != null) {
+      await repository!.saveOrder({
+        'id': o.id,
+        'total': o.total(),
+        'status': o.status,
+        'createdAt': o.createdAt,
+        'lines': o.lines.map((line) => line.toJson()).toList(),
+        'itemCount':
+            o.lines.fold<int>(0, (sum, line) => sum + line.quantityBottles),
+      });
+    }
+
     orders.add(o);
     _applyStockConsumption(o.lines);
-
     notifyListeners();
 
-    // persist order and stock changes if repository present
+    // Inventory updates are secondary to the durable order record.
     if (repository != null) {
       try {
-        await repository!.saveOrder({
-          'id': o.id,
-          'total': o.total(),
-          'status': o.status,
-          'createdAt': o.createdAt,
-          'lines': o.lines.map((line) => line.toJson()).toList(),
-          'itemCount':
-              o.lines.fold<int>(0, (sum, line) => sum + line.quantityBottles),
-        });
-
-        // update stock documents for any modified stock items
         for (final line in o.lines) {
           final s = getStock(line.drinkId);
           if (s != null) {
@@ -788,7 +791,7 @@ class DrinkProvider extends ChangeNotifier {
           }
         } catch (_) {}
       } catch (e) {
-        if (kDebugMode) print('Error persisting order/stock: $e');
+        if (kDebugMode) print('Error persisting order stock: $e');
       }
     }
   }
@@ -797,10 +800,9 @@ class DrinkProvider extends ChangeNotifier {
       .where((o) => o.status == 'pending' || o.status == 'served')
       .toList();
 
-  List<BarInvoice> getOpenInvoices() => invoices
-      .where((invoice) => invoice.status == 'open')
-      .toList()
-    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  List<BarInvoice> getOpenInvoices() =>
+      invoices.where((invoice) => invoice.status == 'open').toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
   List<BarInvoice> getInvoiceHistory() {
     final all = List<BarInvoice>.from(invoices);
@@ -874,16 +876,17 @@ class DrinkProvider extends ChangeNotifier {
 
       if (drink == null || stock == null) {
         // If drink or stock not found, we can't restore, but this shouldn't happen
-        debugPrint('Warning: Cannot restore stock for ${line.drinkId} - drink or stock not found');
+        debugPrint(
+            'Warning: Cannot restore stock for ${line.drinkId} - drink or stock not found');
         continue;
       }
 
       // Add back the bottles to stock
       var toRestore = line.quantityBottles;
-      
+
       // First, try to add to existing bottles
       stock.bottles += toRestore;
-      
+
       // If we have more than a carton, convert to cartons
       while (stock.bottles >= drink.bottlesPerCarton) {
         stock.cartons += 1;
@@ -901,7 +904,8 @@ class DrinkProvider extends ChangeNotifier {
   /// Process an order that has been marked as paid.
   /// This will create a sale record in the business `sales` collection,
   /// persist sale metadata, send notifications, and mark order as paid.
-  Future<void> processPaidOrder(String orderId, String paymentMethod, {String? workerId, String? workerName}) async {
+  Future<void> processPaidOrder(String orderId, String paymentMethod,
+      {String? workerId, String? workerName}) async {
     final o = orders.firstWhere((x) => x.id == orderId);
 
     // Build sale payload
@@ -991,8 +995,10 @@ class DrinkProvider extends ChangeNotifier {
             if (kDebugMode) print('Failed to notify owner: $e');
           }
         } catch (e) {
-          if (kDebugMode) print('Failed to create sale record for paid order: $e');
-          debugPrint('[DrinkProvider] Remote sale write failed, saving locally: $e');
+          if (kDebugMode)
+            print('Failed to create sale record for paid order: $e');
+          debugPrint(
+              '[DrinkProvider] Remote sale write failed, saving locally: $e');
           await _saveSaleOffline(
             items: items,
             subtotal: subtotal,
@@ -1055,7 +1061,8 @@ class DrinkProvider extends ChangeNotifier {
 
     try {
       for (final item in items) {
-        final itemId = '${DateTime.now().millisecondsSinceEpoch}-${item['productId']}';
+        final itemId =
+            '${DateTime.now().millisecondsSinceEpoch}-${item['productId']}';
         await dbHelper.insert('sale_items', {
           'id': itemId,
           'saleId': saleId,
@@ -1071,16 +1078,21 @@ class DrinkProvider extends ChangeNotifier {
       // Sale row exists without (all of) its items — remove it rather than
       // let a broken record sync later, and surface the failure so it
       // isn't silently mistaken for "queued fine".
-      debugPrint('[DrinkProvider] Offline item save failed, rolling back local sale $saleId: $e');
+      debugPrint(
+          '[DrinkProvider] Offline item save failed, rolling back local sale $saleId: $e');
       try {
-        await dbHelper.delete('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
+        await dbHelper
+            .delete('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
         await dbHelper.delete('sales', where: 'id = ?', whereArgs: [saleId]);
       } catch (_) {}
       rethrow;
     }
 
     await dbHelper.addToSyncQueue(
-        entityType: 'sale', entityId: saleId, action: 'create', data: localSale);
+        entityType: 'sale',
+        entityId: saleId,
+        action: 'create',
+        data: localSale);
 
     // Try to trigger a background sync (no-op if still offline)
     try {
@@ -1123,11 +1135,13 @@ class DrinkProvider extends ChangeNotifier {
     }
 
     final now = DateTime.now();
-    final subtotal = lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
+    final subtotal =
+        lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
     final safeTax = tax < 0 ? 0.0 : tax;
     final safeDiscount = discount < 0 ? 0.0 : discount;
-    final total =
-        (subtotal + safeTax - safeDiscount).clamp(0.0, double.infinity).toDouble();
+    final total = (subtotal + safeTax - safeDiscount)
+        .clamp(0.0, double.infinity)
+        .toDouble();
     final invoice = BarInvoice(
       id: const Uuid().v4(),
       businessId: businessId,
@@ -1198,8 +1212,9 @@ class DrinkProvider extends ChangeNotifier {
         lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
     final safeTax = tax < 0 ? 0.0 : tax;
     final safeDiscount = discount < 0 ? 0.0 : discount;
-    final total =
-        (subtotal + safeTax - safeDiscount).clamp(0.0, double.infinity).toDouble();
+    final total = (subtotal + safeTax - safeDiscount)
+        .clamp(0.0, double.infinity)
+        .toDouble();
     final updatedInvoice = BarInvoice(
       id: invoice.id,
       businessId: invoice.businessId,
@@ -1438,7 +1453,8 @@ class DrinkProvider extends ChangeNotifier {
     String? tableLabel,
     List<OrderLine> lines = const [],
   }) async {
-    if (_businessId == null || _businessId!.isEmpty || repository == null) return;
+    if (_businessId == null || _businessId!.isEmpty || repository == null)
+      return;
 
     // total_transactions/total_spent/average_order_value were already
     // bumped when the sale was created (createSale carries the customer
@@ -1451,9 +1467,10 @@ class DrinkProvider extends ChangeNotifier {
               .eq('id', customerId)
               .maybeSingle() ??
           <String, dynamic>{};
-      final existingMetadata = Map<String, dynamic>.from(existing['metadata'] as Map? ?? {});
-      final commonPurchases =
-          Map<String, dynamic>.from(existingMetadata['barCommonPurchases'] as Map? ?? {});
+      final existingMetadata =
+          Map<String, dynamic>.from(existing['metadata'] as Map? ?? {});
+      final commonPurchases = Map<String, dynamic>.from(
+          existingMetadata['barCommonPurchases'] as Map? ?? {});
       for (final line in lines) {
         final drink = getDrinkById(line.drinkId);
         final key = line.drinkId;
@@ -1470,7 +1487,8 @@ class DrinkProvider extends ChangeNotifier {
       }
 
       final metadata = {
-        if ((tableLabel ?? '').trim().isNotEmpty) 'preferredBarTable': tableLabel!.trim(),
+        if ((tableLabel ?? '').trim().isNotEmpty)
+          'preferredBarTable': tableLabel!.trim(),
         if (commonPurchases.isNotEmpty) 'barCommonPurchases': commonPurchases,
       };
       if (metadata.isNotEmpty) {

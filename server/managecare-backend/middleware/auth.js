@@ -141,10 +141,9 @@ function requireBusinessPermission(permission, shouldCheck = () => true) {
       : permissions && typeof permissions === 'object'
         ? Object.keys(permissions).filter((key) => permissions[key] === true)
         : [];
-    const hasOverride = granted.includes('__permissions_override__');
-    const allowed = granted.includes(permission) ||
-      (!hasOverride && granted.length === 0 && role === 'manager' && permission === 'table_management') ||
-      (!hasOverride && granted.length === 0 && role === 'sub_admin' && permission === 'table_management');
+    const allowed = permission === 'table_management'
+      ? ['owner', 'admin', 'sub_admin', 'manager'].includes(role)
+      : granted.includes(permission);
 
     if (!allowed) {
       return res.status(403).json({ error: `Permission required: ${permission}` });
