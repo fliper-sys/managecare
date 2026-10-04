@@ -15,6 +15,7 @@
     "express": "^4.21.2",
     "firebase-admin": "^11.11.0",
     "firebase-functions": "^4.5.0",
+    "joi": "^18.0.1",
     "jsonwebtoken": "^9.0.2",
     "minio": "^8.0.3",
     "multer": "^2.0.2",

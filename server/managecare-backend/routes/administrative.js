@@ -6,6 +6,8 @@ const router = express.Router();
 const { requireFields, asyncHandler } = require('../middleware/validation');
 const { requireBusinessMembership } = require('../middleware/auth');
 const { getPrisma } = require('../src/lib/prisma-bridge');
+const { validate } = require('zod');
+const { createTaskSchema } = require('./dtos/tasks/create-task.dto');
     
     router.get('/:businessId/dashboard', pagination, asyncHandler(async (req, res) => {
         const prisma = await getPrisma();
@@ -75,7 +77,7 @@ const { getPrisma } = require('../src/lib/prisma-bridge');
     }));
     router.post('/:businessId/clients/:clientId/documents', pagination, asyncHandler(async (req, res) => {}));
     router.post('/:businessId/documents/:documentId/assignments', pagination, asyncHandler(async (req, res) => {}));
-    router.post('/:businessId/tasks/:taskId/submit', pagination, asyncHandler(async (req, res) => {}));
+    router.post('/:businessId/tasks/:taskId/submit', validate(createTaskSchema), pagination, asyncHandler(async (req, res) => {}));
     router.post('/:businessId/tasks/:taskId/review', pagination, asyncHandler(async (req, res) => {}));
     router.get('/:businessId/obligations', pagination, asyncHandler(async (req, res) => {
         const prisma = await getPrisma();

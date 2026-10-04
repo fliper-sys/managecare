@@ -1670,6 +1670,11 @@ enum SubscriptionStatus {
   PENDING
 }
 
+enum ObligationType {
+  STATIC
+  TRAILING
+}
+
 model AdministrativePlan {
   id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
 
@@ -1756,8 +1761,55 @@ model AdministrativeUsage {
 
   @@map("administrative_usage")
 } 
-//model task {}
-//model obligation {}
-//model document {}
-//model folder{}
-//model client {}
+//model task {
+  //who created task
+  //who task is given to
+  //createdAt
+  //updatedAt
+  //status
+//}
+//model obligation {
+  //Due date
+  //note
+  //duration
+  //obligation type
+//}
+//model document {
+//document name
+//folder name relationship
+//created_at
+//}
+//model folder{
+  //documents relationship
+  //name
+  //created_at
+}
+//model client {
+  //business relationship
+  //created_at
+  //name
+  //clientId
+}
+
+//model obligationExpenses {
+  //clientId
+  //worker_id
+  //amount
+  //created_at
+  //date_curated
+  //review
+//}
+
+//model activity{
+//user_id
+//action
+//created_at
+//}
+
+//model archive {
+//created_at
+//url
+//review
+//folder_id
+//document_id
+//}
