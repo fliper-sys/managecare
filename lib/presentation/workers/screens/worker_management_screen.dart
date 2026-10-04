@@ -180,12 +180,10 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
 
               // Apply role filter
               if (_filterRoles.isNotEmpty) {
-                workers = workers
-                    .where((w) {
-                      final workerRoles = _workerRoles(w);
-                      return workerRoles.any(_filterRoles.contains);
-                    })
-                    .toList();
+                workers = workers.where((w) {
+                  final workerRoles = _workerRoles(w);
+                  return workerRoles.any(_filterRoles.contains);
+                }).toList();
               }
 
               // Apply search filter
@@ -243,7 +241,8 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                         (worker['isActive'] == true) ? 'Active' : 'Off-duty',
                     businessId: business?.id,
                     businessType: business?.businessType,
-                    photoUrl: (worker['photoUrl'] ?? worker['photo_url']) as String?,
+                    photoUrl:
+                        (worker['photoUrl'] ?? worker['photo_url']) as String?,
                     canManageStaff: canManageStaff,
                   );
                 },
@@ -256,7 +255,8 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
   }
 
   List<String> _workerRoles(Map<String, dynamic> worker) {
-    final roles = (worker['roles'] as List<dynamic>?)?.cast<String>() ?? const [];
+    final roles =
+        (worker['roles'] as List<dynamic>?)?.cast<String>() ?? const [];
     if (roles.isNotEmpty) {
       return roles;
     }
@@ -293,7 +293,8 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                                 const Icon(Icons.check_circle,
                                     size: 16, color: Colors.green),
                                 const SizedBox(width: 8),
-                                Text(WorkerPermissions.getPermissionLabel(permission)),
+                                Text(WorkerPermissions.getPermissionLabel(
+                                    permission)),
                               ],
                             ),
                           ))
@@ -362,8 +363,8 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
               (w['role'] as String?)?.toLowerCase() ?? '');
           if (shopFloorRoles.contains(role)) return true;
           final roles = (w['roles'] as List<dynamic>?)
-                  ?.map((r) =>
-                      WorkerPermissions.normalizeRole(r.toString().toLowerCase()))
+                  ?.map((r) => WorkerPermissions.normalizeRole(
+                      r.toString().toLowerCase()))
                   .toSet() ??
               {};
           return roles.any(shopFloorRoles.contains);
@@ -607,18 +608,17 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                   onSelected: (value) {
                     switch (value) {
                       case 'edit':
-                        final currentPermissions =
-                            ((worker['permissions'] ?? worker['customPermissions'])
-                                        as List<dynamic>?)
-                                    ?.map((permission) => permission.toString())
-                                    .where((permission) =>
-                                        permission !=
-                                        WorkerPermissions
-                                            .permissionOverrideMarker)
-                                    .where((permission) =>
-                                        permission.trim().isNotEmpty)
-                                    .toList() ??
-                                WorkerPermissions.getPermissionsForRole(role);
+                        final currentPermissions = ((worker['permissions'] ??
+                                        worker['customPermissions'])
+                                    as List<dynamic>?)
+                                ?.map((permission) => permission.toString())
+                                .where((permission) =>
+                                    permission !=
+                                    WorkerPermissions.permissionOverrideMarker)
+                                .where((permission) =>
+                                    permission.trim().isNotEmpty)
+                                .toList() ??
+                            WorkerPermissions.getPermissionsForRole(role);
                         _showEditWorkerDialog(
                           workerId,
                           name,
@@ -648,7 +648,6 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                     }
                   },
                   itemBuilder: (context) => [
-              
                     const PopupMenuItem(
                       value: 'view_details',
                       child: Text('View Details'),
@@ -778,7 +777,8 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     String currentTerminalUserId,
   ) {
     final businessProvider = context.read<BusinessProvider>();
-    final businessType = businessProvider.currentBusiness?.businessType ?? 'retail';
+    final businessType =
+        businessProvider.currentBusiness?.businessType ?? 'retail';
     final availableRoles = WorkerPermissions.getAvailableRoles(businessType);
 
     String selectedRole = currentRole;
@@ -837,8 +837,8 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                               ..sort((a, b) =>
                                   WorkerPermissions.getPermissionLabel(a)
                                       .compareTo(
-                                WorkerPermissions.getPermissionLabel(b),
-                              ));
+                                    WorkerPermissions.getPermissionLabel(b),
+                                  ));
                           });
                         },
                       )),
@@ -944,20 +944,37 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      // Keep both mirrors aligned; SetOptions avoids failing if one doc is absent.
-      await FirebaseFirestore.instance
-          .collection('workers')
-          .doc(workerId)
-          .set(updateData, SetOptions(merge: true));
+      final targetBusinessId = businessId?.trim() ?? '';
+      if (targetBusinessId.isEmpty) {
+        throw StateError('Business context is missing for this worker.');
+      }
+      await context.read<WorkersProvider>().updateWorker(
+            workerId,
+            {
+              'role': newRole,
+              'permissions': savedPermissions,
+            },
+            businessId: targetBusinessId,
+            roles: [newRole],
+          );
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(workerId)
-          .set(updateData, SetOptions(merge: true));
+      try {
+        await FirebaseFirestore.instance
+            .collection('workers')
+            .doc(workerId)
+            .set(updateData, SetOptions(merge: true));
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(workerId)
+            .set(updateData, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint('[WorkerMgmt] Legacy worker mirror update failed: $e');
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Worker permissions updated in real time')),
+          const SnackBar(
+              content: Text('Worker permissions updated in real time')),
         );
       }
     } catch (e) {
@@ -970,12 +987,14 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     }
   }
 
-  void _showRemoveWorkerDialog(String workerId, String name, String? businessId) {
+  void _showRemoveWorkerDialog(
+      String workerId, String name, String? businessId) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Remove Worker'),
-        content: Text('Are you sure you want to remove $name from this business?'),
+        content:
+            Text('Are you sure you want to remove $name from this business?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -1003,7 +1022,9 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
               workerId,
               businessId: targetBusinessId,
             );
-        await context.read<BusinessProvider>().refreshBusinessStats(targetBusinessId);
+        await context
+            .read<BusinessProvider>()
+            .refreshBusinessStats(targetBusinessId);
       } else {
         throw StateError('Business context is missing for this worker.');
       }
@@ -1072,4 +1093,3 @@ class _AutoPerformanceStat extends StatelessWidget {
     );
   }
 }
-

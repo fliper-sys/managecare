@@ -13,6 +13,7 @@ import '../../../../core/theme/text_styles.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/drink_provider.dart';
+import '../../../../data/repositories/industry_specific/drink_repository_impl.dart';
 import '../../../../providers/receipt_settings_provider.dart';
 import '../../../../services/esc_pos_receipt_generator.dart';
 import '../../../../services/pdf_invoice_generator.dart';
@@ -35,11 +36,15 @@ class _BarTabsScreenState extends State<BarTabsScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final businessId =
           context.read<BusinessProvider>().currentBusiness?.id ?? '';
       if (businessId.isNotEmpty) {
-        context.read<DrinkProvider>().setBusinessId(businessId);
+        final provider = context.read<DrinkProvider>();
+        provider.setBusinessId(businessId);
+        await provider.initialize(
+          repository: DrinkRepositoryImpl(businessId: businessId),
+        );
       }
     });
   }

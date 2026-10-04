@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
+import 'package:uuid/uuid.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 
@@ -14,8 +15,10 @@ import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/customer_provider.dart';
 import '../../../../data/models/customer_model.dart';
+import '../../../../data/repositories/industry_specific/drink_repository_impl.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../services/subscription_service.dart';
+import '../../../../core/utils/worker_permissions.dart';
 import '../../../../widgets/custom_button.dart';
 import '../../../../providers/hotel_provider.dart' as hotel;
 
@@ -59,17 +62,21 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         final retail = Provider.of<RetailProvider>(context, listen: false);
         final auth = Provider.of<AuthProvider>(context, listen: false);
         final customers = Provider.of<CustomerProvider>(context, listen: false);
-        final drinkProvider = Provider.of<DrinkProvider>(context, listen: false);
+        final drinkProvider =
+            Provider.of<DrinkProvider>(context, listen: false);
         final businessId = _resolveBusinessId();
         if (retail.stores.isEmpty) retail.loadStores();
         if (businessId.isNotEmpty) {
           customers.setBusinessId(businessId);
           drinkProvider.setBusinessId(businessId);
+          await drinkProvider.initialize(
+            repository: DrinkRepositoryImpl(businessId: businessId),
+          );
           drinkProvider.loadSavedBarTables();
         }
         if (customers.customers.isEmpty && !customers.isLoading) {
@@ -126,7 +133,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
           );
         })
         .whereType<OrderLine>()
-      .toList();
+        .toList();
   }
 
   Future<void> _updateBarCustomerHistory({
@@ -204,7 +211,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
     if (reservationId == null || reservationId.isEmpty) return;
     if (_selectedRoomChargeReservationId == reservationId) return;
 
-    final hotelProvider = Provider.of<hotel.HotelProvider>(context, listen: false);
+    final hotelProvider =
+        Provider.of<hotel.HotelProvider>(context, listen: false);
     final reservation = hotelProvider.getReservationById(reservationId);
     if (reservation == null) return;
 
@@ -229,13 +237,15 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
   Future<void> _chargeOrderToRoom(DrinkProvider provider) async {
     if (_cart.isEmpty || _selectedRoomChargeReservationId == null) return;
 
-    final hotelProvider = Provider.of<hotel.HotelProvider>(context, listen: false);
+    final hotelProvider =
+        Provider.of<hotel.HotelProvider>(context, listen: false);
     final reservation =
         hotelProvider.getReservationById(_selectedRoomChargeReservationId!);
     if (reservation == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selected room booking could not be found')),
+        const SnackBar(
+            content: Text('Selected room booking could not be found')),
       );
       return;
     }
@@ -269,11 +279,12 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
     final totalAmount =
         lines.fold<double>(0.0, (sum, line) => sum + line.lineTotal());
+    final roomChargeOrderId = const Uuid().v4();
 
     try {
-      provider.createOrder(
+      await provider.createOrder(
         Order(
-          id: 'room_charge_${DateTime.now().millisecondsSinceEpoch}',
+          id: roomChargeOrderId,
           lines: lines,
           status: 'served',
         ),
@@ -286,7 +297,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         amount: totalAmount,
         category: 'mini_bar',
         source: 'bar_room_charge',
-        sourceOrderId: 'bar_room_${DateTime.now().millisecondsSinceEpoch}',
+        sourceOrderId: roomChargeOrderId,
         createdById: authProvider.currentUser?.id,
         createdByName: authProvider.currentUser?.fullName,
         metadata: {
@@ -341,7 +352,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 
     if (invoice == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invoice could not be loaded for editing')),
+        const SnackBar(
+            content: Text('Invoice could not be loaded for editing')),
       );
       return;
     }
@@ -420,6 +432,16 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
   Future<bool> _ensureCanManageSavedTables({
     required bool isNew,
   }) async {
+    final user = context.read<AuthProvider>().currentUser;
+    if (user == null ||
+        !WorkerPermissions.canManageHospitalityTables(user.role)) {
+      await _showBlockedDialog(
+        title: 'Permission required',
+        message: 'Only managers and administrators can manage bar tables.',
+      );
+      return false;
+    }
+
     final businessProvider = context.read<BusinessProvider>();
     final access = await businessProvider.canAccessFeatureEnhanced(
       'basic_sales',
@@ -451,7 +473,14 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
     return true;
   }
 
+  bool _hasBarTableManagementPermission() {
+    final user = context.read<AuthProvider>().currentUser;
+    return user != null &&
+        WorkerPermissions.canManageHospitalityTables(user.role);
+  }
+
   Future<void> _showSavedTableManager() async {
+    if (!await _ensureCanManageSavedTables(isNew: false)) return;
     final provider = context.read<DrinkProvider>();
     final controller = TextEditingController();
 
@@ -545,17 +574,22 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                           return ListTile(
                             contentPadding: EdgeInsets.zero,
                             title: Text(table),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: () async {
-                                await provider.deleteSavedBarTable(table);
-                                if (_tableLabelController.text.trim().toLowerCase() ==
-                                    table.toLowerCase()) {
-                                  setState(() => _tableLabelController.clear());
-                                }
-                                setSheetState(() {});
-                              },
-                            ),
+                            trailing: _hasBarTableManagementPermission()
+                                ? IconButton(
+                                    icon: const Icon(Icons.delete_outline),
+                                    onPressed: () async {
+                                      await provider.deleteSavedBarTable(table);
+                                      if (_tableLabelController.text
+                                              .trim()
+                                              .toLowerCase() ==
+                                          table.toLowerCase()) {
+                                        setState(() =>
+                                            _tableLabelController.clear());
+                                      }
+                                      setSheetState(() {});
+                                    },
+                                  )
+                                : null,
                           );
                         },
                       ),
@@ -594,10 +628,10 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
     if (tableLabel.isEmpty) return false;
 
     return !provider.getOpenInvoices().any(
-      (invoice) =>
-          invoice.id != _editingInvoiceId &&
-          (invoice.tableLabel?.trim().toLowerCase() ?? '') == tableLabel,
-    );
+          (invoice) =>
+              invoice.id != _editingInvoiceId &&
+              (invoice.tableLabel?.trim().toLowerCase() ?? '') == tableLabel,
+        );
   }
 
   Future<bool> _ensureBarOperationAllowed(
@@ -686,9 +720,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
           ),
           actions: [
             TextButton(
-              onPressed: isSaving
-                  ? null
-                  : () => Navigator.of(dialogContext).pop(),
+              onPressed:
+                  isSaving ? null : () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
             ElevatedButton(
@@ -735,7 +768,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Use "Charge to Room" to add this order to the guest folio'),
+          content:
+              Text('Use "Charge to Room" to add this order to the guest folio'),
         ),
       );
       return;
@@ -938,56 +972,41 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         return;
       }
 
-      final order = Order(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        lines: lines,
-      );
-
-      // Deduct from provider inventory only after payment is confirmed
-      provider.createOrder(order);
-
-      final saleData = {
+      final createdSale = await provider.repository!.createSale({
         'businessId': businessId,
-        'items': itemsList,
-        'subtotal': totalAmount,
-        'total': totalAmount,
-        'totalAmount': totalAmount,
-        'finalAmount': totalAmount,
+        'items': itemsList
+            .map((item) => {
+                  'product_id': item['productId'],
+                  'product_name': item['productName'],
+                  'quantity': item['quantity'],
+                  'unit_price': item['unitPrice'],
+                  'discount': 0,
+                  'total': item['total'],
+                })
+            .toList(),
+        'total_amount': totalAmount,
+        'discount_amount': 0.0,
+        'tax_amount': 0.0,
+        'final_amount': totalAmount,
         'status': 'completed',
-        'paymentMethod': paymentMethod,
-        'category': 'Drinks/Bar',
-        'createdAt': FieldValue.serverTimestamp(),
-        'customerId': _selectedCustomer?.id,
-        'customerName': _resolvedCustomerName(),
-        'customerPhone': _selectedCustomer?.phone,
-        'customerEmail': _selectedCustomer?.email,
-        if (_tableLabelController.text.trim().isNotEmpty)
-          'tableLabel': _tableLabelController.text.trim(),
-        if (_notesController.text.trim().isNotEmpty)
-          'notes': _notesController.text.trim(),
-        if (authProvider.currentUser?.id != null)
-          'workerId': authProvider.currentUser!.id,
-        if (authProvider.currentUser?.fullName != null)
-          'workerName': authProvider.currentUser!.fullName,
-        if ((_selectedStoreId ?? authProvider.currentUser?.storeId) != null)
-          'storeId': (_selectedStoreId ?? authProvider.currentUser?.storeId),
-      };
-
-      // Save sale to Firestore and persist orderId
-      final firestore = FirebaseFirestore.instance;
-      final saleRef = await firestore
-          .collection('businesses')
-          .doc(businessId)
-          .collection('sales')
-          .add(saleData);
-      // Update the document with the generated orderId for easier tracking
-      await saleRef.update({
-        'orderId': saleRef.id,
-        'totalAmount': totalAmount,
-        'finalAmount': totalAmount,
-        'paymentMethod': paymentMethod,
-        if ((_selectedStoreId ?? authProvider.currentUser?.storeId) != null) 'storeId': (_selectedStoreId ?? authProvider.currentUser?.storeId),
+        'payment_method': paymentMethod,
+        'sale_type': 'bar',
+        'customer_id': _selectedCustomer?.id,
+        'worker_id': authProvider.currentUser?.id,
+        'worker_name': authProvider.currentUser?.fullName,
+        'store_id': _selectedStoreId ?? authProvider.currentUser?.storeId,
+        'notes': [
+          if (_tableLabelController.text.trim().isNotEmpty)
+            'Table: ${_tableLabelController.text.trim()}',
+          if (_notesController.text.trim().isNotEmpty)
+            _notesController.text.trim(),
+        ].join(' | '),
       });
+      final saleId = createdSale['id']?.toString() ?? '';
+
+      // The sales API decrements the authoritative Postgres inventory. Keep
+      // the POS stock model in sync before mirroring the new quantity locally.
+      provider.consumeStockAfterSale(lines);
 
       if (_selectedCustomer != null) {
         try {
@@ -1004,32 +1023,14 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
         }
       }
 
-      // Update inventory in Firestore for each drink
-      for (final line in lines) {
-        final stock = provider.getStock(line.drinkId);
-        if (stock != null) {
-          final drink = provider.getDrinkById(line.drinkId);
-          await firestore
-              .collection('businesses')
-              .doc(businessId)
-              .collection('inventory')
-              .doc(line.drinkId)
-              .update({
-            'quantity': stock.totalBottles(drink?.bottlesPerCarton ?? 1),
-            'cartons': stock.cartons,
-            'bottles': stock.bottles,
-          });
-        }
-      }
-
       // Clear cart locally
       _clearCart();
 
       if (!mounted) return;
 
-      // Build unified sale map using the saved saleRef id
+      // Build unified sale map using the saved sale id
       final saleMap = {
-        'id': saleRef.id,
+        'id': saleId,
         'items': itemsList,
         'subtotal': totalAmount,
         'discount': 0.0,
@@ -1073,7 +1074,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                     })
                 .toList(),
             paymentMethod: paymentMethod,
-            receiptNumber: saleRef.id,
+            receiptNumber: saleId,
             businessId: business?.id,
           );
 
@@ -1085,7 +1086,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
               channel: 'email',
               recipient: ownerEmail,
               success: success,
-              orderId: saleRef.id,
+              orderId: saleId,
             );
           } catch (e) {
             debugPrint('[BarPOS] Notification log failed: $e');
@@ -1261,7 +1262,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                                     value: _selectedCustomer?.id,
                                     isExpanded: true,
                                     decoration: InputDecoration(
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 8),
                                       border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(6),
                                       ),
@@ -1285,9 +1288,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                                           _selectedCustomer = null;
                                         } else {
                                           try {
-                                            _selectedCustomer =
-                                                customerProvider.customers.firstWhere(
-                                              (customer) => customer.id == value,
+                                            _selectedCustomer = customerProvider
+                                                .customers
+                                                .firstWhere(
+                                              (customer) =>
+                                                  customer.id == value,
                                             );
                                           } catch (_) {
                                             _selectedCustomer = null;
@@ -1300,7 +1305,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                                 const SizedBox(width: 8),
                                 IconButton(
                                   onPressed: () async {
-                                    final created = await _showCreateCustomerDialog();
+                                    final created =
+                                        await _showCreateCustomerDialog();
                                     if (!mounted || created == null) return;
                                     setState(() => _selectedCustomer = created);
                                   },
@@ -1318,7 +1324,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                               Text(
                                 _selectedCustomer!.phone?.isNotEmpty == true
                                     ? _selectedCustomer!.phone!
-                                    : (_selectedCustomer!.email?.isNotEmpty == true
+                                    : (_selectedCustomer!.email?.isNotEmpty ==
+                                            true
                                         ? _selectedCustomer!.email!
                                         : 'No contact info'),
                                 style: AppTextStyles.caption.copyWith(
@@ -1336,8 +1343,10 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                   Consumer<RetailProvider>(builder: (context, retail, _) {
                     final stores = retail.stores;
                     if (stores.isEmpty) return const SizedBox.shrink();
-                    final auth = Provider.of<AuthProvider>(context, listen: false);
-                    _selectedStoreId ??= auth.currentUser?.storeId ?? stores.first.id;
+                    final auth =
+                        Provider.of<AuthProvider>(context, listen: false);
+                    _selectedStoreId ??=
+                        auth.currentUser?.storeId ?? stores.first.id;
 
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12.0),
@@ -1349,7 +1358,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                           SizedBox(
                             width: 220,
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 4),
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(8),
@@ -1359,8 +1369,12 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                                 child: DropdownButton<String>(
                                   value: _selectedStoreId,
                                   isExpanded: true,
-                                  items: stores.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name))).toList(),
-                                  onChanged: (val) => setState(() => _selectedStoreId = val),
+                                  items: stores
+                                      .map((s) => DropdownMenuItem(
+                                          value: s.id, child: Text(s.name)))
+                                      .toList(),
+                                  onChanged: (val) =>
+                                      setState(() => _selectedStoreId = val),
                                 ),
                               ),
                             ),
@@ -1397,7 +1411,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                       Expanded(
                         child: CustomButton(
                           text: _showCart ? 'Back to Menu' : 'Review Order',
-                          onPressed: () => setState(() => _showCart = !_showCart),
+                          onPressed: () =>
+                              setState(() => _showCart = !_showCart),
                         ),
                       ),
                     ],
@@ -1462,7 +1477,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                     ],
                   ),
                 )
-                  : Padding(
+              : Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
@@ -1483,28 +1498,33 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                         ),
                         itemCount: drinks.length,
                         itemBuilder: (context, index) {
-                      final d = drinks[index];
-                      final inStock = provider.getTotalBottles(d.id) > 0;
-                      final cartQty = _cart[d.id] ?? 0;
+                          final d = drinks[index];
+                          final availableStock =
+                              provider.getAvailableStock(d.id);
+                          final inStock = availableStock > 0;
+                          final cartQty = _cart[d.id] ?? 0;
 
-                      return _DrinkCard(
-                        drink: d,
-                        inStock: inStock,
-                        cartQuantity: cartQty,
-                        onAdd: () => _addToCart(d.id),
-                        onRemove: () {
-                          if (cartQty > 0) {
-                            if (cartQty <= 1) {
-                              _removeFromCart(d.id);
-                            } else {
-                              _cart[d.id] = cartQty - 1;
-                            }
-                            setState(() {});
-                          }
+                          return _DrinkCard(
+                            drink: d,
+                            inStock: inStock,
+                            availableStock: availableStock,
+                            cartQuantity: cartQty,
+                            onAdd: () => _addToCart(d.id),
+                            onRemove: () {
+                              if (cartQty > 0) {
+                                if (cartQty <= 1) {
+                                  _removeFromCart(d.id);
+                                } else {
+                                  _cart[d.id] = cartQty - 1;
+                                }
+                                setState(() {});
+                              }
+                            },
+                          );
                         },
                       );
                     },
-                  );},),
+                  ),
                 ),
         ),
       ],
@@ -1710,13 +1730,15 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                       spacing: 8,
                       runSpacing: 8,
                       children: roomChargeReservations.map((reservation) {
-                        final room = hotelProvider.getRoomById(reservation.roomId);
+                        final room =
+                            hotelProvider.getRoomById(reservation.roomId);
                         final roomLabel =
                             'Room ${room?.number ?? reservation.roomId}';
                         final isSelected =
                             _selectedRoomChargeReservationId == reservation.id;
                         return GestureDetector(
-                          onTap: () => _selectRoomCharge(reservation, roomLabel),
+                          onTap: () =>
+                              _selectRoomCharge(reservation, roomLabel),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 14,
@@ -1797,11 +1819,12 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                             ),
                           ),
                         ),
-                        TextButton.icon(
-                          onPressed: _showSavedTableManager,
-                          icon: const Icon(Icons.settings_outlined),
-                          label: const Text('Manage'),
-                        ),
+                        if (_hasBarTableManagementPermission())
+                          TextButton.icon(
+                            onPressed: _showSavedTableManager,
+                            icon: const Icon(Icons.settings_outlined),
+                            label: const Text('Manage'),
+                          ),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -1817,8 +1840,9 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                         spacing: 8,
                         runSpacing: 8,
                         children: provider.savedBarTables.map((table) {
-                          final selected = _tableLabelController.text.trim().toLowerCase() ==
-                              table.toLowerCase();
+                          final selected =
+                              _tableLabelController.text.trim().toLowerCase() ==
+                                  table.toLowerCase();
                           return ChoiceChip(
                             label: Text(table),
                             selected: selected,
@@ -1865,7 +1889,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                                     _selectedCustomer = null;
                                   } else {
                                     try {
-                                      _selectedCustomer = customerProvider.customers.firstWhere(
+                                      _selectedCustomer =
+                                          customerProvider.customers.firstWhere(
                                         (customer) => customer.id == value,
                                       );
                                     } catch (_) {
@@ -1904,7 +1929,8 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                                     final businessId = _resolveBusinessId();
                                     if (businessId.isEmpty) return;
                                     customerProvider.setBusinessId(businessId);
-                                    customerProvider.loadCustomers(forceRefresh: true);
+                                    customerProvider.loadCustomers(
+                                        forceRefresh: true);
                                   },
                             icon: const Icon(Icons.refresh),
                             label: const Text('Refresh customers'),
@@ -1914,10 +1940,11 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
                             onPressed: _selectedRoomChargeReservationId != null
                                 ? null
                                 : () async {
-                              final created = await _showCreateCustomerDialog();
-                              if (!mounted || created == null) return;
-                              setState(() => _selectedCustomer = created);
-                            },
+                                    final created =
+                                        await _showCreateCustomerDialog();
+                                    if (!mounted || created == null) return;
+                                    setState(() => _selectedCustomer = created);
+                                  },
                             icon: const Icon(Icons.person_add_alt_1),
                             label: const Text('Add new'),
                           ),
@@ -2108,6 +2135,7 @@ class _BarPosScreenDrinkState extends State<BarPosScreenDrink> {
 class _DrinkCard extends StatelessWidget {
   final dynamic drink;
   final bool inStock;
+  final int availableStock;
   final int cartQuantity;
   final VoidCallback onAdd;
   final VoidCallback onRemove;
@@ -2115,6 +2143,7 @@ class _DrinkCard extends StatelessWidget {
   const _DrinkCard({
     required this.drink,
     required this.inStock,
+    required this.availableStock,
     required this.cartQuantity,
     required this.onAdd,
     required this.onRemove,
@@ -2216,7 +2245,9 @@ class _DrinkCard extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              inStock ? 'Available' : 'Out',
+                              inStock
+                                  ? 'Available: $availableStock'
+                                  : 'Out of stock',
                               style: AppTextStyles.caption.copyWith(
                                 color: inStock ? Colors.green : Colors.red,
                                 fontWeight: FontWeight.w600,
@@ -2373,4 +2404,3 @@ class _SummaryRow extends StatelessWidget {
     );
   }
 }
-

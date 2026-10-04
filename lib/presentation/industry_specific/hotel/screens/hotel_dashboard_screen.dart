@@ -9,6 +9,9 @@ import '../../../../core/utils/whatsapp_utils.dart';
 import '../../../../core/constants/routes.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/hotel_provider.dart';
+import '../../../../providers/drink_provider.dart';
+import '../../../industry_specific/restaurant/providers/restaurant_provider.dart';
+import '../../../../data/repositories/industry_specific/drink_repository_impl.dart';
 
 class HotelDashboardScreen extends StatefulWidget {
   const HotelDashboardScreen({super.key});
@@ -17,8 +20,44 @@ class HotelDashboardScreen extends StatefulWidget {
   State<HotelDashboardScreen> createState() => _HotelDashboardScreenState();
 }
 
+class _HotelNavigationItem {
+  final String label;
+  final String category;
+  final IconData icon;
+  final Color color;
+  final String? route;
+  final String? permission;
+
+  const _HotelNavigationItem({
+    required this.label,
+    required this.category,
+    required this.icon,
+    required this.color,
+    this.route,
+    this.permission,
+  });
+}
+
 class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
   String? _loadedBusinessId;
+  Future<double>? _barSalesLast24Hours;
+  Future<double>? _barRevenueForPeriod;
+  String _selectedCategory = 'General';
+  String _searchQuery = '';
+  String _selectedRevenuePeriod = 'Daily';
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _refreshDashboard() async {
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return;
+    await _loadDashboardData(businessId, refreshHotel: true);
+  }
 
   @override
   void didChangeDependencies() {
@@ -31,9 +70,54 @@ class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
     }
     _loadedBusinessId = businessId;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      context.read<HotelProvider>().setBusinessId(businessId);
+      if (!mounted || _loadedBusinessId != businessId) return;
+      _loadDashboardData(businessId);
     });
+  }
+
+  Future<void> _loadDashboardData(
+    String businessId, {
+    bool refreshHotel = false,
+  }) async {
+    final hotelProvider = context.read<HotelProvider>();
+    final restaurantProvider = context.read<RestaurantProvider>();
+    final drinkProvider = context.read<DrinkProvider>();
+
+    await hotelProvider.setBusinessId(businessId);
+    if (refreshHotel) await hotelProvider.refresh();
+    await restaurantProvider.initializeOrders(businessId: businessId);
+    drinkProvider.setBusinessId(businessId);
+    await drinkProvider.initialize(
+      repository: DrinkRepositoryImpl(businessId: businessId),
+    );
+
+    if (!mounted || _loadedBusinessId != businessId) return;
+    final now = DateTime.now();
+    setState(() {
+      _barSalesLast24Hours = drinkProvider.getSalesTotal(
+        start: now.subtract(const Duration(hours: 24)),
+        end: now,
+        saleType: 'bar',
+      );
+      _barRevenueForPeriod = drinkProvider.getSalesTotal(
+        start: _revenuePeriodStart(now),
+        end: now,
+        saleType: 'bar',
+      );
+    });
+  }
+
+  DateTime _revenuePeriodStart(DateTime now) {
+    final today = DateTime(now.year, now.month, now.day);
+    switch (_selectedRevenuePeriod) {
+      case 'Weekly':
+        return today.subtract(Duration(days: now.weekday - 1));
+      case 'Monthly':
+        return DateTime(now.year, now.month, 1);
+      case 'Daily':
+      default:
+        return today;
+    }
   }
 
     // --- SUMMARY HEADER (Revenue, Active Rooms, Customers) ---
@@ -126,159 +210,502 @@ class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final auth = Provider.of<AuthProvider>(context);
-    final role = auth.currentUser?.role ?? '';
-    final permissions = auth.currentUser?.permissions ?? const <String>[];
-    final canBook = WorkerPermissions.hasEffectivePermission(
-      role,
-      permissions,
-      'bookings',
-    );
-    final canAccessOperations =
-        WorkerPermissions.hasEffectivePermission(role, permissions, 'guest_checkin') ||
-        WorkerPermissions.hasEffectivePermission(role, permissions, 'guest_checkout') ||
-        WorkerPermissions.hasEffectivePermission(role, permissions, 'billing') ||
-        WorkerPermissions.hasEffectivePermission(role, permissions, 'manage_rooms') ||
-        WorkerPermissions.hasEffectivePermission(role, permissions, 'room_service') ||
-        WorkerPermissions.hasEffectivePermission(role, permissions, 'maintenance_requests') ||
-        WorkerPermissions.hasEffectivePermission(role, permissions, 'manage_pool_bookings') ||
-        WorkerPermissions.canManageSalesForUser(role, permissions) ||
-        WorkerPermissions.canViewInventoryForUser(role, permissions);
-    final canManageStaff = auth.isOwnerUser ||
-        WorkerPermissions.canManageStaffForUser(role, permissions);
+    final auth = context.watch<AuthProvider>();
+    final user = auth.currentUser;
+    final role = user?.role ?? '';
+    final permissions = user?.permissions ?? const <String>[];
+    bool canOpen(_HotelNavigationItem item) =>
+        item.permission == null ||
+        WorkerPermissions.hasEffectivePermission(
+          role,
+          permissions,
+          item.permission!,
+        );
+    final items = _navigationItems
+        .where((item) => item.category == _selectedCategory)
+        .where((item) => _searchQuery.isEmpty ||
+            item.label.toLowerCase().contains(_searchQuery))
+        .toList();
+    final hotelProvider = context.watch<HotelProvider>();
+    final restaurantProvider = context.watch<RestaurantProvider>();
+    final drinkProvider = context.watch<DrinkProvider>();
 
     return Scaffold(
-      backgroundColor: colorScheme.surface, // Modern light background
-      appBar: AppBar(
-        title: const Column(
-          children: [
-            Text('Dashboard', style: TextStyle(fontWeight: FontWeight.bold)),
-            Text('Overview & Quick Actions',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w400)),
-          ],
-        ),
-        backgroundColor: AppColors.primary,
-        centerTitle: true,
-        elevation: 0,
-        actions: [
-          if (canManageStaff)
-            IconButton(
-              icon: const Icon(Icons.people_alt_outlined),
-              tooltip: 'Manage Workers',
-              onPressed: () => Navigator.pushNamed(context, Routes.workers),
-            ),
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            tooltip: 'Logout',
-            onPressed: () async {
-              try {
-                await context.read<AuthProvider>().logout();
-                if (context.mounted) {
-                  Navigator.of(context).pushReplacementNamed(Routes.login);
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Logout failed: $e')));
-                }
-              }
-            },
-          ),
-        ],
-      ),
-      body: Consumer<HotelProvider>(
-        builder: (context, provider, _) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
+      backgroundColor: colorScheme.surface,
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _refreshDashboard,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. SUMMARY HEADER (Revenue, Active Occupancy, Customers, Workers)
-                _buildSummaryHeader(provider),
-                const SizedBox(height: 24),
-
-                // 2. KPI GRID
-                Row(
-                  children: [
-                    Expanded(
-                        child: _buildMetricTile(
-                      context: context,
-                      icon: Icons.pie_chart_outline,
-                      title: 'Occupancy',
-                      value: '${provider.occupancy.toStringAsFixed(1)}%',
-                      color: Colors.blue,
-                    )),
-                    const SizedBox(width: 16),
-                    Expanded(
-                        child: _buildMetricTile(
-                      context: context,
-                      icon: Icons.bed_outlined,
-                      title: 'Active Occupancy/Rooms',
-                      value: '${provider.occupiedRooms}/${provider.totalRooms}',
-                      color: Colors.purple,
-                    )),
-                  ],
-                ),
+                _buildHotelHero(context, auth),
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                        child: _buildMetricTile(
-                      context: context,
-                      icon: Icons.check_circle_outline,
-                      title: 'Occupied',
-                      value: '${provider.occupiedRooms}',
-                      color: Colors.green,
-                    )),
-                    const SizedBox(width: 16),
-                    Expanded(
-                        child: _buildMetricTile(
-                      context: context,
-                      icon: Icons.star_border_rounded,
-                      title: 'Rating',
-                      value: provider.getAverageRating().toStringAsFixed(1),
-                      color: Colors.orange,
-                    )),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // 3. ROOM STATUS VISUALIZATION
-                Text('Room Status Distribution',
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                _buildRoomStatusBar(context, provider),
-                const SizedBox(height: 24),
-
-                // 4. TODAY'S ACTIVITY
-                Text('Today\'s Activity',
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                _buildTodaysSummaryRow(provider),
-                const SizedBox(height: 24),
-
-                // 5. QUICK ACTIONS GRID
-                Text('Quick Actions',
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 12),
-                _buildActionGrid(
+                _buildHospitalitySummary(hotelProvider),
+                const SizedBox(height: 16),
+                _buildHotelStats(context, hotelProvider),
+                const SizedBox(height: 22),
+                _buildRevenueBreakdown(
                   context,
-                  canBook,
-                  canAccessOperations,
+                  hotelProvider,
+                  restaurantProvider,
+                  drinkProvider,
                 ),
-                const SizedBox(height: 30),
+                const SizedBox(height: 26),
+                Text(
+                  'Workspace',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _searchController,
+                  onChanged: (value) => setState(
+                    () => _searchQuery = value.trim().toLowerCase(),
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Search navigation or features',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchQuery.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear search',
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          ),
+                    filled: true,
+                    fillColor: colorScheme.surfaceContainerHighest,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildCategoryTabs(colorScheme),
+                const SizedBox(height: 14),
+                if (items.isEmpty)
+                  _buildEmptyNavigationState()
+                else
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: items.length,
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: 1.25,
+                    ),
+                    itemBuilder: (context, index) => _buildNavigationCard(
+                      context,
+                      items[index],
+                      canOpen(items[index]),
+                    ),
+                  ),
               ],
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }
 
   // --- WIDGET BUILDERS ---
+
+  static const _navigationItems = <_HotelNavigationItem>[
+    _HotelNavigationItem(
+      label: 'Reports', category: 'General', icon: Icons.analytics_outlined,
+      color: Colors.blue, route: Routes.reports, permission: 'view_reports',
+    ),
+    _HotelNavigationItem(
+      label: 'Advanced Analytics', category: 'General', icon: Icons.insights_outlined,
+      color: Colors.indigo, route: Routes.advancedAnalytics,
+      permission: 'access_analytics_dashboard',
+    ),
+    _HotelNavigationItem(
+      label: 'Billing', category: 'General', icon: Icons.receipt_long_outlined,
+      color: Colors.deepOrange, route: Routes.hotelBilling, permission: 'billing',
+    ),
+    _HotelNavigationItem(
+      label: 'Expenses', category: 'General', icon: Icons.trending_down,
+      color: Colors.red, route: Routes.expenseReport, permission: 'access_expenses_screen',
+    ),
+    _HotelNavigationItem(
+      label: 'Printer Settings', category: 'General', icon: Icons.print_outlined,
+      color: Colors.teal, route: Routes.printerSettings,
+    ),
+    _HotelNavigationItem(
+      label: 'Check-In & Guests', category: 'Frontdesk', icon: Icons.login,
+      color: Colors.blue, route: Routes.hotelCheckIn, permission: 'bookings',
+    ),
+    _HotelNavigationItem(
+      label: 'Bookings', category: 'Frontdesk', icon: Icons.event_available,
+      color: Colors.cyan, route: Routes.hotelBookings, permission: 'bookings',
+    ),
+    _HotelNavigationItem(
+      label: 'Check-Out', category: 'Frontdesk', icon: Icons.logout,
+      color: Colors.orange, route: Routes.hotelCheckOut, permission: 'guest_checkout',
+    ),
+    _HotelNavigationItem(
+      label: 'Rooms', category: 'Frontdesk', icon: Icons.bed_outlined,
+      color: Colors.purple, route: Routes.hotelRooms, permission: 'manage_rooms',
+    ),
+    _HotelNavigationItem(
+      label: 'Housekeeping', category: 'Frontdesk', icon: Icons.cleaning_services_outlined,
+      color: Colors.teal, route: Routes.hotelHousekeeping, permission: 'room_service',
+    ),
+    _HotelNavigationItem(
+      label: 'Hall Bookings', category: 'Frontdesk', icon: Icons.apartment_outlined,
+      color: Colors.blueGrey, route: Routes.hotelHallBookings, permission: 'bookings',
+    ),
+    _HotelNavigationItem(
+      label: 'Pool Bookings', category: 'Frontdesk', icon: Icons.pool_outlined,
+      color: Colors.lightBlue, route: Routes.hotelPoolBookings,
+      permission: 'manage_pool_bookings',
+    ),
+    _HotelNavigationItem(
+      label: 'Restaurant POS', category: 'Restaurant', icon: Icons.restaurant_menu,
+      color: Colors.redAccent, route: Routes.hotelRestaurant, permission: 'sales',
+    ),
+    _HotelNavigationItem(
+      label: 'Orders & Kitchen', category: 'Restaurant', icon: Icons.kitchen_outlined,
+      color: Colors.deepOrange, route: Routes.restaurantKitchen, permission: 'view_orders',
+    ),
+    _HotelNavigationItem(
+      label: 'Manage Menu', category: 'Restaurant', icon: Icons.menu_book_outlined,
+      color: Colors.green, route: Routes.restaurantManageMenu, permission: 'manage_menu',
+    ),
+    _HotelNavigationItem(
+      label: 'Tables', category: 'Restaurant', icon: Icons.table_restaurant_outlined,
+      color: Colors.amber, route: Routes.restaurantTables, permission: 'table_management',
+    ),
+    _HotelNavigationItem(
+      label: 'Restaurant Stock', category: 'Restaurant', icon: Icons.inventory_2_outlined,
+      color: Colors.brown, route: Routes.restaurantStock, permission: 'view_inventory',
+    ),
+    _HotelNavigationItem(
+      label: 'Bar POS', category: 'Bar', icon: Icons.local_bar_outlined,
+      color: Colors.indigo, route: Routes.hotelBar, permission: 'sales',
+    ),
+    _HotelNavigationItem(
+      label: 'Bar Orders & Invoices', category: 'Bar', icon: Icons.receipt_long_outlined,
+      color: Colors.blueGrey, route: Routes.drinkTabs, permission: 'view_orders',
+    ),
+    _HotelNavigationItem(
+      label: 'Bar Inventory', category: 'Bar', icon: Icons.wine_bar_outlined,
+      color: Colors.pink, route: Routes.drinkInventory, permission: 'view_inventory',
+    ),
+  ];
+
+  Widget _buildHotelHero(BuildContext context, AuthProvider auth) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 18, 18, 20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [AppColors.primary.withOpacity(0.18), colorScheme.surfaceContainerHighest],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(color: colorScheme.surface, shape: BoxShape.circle),
+            child: const Icon(Icons.hotel_outlined, color: AppColors.primary, size: 30),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Hospitality workspace', style: TextStyle(color: colorScheme.onSurfaceVariant)),
+                Text('Hotel Operations', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
+                Text(auth.currentUser?.fullName ?? 'Team member', maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Refresh dashboard',
+            icon: const Icon(Icons.refresh),
+            onPressed: _refreshDashboard,
+          ),
+          IconButton(
+            tooltip: 'Sign out',
+            icon: const Icon(Icons.logout_rounded),
+            onPressed: () async {
+              await auth.logout();
+              if (context.mounted) Navigator.of(context).pushReplacementNamed(Routes.login);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHotelStats(BuildContext context, HotelProvider provider) {
+    return Row(
+      children: [
+        Expanded(child: _buildStatCard('Active rooms', '${provider.occupiedRooms}/${provider.totalRooms}', Icons.bed_outlined, Colors.purple)),
+        const SizedBox(width: 12),
+        Expanded(child: _buildStatCard('Check-ins', '${provider.getUpcomingCheckIns(const Duration(hours: 24)).length}', Icons.login, Colors.blue)),
+        const SizedBox(width: 12),
+        Expanded(child: _buildStatCard('Check-outs', '${provider.getTodayCheckOuts().length}', Icons.logout, Colors.orange)),
+      ],
+    );
+  }
+
+  Widget _buildRevenueBreakdown(
+    BuildContext context,
+    HotelProvider hotelProvider,
+    RestaurantProvider restaurantProvider,
+    DrinkProvider drinkProvider,
+  ) {
+    final now = DateTime.now();
+    final start = _selectedRevenuePeriod == 'Daily'
+        ? DateTime(now.year, now.month, now.day)
+        : _selectedRevenuePeriod == 'Weekly'
+            ? DateTime(now.year, now.month, now.day)
+                .subtract(Duration(days: now.weekday - 1))
+            : DateTime(now.year, now.month, 1);
+
+    final restaurantRevenue = restaurantProvider.orders
+        .where((order) =>
+            order.createdAt.isAfter(start) &&
+            order.status == 'completed' &&
+            (order.paymentStatus == 'paid' ||
+                order.paymentStatus == 'room_charge'))
+        .fold<double>(0, (total, order) => total + order.total);
+    final roomRevenue = hotelProvider.reservations
+        .where((reservation) =>
+            reservation.createdAt.isAfter(start) &&
+            reservation.status != 'cancelled')
+        .fold<double>(0, (total, reservation) => total + reservation.totalPrice);
+
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Revenue breakdown',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            Text(
+              'Income by service',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'Daily', label: Text('Daily')),
+            ButtonSegment(value: 'Weekly', label: Text('Weekly')),
+            ButtonSegment(value: 'Monthly', label: Text('Monthly')),
+          ],
+          selected: {_selectedRevenuePeriod},
+          onSelectionChanged: (selection) {
+            setState(() => _selectedRevenuePeriod = selection.first);
+            final now = DateTime.now();
+            _barRevenueForPeriod = context.read<DrinkProvider>().getSalesTotal(
+              start: _revenuePeriodStart(now),
+              end: now,
+              saleType: 'bar',
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            children: [
+              _buildRevenueRow('Rooms', roomRevenue, Icons.bed_outlined, Colors.purple),
+              const Divider(height: 20),
+              _buildRevenueRow('Restaurant', restaurantRevenue, Icons.restaurant_outlined, Colors.redAccent),
+              const Divider(height: 20),
+              FutureBuilder<double>(
+                future: _barRevenueForPeriod,
+                builder: (context, snapshot) => _buildRevenueRow(
+                  'Bar',
+                  snapshot.data ?? 0,
+                  Icons.local_bar_outlined,
+                  Colors.indigo,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRevenueRow(
+    String label,
+    double amount,
+    IconData icon,
+    Color color,
+  ) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+        ),
+        Text(
+          formatCurrency(amount, decimalDigits: 0),
+          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: scheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(16)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, color: color),
+        const SizedBox(height: 10),
+        Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 3),
+        Text(label, style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+      ]),
+    );
+  }
+
+  Widget _buildCategoryTabs(ColorScheme colorScheme) {
+    const categories = ['General', 'Frontdesk', 'Restaurant', 'Bar'];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: categories.map((category) {
+          final selected = category == _selectedCategory;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              avatar: Icon(
+                category == 'General' ? Icons.dashboard_outlined :
+                    category == 'Frontdesk' ? Icons.desk_outlined :
+                    category == 'Restaurant' ? Icons.restaurant_outlined : Icons.local_bar_outlined,
+                size: 18,
+              ),
+              label: Text(category),
+              selected: selected,
+              onSelected: (_) => setState(() => _selectedCategory = category),
+              selectedColor: AppColors.primary,
+              labelStyle: TextStyle(color: selected ? Colors.white : colorScheme.onSurface),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildNavigationCard(BuildContext context, _HotelNavigationItem item, bool canOpen) {
+    final scheme = Theme.of(context).colorScheme;
+    return Opacity(
+      opacity: canOpen ? 1 : 0.48,
+      child: Material(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: canOpen
+              ? () => item.route == null
+                  ? WhatsAppUtils.openCustomerSupport(context)
+                  : Navigator.pushNamed(context, item.route!)
+              : () => ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Permission required for this feature')),
+                  ),
+          child: Padding(
+            padding: const EdgeInsets.all(15),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(color: item.color.withOpacity(0.12), borderRadius: BorderRadius.circular(11)),
+                child: Icon(item.icon, color: item.color),
+              ),
+              const Spacer(),
+              Text(item.label, style: const TextStyle(fontWeight: FontWeight.w800), maxLines: 2, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 3),
+              Text(canOpen ? 'Open' : 'Restricted', style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant)),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyNavigationState() {
+    return Padding(
+      padding: const EdgeInsets.all(36),
+      child: Center(child: Text(
+        _searchQuery.isEmpty ? 'No features in this section' : 'No matching features',
+        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+      )),
+    );
+  }
+
+  Widget _buildHospitalitySummary(HotelProvider hotelProvider) {
+    final now = DateTime.now();
+    final since = now.subtract(const Duration(hours: 24));
+    final restaurantProvider = context.read<RestaurantProvider>();
+    final restaurantSales = restaurantProvider.orders
+        .where((order) =>
+            order.createdAt.isAfter(since) && order.status != 'cancelled')
+        .fold<double>(0, (sum, order) => sum + order.total);
+    final roomBookings = hotelProvider.reservations
+        .where((reservation) => reservation.createdAt.isAfter(since))
+        .length;
+
+    return Row(
+      children: [
+        Expanded(child: _buildSummaryPill('Restaurant (24h)', formatCurrency(restaurantSales, decimalDigits: 0), Colors.red)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: FutureBuilder<double>(
+            future: _barSalesLast24Hours,
+            builder: (context, snapshot) => _buildSummaryPill(
+              'Bar (24h)',
+              formatCurrency(snapshot.data ?? 0, decimalDigits: 0),
+              Colors.indigo,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: _buildSummaryPill('Room bookings (24h)', roomBookings.toString(), Colors.blue)),
+      ],
+    );
+  }
 
   Widget _buildRevenueHeader(HotelProvider provider) {
     return FutureBuilder<double>(
@@ -558,21 +985,19 @@ class _HotelDashboardScreenState extends State<HotelDashboardScreen> {
 
       actions.add(_buildActionCard(
         context,
-        icon: Icons.kitchen_outlined,
-        label: 'Kitchen',
-        color: Colors.deepOrange,
-        onTap: () => Navigator.pushNamed(context, Routes.restaurantKitchen),
+        icon: Icons.local_bar_outlined,
+        label: 'Bar POS',
+        color: Colors.indigo,
+        onTap: () => Navigator.pushNamed(context, Routes.drinkPos),
       ));
 
-      // Merge Bar POS and Bar Orders into one Bar button
       actions.add(_buildActionCard(
         context,
-        icon: Icons.local_bar_outlined,
-        label: 'Bar',
-        color: Colors.indigo,
-        onTap: () => Navigator.pushNamed(context, Routes.hotelBar),
+        icon: Icons.receipt_long_outlined,
+        label: 'Tabs & Invoices',
+        color: Colors.blueGrey,
+        onTap: () => Navigator.pushNamed(context, Routes.drinkTabs),
       ));
-
       actions.add(_buildActionCard(
         context,
         icon: Icons.receipt_long,

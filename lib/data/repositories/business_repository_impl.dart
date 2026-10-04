@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/business_model.dart';
+import '../../services/managecare_api_client.dart';
 
 class BusinessRepository {
   final SupabaseClient _supabase;
@@ -115,6 +116,24 @@ class BusinessRepository {
 
   Future<List<BusinessModel>> getUserBusinesses(String userId) async {
     try {
+      try {
+        final response = await ManagecareApiClient.instance.get('/api/businesses');
+        if (response is List && response.isNotEmpty) {
+          final businesses = response
+              .whereType<Map>()
+              .map((row) => _fromPostgres(Map<String, dynamic>.from(row)))
+              .where((business) => business.id.isNotEmpty && business.isActive)
+              .toList();
+          if (businesses.isNotEmpty) {
+            debugPrint(
+                '[BusinessRepository] Loaded ${businesses.length} businesses from API');
+            return businesses;
+          }
+        }
+      } catch (e) {
+        debugPrint('[BusinessRepository] API business lookup failed: $e');
+      }
+
       final owned = await _supabase
           .from('businesses')
           .select()

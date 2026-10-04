@@ -2244,6 +2244,50 @@ const notificationRouter = pushRoutes(pool);
 app.use('/api/push', authMiddleware, pushRouter);
 app.use('/api/notifications', authMiddleware, notificationRouter);
 
+app.get('/api/session/worker-membership', authMiddleware, requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT w.business_id, w.role, w.permissions, w.store_id, w.is_active, w.full_name,
+              to_jsonb(b) AS business
+       FROM workers w
+       JOIN businesses b ON b.id = w.business_id
+       WHERE w.id = $1 AND w.is_active = true
+       LIMIT 1`,
+      [req.user.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Worker membership not found' });
+    }
+    const row = result.rows[0];
+    await pool.query(
+      `INSERT INTO profiles (id, full_name)
+       VALUES ($1, $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [req.user.id, row.full_name]
+    );
+    await pool.query(
+      `INSERT INTO business_members (user_id, business_id, role, is_owner, is_active, permissions, store_id)
+       VALUES ($1, $2, $3, false, true, $4, $5)
+       ON CONFLICT (user_id, business_id) DO NOTHING`,
+      [req.user.id, row.business_id, row.role, JSON.stringify(row.permissions || {}), row.store_id]
+    );
+    res.json({
+      membership: {
+        business_id: row.business_id,
+        role: row.role,
+        permissions: row.permissions,
+        store_id: row.store_id,
+        is_active: row.is_active,
+        is_owner: false,
+      },
+      business: row.business,
+    });
+  } catch (err) {
+    console.error('[Session] Legacy worker lookup failed:', err);
+    res.status(500).json({ error: 'Failed to resolve worker membership' });
+  }
+});
+
 // ── Business CRUD routes ────────────────────────────────────
 app.get('/api/businesses', authMiddleware, async (req, res) => {
   try {

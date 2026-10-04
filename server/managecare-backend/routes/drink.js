@@ -8,7 +8,10 @@
 const express = require('express');
 const router = express.Router();
 const { requireFields, asyncHandler } = require('../middleware/validation');
-const { requireBusinessMembership } = require('../middleware/auth');
+const { requireBusinessMembership, requireBusinessPermission } = require('../middleware/auth');
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const nullableUuid = (value) => value && UUID_RE.test(value) ? value : null;
 
 module.exports = function(pool) {
   router.use('/:businessId', requireBusinessMembership(pool));
@@ -23,7 +26,7 @@ module.exports = function(pool) {
     res.json({ data: result.rows });
   }));
 
-  router.post('/:businessId/bar-tables', requireFields('label'), asyncHandler(async (req, res) => {
+  router.post('/:businessId/bar-tables', requireBusinessPermission('table_management'), requireFields('label'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { label } = req.body;
     const result = await pool.query(
@@ -36,7 +39,7 @@ module.exports = function(pool) {
     res.status(201).json(result.rows[0]);
   }));
 
-  router.delete('/:businessId/bar-tables/:label', asyncHandler(async (req, res) => {
+  router.delete('/:businessId/bar-tables/:label', requireBusinessPermission('table_management'), asyncHandler(async (req, res) => {
     const { businessId, label } = req.params;
     await pool.query(
       'DELETE FROM bar_tables WHERE business_id = $1 AND label = $2',
@@ -58,13 +61,14 @@ module.exports = function(pool) {
   router.post('/:businessId/orders', asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { id, status, lines, total } = req.body;
+    const persistedId = id && UUID_RE.test(id) ? id : null;
     const result = await pool.query(
       `INSERT INTO drink_orders (id, business_id, status, lines, total)
        VALUES (COALESCE($1::uuid, uuid_generate_v4()), $2, $3, $4, $5)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status, lines = EXCLUDED.lines, total = EXCLUDED.total, updated_at = NOW()
        RETURNING *`,
-      [id || null, businessId, status || 'pending', JSON.stringify(lines || []), total || 0]
+      [persistedId, businessId, status || 'pending', JSON.stringify(lines || []), total || 0]
     );
     res.status(201).json(result.rows[0]);
   }));
@@ -113,6 +117,11 @@ module.exports = function(pool) {
       customer_email, table_label, notes, lines, subtotal, tax, discount, total,
       converted_at, linked_sale_id, payment_method, worker_id, worker_name, store_id,
     } = req.body;
+    const persistedId = id && UUID_RE.test(id) ? id : null;
+    const persistedCustomerId = nullableUuid(customer_id);
+    const persistedLinkedSaleId = nullableUuid(linked_sale_id);
+    const persistedWorkerId = nullableUuid(worker_id);
+    const persistedStoreId = nullableUuid(store_id);
 
     const result = await pool.query(
       `INSERT INTO bar_invoices (
@@ -134,11 +143,11 @@ module.exports = function(pool) {
          store_id = EXCLUDED.store_id, updated_at = NOW()
        RETURNING *`,
       [
-        id || null, businessId, invoice_number, invoice_type || 'invoice', status || 'open',
-        customer_id || null, customer_name || null, customer_phone || null, customer_email || null,
+        persistedId, businessId, invoice_number, invoice_type || 'invoice', status || 'open',
+        persistedCustomerId, customer_name || null, customer_phone || null, customer_email || null,
         table_label || null, notes || null, JSON.stringify(lines || []), subtotal || 0, tax || 0,
-        discount || 0, total || 0, converted_at || null, linked_sale_id || null, payment_method || null,
-        worker_id || null, worker_name || null, store_id || null,
+        discount || 0, total || 0, converted_at || null, persistedLinkedSaleId, payment_method || null,
+        persistedWorkerId, worker_name || null, persistedStoreId,
       ]
     );
     res.status(201).json(result.rows[0]);

@@ -38,6 +38,7 @@ Copy-ToServer "$Root\functions\db\schema.sql" "$RemoteDir/schema.sql"
 Copy-ToServer "$Root\managecare-1\migrations\008_notifications_and_devices.sql" "$RemoteDir/migration_008.sql"
 Copy-ToServer "$Root\managecare-1\migrations\009_missing_objects.sql" "$RemoteDir/migration_009.sql"
 Copy-ToServer "$Root\managecare-1\migrations\010_legacy_firestore_import_support.sql" "$RemoteDir/migration_010.sql"
+Copy-ToServer "$Root\server\managecare-backend\migration_050_petroleum_cash_tracking.sql" "$RemoteDir/migration_050_petroleum_cash_tracking.sql"
 
 Write-Host "== Running remote install, migrations, restart, and smoke tests =="
 $remoteScriptTemplate = @'
@@ -64,6 +65,19 @@ echo '=== Migration 009 ==='
 sudo -u postgres psql -v ON_ERROR_STOP=1 -d managecare -f migration_009.sql
 echo '=== Migration 010 ==='
 sudo -u postgres psql -v ON_ERROR_STOP=1 -d managecare -f migration_010.sql
+echo '=== Migration 050 petroleum cash tracking ==='
+sudo -u postgres psql -v ON_ERROR_STOP=1 -d managecare -f migration_050_petroleum_cash_tracking.sql
+echo '=== Verify petroleum cash tracking schema ==='
+PETROLEUM_SCHEMA_OK=$(sudo -u postgres psql -d managecare -Atc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('petroleum_bank_deposits', 'petroleum_cash_entries', 'petroleum_admin_cash_submissions');")
+if [ "$PETROLEUM_SCHEMA_OK" -ne 3 ]; then
+  echo 'ERROR: petroleum cash tracking tables are incomplete'
+  exit 1
+fi
+PETROLEUM_COLUMNS_OK=$(sudo -u postgres psql -d managecare -Atc "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'petroleum_bank_deposits' AND column_name IN ('deposited_cash_entry', 'balance_cash_at_hand', 'submitted_at');")
+if [ "$PETROLEUM_COLUMNS_OK" -ne 3 ]; then
+  echo 'ERROR: petroleum bank deposit columns are incomplete'
+  exit 1
+fi
 echo '=== Verify migration tables ==='
 sudo -u postgres psql -d managecare -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;"
 echo '=== Restart backend ==='

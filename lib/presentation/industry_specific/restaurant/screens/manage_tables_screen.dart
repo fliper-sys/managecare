@@ -5,6 +5,8 @@ import '../../../../core/theme/colors.dart';
 import '../../../../core/theme/text_styles.dart';
 import '../../../../providers/business_provider.dart';
 import '../providers/restaurant_provider.dart';
+import '../../../../providers/auth_provider.dart';
+import '../../../../core/utils/worker_permissions.dart';
 
 class ManageTablesScreen extends StatefulWidget {
   const ManageTablesScreen({super.key});
@@ -21,7 +23,11 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = Provider.of<RestaurantProvider>(context, listen: false);
-      provider.initializeTables();
+      final business = context.read<BusinessProvider>().currentBusiness;
+      if (business != null) {
+        provider.setBusinessId(business.id);
+        provider.initializeTables(businessId: business.id);
+      }
       final args = ModalRoute.of(context)?.settings.arguments;
       if (!_openedFromRouteArgs && args is Map && args['openAdd'] == true) {
         _openedFromRouteArgs = true;
@@ -51,6 +57,14 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
   }
 
   Future<bool> _ensureCanManageTables({required bool isNew}) async {
+    final user = context.read<AuthProvider>().currentUser;
+    if (user == null || !_hasTableManagementPermission()) {
+      await _showBlockedDialog(
+        title: 'Permission required',
+        message: 'Only managers and administrators can manage tables.',
+      );
+      return false;
+    }
     final businessProvider = context.read<BusinessProvider>();
     final access = await businessProvider.canAccessFeatureEnhanced(
       'basic_sales',
@@ -80,6 +94,12 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
     }
 
     return true;
+  }
+
+  bool _hasTableManagementPermission() {
+    final user = context.read<AuthProvider>().currentUser;
+    return user != null &&
+        WorkerPermissions.canManageHospitalityTables(user.role);
   }
 
   Future<void> _showTableDialog({TableInfo? editing}) async {
@@ -226,6 +246,7 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
   }
 
   Future<void> _deleteTable(TableInfo table) async {
+    if (!await _ensureCanManageTables(isNew: false)) return;
     final confirmed = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -267,6 +288,7 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final canManageTables = _hasTableManagementPermission();
 
     return Scaffold(
       backgroundColor:
@@ -277,11 +299,12 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         actions: [
-          IconButton(
-            onPressed: () => _showTableDialog(),
-            icon: const Icon(Icons.add),
-            tooltip: 'Add table',
-          ),
+          if (canManageTables)
+            IconButton(
+              onPressed: () => _showTableDialog(),
+              icon: const Icon(Icons.add),
+              tooltip: 'Add table',
+            ),
         ],
       ),
       body: Consumer<RestaurantProvider>(
@@ -334,11 +357,12 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
                         ),
                       ),
                       const SizedBox(height: 18),
-                      ElevatedButton.icon(
-                        onPressed: () => _showTableDialog(),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add First Table'),
-                      ),
+                      if (canManageTables)
+                        ElevatedButton.icon(
+                          onPressed: () => _showTableDialog(),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add First Table'),
+                        ),
                     ],
                   ),
                 ),
@@ -426,16 +450,18 @@ class _ManageTablesScreenState extends State<ManageTablesScreen> {
                       spacing: 10,
                       runSpacing: 10,
                       children: [
-                        OutlinedButton.icon(
-                          onPressed: () => _showTableDialog(editing: table),
-                          icon: const Icon(Icons.edit_outlined),
-                          label: const Text('Edit'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () => _deleteTable(table),
-                          icon: const Icon(Icons.delete_outline),
-                          label: const Text('Delete'),
-                        ),
+                        if (canManageTables) ...[
+                          OutlinedButton.icon(
+                            onPressed: () => _showTableDialog(editing: table),
+                            icon: const Icon(Icons.edit_outlined),
+                            label: const Text('Edit'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => _deleteTable(table),
+                            icon: const Icon(Icons.delete_outline),
+                            label: const Text('Delete'),
+                          ),
+                        ],
                       ],
                     ),
                   ],

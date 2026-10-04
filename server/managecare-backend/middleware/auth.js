@@ -92,20 +92,63 @@ function requireBusinessMembership(pool) {
 
     try {
       const result = await pool.query(
-        'SELECT id, role, is_owner FROM business_members WHERE user_id = $1 AND business_id = $2 AND is_active = true',
+        'SELECT id, role, is_owner, permissions FROM business_members WHERE user_id = $1 AND business_id = $2 AND is_active = true',
         [req.user.id, businessId]
       );
 
       if (result.rows.length === 0) {
-        return res.status(403).json({ error: 'You are not a member of this business' });
+        // Imported workers may predate business_members; their active worker
+        // row is still scoped to exactly one business and carries their grants.
+        const workerResult = await pool.query(
+          'SELECT id, role, permissions, is_active FROM workers WHERE id = $1 AND business_id = $2 AND is_active = true',
+          [req.user.id, businessId]
+        );
+        if (workerResult.rows.length === 0) {
+          return res.status(403).json({ error: 'You are not a member of this business' });
+        }
+        req.businessMembership = {
+          ...workerResult.rows[0],
+          is_owner: false,
+        };
+      } else {
+        req.businessMembership = result.rows[0];
       }
 
-      req.businessMembership = result.rows[0];
       next();
     } catch (err) {
       console.error('[AuthMiddleware] Error checking membership:', err);
       return res.status(500).json({ error: 'Failed to verify business membership' });
     }
+  };
+}
+
+function requireBusinessPermission(permission, shouldCheck = () => true) {
+  return (req, res, next) => {
+    if (!shouldCheck(req)) return next();
+
+    const membership = req.businessMembership;
+    const role = (membership?.role || '').trim().toLowerCase();
+    if (membership?.is_owner || ['owner', 'admin', 'sub_admin'].includes(role)) {
+      return next();
+    }
+
+    let permissions = membership?.permissions ?? [];
+    if (typeof permissions === 'string') {
+      try { permissions = JSON.parse(permissions); } catch (_) { permissions = []; }
+    }
+    const granted = Array.isArray(permissions)
+      ? permissions.map((value) => String(value).trim()).filter(Boolean)
+      : permissions && typeof permissions === 'object'
+        ? Object.keys(permissions).filter((key) => permissions[key] === true)
+        : [];
+    const allowed = permission === 'table_management'
+      ? ['owner', 'admin', 'sub_admin', 'manager'].includes(role)
+      : granted.includes(permission);
+
+    if (!allowed) {
+      return res.status(403).json({ error: `Permission required: ${permission}` });
+    }
+    next();
   };
 }
 
@@ -125,6 +168,7 @@ module.exports = {
   requireAuth,
   requireRole,
   requireBusinessMembership,
+  requireBusinessPermission,
   requireBusinessOwner,
 };
 

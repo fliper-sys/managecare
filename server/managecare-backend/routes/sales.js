@@ -95,11 +95,13 @@ module.exports = function(pool) {
   // GET /api/sales/:businessId/summary - Sales summary
   router.get('/:businessId/summary', asyncHandler(async (req, res) => {
     const { businessId } = req.params;
-    const { period, startDate, endDate } = req.query;
+    const { period, startDate, endDate, saleType } = req.query;
 
     let dateFilter;
+    const params = [businessId];
     if (startDate && endDate) {
-      dateFilter = `s.created_at >= '${startDate}' AND s.created_at <= '${endDate}'`;
+      params.push(startDate, endDate);
+      dateFilter = 's.created_at >= $2 AND s.created_at <= $3';
     } else if (period === 'today') {
       dateFilter = "s.created_at >= CURRENT_DATE AND s.created_at < CURRENT_DATE + INTERVAL '1 day'";
     } else if (period === 'week') {
@@ -109,6 +111,9 @@ module.exports = function(pool) {
     } else {
       dateFilter = "s.created_at >= date_trunc('month', CURRENT_DATE)";
     }
+    const saleTypeFilter = saleType
+      ? ` AND s.sale_type = $${params.push(saleType)}`
+      : '';
 
     const result = await pool.query(`
       SELECT
@@ -124,12 +129,12 @@ module.exports = function(pool) {
       LEFT JOIN (
         SELECT payment_method, SUM(final_amount)::DECIMAL(12,2) as total
         FROM sales s
-        WHERE business_id = $1 AND ${dateFilter}
+        WHERE business_id = $1 AND ${dateFilter}${saleTypeFilter}
         GROUP BY payment_method
       ) pmt ON pmt.payment_method = s.payment_method
-      WHERE s.business_id = $1 AND s.status = 'completed' AND ${dateFilter}
+      WHERE s.business_id = $1 AND s.status = 'completed' AND ${dateFilter}${saleTypeFilter}
       GROUP BY s.business_id
-    `, [businessId]);
+    `, params);
 
     if (result.rows.length === 0) {
       return res.json({
@@ -173,7 +178,11 @@ module.exports = function(pool) {
   // created but the inventory decrement failed - doesn't create a second,
   // duplicate sale). If a sale with that id already exists, it's returned
   // as-is rather than re-inserted.
-  router.post('/:businessId', requireFields('final_amount', 'payment_method'), asyncHandler(async (req, res) => {
+  router.post('/:businessId', (req, res, next) => {
+    req.body.final_amount ??= req.body.finalAmount ?? req.body.totalAmount ?? req.body.total;
+    req.body.payment_method ??= req.body.paymentMethod;
+    next();
+  }, requireFields('final_amount', 'payment_method'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const {
       id: rawId, customer_id, store_id, worker_id, worker_name,
@@ -262,8 +271,8 @@ module.exports = function(pool) {
       [id || null, businessId, customer_id || null, store_id || null, worker_id || null, worker_name || null,
        total_amount || final_amount, discount_amount || 0, tax_amount || 0, final_amount,
        payment_method,
-       normalizePaymentBreakdownParam(payment_breakdown),
-       status || 'completed', notes || null, created_by || null, saleType,
+        normalizePaymentBreakdownParam(payment_breakdown),
+        status || 'completed', notes || null, created_by || worker_id || null, saleType,
        validCreatedAt]
     );
     const sale = saleResult.rows[0];
@@ -271,22 +280,25 @@ module.exports = function(pool) {
     // Insert sale items
     if (items && Array.isArray(items) && items.length > 0) {
       for (const item of items) {
+        const productId = item.product_id && UUID_RE.test(item.product_id)
+          ? item.product_id
+          : null;
         await pool.query(
           `INSERT INTO sale_items (sale_id, product_id, product_name, quantity, unit_price, discount, total,
             pricing_mode, inventory_unit, sale_unit, sale_unit_multiplier)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-          [sale.id, item.product_id || null, item.product_name,
+          [sale.id, productId, item.product_name,
            item.quantity, item.unit_price, item.discount || 0, item.total,
            item.pricing_mode || null, item.inventory_unit || null,
            item.sale_unit || null, item.sale_unit_multiplier || 1]
         );
 
         // Deduct from inventory
-        if (item.product_id) {
+        if (productId) {
           const qty = (item.quantity || 0) * (item.sale_unit_multiplier || 1);
           await pool.query(
             'UPDATE inventory SET quantity = GREATEST(0, quantity - $1), updated_at = NOW() WHERE id = $2 AND business_id = $3',
-            [qty, item.product_id, businessId]
+            [qty, productId, businessId]
           );
         }
       }

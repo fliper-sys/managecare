@@ -1160,6 +1160,7 @@ class ReportsProvider extends ChangeNotifier {
     required double amount,
     required String category,
     String? receiptUrl,
+    String paymentMethod = 'cash',
   }) async {
     try {
       final bid = _currentSubscribedBusinessId ??
@@ -1174,6 +1175,7 @@ class ReportsProvider extends ChangeNotifier {
         'description': description,
         'amount': amount,
         'category': category,
+        'payment_method': paymentMethod == 'transfer' ? 'transfer' : 'cash',
         'created_by': _authProvider?.currentUser?.id,
       });
 
@@ -1183,6 +1185,7 @@ class ReportsProvider extends ChangeNotifier {
         'amount': amount,
         'category': category,
         'receiptUrl': receiptUrl,
+        'paymentMethod': paymentMethod,
         'date': DateTime.now(),
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       };

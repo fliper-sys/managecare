@@ -224,6 +224,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   amount DECIMAL(12,2) NOT NULL,
   description TEXT,
   paid_by TEXT,
+  payment_method TEXT NOT NULL DEFAULT 'cash',
   receipt_url TEXT,
   created_by UUID,
   created_at TIMESTAMPTZ DEFAULT NOW(),

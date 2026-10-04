@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../../core/utils/amount_formatter.dart';
 import '../../../../core/utils/worker_permissions.dart';
@@ -22,7 +23,6 @@ class _PetroleumBankDepositScreenState
     extends State<PetroleumBankDepositScreen> {
   final _depositorController = TextEditingController();
   final _depositedCashController = TextEditingController();
-  final _balanceCashController = TextEditingController();
   final _bankController = TextEditingController();
   final _accountNumberController = TextEditingController();
   final _accountNameController = TextEditingController();
@@ -44,7 +44,6 @@ class _PetroleumBankDepositScreenState
   void dispose() {
     _depositorController.dispose();
     _depositedCashController.dispose();
-    _balanceCashController.dispose();
     _bankController.dispose();
     _accountNumberController.dispose();
     _accountNameController.dispose();
@@ -143,7 +142,6 @@ class _PetroleumBankDepositScreenState
               '${_depositTime.hour.toString().padLeft(2, '0')}:${_depositTime.minute.toString().padLeft(2, '0')}',
           'amount': amount,
             'deposited_cash_entry': amount,
-          'balance_cash_at_hand': _readAmount(_balanceCashController.text),
           'bank_name': _bankController.text.trim(),
           'account_number': _accountNumberController.text.trim(),
           'account_name': _accountNameController.text.trim(),
@@ -154,7 +152,6 @@ class _PetroleumBankDepositScreenState
       );
       _depositorController.clear();
       _depositedCashController.clear();
-      _balanceCashController.clear();
       _bankController.clear();
       _accountNumberController.clear();
       _accountNameController.clear();
@@ -210,16 +207,6 @@ class _PetroleumBankDepositScreenState
               inputFormatters: const [AmountInputFormatter()],
               decoration: const InputDecoration(
                 labelText: 'Deposited cash amount',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _balanceCashController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: const [AmountInputFormatter()],
-              decoration: const InputDecoration(
-                labelText: 'Balance cash at hand',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -334,7 +321,14 @@ class _PetroleumBankDepositScreenState
                     isThreeLine: true,
                     trailing: deposit['receipt_url']?.toString().isNotEmpty ==
                             true
-                        ? const Icon(Icons.receipt_long_outlined)
+                        ? IconButton(
+                            tooltip: 'Share receipt',
+                            icon: const Icon(Icons.share_outlined),
+                            onPressed: () => Share.share(
+                              deposit['receipt_url'].toString(),
+                              subject: 'Bank deposit receipt',
+                            ),
+                          )
                         : null,
                   ),
                 );

@@ -290,64 +290,12 @@ class _POSOrdersScreenState extends State<POSOrdersScreen> {
                       title: Text('Order #${order.id}'),
                       subtitle: Text('Total: ${formatCurrency(order.total())}'),
                       trailing: PopupMenuButton<String>(
-                        onSelected: (status) async {
-                          if (status == 'paid') {
-                            // Ask for payment method before processing paid order
-                            final paymentMethod = await showModalBottomSheet<String>(
-                              context: context,
-                              builder: (ctx) => SafeArea(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    ListTile(
-                                      title: const Text('Cash'),
-                                      onTap: () => Navigator.pop(ctx, 'Cash'),
-                                    ),
-                                    ListTile(
-                                      title: const Text('Debit/Credit Card'),
-                                      onTap: () => Navigator.pop(ctx, 'Debit/Credit Card'),
-                                    ),
-                                    ListTile(
-                                      title: const Text('Digital Wallet'),
-                                      onTap: () => Navigator.pop(ctx, 'Digital Wallet'),
-                                    ),
-                                    ListTile(
-                                      title: const Text('Cancel'),
-                                      onTap: () => Navigator.pop(ctx, null),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-
-                            if (paymentMethod == null) return; // cancelled
-
-                            try {
-                              final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                              await provider.processPaidOrder(
-                                order.id,
-                                paymentMethod,
-                                workerId: authProvider.currentUser?.id,
-                                workerName: authProvider.currentUser?.fullName,
-                              );
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Order marked as paid and processed')),
-                              );
-                            } catch (e) {
-                              debugPrint('[POSOrders] processPaidOrder failed: $e');
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Failed to process paid order: $e')),
-                              );
-                            }
-                          } else {
-                            provider.updateOrderStatus(order.id, status);
-                          }
+                        onSelected: (status) {
+                          provider.updateOrderStatus(order.id, status);
                         },
                         itemBuilder: (context) => [
                           const PopupMenuItem(
                               value: 'served', child: Text('Mark as Served')),
-                          const PopupMenuItem(
-                              value: 'paid', child: Text('Mark as Paid')),
                           const PopupMenuItem(
                               value: 'cancelled', child: Text('Cancel')),
                         ],

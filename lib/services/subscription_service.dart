@@ -40,6 +40,7 @@ class SubscriptionService {
   static const String familyLounge = 'lounge';
   static const String familyHospitality = 'hospitality';
   static const String familyFuel = 'fuel_station';
+  static const String familyAdministrative = 'administrative';
 
   static const Map<String, int> _tierRanks = {
     'free': 0,
@@ -49,6 +50,7 @@ class SubscriptionService {
     'tier4': 4,
     'premium': 5,
     'unlimited': 5,
+    'enterprise': 6,
   };
 
   static SubscriptionPlan _plan({
@@ -84,6 +86,8 @@ class SubscriptionService {
         return 'Hospitality';
       case familyFuel:
         return 'Fuel Station';
+      case familyAdministrative:
+        return 'Administrative';
       default:
         return 'Standard';
     }
@@ -101,6 +105,8 @@ class SubscriptionService {
         return 'Tier 4';
       case 'premium':
         return 'Premium';
+      case 'enterprise':
+        return 'Enterprise';
       default:
         return 'Unlimited';
     }
@@ -119,7 +125,26 @@ class SubscriptionService {
     }
   }
 
+  static final List<SubscriptionPlan> _administrativePlans = [
+    _plan(family: familyAdministrative, tier: 'tier1', durationCode: '3m', price: 28510, days: 90, features: ['4 GB storage', '4 staff', '30 clients', 'No branches'], limits: {'storage_gb': 4, 'workers': 4, 'clients': 30, 'branches': 0}),
+    _plan(family: familyAdministrative, tier: 'tier1', durationCode: '6m', price: 53087, days: 180, features: ['4 GB storage', '4 staff', '30 clients', 'No branches'], limits: {'storage_gb': 4, 'workers': 4, 'clients': 30, 'branches': 0}),
+    _plan(family: familyAdministrative, tier: 'tier1', durationCode: '12m', price: 98310, days: 365, features: ['4 GB storage', '4 staff', '30 clients', 'No branches'], limits: {'storage_gb': 4, 'workers': 4, 'clients': 30, 'branches': 0}),
+    _plan(family: familyAdministrative, tier: 'tier2', durationCode: '3m', price: 71275, days: 90, features: ['10 GB storage', '10 staff', '75 clients', '2 branches'], limits: {'storage_gb': 10, 'workers': 10, 'clients': 75, 'branches': 2}),
+    _plan(family: familyAdministrative, tier: 'tier2', durationCode: '6m', price: 132713, days: 180, features: ['10 GB storage', '10 staff', '75 clients', '2 branches'], limits: {'storage_gb': 10, 'workers': 10, 'clients': 75, 'branches': 2}),
+    _plan(family: familyAdministrative, tier: 'tier2', durationCode: '12m', price: 245776, days: 365, features: ['10 GB storage', '10 staff', '75 clients', '2 branches'], limits: {'storage_gb': 10, 'workers': 10, 'clients': 75, 'branches': 2}),
+    _plan(family: familyAdministrative, tier: 'tier3', durationCode: '3m', price: 142559, days: 90, features: ['25 GB storage', '20 staff', '200 clients', '5 branches'], limits: {'storage_gb': 25, 'workers': 20, 'clients': 200, 'branches': 5}),
+    _plan(family: familyAdministrative, tier: 'tier3', durationCode: '6m', price: 265438, days: 180, features: ['25 GB storage', '20 staff', '200 clients', '5 branches'], limits: {'storage_gb': 25, 'workers': 20, 'clients': 200, 'branches': 5}),
+    _plan(family: familyAdministrative, tier: 'tier3', durationCode: '12m', price: 419552, days: 365, features: ['25 GB storage', '20 staff', '200 clients', '5 branches'], limits: {'storage_gb': 25, 'workers': 20, 'clients': 200, 'branches': 5}),
+    _plan(family: familyAdministrative, tier: 'premium', durationCode: '3m', price: 213825, days: 90, features: ['50 GB storage', '50 staff', '400 clients', '10 branches'], limits: {'storage_gb': 50, 'workers': 50, 'clients': 400, 'branches': 10}),
+    _plan(family: familyAdministrative, tier: 'premium', durationCode: '6m', price: 398157, days: 180, features: ['50 GB storage', '50 staff', '400 clients', '10 branches'], limits: {'storage_gb': 50, 'workers': 50, 'clients': 400, 'branches': 10}),
+    _plan(family: familyAdministrative, tier: 'premium', durationCode: '12m', price: 737328, days: 365, features: ['50 GB storage', '50 staff', '400 clients', '10 branches'], limits: {'storage_gb': 50, 'workers': 50, 'clients': 400, 'branches': 10}),
+    _plan(family: familyAdministrative, tier: 'enterprise', durationCode: '3m', price: 285177, days: 90, features: ['Unlimited storage', 'Unlimited staff', 'Unlimited clients', 'Unlimited branches'], limits: {'storage_gb': null, 'workers': null, 'clients': null, 'branches': null}),
+    _plan(family: familyAdministrative, tier: 'enterprise', durationCode: '6m', price: 530878, days: 180, features: ['Unlimited storage', 'Unlimited staff', 'Unlimited clients', 'Unlimited branches'], limits: {'storage_gb': null, 'workers': null, 'clients': null, 'branches': null}),
+    _plan(family: familyAdministrative, tier: 'enterprise', durationCode: '12m', price: 983203, days: 365, features: ['Unlimited storage', 'Unlimited staff', 'Unlimited clients', 'Unlimited branches'], limits: {'storage_gb': null, 'workers': null, 'clients': null, 'branches': null}),
+  ];
+
   static final List<SubscriptionPlan> plans = [
+    ..._administrativePlans,
     _plan(
         family: familyStandard,
         tier: 'tier1',
@@ -959,6 +984,8 @@ class SubscriptionService {
       case 'hotel':
       case 'apartment':
         return familyHospitality;
+      case 'administrative':
+        return familyAdministrative;
       case 'gas':
       case 'petrol':
       case 'petroleum':
@@ -1061,6 +1088,12 @@ class SubscriptionService {
         if (products <= 250 && staff <= 12) return 'tier3';
         if (products <= 500 && staff <= 25) return 'tier4';
         return 'premium';
+      case familyAdministrative:
+        if (staff <= 4 && products <= 30) return 'tier1';
+        if (staff <= 10 && products <= 75) return 'tier2';
+        if (staff <= 20 && products <= 200) return 'tier3';
+        if (staff <= 50 && products <= 400) return 'premium';
+        return 'enterprise';
       default:
         if (products <= 300 && staff <= 3) return 'tier1';
         if (products <= 700 && staff <= 5) return 'tier2';
@@ -1101,7 +1134,8 @@ class SubscriptionService {
     if (klass != null) return klass;
     final raw = (subscriptionTier ?? '').trim().toLowerCase();
     if (raw == 'basic' || raw == 'starter') return klass ?? 'tier1';
-    if (raw == 'pro' || raw == 'professional' || raw == 'enterprise') {
+    if (raw == 'enterprise') return 'enterprise';
+    if (raw == 'pro' || raw == 'professional') {
       return klass ?? 'tier3';
     }
     return 'tier1';
@@ -1120,7 +1154,8 @@ class SubscriptionService {
     if (tier != null) return tier;
     final raw = (subscriptionTier ?? '').trim().toLowerCase();
     if (raw == 'basic' || raw == 'starter') return 'tier1';
-    if (raw == 'pro' || raw == 'professional' || raw == 'enterprise')
+    if (raw == 'enterprise') return 'enterprise';
+    if (raw == 'pro' || raw == 'professional')
       return 'tier3';
     return 'tier1';
   }
@@ -1344,6 +1379,8 @@ class SubscriptionService {
       case 'unlimited':
       case 'unlimited_plan':
         return 'unlimited';
+      case 'enterprise':
+        return 'enterprise';
       default:
         return null;
     }

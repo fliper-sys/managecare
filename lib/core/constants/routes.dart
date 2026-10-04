@@ -85,6 +85,9 @@ class Routes {
   static const String notificationLogs = '/settings/notification-logs';
   static const String thermalReceiptSettings = '/settings/thermal-receipt';
 
+  // Industry-Specific Routes - Administrative Services
+  static const String administrativeDashboard = '/administrative';
+
   // Industry-Specific Routes - Pharmacy
   // Industry-Specific Routes - Gas
   static const String gasDashboard = '/gas';

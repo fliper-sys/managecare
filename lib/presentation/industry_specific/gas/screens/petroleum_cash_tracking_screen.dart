@@ -68,72 +68,33 @@ class _PetroleumCashTrackingScreenState
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     if (businessId == null || businessId.isEmpty) return;
 
-    final fields = <String, String>{
-      'cash_income': 'Pump Cash',
-      'pos_income': 'POS/Transfer',
+    const fields = <String, String>{
+      'cash_income': 'Pump Cash Income',
+      'pos_income': 'POS / Transfer Income',
       'total_bank_deposits': 'Bank Deposits',
       'total_admin_submissions': 'Admin Cash',
       'balance_cash_at_hand': 'Cash At Hand',
     };
-    final controllers = <String, TextEditingController>{
-      for (final field in fields.keys)
-        field: TextEditingController(
-          text: _amount(_summary[field]).toStringAsFixed(2),
-        ),
-    };
-    final noteController = TextEditingController(
-      text: _summary['correction_note']?.toString() ?? '',
-    );
-
-    try {
-      final save = await showDialog<bool>(
+    final correction = await showDialog<Map<String, String>>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Correct cash totals'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final entry in fields.entries) ...[
-                  TextField(
-                    controller: controllers[entry.key],
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    inputFormatters: const [AmountInputFormatter()],
-                    decoration: InputDecoration(labelText: entry.value),
-                  ),
-                  const SizedBox(height: 8),
-                ],
-                TextField(
-                  controller: noteController,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Correction note',
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Save correction'),
-            ),
-          ],
+        builder: (_) => _CashTotalsCorrectionDialog(
+          fields: fields,
+          initialValues: {
+            for (final field in fields.keys)
+              field: _amount(_summary[field]).toStringAsFixed(2),
+          },
+          initialNote: _summary['correction_note']?.toString() ?? '',
         ),
       );
-      if (save != true) return;
+    if (correction == null) return;
 
+    try {
       await ManagecareApiClient.instance.put(
         '/api/pumps/$businessId/cash-summary/correction',
         body: {
-          for (final entry in controllers.entries)
-            entry.key: _amount(entry.value.text),
-          'note': noteController.text.trim(),
+          for (final field in fields.keys)
+            field: _amount(correction[field]),
+          'note': correction['note']?.trim() ?? '',
           'corrected_by': user?.id,
           'corrected_by_name': user?.fullName ?? user?.email,
         },
@@ -148,11 +109,6 @@ class _PetroleumCashTrackingScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to correct cash totals: $error')),
       );
-    } finally {
-      for (final controller in controllers.values) {
-        controller.dispose();
-      }
-      noteController.dispose();
     }
   }
 
@@ -162,71 +118,15 @@ class _PetroleumCashTrackingScreenState
     }
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
     if (businessId == null || businessId.isEmpty) return;
-    final receiverController = TextEditingController();
-    final amountController = TextEditingController();
-    final balanceController = TextEditingController(
-      text: _amount(_summary['balance_cash_at_hand']).toStringAsFixed(2),
-    );
-    final noteController = TextEditingController();
-
     try {
-      final confirmed = await showDialog<bool>(
+      final submission = await showDialog<Map<String, String>>(
             context: context,
-            builder: (dialogContext) => AlertDialog(
-              title: const Text('Cash Given To Admin'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: receiverController,
-                      decoration: const InputDecoration(
-                        labelText: 'Admin receiver name',
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: amountController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: const [AmountInputFormatter()],
-                      decoration: const InputDecoration(labelText: 'Amount'),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: balanceController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: const [AmountInputFormatter()],
-                      decoration: const InputDecoration(
-                        labelText: 'Balance cash at hand',
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: noteController,
-                      decoration: const InputDecoration(labelText: 'Note'),
-                      maxLines: 2,
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  child: const Text('Save'),
-                ),
-              ],
-            ),
+            builder: (_) => const _AdminCashSubmissionDialog(),
           ) ??
-          false;
-      if (!confirmed) return;
-      final amount = _amount(amountController.text);
-      if (receiverController.text.trim().isEmpty || amount <= 0) {
+          <String, String>{};
+      final receiverName = submission['receiver']?.trim() ?? '';
+      final amount = _amount(submission['amount']);
+      if (receiverName.isEmpty || amount <= 0) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Enter receiver and amount')),
@@ -237,10 +137,9 @@ class _PetroleumCashTrackingScreenState
       await ManagecareApiClient.instance.post(
         '/api/pumps/$businessId/admin-cash-submissions',
         body: {
-          'receiver_name': receiverController.text.trim(),
+          'receiver_name': receiverName,
           'amount': amount,
-          'balance_cash_at_hand': _amount(balanceController.text),
-          'note': noteController.text.trim(),
+          'note': submission['note']?.trim() ?? '',
           'submitted_by': user?.id,
           'submitted_by_name': user?.fullName ?? user?.email,
         },
@@ -255,11 +154,6 @@ class _PetroleumCashTrackingScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to record submission: $error')),
       );
-    } finally {
-      receiverController.dispose();
-      amountController.dispose();
-      balanceController.dispose();
-      noteController.dispose();
     }
   }
 
@@ -535,6 +429,153 @@ class _PetroleumCashTrackingScreenState
                 ],
               ),
             ),
+    );
+  }
+}
+
+class _CashTotalsCorrectionDialog extends StatefulWidget {
+  const _CashTotalsCorrectionDialog({
+    required this.fields,
+    required this.initialValues,
+    required this.initialNote,
+  });
+
+  final Map<String, String> fields;
+  final Map<String, String> initialValues;
+  final String initialNote;
+
+  @override
+  State<_CashTotalsCorrectionDialog> createState() =>
+      _CashTotalsCorrectionDialogState();
+}
+
+class _CashTotalsCorrectionDialogState
+    extends State<_CashTotalsCorrectionDialog> {
+  late final Map<String, TextEditingController> _controllers = {
+    for (final field in widget.fields.keys)
+      field: TextEditingController(text: widget.initialValues[field]),
+  };
+  late final TextEditingController _noteController =
+      TextEditingController(text: widget.initialNote);
+
+  @override
+  void dispose() {
+    for (final controller in _controllers.values) {
+      controller.dispose();
+    }
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Correct cash totals'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final entry in widget.fields.entries) ...[
+              TextField(
+                controller: _controllers[entry.key],
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: const [AmountInputFormatter()],
+                decoration: InputDecoration(labelText: entry.value),
+              ),
+              const SizedBox(height: 8),
+            ],
+            TextField(
+              controller: _noteController,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: 'Correction note'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.of(context).pop({
+            for (final entry in _controllers.entries)
+              entry.key: entry.value.text,
+            'note': _noteController.text,
+          }),
+          child: const Text('Save correction'),
+        ),
+      ],
+    );
+  }
+}
+
+class _AdminCashSubmissionDialog extends StatefulWidget {
+  const _AdminCashSubmissionDialog();
+
+  @override
+  State<_AdminCashSubmissionDialog> createState() =>
+      _AdminCashSubmissionDialogState();
+}
+
+class _AdminCashSubmissionDialogState
+    extends State<_AdminCashSubmissionDialog> {
+  final _receiverController = TextEditingController();
+  final _amountController = TextEditingController();
+  final _noteController = TextEditingController();
+
+  @override
+  void dispose() {
+    _receiverController.dispose();
+    _amountController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Cash Given To Admin'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _receiverController,
+              decoration: const InputDecoration(labelText: 'Admin receiver name'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _amountController,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: const [AmountInputFormatter()],
+              decoration: const InputDecoration(labelText: 'Amount'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _noteController,
+              decoration: const InputDecoration(labelText: 'Note'),
+              maxLines: 2,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.of(context).pop({
+            'receiver': _receiverController.text,
+            'amount': _amountController.text,
+            'note': _noteController.text,
+          }),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

@@ -18,6 +18,10 @@ echo "MIGRATION_008_DONE"
 PGPASSWORD=BqHjAf8aMMmhHhOlW0j6bYIj4T7Owrya psql -h 127.0.0.1 -p 5432 -U managecare -d managecare -f migration_009.sql
 echo "MIGRATION_009_DONE"
 
+# Ensure petroleum bank deposits and admin cash submissions have all required tables and columns.
+PGPASSWORD=BqHjAf8aMMmhHhOlW0j6bYIj4T7Owrya psql -h 127.0.0.1 -p 5432 -U managecare -d managecare -f migration_050_petroleum_cash_tracking.sql
+echo "MIGRATION_050_PETROLEUM_CASH_TRACKING_DONE"
+
 # Restart backend
 pm2 restart managecare-backend && pm2 save
 echo "RESTART_DONE"

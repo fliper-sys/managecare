@@ -94,9 +94,8 @@ class Room {
 
 // Booking/Reservation Models
 class Reservation {
-
-    // Add guestId getter for compatibility with UI code
-    String get guestId => id;
+  // Add guestId getter for compatibility with UI code
+  String get guestId => id;
   final String id;
   final String roomId;
   final String guestName;
@@ -319,22 +318,23 @@ class ServiceOrder {
 }
 
 class HotelProvider extends ChangeNotifier {
-      // List of all sales (should be loaded from Firestore or repository)
-      final List<SaleModel> _sales = [];
+  // List of all sales (should be loaded from Firestore or repository)
+  final List<SaleModel> _sales = [];
 
-      List<SaleModel> get sales => _sales;
-    // Returns all sales for a given roomId
-    List<SaleModel> getSalesForRoom(String roomId) {
-      if (_businessId == null || _businessId!.isEmpty) return [];
-      // _sales should be a list of SaleModel loaded from Firestore
-      return _sales.where((sale) => sale.roomId == roomId).toList();
-    }
+  List<SaleModel> get sales => _sales;
+  // Returns all sales for a given roomId
+  List<SaleModel> getSalesForRoom(String roomId) {
+    if (_businessId == null || _businessId!.isEmpty) return [];
+    // _sales should be a list of SaleModel loaded from Firestore
+    return _sales.where((sale) => sale.roomId == roomId).toList();
+  }
 
-    // Returns all sales for a given guestId
-    List<SaleModel> getSalesForGuest(String guestId) {
-      if (_businessId == null || _businessId!.isEmpty) return [];
-      return _sales.where((sale) => sale.guestId == guestId).toList();
-    }
+  // Returns all sales for a given guestId
+  List<SaleModel> getSalesForGuest(String guestId) {
+    if (_businessId == null || _businessId!.isEmpty) return [];
+    return _sales.where((sale) => sale.guestId == guestId).toList();
+  }
+
   final HotelRepository? repository;
   final BusinessNotificationManager _notificationManager =
       BusinessNotificationManager.instance;
@@ -372,6 +372,14 @@ class HotelProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('[HotelProvider] Error initializing for business: $e');
     }
+  }
+
+  Future<void> refresh() async {
+    if (_businessId == null || _businessId!.isEmpty) return;
+    if (repository != null) {
+      await _init();
+    }
+    notifyListeners();
   }
 
   Future<void> _init() async {
@@ -687,6 +695,7 @@ class HotelProvider extends ChangeNotifier {
         'amount': charge.amount,
         'type': charge.category,
         'source': charge.source,
+        'items': charge.metadata['items'],
       });
     }
 
@@ -797,7 +806,8 @@ class HotelProvider extends ChangeNotifier {
           .where((item) => item.status == 'checked-in')
           .length;
 
-      await ManagecareApiClient.instance.post('/api/hotel/$_businessId/guests', body: {
+      await ManagecareApiClient.instance
+          .post('/api/hotel/$_businessId/guests', body: {
         'guest_key': _buildGuestDocumentId(reservation),
         'guest_name': reservation.guestName,
         'guest_email': reservation.guestEmail,
@@ -958,7 +968,8 @@ class HotelProvider extends ChangeNotifier {
       'final_amount': saleMap['finalAmount'],
       'payment_method': saleMap['paymentMethod'],
       'status': saleMap['status'],
-      'notes': 'Hotel reservation ${reservation.id} (room ${saleMap['roomNumber']})',
+      'notes':
+          'Hotel reservation ${reservation.id} (room ${saleMap['roomNumber']})',
       'created_by': null,
       'sale_type': 'hotel',
       'items': (saleMap['items'] as List<dynamic>).map((raw) {
@@ -1361,8 +1372,7 @@ class HotelProvider extends ChangeNotifier {
           floor: (res['floor'] as num?)?.toInt() ?? floor,
           size: res['size']?.toString() ?? size,
           bedSize: res['bedSize']?.toString() ?? bedSize,
-          halfDayHours:
-              (res['halfDayHours'] as num?)?.toInt() ?? halfDayHours,
+          halfDayHours: (res['halfDayHours'] as num?)?.toInt() ?? halfDayHours,
           fullDayCheckoutTime:
               res['fullDayCheckoutTime']?.toString() ?? fullDayCheckoutTime,
         );
@@ -1465,8 +1475,9 @@ class HotelProvider extends ChangeNotifier {
 
     final nights = normalizedCheckOut.difference(checkIn).inDays;
     final isHalfDay = stayDurationType == 'half_day';
-    final totalPrice =
-        isHalfDay ? (room.halfDayPrice > 0 ? room.halfDayPrice : room.pricePerNight / 2) : room.pricePerNight * (nights <= 0 ? 1 : nights);
+    final totalPrice = isHalfDay
+        ? (room.halfDayPrice > 0 ? room.halfDayPrice : room.pricePerNight / 2)
+        : room.pricePerNight * (nights <= 0 ? 1 : nights);
     String reservationId = 'B${_reservations.length + 1}';
 
     var reservation = Reservation(
@@ -1605,7 +1616,8 @@ class HotelProvider extends ChangeNotifier {
     required String stayDurationType,
   }) {
     if (stayDurationType == 'half_day') {
-      return checkIn.add(Duration(hours: room.halfDayHours <= 0 ? 12 : room.halfDayHours));
+      return checkIn.add(
+          Duration(hours: room.halfDayHours <= 0 ? 12 : room.halfDayHours));
     }
 
     final parts = room.fullDayCheckoutTime.split(':');
@@ -1757,7 +1769,8 @@ class HotelProvider extends ChangeNotifier {
         sendNotifications: false,
       );
     } catch (e) {
-      debugPrint('[HotelProvider] persistReservationSale on checkout error: $e');
+      debugPrint(
+          '[HotelProvider] persistReservationSale on checkout error: $e');
     }
     notifyListeners();
   }
@@ -1913,7 +1926,8 @@ class HotelProvider extends ChangeNotifier {
 
     if (_businessId != null && _businessId!.isNotEmpty) {
       try {
-        final response = await ManagecareApiClient.instance.post('/api/hotel/$_businessId/service-orders', body: {
+        final response = await ManagecareApiClient.instance
+            .post('/api/hotel/$_businessId/service-orders', body: {
           'room_id': order.roomId,
           'reservation_id': order.reservationId,
           'service_name': order.serviceName,
@@ -1971,10 +1985,13 @@ class HotelProvider extends ChangeNotifier {
       );
       if (_businessId != null && _businessId!.isNotEmpty) {
         try {
-          await ManagecareApiClient.instance.put('/api/hotel/$_businessId/service-orders/$serviceOrderId', body: {
-            'status': newStatus,
-            'completed_at': _serviceOrders[index].completedAt?.toIso8601String(),
-          });
+          await ManagecareApiClient.instance.put(
+              '/api/hotel/$_businessId/service-orders/$serviceOrderId',
+              body: {
+                'status': newStatus,
+                'completed_at':
+                    _serviceOrders[index].completedAt?.toIso8601String(),
+              });
         } catch (e) {
           debugPrint('[HotelProvider] updateServiceOrderStatus error: $e');
         }
@@ -2135,15 +2152,14 @@ class HotelProvider extends ChangeNotifier {
             'limit': 500,
           },
         );
-        final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+        final rows =
+            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
 
         double total = 0.0;
         for (final data in rows) {
           if (data['sale_type'] != 'hotel') continue;
           if (data['status'] != 'completed') continue;
-          total += ((data['final_amount'] ??
-                  data['total_amount'] ??
-                  0) as num)
+          total += ((data['final_amount'] ?? data['total_amount'] ?? 0) as num)
               .toDouble();
         }
 
@@ -2174,8 +2190,10 @@ class HotelProvider extends ChangeNotifier {
     if (_businessId == null || _businessId!.isEmpty) return;
 
     try {
-      final response = await ManagecareApiClient.instance.get('/api/hotel/$_businessId/service-orders');
-      final rows = ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+      final response = await ManagecareApiClient.instance
+          .get('/api/hotel/$_businessId/service-orders');
+      final rows =
+          ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
 
       _serviceOrders = rows
           .map((row) => ServiceOrder.fromJson({

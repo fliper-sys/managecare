@@ -22,12 +22,47 @@ class FolioWidget extends StatelessWidget {
             Text('Guest: $guestName',
                 style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            ...charges.map((charge) => Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(charge['description'] ?? ''),
-                      Text('₦${_amount(charge['amount']).toStringAsFixed(2)}'),
-                    ])),
+            ...charges.map((charge) {
+              final items = (charge['items'] as List?) ?? const [];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                            child:
+                                Text(charge['description']?.toString() ?? '')),
+                        Text(
+                            '₦${_amount(charge['amount']).toStringAsFixed(2)}'),
+                      ],
+                    ),
+                    for (final rawItem in items)
+                      if (rawItem is Map)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 12, top: 4),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${rawItem['quantity'] ?? 1} x ${rawItem['name'] ?? rawItem['productName'] ?? 'Item'}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                              Text(
+                                '₦${_amount(rawItem['total']).toStringAsFixed(2)}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                  ],
+                ),
+              );
+            }),
             const Divider(),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               const Text('Total:',
@@ -45,4 +80,3 @@ class FolioWidget extends StatelessWidget {
     return double.tryParse(value.toString()) ?? 0.0;
   }
 }
-

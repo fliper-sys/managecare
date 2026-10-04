@@ -9,6 +9,7 @@ import '../../../../providers/drink_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../widgets/custom_button.dart';
+import '../../../../core/utils/worker_permissions.dart';
 
 class CheckoutPaymentScreen extends StatefulWidget {
   final Map<String, int> cart;
@@ -40,10 +41,21 @@ class _CheckoutPaymentScreenState extends State<CheckoutPaymentScreen> {
 
   int get _itemCount => widget.cart.values.fold(0, (a, b) => a + b);
 
+  bool get _canApplyDiscount {
+    final user = context.read<AuthProvider>().currentUser;
+    return user != null &&
+        WorkerPermissions.hasEffectivePermission(
+          user.role,
+          user.permissions,
+          'apply_discount',
+        );
+  }
+
   Future<void> _processPayment(BuildContext context) async {
     setState(() => _isProcessing = true);
 
     try {
+      if (!_canApplyDiscount) _discount = 0;
       // Build order
       final lines = widget.cart.entries.map((e) {
         final d = widget.provider.getDrinkById(e.key)!;
@@ -60,7 +72,7 @@ class _CheckoutPaymentScreenState extends State<CheckoutPaymentScreen> {
       );
 
       // Save order to Firestore
-      widget.provider.createOrder(order);
+      await widget.provider.createOrder(order);
 
       // Build sale map for receipt
       final saleMap = {
@@ -413,6 +425,7 @@ class _CheckoutPaymentScreenState extends State<CheckoutPaymentScreen> {
             children: [
               Expanded(
                 child: TextField(
+                  enabled: _canApplyDiscount,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
                     hintText: 'Discount amount (₦)',

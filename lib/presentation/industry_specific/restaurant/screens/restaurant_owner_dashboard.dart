@@ -199,15 +199,6 @@ class RestaurantDashboardScreen extends StatelessWidget {
                       ),
                     );
 
-                    actions.add(
-                      _ActionTile(
-                        icon: Icons.add_circle_outline,
-                        color: Colors.green,
-                        label: 'Add Menu Item',
-                        subtitle: 'Quickly add a new item',
-                        onTap: () => Navigator.pushNamed(context, Routes.restaurantManageMenu, arguments: {'openAdd': true}),
-                      ),
-                    );
                   }
 
                   if (auth.isOwnerUser ||

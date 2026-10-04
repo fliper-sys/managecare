@@ -695,8 +695,9 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       productData = null;
     }
 
-    final currentPrice =
-        (productData?['price'] as num?)?.toDouble() ?? fallbackPrice;
+    final currentPrice = (productData?['unit_price'] as num?)?.toDouble() ??
+        (productData?['price'] as num?)?.toDouble() ??
+        fallbackPrice;
 
     if (currentPrice > 0 && (currentPrice - fallbackPrice).abs() > 0.0001) {
       final pumpId = pump['id']?.toString();
@@ -754,7 +755,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     final cashDifference =
         (shiftCloseCash - shiftOpeningCash).clamp(0.0, 999999999.0);
     if (cashDifference <= 0) return 0.0;
-    final volumeFromCash = cashDifference * price;
+    final volumeFromCash = cashDifference / price;
     final roundedVolume = double.parse(volumeFromCash.toStringAsFixed(6));
     if (roundedVolume <= 0) return 0.001;
     return roundedVolume < 0.000001 ? 0.000001 : roundedVolume;

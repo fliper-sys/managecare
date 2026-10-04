@@ -87,12 +87,13 @@ module.exports = function(pool) {
   // POST /api/expenses/:businessId - Create expense
   router.post('/:businessId', requireFields('category', 'amount'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
-    const { category, amount, description, paid_by, created_by } = req.body;
+    const { category, amount, description, paid_by, payment_method, created_by } = req.body;
 
     const result = await pool.query(
-      `INSERT INTO expenses (business_id, category, amount, description, paid_by, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [businessId, category, amount, description || null, paid_by || null, created_by || null]
+      `INSERT INTO expenses (business_id, category, amount, description, paid_by, payment_method, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [businessId, category, amount, description || null, paid_by || null,
+        payment_method === 'transfer' ? 'transfer' : 'cash', created_by || null]
     );
     res.status(201).json(result.rows[0]);
   }));

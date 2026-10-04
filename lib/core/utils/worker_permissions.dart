@@ -56,6 +56,9 @@ class WorkerPermissions {
       'apply_discount',
       'manage_staff',
       'manage_menu',
+      'bookings',
+      'guest_checkin',
+      'guest_checkout',
       'procurement_management',
       'table_management',
       'view_orders',
@@ -117,7 +120,6 @@ class WorkerPermissions {
       'review_pump_uploads',
     ],
     'chef': [
-      'manage_menu',
       'view_orders',
       'procurement_management',
       'view_inventory',
@@ -136,16 +138,14 @@ class WorkerPermissions {
       'manage_inventory',
       'view_low_stock',
     ],
-    'waiter': ['sales', 'view_orders', 'table_management'],
-    'host': ['view_orders', 'table_management', 'bookings'],
-    'runner': ['view_orders', 'table_management'],
+    'waiter': ['sales', 'view_orders'],
+    'host': ['view_orders', 'bookings'],
+    'runner': ['view_orders'],
     'supervisor': [
       'sales',
       'view_inventory',
       'view_sales_history',
       'apply_discount',
-      'manage_menu',
-      'table_management',
       'view_orders',
       'view_reports',
       'view_low_stock',
@@ -255,7 +255,8 @@ class WorkerPermissions {
   }
 
   static List<String> getAllPermissions() {
-    final permissions = rolePermissions.values.expand((p) => p).toSet().toList();
+    final permissions =
+        rolePermissions.values.expand((p) => p).toSet().toList();
     permissions.sort();
     return permissions;
   }
@@ -419,7 +420,8 @@ class WorkerPermissions {
     String role,
     List<String> permissions,
   ) =>
-      hasEffectivePermission(role, permissions, 'access_pump_configuration_screen');
+      hasEffectivePermission(
+          role, permissions, 'access_pump_configuration_screen');
 
   static bool canAccessExpensesForUser(String role, List<String> permissions) =>
       hasEffectivePermission(role, permissions, 'access_expenses_screen');
@@ -473,6 +475,10 @@ class WorkerPermissions {
       _fullAccessRoles.contains(normalizeRole(role)) ||
       normalizeRole(role) == 'manager' ||
       hasPermission(role, 'billing');
+
+  static bool canManageHospitalityTables(String role) =>
+      _fullAccessRoles.contains(normalizeRole(role)) ||
+      normalizeRole(role) == 'manager';
 
   static bool canManagePoolBookings(String role) =>
       _fullAccessRoles.contains(normalizeRole(role)) ||
@@ -602,8 +608,7 @@ class WorkerPermissions {
               normalizedBusinessType,
           orElse: () => businessType.toLowerCase(),
         );
-    return rolesByBusiness[lookupKey] ??
-        ['staff', 'manager', 'worker'];
+    return rolesByBusiness[lookupKey] ?? ['staff', 'manager', 'worker'];
   }
 
   static String getRoleDisplayName(String role) {
@@ -662,15 +667,19 @@ class WorkerPermissions {
       'pharmacist': 'Dispenses medications and manages prescriptions.',
       'trainer': 'Leads classes, sessions, and member guidance.',
       'beautician': 'Delivers beauty services and customer care.',
-      'field_officer': 'Manages field visits, follow-ups, and property updates.',
+      'field_officer':
+          'Manages field visits, follow-ups, and property updates.',
       'pump_operator':
           'Dispenses fuel and records pump sales only. No minimart, uploads, reports, or pump history access.',
       'sales_rep':
           'Operates the station mini mart and sells gas cylinders, oil, accessories, and other retail products.',
-      'station_attendant': 'Serves customers, records fuel sales, and checks stock.',
-      'fuel_manager': 'Oversees fuel stock, procurement, reports, and station staff.',
+      'station_attendant':
+          'Serves customers, records fuel sales, and checks stock.',
+      'fuel_manager':
+          'Oversees fuel stock, procurement, reports, and station staff.',
       'baker': 'Manages baked goods, production stock, and bakery inventory.',
-      'pastry_chef': 'Prepares pastries and helps monitor finished goods stock.',
+      'pastry_chef':
+          'Prepares pastries and helps monitor finished goods stock.',
       'supervisor': 'Monitors operations and keeps service moving smoothly.',
     };
     return descriptions[normalizeRole(role)] ?? '';

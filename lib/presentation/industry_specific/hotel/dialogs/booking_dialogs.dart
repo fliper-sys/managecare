@@ -839,6 +839,10 @@ void showGuestDetailsSheet(
     ),
     builder: (sheetContext) {
       final room = provider.getRoomById(reservation.roomId);
+      final roomCharges = provider
+          .getFolioChargesForReservation(reservation.id)
+          .where((charge) => charge.category != 'room')
+          .toList();
       return DraggableScrollableSheet(
         initialChildSize: 0.8,
         minChildSize: 0.5,
@@ -889,6 +893,38 @@ void showGuestDetailsSheet(
                 if (reservation.mixedPaymentNote.isNotEmpty)
                   _kvRow('Breakdown', reservation.mixedPaymentNote),
                 _kvRow('Status', reservation.paymentStatus),
+                const SizedBox(height: 16),
+                _sectionTitle('Room Charges'),
+                if (roomCharges.isEmpty)
+                  const Text(
+                    'No bar, restaurant, or other room charges yet.',
+                    style: TextStyle(color: Colors.grey),
+                  )
+                else
+                  ...roomCharges.map(
+                    (charge) => Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(
+                          charge.source == 'bar_room_charge'
+                              ? Icons.local_bar_outlined
+                              : charge.source == 'restaurant_room_charge'
+                                  ? Icons.restaurant_outlined
+                                  : Icons.receipt_long_outlined,
+                        ),
+                        title: Text(charge.description),
+                        subtitle: Text(
+                          '${charge.category.toUpperCase()} • '
+                          '${DateFormat('d MMM, h:mm a').format(charge.createdAt)}',
+                        ),
+                        trailing: Text(
+                          formatCurrency(charge.amount),
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ),
                 if (reservation.vehiclePlateNumber.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   _sectionTitle('Vehicle'),

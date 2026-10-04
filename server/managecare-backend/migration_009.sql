@@ -38,7 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_business_members_user ON business_members(user_id
 CREATE INDEX IF NOT EXISTS idx_business_members_business ON business_members(business_id);
 CREATE INDEX IF NOT EXISTS idx_business_members_active ON business_members(business_id, is_active) WHERE is_active = true;
 ALTER TABLE business_members ADD COLUMN IF NOT EXISTS store_id UUID;
-ALTER TABLE business_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE business_members DISABLE ROW LEVEL SECURITY;
 
 -- Realtime subscriptions table (for Socket.IO event tracking)
 CREATE TABLE IF NOT EXISTS realtime_subscriptions (

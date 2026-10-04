@@ -5,7 +5,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireFields, asyncHandler } = require('../middleware/validation');
-const { requireBusinessMembership } = require('../middleware/auth');
+const { requireBusinessMembership, requireBusinessPermission } = require('../middleware/auth');
 
 module.exports = function(pool) {
   router.use('/:businessId', requireBusinessMembership(pool));
@@ -106,7 +106,7 @@ module.exports = function(pool) {
     res.json({ data: result.rows });
   }));
 
-  router.post('/:businessId/tables', requireFields('table_number'), asyncHandler(async (req, res) => {
+  router.post('/:businessId/tables', requireBusinessPermission('table_management'), requireFields('table_number'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { id, table_number, capacity, status, assigned_waiter_id, assigned_waiter_name, reserved_until } = req.body;
 
@@ -124,7 +124,10 @@ module.exports = function(pool) {
     res.status(201).json(result.rows[0]);
   }));
 
-  router.put('/:businessId/tables/:id', asyncHandler(async (req, res) => {
+  router.put('/:businessId/tables/:id', requireBusinessPermission(
+    'table_management',
+    (req) => req.body.table_number !== undefined || req.body.capacity !== undefined,
+  ), asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
     const { table_number, capacity, status, assigned_waiter_id, assigned_waiter_name, reserved_until } = req.body;
 
@@ -151,7 +154,7 @@ module.exports = function(pool) {
     res.json(result.rows[0]);
   }));
 
-  router.delete('/:businessId/tables/:id', asyncHandler(async (req, res) => {
+  router.delete('/:businessId/tables/:id', requireBusinessPermission('table_management'), asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
     await pool.query('DELETE FROM restaurant_tables WHERE id = $1 AND business_id = $2', [id, businessId]);
     res.json({ message: 'Table deleted', id });

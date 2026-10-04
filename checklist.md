@@ -1,3 +1,15 @@
+HOSPITALITY CORRECTIONS COMPLETED (2026-09-17)
+- [x] Manager access to room bookings and guest check-in/check-out.
+- [x] Industry-specific hotel worker dashboard refresh button and pull-to-refresh.
+- [x] Manager report access with read-only report screen gating.
+- [x] Restaurant menu management consolidated to one Manage Menu entry.
+- [x] Menu and table editing restricted to managers/admins or explicit permissions.
+- [x] Restaurant room-charge order persistence and error visibility improved.
+- [x] Discounts restricted to managers/admins or explicit apply-discount permission.
+- [x] Worker dashboard summaries now show restaurant sales, bar sales, and room bookings for 24 hours separately.
+- [x] Worker dashboard retains only Active Occupancy/Rooms as the occupancy KPI.
+- [x] Hotel dashboard restaurant and bar work entries no longer duplicate kitchen/history actions.
+- [x] Bar order persistence now awaits completion so room, table, walk-in, and invoice failures surface correctly.
 Retail section
 >for some business , the amount of days left  for the subscription which shows on the home  page is not correct, some businesses shows over 300days left 
 > the download inventory button under the inventory page is not working 

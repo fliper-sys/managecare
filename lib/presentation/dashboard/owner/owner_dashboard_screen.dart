@@ -1113,7 +1113,7 @@ Future<void> _loadRetailMetrics(String businessId) async {
                         0,
                         _QuickActionItem(
                           title: 'Check-In / Guests',
-                          subtitle: 'Reception hub',
+                          subtitle: 'Reception, bookings, and guest management',
                           icon: Icons.hotel,
                           color: AppColors.hotel,
                           route: Routes.hotelCheckIn,
@@ -3152,13 +3152,7 @@ Future<void> _loadRetailMetrics(String businessId) async {
 
       case 'hotel':
         return [
-          _QuickActionItem(
-            title: 'Check-In / Guests',
-            subtitle: 'Reception, bookings, and guest management',
-            icon: Icons.hotel_rounded,
-            color: Colors.blue,
-            route: Routes.hotelCheckIn,
-          ),
+          
           // Room Management removed from dashboard per requirements doc —
           // it now lives under Settings → Room Management (a setup task,
           // not a daily operation).
@@ -3196,6 +3190,20 @@ Future<void> _loadRetailMetrics(String businessId) async {
             icon: Icons.shopping_cart_rounded,
             color: Colors.teal,
             route: Routes.procurement,
+          ),
+          _QuickActionItem(
+            title: 'Inventory',
+            subtitle: 'Beverage stock',
+            icon: Icons.inventory_2_rounded,
+            color: Colors.green,
+            route: Routes.inventory,
+          ),
+          _QuickActionItem(
+            title: 'Tabs',
+            subtitle: 'Customer tabs',
+            icon: Icons.account_balance_wallet_rounded,
+            color: Colors.teal,
+            route: Routes.drinkTabs,
           ),
           ...commonItems,
         ];

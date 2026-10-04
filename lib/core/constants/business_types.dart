@@ -22,6 +22,20 @@ class BusinessType {
 class BusinessTypes {
   static const List<BusinessType> all = [
     BusinessType(
+      id: 'administrative',
+      name: 'Administrative Services',
+      description: 'Client records, compliance work, documents, and recurring obligations',
+      icon: Icons.account_balance,
+      color: AppColors.primary,
+      features: [
+        'Client Management',
+        'Document Workflows',
+        'Recurring Obligations',
+        'Task Management',
+        'Activity Audit Log',
+      ],
+    ),
+    BusinessType(
       id: 'pharmacy',
       name: 'Pharmacy',
       description: 'Manage prescriptions, drug inventory, and patient records',
@@ -310,6 +324,9 @@ class BusinessTypes {
       'petroleumstation': 'petroleum',
       'fillingstation': 'petroleum',
       'realestate': 'realestate',
+      'administrative': 'administrative',
+      'adminservices': 'administrative',
+      'professionalservices': 'administrative',
     };
     // Normalize common plural/synonym forms
     const additional = {
