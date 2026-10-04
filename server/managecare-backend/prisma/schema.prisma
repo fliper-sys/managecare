@@ -1688,7 +1688,6 @@ model AdministrativePlan {
   clientLimit   Int?
   branchLimit   Int?
 
-  // Price in NGN.
   price Decimal @db.Decimal(12, 2)
 
   isActive Boolean @default(true)
@@ -1708,7 +1707,7 @@ model AdministrativePlan {
 model AdministrativeSubscription {
   id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
 
-  // Business that owns this subscription.
+  // Subscription owner
   businessId String @db.Uuid
 
   planId String @db.Uuid
@@ -1728,8 +1727,6 @@ model AdministrativeSubscription {
 
   plan AdministrativePlan
 
-  // Adjust this relation to the exact name/model
-  // of your existing businesses table.
   business businesses @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
@@ -1738,6 +1735,7 @@ model AdministrativeSubscription {
   @@index([expiresAt])
   @@map("administrative_subscriptions")
 }
+
 model AdministrativeUsage {
   id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
 
@@ -1757,4 +1755,9 @@ model AdministrativeUsage {
   )
 
   @@map("administrative_usage")
-}
+} 
+//model task {}
+//model obligation {}
+//model document {}
+//model folder{}
+//model client {}
