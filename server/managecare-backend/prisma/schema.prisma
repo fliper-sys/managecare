@@ -1648,3 +1648,113 @@ model workers {
   @@index([business_id], map: "idx_workers_business")
   @@index([email], map: "idx_workers_email")
 }
+
+enum AdministrativeSubscriptionTier {
+  TIER_1
+  TIER_2
+  TIER_3
+  PREMIUM
+  ENTERPRISE
+}
+
+enum SubscriptionPeriod {
+  MONTH_3
+  MONTH_6
+  MONTH_12
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+model AdministrativePlan {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  // e.g. administrative_tier2_6m
+  identifier String @unique @db.VarChar(100)
+
+  tier     AdministrativeSubscriptionTier
+  period   SubscriptionPeriod
+
+  // Storage limit in GB.
+  // null = unlimited
+  storageGb Int?
+
+  // null = unlimited
+  staffLimit    Int?
+  clientLimit   Int?
+  branchLimit   Int?
+
+  // Price in NGN.
+  price Decimal @db.Decimal(12, 2)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  subscriptions AdministrativeSubscription[]
+
+  @@unique([tier, period])
+  @@index([tier])
+  @@index([isActive])
+  @@map("administrative_plans")
+}
+
+
+model AdministrativeSubscription {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  // Business that owns this subscription.
+  businessId String @db.Uuid
+
+  planId String @db.Uuid
+
+  status SubscriptionStatus @default(PENDING)
+
+  // Snapshot of the plan price at time of subscription.
+  amountPaid Decimal @db.Decimal(12, 2)
+
+  startsAt DateTime @db.Timestamptz(6)
+  expiresAt DateTime @db.Timestamptz(6)
+5
+  cancelledAt DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  plan AdministrativePlan
+
+  // Adjust this relation to the exact name/model
+  // of your existing businesses table.
+  business businesses @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([planId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("administrative_subscriptions")
+}
+model AdministrativeUsage {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  businessId String @unique @db.Uuid
+
+  storageBytes BigInt @default(0)
+  staffCount   Int    @default(0)
+  clientCount  Int    @default(0)
+  branchCount  Int    @default(0)
+
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+
+  business businesses @relation(
+    fields: [businessId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  @@map("administrative_usage")
+}

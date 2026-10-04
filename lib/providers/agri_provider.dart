@@ -575,12 +575,17 @@ class AgriProvider extends ChangeNotifier {
       }
 
       if (crates > 0) {
+      
         if (eggRef != null) {
           await FirebaseFirestore.instance.runTransaction((tx) async {
-            final s = await tx.get(eggRef!);
+            final ref = eggRef;
+          if (ref == null) {
+          throw Exception('Egg reference not found');
+          }
+            final s = await tx.get(ref!);
             final data = s.data() as Map<String, dynamic>?;
             final q = (data?['quantity'] as num?)?.toInt() ?? 0;
-            tx.update(eggRef, {'quantity': q + crates, 'updatedAt': FieldValue.serverTimestamp()});
+            tx.update(ref, {'quantity': q + crates, 'updatedAt': FieldValue.serverTimestamp()});
           });
         } else {
           await FirebaseFirestore.instance
