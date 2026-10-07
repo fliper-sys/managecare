@@ -1,0 +1,2023 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model admin_email_logs {
+  id                String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  subject           String
+  body              String?
+  recipients        Json      @default("[]")
+  status            String    @default("processing")
+  sent_count        Int       @default(0)
+  failed_count      Int       @default(0)
+  failed_recipients Json      @default("[]")
+  sent_by           String?   @db.Uuid
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at      DateTime? @db.Timestamptz(6)
+
+  @@index([created_at(sort: Desc)], map: "idx_admin_email_logs_created")
+}
+
+model admin_notifications {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  type       String
+  title      String
+  message    String?
+  data       Json?     @default("{}")
+  is_read    Boolean?  @default(false)
+  created_by String?   @db.Uuid
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model admin_settings {
+  id         String    @id @default("admin_settings")
+  settings   Json?     @default("{}")
+  updated_by String?   @db.Uuid
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+model admin_work_items {
+  id                    String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  title                 String
+  description           String
+  assigned_to           String?
+  type                  String              @default("fix")
+  priority              String?             @default("normal")
+  status                String?             @default("pending")
+  due_date              DateTime?           @db.Timestamptz(6)
+  created_by            String?             @db.Uuid
+  updated_by            String?             @db.Uuid
+  created_at            DateTime?           @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime?           @default(now()) @db.Timestamptz(6)
+  assigned_to_worker_id String?             @db.Uuid
+  managecare_workers    managecare_workers? @relation(fields: [assigned_to_worker_id], references: [id], onUpdate: NoAction)
+
+  @@index([assigned_to_worker_id, status], map: "idx_admin_work_items_assigned_worker")
+  @@index([status, priority], map: "idx_admin_work_items_status")
+}
+
+model apartment_booking_payments {
+  id                 String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id        String             @db.Uuid
+  booking_id         String             @db.Uuid
+  amount             Decimal            @db.Decimal(12, 2)
+  currency           String             @default("NGN")
+  provider           String?
+  transaction_id     String?
+  processor_response Json?              @default("{}")
+  status             String             @default("completed")
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+  apartment_bookings apartment_bookings @relation(fields: [booking_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  businesses         businesses         @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([booking_id], map: "idx_apartment_booking_payments_booking_id")
+  @@index([business_id], map: "idx_apartment_booking_payments_business_id")
+}
+
+model apartment_bookings {
+  id                         String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                String                       @db.Uuid
+  unit_id                    String?                      @db.Uuid
+  apartment_id               String?                      @db.Uuid
+  tenant_id                  String?
+  check_in_date              DateTime                     @db.Timestamptz(6)
+  check_out_date             DateTime                     @db.Timestamptz(6)
+  nights                     Int?                         @default(0)
+  guests                     Int?                         @default(1)
+  status                     String?                      @default("pending")
+  subtotal                   Decimal?                     @default(0) @db.Decimal(12, 2)
+  deposit_amount             Decimal?                     @default(0) @db.Decimal(12, 2)
+  discount                   Decimal?                     @default(0) @db.Decimal(12, 2)
+  total                      Decimal?                     @default(0) @db.Decimal(12, 2)
+  currency                   String?                      @default("NGN")
+  payment_status             String?                      @default("none")
+  payment_method             String?
+  provider_transaction_id    String?
+  paid_at                    DateTime?                    @db.Timestamptz(6)
+  policy_snapshot            Json?                        @default("{}")
+  receipt_url                String?
+  receipt_pdf_path           String?
+  next_reminder_at           DateTime?                    @db.Timestamptz(6)
+  reminder_sent_flags        Json?                        @default("{}")
+  cancel_reason              String?
+  created_at                 DateTime?                    @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime?                    @default(now()) @db.Timestamptz(6)
+  apartment_booking_payments apartment_booking_payments[]
+  apartments                 apartments?                  @relation(fields: [apartment_id], references: [id], onUpdate: NoAction)
+  businesses                 businesses                   @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  apartment_units            apartment_units?             @relation(fields: [unit_id], references: [id], onUpdate: NoAction)
+
+  @@index([business_id, created_at(sort: Desc)], map: "idx_apartment_bookings_business")
+  @@index([unit_id, check_in_date, check_out_date, status], map: "idx_apartment_bookings_unit_dates")
+}
+
+model apartment_units {
+  id                 String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id        String               @db.Uuid
+  apartment_id       String               @db.Uuid
+  name               String
+  capacity           Int?                 @default(1)
+  price_per_night    Decimal?             @default(0) @db.Decimal(12, 2)
+  available_from     DateTime?            @db.Timestamptz(6)
+  available_to       DateTime?            @db.Timestamptz(6)
+  photos             Json?                @default("[]")
+  active             Boolean?             @default(true)
+  created_at         DateTime?            @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime?            @default(now()) @db.Timestamptz(6)
+  apartment_bookings apartment_bookings[]
+  apartments         apartments           @relation(fields: [apartment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  businesses         businesses           @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id, apartment_id, name], map: "idx_apartment_units_apartment")
+}
+
+model apartments {
+  id                             String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                    String               @db.Uuid
+  title                          String
+  description                    String?              @default("")
+  owner_id                       String?              @db.Uuid
+  address                        String?              @default("")
+  photos                         Json?                @default("[]")
+  amenities                      Json?                @default("[]")
+  default_cancellation_policy_id String?
+  created_at                     DateTime?            @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime?            @default(now()) @db.Timestamptz(6)
+  apartment_bookings             apartment_bookings[]
+  apartment_units                apartment_units[]
+  businesses                     businesses           @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id, created_at(sort: Desc)], map: "idx_apartments_business")
+}
+
+model app_marketers {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name       String?
+  email      String?
+  phone      String?
+  is_active  Boolean?  @default(true)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model attendance {
+  id                String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  worker_id         String?     @db.Uuid
+  business_id       String?     @db.Uuid
+  device_sn         String?
+  user_id_on_device String?
+  timestamp         DateTime    @default(now()) @db.Timestamptz(6)
+  status            String?
+  verify_mode       String?
+  created_at        DateTime?   @default(now()) @db.Timestamptz(6)
+  businesses        businesses? @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  workers           workers?    @relation(fields: [worker_id], references: [id], onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_attendance_business")
+  @@index([device_sn], map: "idx_attendance_device")
+  @@index([timestamp(sort: Desc)], map: "idx_attendance_timestamp")
+  @@index([worker_id], map: "idx_attendance_worker")
+}
+
+model bakery_resupplies {
+  id                         String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                String     @db.Uuid
+  inventory_id               String     @db.Uuid
+  inventory_name             String?
+  quantity                   Decimal    @default(0) @db.Decimal(12, 2)
+  unit                       String?
+  baker_id                   String?    @db.Uuid
+  baker_name                 String?
+  notes                      String?
+  performed_by_id            String?    @db.Uuid
+  performed_by_name          String?
+  expected_production_amount Decimal    @default(0) @db.Decimal(12, 2)
+  actual_production_amount   Decimal    @default(0) @db.Decimal(12, 2)
+  production_unit            String?
+  production_item_name       String?
+  created_at                 DateTime   @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id        String?
+  businesses                 businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  inventory                  inventory  @relation(fields: [inventory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([baker_id], map: "idx_bakery_resupplies_baker_id")
+  @@index([business_id], map: "idx_bakery_resupplies_business_id")
+  @@index([created_at(sort: Desc)], map: "idx_bakery_resupplies_created_at")
+  @@index([legacy_firestore_id], map: "idx_bakery_resupplies_legacy_fs")
+}
+
+model bar_invoices {
+  id             String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id    String     @db.Uuid
+  invoice_number String
+  invoice_type   String     @default("invoice")
+  status         String     @default("open")
+  customer_id    String?    @db.Uuid
+  customer_name  String?
+  customer_phone String?
+  customer_email String?
+  table_label    String?
+  notes          String?
+  lines          Json       @default("[]")
+  subtotal       Decimal    @default(0) @db.Decimal(12, 2)
+  tax            Decimal    @default(0) @db.Decimal(12, 2)
+  discount       Decimal    @default(0) @db.Decimal(12, 2)
+  total          Decimal    @default(0) @db.Decimal(12, 2)
+  converted_at   DateTime?  @db.Timestamptz(6)
+  linked_sale_id String?    @db.Uuid
+  payment_method String?
+  worker_id      String?    @db.Uuid
+  worker_name    String?
+  store_id       String?    @db.Uuid
+  created_at     DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime   @default(now()) @db.Timestamptz(6)
+  businesses     businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_bar_invoices_business_id")
+}
+
+model bar_tables {
+  id          String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id String     @db.Uuid
+  label       String
+  created_at  DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime   @default(now()) @db.Timestamptz(6)
+  businesses  businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([business_id, label])
+  @@index([business_id], map: "idx_bar_tables_business_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model business_members {
+  id          String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id     String     @db.Uuid
+  business_id String     @db.Uuid
+  role        String     @default("staff")
+  store_id    String?    @db.Uuid
+  is_owner    Boolean?   @default(false)
+  is_active   Boolean?   @default(true)
+  permissions Json?      @default("{}")
+  created_at  DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime?  @default(now()) @db.Timestamptz(6)
+  businesses  businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  profiles    profiles   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  activities  Activity[]
+
+  @@unique([user_id, business_id])
+  @@index([business_id, is_active], map: "idx_business_members_active", where: raw("(is_active = true)"))
+  @@index([business_id], map: "idx_business_members_business")
+  @@index([user_id], map: "idx_business_members_user")
+}
+
+model businesses {
+  id                                                     String                                @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name                                                   String                                @default("")
+  business_type                                          String?
+  owner_id                                               String?                               @db.Uuid
+  created_at                                             DateTime?                             @default(now()) @db.Timestamptz(6)
+  updated_at                                             DateTime?                             @default(now()) @db.Timestamptz(6)
+  address                                                String?
+  phone                                                  String?
+  email                                                  String?
+  owner_name                                             String?
+  currency                                               String?                               @default("NGN")
+  logo_url                                               String?
+  store_ids                                              String[]                              @default([]) @db.Uuid
+  is_active                                              Boolean?                              @default(true)
+  last_sku_number                                        Int?                                  @default(0)
+  business_class                                         String?                               @default("tier1")
+  max_workers                                            Int?
+  features                                               Json?                                 @default("{}")
+  subscription_tier                                      String?                               @default("free")
+  subscription_plan                                      String?                               @default("free")
+  subscription_start_date                                DateTime?                             @db.Timestamptz(6)
+  subscription_end_date                                  DateTime?                             @db.Timestamptz(6)
+  is_subscription_active                                 Boolean?                              @default(false)
+  is_restricted                                          Boolean?                              @default(false)
+  restriction_status                                     String?                               @default("active")
+  restriction_reason                                     String?
+  restricted_at                                          DateTime?                             @db.Timestamptz(6)
+  restricted_by                                          String?                               @db.Uuid
+  restriction_lifted_at                                  DateTime?                             @db.Timestamptz(6)
+  legacy_firestore_id                                    String?                               @unique(map: "idx_businesses_legacy_firestore_id", where: raw("(legacy_firestore_id IS NOT NULL)"))
+  is_deleted                                             Boolean                               @default(false)
+  deleted_at                                             DateTime?                             @db.Timestamptz(6)
+  deleted_by_id                                          String?                               @db.Uuid
+  deleted_by_type                                        String?
+  recovery_deadline_at                                   DateTime?                             @db.Timestamptz(6)
+  deletion_reason                                        String?
+  subscription_family                                    String?
+  subscription_business_type                             String?
+  subscription_amount                                    Decimal?                              @db.Decimal(12, 2)
+  subscription_receipt_url                               String?
+  subscription_status                                    String?
+  subscription_review_status                             String?
+  subscription_synced_at                                 DateTime?                             @db.Timestamptz(6)
+  settings                                               Json?                                 @default("{}")
+  apartment_booking_payments                             apartment_booking_payments[]
+  apartment_bookings                                     apartment_bookings[]
+  apartment_units                                        apartment_units[]
+  apartments                                             apartments[]
+  attendance                                             attendance[]
+  bakery_resupplies                                      bakery_resupplies[]
+  bar_invoices                                           bar_invoices[]
+  bar_tables                                             bar_tables[]
+  business_members                                       business_members[]
+  profiles_businesses_owner_idToprofiles                 profiles?                             @relation("businesses_owner_idToprofiles", fields: [owner_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customers                                              customers[]
+  devices                                                devices[]
+  distributor_sales                                      distributor_sales[]
+  distributors                                           distributors[]
+  drink_orders                                           drink_orders[]
+  expenses                                               expenses[]
+  hotel_folio_charges                                    hotel_folio_charges[]
+  hotel_guests                                           hotel_guests[]
+  hotel_reservations                                     hotel_reservations[]
+  hotel_rooms                                            hotel_rooms[]
+  hotel_service_orders                                   hotel_service_orders[]
+  inventory                                              inventory[]
+  inventory_alert_acks                                   inventory_alert_acks[]
+  inventory_batches                                      inventory_batches[]
+  inventory_history                                      inventory_history[]
+  invoices                                               invoices[]
+  notifications                                          notifications[]
+  payment_transactions                                   payment_transactions[]
+  petroleum_admin_cash_submissions                       petroleum_admin_cash_submissions[]
+  petroleum_bank_deposits                                petroleum_bank_deposits[]
+  petroleum_cash_entries                                 petroleum_cash_entries[]
+  petroleum_cash_total_correction_log                    petroleum_cash_total_correction_log[]
+  petroleum_cash_total_corrections                       petroleum_cash_total_corrections?
+  pharmacy_audit_log                                     pharmacy_audit_log[]
+  pharmacy_patients                                      pharmacy_patients[]
+  pharmacy_prescriptions                                 pharmacy_prescriptions[]
+  pharmacy_treatments                                    pharmacy_treatments[]
+  procurements                                           procurements[]
+  profiles_profiles_current_business_idTobusinesses      profiles[]                            @relation("profiles_current_business_idTobusinesses")
+  profiles_profiles_subscription_business_idTobusinesses profiles[]                            @relation("profiles_subscription_business_idTobusinesses")
+  pump_daily_uploads                                     pump_daily_uploads[]
+  pump_upload_adjustments                                pump_upload_adjustments[]
+  pumps                                                  pumps[]
+  realtime_subscriptions                                 realtime_subscriptions[]
+  reorders                                               reorders[]
+  restaurant_menu_items                                  restaurant_menu_items[]
+  restaurant_orders                                      restaurant_orders[]
+  restaurant_reservations                                restaurant_reservations[]
+  restaurant_staff                                       restaurant_staff[]
+  restaurant_tables                                      restaurant_tables[]
+  restaurant_waste                                       restaurant_waste[]
+  returns                                                returns[]
+  sale_deletions                                         sale_deletions[]
+  sales                                                  sales[]
+  stores                                                 stores[]
+  subscription_events                                    subscription_events[]
+  subscription_requests                                  subscription_requests[]
+  subscription_transactions                              subscription_transactions[]
+  sync_audit_log                                         sync_audit_log[]
+  workers                                                workers[]
+  administrative_subscriptions                           AdministrativeSubscription[]
+  administrative_usage                                   AdministrativeUsage?
+
+  teams               Team[]
+  tasks               Task[]
+  clients             Client[]
+  obligations         Obligation[]
+  obligation_expenses ObligationExpense[]
+  folders             Folder[]
+  documents           Document[]
+  archives            Archive[]
+  activities          Activity[]
+
+  @@index([is_active], map: "idx_businesses_active")
+  @@index([owner_id], map: "idx_businesses_owner")
+  @@index([is_restricted, restriction_status], map: "idx_businesses_restriction")
+}
+
+model company_expenses {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  title        String
+  amount       Decimal   @default(0) @db.Decimal(12, 2)
+  category     String?
+  description  String?
+  expense_date DateTime? @default(now()) @db.Timestamptz(6)
+  receipt_url  String?
+  created_by   String?   @db.Uuid
+  created_at   DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([expense_date(sort: Desc)], map: "idx_company_expenses_date")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model customers {
+  id                  String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String     @db.Uuid
+  name                String
+  email               String?
+  phone               String?
+  address             String?
+  city                String?
+  state               String?
+  loyalty_points      Int?       @default(0)
+  total_purchases     Decimal?   @default(0) @db.Decimal(12, 2)
+  total_spent         Decimal?   @default(0) @db.Decimal(12, 2)
+  is_active           Boolean?   @default(true)
+  created_at          DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?  @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id String?
+  total_transactions  Int        @default(0)
+  average_order_value Decimal    @default(0) @db.Decimal(12, 2)
+  first_purchase_date DateTime?  @db.Timestamptz(6)
+  last_purchase_date  DateTime?  @db.Timestamptz(6)
+  notes               String?
+  metadata            Json       @default("{}")
+  businesses          businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([business_id, legacy_firestore_id], map: "idx_customers_business_legacy_firestore_id", where: raw("(legacy_firestore_id IS NOT NULL)"))
+  @@index([business_id], map: "idx_customers_business")
+  @@index([phone], map: "idx_customers_phone")
+}
+
+model device_tokens {
+  device_id   String    @id @db.VarChar(255)
+  user_id     String    @db.Uuid
+  platform    String?   @default("mobile") @db.VarChar(50)
+  device_name String?   @db.VarChar(255)
+  last_seen   DateTime? @default(now()) @db.Timestamptz(6)
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  profiles    profiles  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id], map: "idx_device_tokens_user_id")
+}
+
+model devices {
+  id            String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  serial_number String      @unique
+  business_id   String?     @db.Uuid
+  name          String?
+  last_seen     DateTime?   @db.Timestamptz(6)
+  created_at    DateTime?   @default(now()) @db.Timestamptz(6)
+  businesses    businesses? @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([serial_number], map: "idx_devices_serial")
+}
+
+model distributor_sales {
+  id                    String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id           String       @db.Uuid
+  sale_id               String?      @db.Uuid
+  distributor_id        String       @db.Uuid
+  distributor_name      String?
+  product_id            String?      @db.Uuid
+  product_name          String?
+  quantity              Decimal      @db.Decimal(12, 2)
+  unit_price            Decimal      @db.Decimal(12, 2)
+  discount_percent      Decimal      @default(0) @db.Decimal(5, 2)
+  discounted_unit_price Decimal      @db.Decimal(12, 2)
+  total_amount          Decimal      @db.Decimal(12, 2)
+  sales_rep_id          String?      @db.Uuid
+  sales_rep_name        String?
+  notes                 String?
+  status                String       @default("completed")
+  created_at            DateTime     @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id   String?
+  businesses            businesses   @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  distributors          distributors @relation(fields: [distributor_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  sales                 sales?       @relation(fields: [sale_id], references: [id], onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_distributor_sales_business_id")
+  @@index([created_at(sort: Desc)], map: "idx_distributor_sales_created_at")
+  @@index([distributor_id], map: "idx_distributor_sales_distributor_id")
+  @@index([legacy_firestore_id], map: "idx_distributor_sales_legacy_fs")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model distributors {
+  id                  String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String              @db.Uuid
+  name                String
+  contact_person      String?
+  phone               String?
+  email               String?
+  address             String?
+  is_active           Boolean?            @default(true)
+  created_at          DateTime?           @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?           @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id String?
+  notes               String?
+  distributor_sales   distributor_sales[]
+  businesses          businesses          @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_distributors_business")
+}
+
+model drink_orders {
+  id          String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id String     @db.Uuid
+  status      String     @default("pending")
+  lines       Json       @default("[]")
+  total       Decimal    @default(0) @db.Decimal(12, 2)
+  created_at  DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime   @default(now()) @db.Timestamptz(6)
+  businesses  businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_drink_orders_business_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model expenses {
+  id                  String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String     @db.Uuid
+  category            String
+  amount              Decimal    @db.Decimal(12, 2)
+  description         String?
+  paid_by             String?
+  receipt_url         String?
+  created_by          String?    @db.Uuid
+  created_at          DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?  @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id String?
+  businesses          businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([business_id, legacy_firestore_id], map: "idx_expenses_business_legacy_firestore_id", where: raw("(legacy_firestore_id IS NOT NULL)"))
+  @@index([business_id], map: "idx_expenses_business")
+}
+
+model hotel_folio_charges {
+  id              String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id     String     @db.Uuid
+  reservation_id  String     @db.Uuid
+  room_id         String?    @db.Uuid
+  room_number     String?
+  description     String
+  category        String     @default("extra")
+  amount          Decimal    @default(0) @db.Decimal(12, 2)
+  source          String     @default("manual")
+  source_order_id String?    @db.Uuid
+  created_by_id   String?    @db.Uuid
+  created_by_name String?
+  metadata        Json       @default("{}")
+  created_at      DateTime   @default(now()) @db.Timestamptz(6)
+  businesses      businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_hotel_folio_charges_business_id")
+  @@index([reservation_id], map: "idx_hotel_folio_charges_reservation_id")
+}
+
+model hotel_guests {
+  id                       String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id              String     @db.Uuid
+  guest_key                String
+  guest_name               String?
+  guest_email              String?
+  guest_phone              String?
+  guest_address            String?
+  guest_nationality        String?
+  guest_id_type            String?
+  guest_id_number          String?
+  next_of_kin_name         String?
+  next_of_kin_phone        String?
+  next_of_kin_relationship String?
+  booking_source           String?
+  company_name             String?
+  vehicle_plate_number     String?
+  reservation_count        Int        @default(0)
+  checked_in_count         Int        @default(0)
+  total_spend              Decimal    @default(0) @db.Decimal(12, 2)
+  guest_tier               String?
+  tier_discount_rate       Decimal?   @db.Decimal(4, 3)
+  active_reservation_id    String?    @db.Uuid
+  current_room_id          String?    @db.Uuid
+  current_room_number      String?
+  last_check_in            DateTime?  @db.Timestamptz(6)
+  last_check_out           DateTime?  @db.Timestamptz(6)
+  updated_at               DateTime   @default(now()) @db.Timestamptz(6)
+  businesses               businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([business_id, guest_key])
+  @@index([business_id], map: "idx_hotel_guests_business_id")
+}
+
+model hotel_reservations {
+  id                       String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id              String     @db.Uuid
+  room_id                  String?    @db.Uuid
+  room_number              String?
+  guest_name               String
+  guest_email              String?
+  guest_phone              String?
+  guest_address            String?
+  guest_nationality        String?
+  guest_id_type            String?
+  guest_id_number          String?
+  next_of_kin_name         String?
+  next_of_kin_phone        String?
+  next_of_kin_relationship String?
+  booking_source           String     @default("walk-in")
+  company_name             String?
+  vehicle_plate_number     String?
+  vehicle_make             String?
+  vehicle_model            String?
+  vehicle_color            String?
+  check_in                 DateTime   @db.Timestamptz(6)
+  check_out                DateTime   @db.Timestamptz(6)
+  adults                   Int        @default(1)
+  children                 Int        @default(0)
+  status                   String     @default("confirmed")
+  total_price              Decimal    @default(0) @db.Decimal(12, 2)
+  special_requests         Json       @default("[]")
+  payment_status           String     @default("unpaid")
+  cancel_reason            String?
+  created_at               DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime   @default(now()) @db.Timestamptz(6)
+  guest_sex                String?
+  occupant_count           Int        @default(1)
+  vehicle_year             String?
+  payment_method           String     @default("cash")
+  mixed_payment_note       String?
+  stay_duration_type       String     @default("full_day")
+  estimated_arrival_at     DateTime?  @db.Timestamptz(6)
+  businesses               businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_hotel_reservations_business_id")
+}
+
+model hotel_rooms {
+  id                     String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id            String     @db.Uuid
+  number                 String
+  type                   String     @default("single")
+  capacity               Int        @default(1)
+  price_per_night        Decimal    @default(0) @db.Decimal(12, 2)
+  status                 String     @default("available")
+  emoji                  String?
+  amenities              Json       @default("[]")
+  images                 Json       @default("[]")
+  price_intervals        Json       @default("[]")
+  floor                  Int        @default(1)
+  rating                 Decimal    @default(4.5) @db.Decimal(3, 2)
+  created_at             DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime   @default(now()) @db.Timestamptz(6)
+  half_day_price         Decimal    @default(0) @db.Decimal(12, 2)
+  size                   String?
+  bed_size               String?
+  extra_details          Json       @default("{}")
+  half_day_hours         Int        @default(12)
+  full_day_checkout_time String     @default("12:00")
+  businesses             businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_hotel_rooms_business_id")
+}
+
+model hotel_service_orders {
+  id             String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id    String     @db.Uuid
+  room_id        String?    @db.Uuid
+  reservation_id String?    @db.Uuid
+  service_name   String
+  description    String?
+  requested_at   DateTime   @default(now()) @db.Timestamptz(6)
+  completed_at   DateTime?  @db.Timestamptz(6)
+  status         String     @default("pending")
+  priority       String     @default("medium")
+  charge_amount  Decimal?   @db.Decimal(12, 2)
+  source         String     @default("hotel_service")
+  created_at     DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime   @default(now()) @db.Timestamptz(6)
+  businesses     businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_hotel_service_orders_business_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model inventory {
+  id                   String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id          String                 @db.Uuid
+  name                 String
+  sku                  String?
+  barcode              String?
+  category             String?
+  description          String?
+  unit_price           Decimal                @default(0) @db.Decimal(12, 2)
+  cost_price           Decimal?               @default(0) @db.Decimal(12, 2)
+  quantity             Decimal                @default(0) @db.Decimal(12, 2)
+  min_stock_level      Decimal?               @default(0) @db.Decimal(12, 2)
+  unit                 String?                @default("pcs")
+  expiry_date          DateTime?              @db.Timestamptz(6)
+  store_id             String?                @db.Uuid
+  is_active            Boolean?               @default(true)
+  created_at           DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime?              @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id  String?
+  metadata             Json                   @default("{}")
+  bakery_resupplies    bakery_resupplies[]
+  businesses           businesses             @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  inventory_alert_acks inventory_alert_acks[]
+  inventory_history    inventory_history[]
+
+  @@unique([business_id, legacy_firestore_id], map: "idx_inventory_business_legacy_firestore_id", where: raw("(legacy_firestore_id IS NOT NULL)"))
+  @@index([business_id], map: "idx_inventory_business")
+  @@index([category], map: "idx_inventory_category")
+  @@index([business_id, quantity, min_stock_level], map: "idx_inventory_low_stock", where: raw("(quantity <= min_stock_level)"))
+  @@index([sku], map: "idx_inventory_sku")
+}
+
+model inventory_alert_acks {
+  id              String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id     String     @db.Uuid
+  product_id      String     @db.Uuid
+  severity        String
+  acknowledged_by String?    @db.Uuid
+  acknowledged_at DateTime   @default(now()) @db.Timestamptz(6)
+  businesses      businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  inventory       inventory  @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id, product_id], map: "idx_inventory_alert_acks_product")
+}
+
+model inventory_batches {
+  id                  String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String       @db.Uuid
+  inventory_id        String       @db.Uuid
+  procurement_id      String       @db.Uuid
+  batch_label         String?
+  quantity            Decimal      @default(0) @db.Decimal(14, 3)
+  remaining_quantity  Decimal      @default(0) @db.Decimal(14, 3)
+  unit                String?
+  cost                Decimal      @default(0) @db.Decimal(12, 2)
+  total               Decimal      @default(0) @db.Decimal(12, 2)
+  purchase_quantity   Decimal?     @db.Decimal(14, 3)
+  purchase_unit       String?
+  purchase_unit_cost  Decimal?     @db.Decimal(12, 2)
+  expiry_date         DateTime?    @db.Timestamptz(6)
+  supplier_name       String?
+  invoice_ref         String?
+  reference_image_url String?
+  created_at          DateTime     @default(now()) @db.Timestamptz(6)
+  businesses          businesses   @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  procurements        procurements @relation(fields: [procurement_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_inventory_batches_business_id")
+  @@index([inventory_id], map: "idx_inventory_batches_inventory_id")
+  @@index([procurement_id], map: "idx_inventory_batches_procurement_id")
+}
+
+model inventory_history {
+  id                  String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String     @db.Uuid
+  inventory_id        String     @db.Uuid
+  change_type         String     @default("adjustment")
+  quantity_change     Decimal?   @db.Decimal(12, 2)
+  quantity_after      Decimal?   @db.Decimal(12, 2)
+  notes               String?
+  performed_by_id     String?    @db.Uuid
+  performed_by_name   String?
+  metadata            Json       @default("{}")
+  created_at          DateTime   @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id String?
+  businesses          businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  inventory           inventory  @relation(fields: [inventory_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_inventory_history_business_id")
+  @@index([inventory_id], map: "idx_inventory_history_inventory_id")
+  @@index([legacy_firestore_id], map: "idx_inventory_history_legacy_fs")
+}
+
+model invoices {
+  id                  String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String     @db.Uuid
+  invoice_number      String
+  status              String     @default("draft")
+  source              String?
+  customer_id         String?    @db.Uuid
+  customer_name       String?
+  customer_email      String?
+  customer_phone      String?
+  items               Json       @default("[]")
+  subtotal            Decimal    @default(0) @db.Decimal(12, 2)
+  tax                 Decimal    @default(0) @db.Decimal(12, 2)
+  discount            Decimal    @default(0) @db.Decimal(12, 2)
+  total               Decimal    @default(0) @db.Decimal(12, 2)
+  created_by          String?    @db.Uuid
+  created_by_name     String?
+  created_at          DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime   @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id String?
+  businesses          businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id, created_at(sort: Desc)], map: "idx_invoices_business_id")
+  @@index([legacy_firestore_id], map: "idx_invoices_legacy_fs")
+}
+
+model managecare_workers {
+  id               String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name             String
+  email            String?
+  phone            String?
+  role             String             @default("Customer Support")
+  role_key         String?
+  is_active        Boolean?           @default(true)
+  created_by       String?            @db.Uuid
+  updated_by       String?            @db.Uuid
+  created_at       DateTime?          @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?          @default(now()) @db.Timestamptz(6)
+  password_hash    String?
+  admin_work_items admin_work_items[]
+}
+
+model notifications {
+  id          BigInt      @id @default(autoincrement())
+  user_id     String      @db.Uuid
+  business_id String?     @db.Uuid
+  title       String      @db.VarChar(255)
+  body        String
+  type        String?     @default("general") @db.VarChar(50)
+  data        Json?
+  is_read     Boolean?    @default(false)
+  read_at     DateTime?   @db.Timestamptz(6)
+  created_at  DateTime?   @default(now()) @db.Timestamptz(6)
+  businesses  businesses? @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  profiles    profiles    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([created_at(sort: Desc)], map: "idx_notifications_created_at")
+  @@index([user_id, is_read], map: "idx_notifications_unread", where: raw("(is_read = false)"))
+  @@index([user_id], map: "idx_notifications_user_id")
+}
+
+model password_reset_tokens {
+  token      String    @id
+  user_id    String    @db.Uuid
+  expires_at DateTime  @db.Timestamptz(6)
+  used_at    DateTime? @db.Timestamptz(6)
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([user_id], map: "idx_password_reset_tokens_user_id")
+}
+
+model payment_transactions {
+  id                  String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String?     @db.Uuid
+  business_name       String?
+  transaction_id      String?
+  amount              Decimal?    @default(0) @db.Decimal(12, 2)
+  currency            String?     @default("NGN")
+  email               String?
+  method              String?
+  status              String?     @default("pending")
+  business_category   String?
+  business_tier       String?
+  marketer_revenue    Decimal?    @default(0) @db.Decimal(12, 2)
+  marketer_commission Decimal?    @default(0) @db.Decimal(12, 2)
+  processor_response  Json?       @default("{}")
+  created_at          DateTime?   @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?   @default(now()) @db.Timestamptz(6)
+  businesses          businesses? @relation(fields: [business_id], references: [id], onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_payment_transactions_business")
+  @@index([created_at(sort: Desc)], map: "idx_payment_transactions_created")
+}
+
+model petroleum_admin_cash_submissions {
+  id                   String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id          String     @db.Uuid
+  submitted_by         String?    @db.Uuid
+  submitted_by_name    String?
+  receiver_name        String
+  amount               Decimal    @default(0) @db.Decimal(12, 2)
+  balance_cash_at_hand Decimal    @default(0) @db.Decimal(12, 2)
+  submission_date      DateTime   @default(dbgenerated("CURRENT_DATE")) @db.Date
+  submission_time      DateTime   @default(dbgenerated("CURRENT_TIME")) @db.Time(6)
+  note                 String?
+  created_at           DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime   @default(now()) @db.Timestamptz(6)
+  businesses           businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id, submission_date(sort: Desc), created_at(sort: Desc)], map: "idx_petroleum_admin_cash_submissions_business")
+}
+
+model petroleum_bank_deposits {
+  id                   String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id          String     @db.Uuid
+  depositor_name       String
+  deposit_date         DateTime   @default(dbgenerated("CURRENT_DATE")) @db.Date
+  deposit_time         DateTime   @default(dbgenerated("CURRENT_TIME")) @db.Time(6)
+  amount               Decimal    @default(0) @db.Decimal(12, 2)
+  bank_name            String
+  account_number       String?
+  account_name         String?
+  receipt_url          String?
+  recorded_by          String?    @db.Uuid
+  recorded_by_name     String?
+  created_at           DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime   @default(now()) @db.Timestamptz(6)
+  deposited_cash_entry Decimal    @default(0) @db.Decimal(12, 2)
+  balance_cash_at_hand Decimal    @default(0) @db.Decimal(12, 2)
+  submitted_at         DateTime   @default(now()) @db.Timestamptz(6)
+  businesses           businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id, deposit_date(sort: Desc)], map: "idx_petroleum_bank_deposits_business")
+}
+
+model petroleum_cash_entries {
+  id                 String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id        String              @db.Uuid
+  source_type        String
+  upload_id          String?             @db.Uuid
+  sale_id            String?             @db.Uuid
+  worker_id          String?             @db.Uuid
+  worker_name        String?
+  pump_id            String?             @db.Uuid
+  pump_number        String?
+  product_name       String?
+  cash_amount        Decimal             @default(0) @db.Decimal(12, 2)
+  pos_amount         Decimal             @default(0) @db.Decimal(12, 2)
+  total_amount       Decimal             @default(0) @db.Decimal(12, 2)
+  cash_breakdown     Json                @default("[]")
+  entry_date         DateTime            @default(dbgenerated("CURRENT_DATE")) @db.Date
+  entry_time         DateTime            @default(dbgenerated("CURRENT_TIME")) @db.Time(6)
+  note               String?
+  created_by         String?             @db.Uuid
+  created_by_name    String?
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime            @default(now()) @db.Timestamptz(6)
+  businesses         businesses          @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  sales              sales?              @relation(fields: [sale_id], references: [id], onUpdate: NoAction)
+  pump_daily_uploads pump_daily_uploads? @relation(fields: [upload_id], references: [id], onUpdate: NoAction)
+
+  @@index([business_id, entry_date(sort: Desc), created_at(sort: Desc)], map: "idx_petroleum_cash_entries_business")
+  @@index([business_id, source_type, entry_date(sort: Desc)], map: "idx_petroleum_cash_entries_source")
+}
+
+model petroleum_cash_total_correction_log {
+  id                             String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                    String     @db.Uuid
+  cash_income_before             Decimal    @db.Decimal(12, 2)
+  cash_income_after              Decimal    @db.Decimal(12, 2)
+  pos_income_before              Decimal    @db.Decimal(12, 2)
+  pos_income_after               Decimal    @db.Decimal(12, 2)
+  total_bank_deposits_before     Decimal    @db.Decimal(12, 2)
+  total_bank_deposits_after      Decimal    @db.Decimal(12, 2)
+  total_admin_submissions_before Decimal    @db.Decimal(12, 2)
+  total_admin_submissions_after  Decimal    @db.Decimal(12, 2)
+  balance_cash_at_hand_before    Decimal    @db.Decimal(12, 2)
+  balance_cash_at_hand_after     Decimal    @db.Decimal(12, 2)
+  note                           String?
+  corrected_by                   String?    @db.Uuid
+  corrected_by_name              String?
+  corrected_at                   DateTime   @default(now()) @db.Timestamptz(6)
+  businesses                     businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id, corrected_at(sort: Desc)], map: "idx_petroleum_cash_total_correction_log_business")
+}
+
+model petroleum_cash_total_corrections {
+  id                           String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                  String     @unique(map: "idx_petroleum_cash_total_corrections_business") @db.Uuid
+  cash_income                  Decimal?   @db.Decimal(12, 2)
+  pos_income                   Decimal?   @db.Decimal(12, 2)
+  total_bank_deposits          Decimal?   @db.Decimal(12, 2)
+  total_admin_submissions      Decimal?   @db.Decimal(12, 2)
+  balance_cash_at_hand         Decimal?   @db.Decimal(12, 2)
+  note                         String?
+  corrected_by                 String?    @db.Uuid
+  corrected_by_name            String?
+  corrected_at                 DateTime   @default(now()) @db.Timestamptz(6)
+  base_cash_income             Decimal    @default(0) @db.Decimal(12, 2)
+  base_pos_income              Decimal    @default(0) @db.Decimal(12, 2)
+  base_total_bank_deposits     Decimal    @default(0) @db.Decimal(12, 2)
+  base_total_admin_submissions Decimal    @default(0) @db.Decimal(12, 2)
+  businesses                   businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model pharmacy_audit_log {
+  id          String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id String?     @db.Uuid
+  action      String?
+  actor_id    String?
+  details     Json        @default("{}")
+  created_at  DateTime    @default(now()) @db.Timestamptz(6)
+  businesses  businesses? @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_pharmacy_audit_log_business_id")
+}
+
+model pharmacy_patients {
+  id                     String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id            String                   @db.Uuid
+  name                   String
+  phone                  String?
+  email                  String?
+  address                String?
+  date_of_birth          DateTime?                @db.Timestamptz(6)
+  allergies              String?
+  blood_type             String?
+  additional_notes       String?
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  businesses             businesses               @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_prescriptions pharmacy_prescriptions[]
+
+  @@index([business_id], map: "idx_pharmacy_patients_business_id")
+}
+
+model pharmacy_prescriptions {
+  id                    String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id           String             @db.Uuid
+  patient_id            String?            @db.Uuid
+  patient_name          String?
+  items                 Json               @default("[]")
+  status                String             @default("pending")
+  prescriber_id         String?
+  prescriber_name       String?
+  notes                 String?
+  attachment_reference  String?
+  attachment_required   Boolean            @default(false)
+  patient_date_of_birth DateTime?          @db.Timestamptz(6)
+  issued_at             DateTime           @default(now()) @db.Timestamptz(6)
+  created_at            DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime           @default(now()) @db.Timestamptz(6)
+  businesses            businesses         @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacy_patients     pharmacy_patients? @relation(fields: [patient_id], references: [id], onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_pharmacy_prescriptions_business_id")
+}
+
+model pharmacy_treatments {
+  id                String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id       String     @db.Uuid
+  patient_id        String?    @db.Uuid
+  name              String
+  drug_name         String?
+  dosage            String?
+  frequency_per_day Int        @default(1)
+  duration_days     Int        @default(1)
+  start_date        DateTime   @default(now()) @db.Timestamptz(6)
+  end_date          DateTime?  @db.Timestamptz(6)
+  is_active         Boolean    @default(true)
+  administered_log  Json       @default("[]")
+  created_at        DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime   @default(now()) @db.Timestamptz(6)
+  businesses        businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_pharmacy_treatments_business_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model procurements {
+  id                  String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String              @db.Uuid
+  supplier_name       String?
+  total_amount        Decimal             @db.Decimal(12, 2)
+  status              String?             @default("pending")
+  notes               String?
+  created_by          String?             @db.Uuid
+  created_at          DateTime?           @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?           @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id String?
+  items               Json                @default("[]")
+  total_quantity      Decimal             @default(0) @db.Decimal(14, 3)
+  items_count         Int                 @default(0)
+  invoice_ref         String?
+  reference_image_url String?
+  store_id            String?             @db.Uuid
+  store_name          String?
+  source_type         String?
+  created_by_name     String?
+  created_by_email    String?
+  baker_id            String?
+  baker_name          String?
+  sales_rep_id        String?
+  sales_rep_name      String?
+  inventory_batches   inventory_batches[]
+  businesses          businesses          @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_procurements_business")
+  @@index([business_id], map: "idx_procurements_business_id")
+  @@index([source_type], map: "idx_procurements_source_type")
+}
+
+model profiles {
+  id                                                       String                      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email                                                    String?                     @unique
+  full_name                                                String?
+  created_at                                               DateTime?                   @default(now()) @db.Timestamptz(6)
+  pin                                                      String?
+  current_business_id                                      String?                     @db.Uuid
+  phone_number                                             String?
+  photo_url                                                String?
+  password_hash                                            String?
+  is_active                                                Boolean?                    @default(true)
+  is_deleted                                               Boolean?                    @default(false)
+  deleted_at                                               DateTime?                   @db.Timestamptz(6)
+  deletion_reason                                          String?
+  updated_at                                               DateTime?                   @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id                                      String?                     @unique(map: "idx_profiles_legacy_firestore_id", where: raw("(legacy_firestore_id IS NOT NULL)"))
+  recovery_deadline_at                                     DateTime?                   @db.Timestamptz(6)
+  deleted_by_id                                            String?                     @db.Uuid
+  deleted_by_type                                          String?
+  subscription_business_id                                 String?                     @db.Uuid
+  subscription_plan                                        String?
+  subscription_tier                                        String?
+  subscription_family                                      String?
+  subscription_business_type                               String?
+  has_active_subscription                                  Boolean?                    @default(false)
+  subscription_status                                      String?
+  subscription_start_date                                  DateTime?                   @db.Timestamptz(6)
+  subscription_end_date                                    DateTime?                   @db.Timestamptz(6)
+  subscription_payment_required                            Boolean?                    @default(true)
+  subscription_receipt_url                                 String?
+  subscription_amount                                      Decimal?                    @db.Decimal(12, 2)
+  subscription_activated_at                                DateTime?                   @db.Timestamptz(6)
+  business_members                                         business_members[]
+  businesses_businesses_owner_idToprofiles                 businesses[]                @relation("businesses_owner_idToprofiles")
+  device_tokens                                            device_tokens[]
+  notifications                                            notifications[]
+  businesses_profiles_current_business_idTobusinesses      businesses?                 @relation("profiles_current_business_idTobusinesses", fields: [current_business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businesses_profiles_subscription_business_idTobusinesses businesses?                 @relation("profiles_subscription_business_idTobusinesses", fields: [subscription_business_id], references: [id], onUpdate: NoAction)
+  realtime_subscriptions                                   realtime_subscriptions[]
+  subscription_requests                                    subscription_requests[]
+  subscription_transactions                                subscription_transactions[]
+  sync_audit_log                                           sync_audit_log[]
+
+  @@index([email], map: "idx_profiles_email")
+}
+
+model pump_daily_uploads {
+  id                               String                    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id                      String                    @db.Uuid
+  pump_id                          String?                   @db.Uuid
+  pump_number                      String?
+  product_id                       String?                   @db.Uuid
+  product_name                     String?
+  product_unit                     String?
+  product_price                    Decimal                   @default(0) @db.Decimal(12, 2)
+  worker_id                        String?                   @db.Uuid
+  worker_name                      String?
+  upload_fingerprint               String?
+  sale_id                          String?                   @db.Uuid
+  opening_volume                   Decimal                   @default(0) @db.Decimal(14, 3)
+  closing_volume                   Decimal                   @default(0) @db.Decimal(14, 3)
+  digital_volume                   Decimal                   @default(0) @db.Decimal(14, 3)
+  volume_difference                Decimal                   @default(0) @db.Decimal(14, 3)
+  analog_opening_volume            Decimal                   @default(0) @db.Decimal(14, 3)
+  analog_closing_volume            Decimal                   @default(0) @db.Decimal(14, 3)
+  sold_volume                      Decimal                   @default(0) @db.Decimal(14, 3)
+  cash_derived_volume              Decimal                   @default(0) @db.Decimal(14, 3)
+  previous_analog_closing_volume   Decimal?                  @db.Decimal(14, 3)
+  previous_shift_closing_cash      Decimal?                  @db.Decimal(12, 2)
+  previous_closing_volume          Decimal?                  @db.Decimal(14, 3)
+  expected_amount                  Decimal                   @default(0) @db.Decimal(12, 2)
+  shift_opening_cash               Decimal                   @default(0) @db.Decimal(12, 2)
+  shift_close_cash                 Decimal                   @default(0) @db.Decimal(12, 2)
+  shift_cash_difference            Decimal                   @default(0) @db.Decimal(12, 2)
+  today_pump_cash                  Decimal                   @default(0) @db.Decimal(12, 2)
+  cash_amount                      Decimal                   @default(0) @db.Decimal(12, 2)
+  cash_breakdown                   Json                      @default("[]")
+  pos_amount                       Decimal                   @default(0) @db.Decimal(12, 2)
+  total_paid                       Decimal                   @default(0) @db.Decimal(12, 2)
+  discrepancy_notes                Json                      @default("[]")
+  discrepancy_summary              String?
+  shift_opening_cash_photo_url     String?
+  shift_close_cash_photo_url       String?
+  opening_photo_url                String?
+  closing_photo_url                String?
+  is_disputed                      Boolean                   @default(false)
+  disputed_at                      DateTime?                 @db.Timestamptz(6)
+  disputed_by                      String?                   @db.Uuid
+  disputed_by_name                 String?
+  dispute_reason                   String?
+  dispute_resolved_at              DateTime?                 @db.Timestamptz(6)
+  dispute_resolved_by              String?                   @db.Uuid
+  dispute_resolved_by_name         String?
+  category                         String                    @default("pump_daily_upload")
+  uploaded_at                      DateTime                  @default(now()) @db.Timestamptz(6)
+  created_at                       DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime                  @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id              String?
+  status                           String                    @default("pending_review")
+  submitted_at                     DateTime                  @default(now()) @db.Timestamptz(6)
+  submitted_by                     String?                   @db.Uuid
+  submitted_by_name                String?
+  reviewed_at                      DateTime?                 @db.Timestamptz(6)
+  reviewed_by                      String?                   @db.Uuid
+  reviewed_by_name                 String?
+  review_note                      String?
+  decline_reason                   String?
+  approved_sale_id                 String?                   @db.Uuid
+  approved_stock_deduction_applied Boolean                   @default(false)
+  resubmitted_from_upload_id       String?                   @db.Uuid
+  petroleum_cash_entries           petroleum_cash_entries[]
+  businesses                       businesses                @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pumps                            pumps?                    @relation(fields: [pump_id], references: [id], onUpdate: NoAction)
+  pump_upload_adjustments          pump_upload_adjustments[]
+
+  @@unique([business_id, pump_id, upload_fingerprint], map: "idx_pump_daily_uploads_fingerprint", where: raw("(upload_fingerprint IS NOT NULL)"))
+  @@index([business_id], map: "idx_pump_daily_uploads_business_id")
+  @@index([is_disputed], map: "idx_pump_daily_uploads_is_disputed")
+  @@index([legacy_firestore_id], map: "idx_pump_daily_uploads_legacy_fs")
+  @@index([pump_id], map: "idx_pump_daily_uploads_pump_id")
+  @@index([business_id, status, uploaded_at(sort: Desc)], map: "idx_pump_daily_uploads_status")
+  @@index([business_id, worker_id, status, uploaded_at(sort: Desc)], map: "idx_pump_daily_uploads_worker_status")
+}
+
+model pump_upload_adjustments {
+  id                  String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String             @db.Uuid
+  upload_id           String             @db.Uuid
+  pump_id             String?            @db.Uuid
+  pump_number         String?
+  product_name        String?
+  uploaded_at         DateTime?          @db.Timestamptz(6)
+  action              String
+  changes             Json               @default("[]")
+  note                String?
+  adjusted_by         String?            @db.Uuid
+  adjusted_by_name    String?
+  adjusted_at         DateTime           @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id String?
+  businesses          businesses         @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pump_daily_uploads  pump_daily_uploads @relation(fields: [upload_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_pump_upload_adjustments_business_id")
+  @@index([legacy_firestore_id], map: "idx_pump_upload_adjustments_legacy_fs")
+  @@index([upload_id], map: "idx_pump_upload_adjustments_upload_id")
+}
+
+model pumps {
+  id                  String               @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String               @db.Uuid
+  pump_number         String
+  product_id          String?              @db.Uuid
+  product_name        String?
+  product_unit        String?
+  product_price       Decimal              @default(0) @db.Decimal(12, 2)
+  model               String?
+  serial_number       String?
+  manufacturer        String?
+  manufacture_year    String?
+  is_active           Boolean              @default(true)
+  created_at          DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime             @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id String?
+  pump_daily_uploads  pump_daily_uploads[]
+  businesses          businesses           @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_pumps_business_id")
+  @@index([legacy_firestore_id], map: "idx_pumps_legacy_fs")
+}
+
+model realtime_subscriptions {
+  id              String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id         String?     @db.Uuid
+  business_id     String?     @db.Uuid
+  socket_id       String?
+  rooms           String[]    @default([])
+  connected_at    DateTime?   @default(now()) @db.Timestamptz(6)
+  disconnected_at DateTime?   @db.Timestamptz(6)
+  is_active       Boolean?    @default(true)
+  businesses      businesses? @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  profiles        profiles?   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_realtime_business")
+  @@index([user_id], map: "idx_realtime_user")
+}
+
+model refresh_tokens {
+  token      String   @id
+  user_id    String   @db.Uuid
+  expires_at DateTime @db.Timestamptz(6)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([expires_at], map: "idx_refresh_tokens_expires_at")
+  @@index([user_id], map: "idx_refresh_tokens_user_id")
+}
+
+model reorders {
+  id           String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id  String     @db.Uuid
+  product_id   String     @db.Uuid
+  product_name String
+  quantity     Int        @default(0)
+  status       String     @default("pending")
+  source       String     @default("alert")
+  created_at   DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime   @default(now()) @db.Timestamptz(6)
+  businesses   businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_reorders_business_id")
+}
+
+model restaurant_menu_items {
+  id                   String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id          String     @db.Uuid
+  name                 String
+  category             String     @default("Menu")
+  price                Decimal    @default(0) @db.Decimal(12, 2)
+  cost                 Decimal?   @db.Decimal(12, 2)
+  description          String?
+  available            Boolean    @default(true)
+  preparation_time     Int        @default(15)
+  image_url            String?
+  rating               Decimal?   @db.Decimal(3, 2)
+  review_count         Int?
+  inventory_product_id String?    @db.Uuid
+  inventory_stock      Int?
+  options              Json       @default("[]")
+  ingredients          Json       @default("[]")
+  created_at           DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime   @default(now()) @db.Timestamptz(6)
+  businesses           businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_restaurant_menu_items_business_id")
+}
+
+model restaurant_orders {
+  id                 String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id        String     @db.Uuid
+  table_id           String?    @db.Uuid
+  table_number       Int?
+  room_id            String?
+  guest_id           String?
+  order_target_type  String?
+  order_target_label String?
+  customer_id        String?    @db.Uuid
+  customer_name      String?
+  customer_phone     String?
+  customer_email     String?
+  items              Json       @default("[]")
+  subtotal           Decimal    @default(0) @db.Decimal(12, 2)
+  tax                Decimal    @default(0) @db.Decimal(12, 2)
+  discount           Decimal    @default(0) @db.Decimal(12, 2)
+  total              Decimal    @default(0) @db.Decimal(12, 2)
+  status             String     @default("pending")
+  payment_status     String     @default("pending")
+  assigned_chef_id   String?    @db.Uuid
+  assigned_waiter_id String?    @db.Uuid
+  payment_methods    Json       @default("[]")
+  payment_breakdown  Json       @default("[]")
+  notes              String?
+  order_type         String     @default("dine-in")
+  created_at         DateTime   @default(now()) @db.Timestamptz(6)
+  completed_at       DateTime?  @db.Timestamptz(6)
+  updated_at         DateTime   @default(now()) @db.Timestamptz(6)
+  businesses         businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_restaurant_orders_business_id")
+}
+
+model restaurant_reservations {
+  id                    String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id           String     @db.Uuid
+  customer_name         String
+  customer_phone        String
+  guest_count           Int        @default(1)
+  reservation_date_time DateTime   @db.Timestamptz(6)
+  status                String     @default("pending")
+  special_requests      String?
+  table_id              String?    @db.Uuid
+  table_number          Int?
+  assigned_waiter_id    String?    @db.Uuid
+  assigned_waiter_name  String?
+  created_at            DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime   @default(now()) @db.Timestamptz(6)
+  businesses            businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_restaurant_reservations_business_id")
+}
+
+model restaurant_staff {
+  id          String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id String     @db.Uuid
+  name        String
+  phone       String?
+  role        String     @default("waiter")
+  active      Boolean    @default(true)
+  sections    Json       @default("[]")
+  permissions Json       @default("[]")
+  created_at  DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime   @default(now()) @db.Timestamptz(6)
+  businesses  businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_restaurant_staff_business_id")
+}
+
+model restaurant_tables {
+  id                   String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id          String     @db.Uuid
+  table_number         Int
+  capacity             Int        @default(2)
+  status               String     @default("available")
+  assigned_waiter_id   String?    @db.Uuid
+  assigned_waiter_name String?
+  reserved_until       DateTime?  @db.Timestamptz(6)
+  created_at           DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime   @default(now()) @db.Timestamptz(6)
+  businesses           businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_restaurant_tables_business_id")
+}
+
+model restaurant_waste {
+  id                 String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id        String     @db.Uuid
+  product_id         String     @db.Uuid
+  product_name       String
+  quantity           Decimal    @db.Decimal(12, 2)
+  unit               String     @default("unit")
+  type               String     @default("spoilage")
+  reason             String?
+  cost_impact        Decimal    @default(0) @db.Decimal(12, 2)
+  remaining_quantity Decimal    @default(0) @db.Decimal(12, 2)
+  recorded_by_id     String?    @db.Uuid
+  recorded_by_name   String?
+  recorded_at        DateTime   @default(now()) @db.Timestamptz(6)
+  businesses         businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_restaurant_waste_business_id")
+}
+
+model returns {
+  id                  String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String     @db.Uuid
+  sale_id             String     @db.Uuid
+  reason              String?
+  refund_method       String?
+  refund_amount       Decimal    @default(0) @db.Decimal(12, 2)
+  exclude_from_totals Boolean    @default(false)
+  items_returned      Json       @default("[]")
+  processed_by_id     String?    @db.Uuid
+  processed_by_name   String?
+  entered_by_id       String?    @db.Uuid
+  entered_by_name     String?
+  entered_by_email    String?
+  entered_by_role     String?
+  sale_reference      String?
+  sold_by_id          String?    @db.Uuid
+  sold_by_name        String?
+  customer_id         String?    @db.Uuid
+  customer_name       String?
+  created_at          DateTime   @default(now()) @db.Timestamptz(6)
+  businesses          businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  sales               sales      @relation(fields: [sale_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_returns_business_id")
+  @@index([sale_id], map: "idx_returns_sale_id")
+}
+
+model sale_deletions {
+  id             String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id    String     @db.Uuid
+  sale_id        String     @db.Uuid
+  deleted_by     String?    @db.Uuid
+  reason         String?
+  sale_snapshot  Json       @default("{}")
+  items_snapshot Json       @default("[]")
+  created_at     DateTime   @default(now()) @db.Timestamptz(6)
+  businesses     businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_sale_deletions_business_id")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sale_items {
+  id                   String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  sale_id              String   @db.Uuid
+  product_id           String?  @db.Uuid
+  product_name         String
+  quantity             Decimal  @db.Decimal(12, 2)
+  unit_price           Decimal  @db.Decimal(12, 2)
+  discount             Decimal? @default(0) @db.Decimal(12, 2)
+  total                Decimal  @db.Decimal(12, 2)
+  pricing_mode         String?
+  inventory_unit       String?
+  sale_unit            String?
+  sale_unit_multiplier Decimal? @default(1) @db.Decimal(12, 2)
+  legacy_firestore_id  String?
+  sales                sales    @relation(fields: [sale_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([sale_id], map: "idx_sale_items_sale")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model sales {
+  id                     String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id            String                   @db.Uuid
+  customer_id            String?                  @db.Uuid
+  store_id               String?                  @db.Uuid
+  worker_id              String?                  @db.Uuid
+  worker_name            String?
+  total_amount           Decimal                  @db.Decimal(12, 2)
+  discount_amount        Decimal?                 @default(0) @db.Decimal(12, 2)
+  tax_amount             Decimal?                 @default(0) @db.Decimal(12, 2)
+  final_amount           Decimal                  @db.Decimal(12, 2)
+  payment_method         String
+  payment_breakdown      Json                     @default("[]")
+  status                 String                   @default("completed")
+  notes                  String?
+  created_by             String                   @db.Uuid
+  sale_type              String?                  @default("retail")
+  created_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime?                @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id    String?
+  return_amount          Decimal                  @default(0) @db.Decimal(12, 2)
+  returned_quantities    Json                     @default("{}")
+  has_return             Boolean                  @default(false)
+  distributor_sales      distributor_sales[]
+  petroleum_cash_entries petroleum_cash_entries[]
+  returns                returns[]
+  sale_items             sale_items[]
+  businesses             businesses               @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([business_id, legacy_firestore_id], map: "idx_sales_business_legacy_firestore_id", where: raw("(legacy_firestore_id IS NOT NULL)"))
+  @@index([business_id], map: "idx_sales_business")
+  @@index([created_at(sort: Desc)], map: "idx_sales_created")
+  @@index([payment_method], map: "idx_sales_payment")
+  @@index([status], map: "idx_sales_status")
+}
+
+model stores {
+  id                  String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id         String     @db.Uuid
+  name                String
+  location            String?
+  address             String?
+  phone               String?
+  is_active           Boolean    @default(true)
+  created_at          DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime   @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id String?
+  businesses          businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_stores_business_id")
+  @@index([legacy_firestore_id], map: "idx_stores_legacy_fs")
+}
+
+model subscription_events {
+  id          String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id     String?     @db.Uuid
+  business_id String?     @db.Uuid
+  action      String
+  plan_id     String?
+  plan_tier   String?
+  plan_family String?
+  amount      Decimal?    @db.Decimal(12, 2)
+  receipt_url String?
+  start_date  DateTime?   @db.Timestamptz(6)
+  end_date    DateTime?   @db.Timestamptz(6)
+  created_at  DateTime    @default(now()) @db.Timestamptz(6)
+  businesses  businesses? @relation(fields: [business_id], references: [id], onUpdate: NoAction)
+
+  @@index([business_id, created_at(sort: Desc)], map: "idx_subscription_events_business")
+  @@index([user_id, created_at(sort: Desc)], map: "idx_subscription_events_user")
+}
+
+model subscription_requests {
+  id             String      @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id    String?     @db.Uuid
+  user_id        String?     @db.Uuid
+  plan_id        String?
+  plan_name      String?
+  amount         Decimal?    @default(0) @db.Decimal(12, 2)
+  currency       String?     @default("NGN")
+  status         String?     @default("pending")
+  payment_method String?
+  transaction_id String?
+  notes          String?
+  created_at     DateTime?   @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime?   @default(now()) @db.Timestamptz(6)
+  businesses     businesses? @relation(fields: [business_id], references: [id], onUpdate: NoAction)
+  profiles       profiles?   @relation(fields: [user_id], references: [id], onUpdate: NoAction)
+
+  @@index([business_id, created_at(sort: Desc)], map: "idx_subscription_requests_business")
+}
+
+model subscription_transactions {
+  id             String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  business_id    String     @db.Uuid
+  user_id        String?    @db.Uuid
+  amount         Decimal    @db.Decimal(12, 2)
+  plan           String
+  transaction_id String?
+  status         String?    @default("pending")
+  reference      String?
+  created_at     DateTime?  @default(now()) @db.Timestamptz(6)
+  businesses     businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  profiles       profiles?  @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_subscription_transactions_business")
+}
+
+model sync_audit_log {
+  id                BigInt      @id @default(autoincrement())
+  business_id       String?     @db.Uuid
+  entity_type       String
+  entity_id         String?
+  action            String
+  status            String      @default("pending")
+  conflict_resolved Boolean?    @default(false)
+  local_updated_at  DateTime?   @db.Timestamptz(6)
+  server_updated_at DateTime?   @db.Timestamptz(6)
+  payload           Json?
+  error_message     String?
+  synced_by         String?     @db.Uuid
+  created_at        DateTime?   @default(now()) @db.Timestamptz(6)
+  businesses        businesses? @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  profiles          profiles?   @relation(fields: [synced_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([business_id], map: "idx_sync_audit_business")
+  @@index([created_at(sort: Desc)], map: "idx_sync_audit_created")
+  @@index([status], map: "idx_sync_audit_status")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model workers {
+  id                    String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email                 String?
+  password_hash         String?
+  full_name             String
+  phone                 String?
+  role                  String              @default("staff")
+  business_id           String              @db.Uuid
+  store_id              String?             @db.Uuid
+  is_active             Boolean?            @default(true)
+  permissions           Json?               @default("{}")
+  pin                   String?
+  commission_percentage Decimal?            @default(0) @db.Decimal(5, 2)
+  created_at            DateTime?           @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime?           @default(now()) @db.Timestamptz(6)
+  legacy_firestore_id   String?
+  attendance            attendance[]
+  businesses            businesses          @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tasks                 Task[]
+  obligation_expenses   ObligationExpense[]
+  team                  Team?               @relation(fields: [teamId], references: [id])
+  teamId                Int?
+
+  @@unique([business_id, legacy_firestore_id], map: "idx_workers_business_legacy_firestore_id", where: raw("(legacy_firestore_id IS NOT NULL)"))
+  @@index([business_id], map: "idx_workers_business")
+  @@index([email], map: "idx_workers_email")
+}
+
+enum AdministrativeSubscriptionTier {
+  TIER_1
+  TIER_2
+  TIER_3
+  PREMIUM
+  ENTERPRISE
+}
+
+enum SubscriptionPeriod {
+  MONTH_3
+  MONTH_6
+  MONTH_12
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+enum ObligationType {
+  STATIC
+  TRAILING
+}
+
+enum TaskStatus {
+  INPROGRESS
+  DONE
+}
+
+enum ActivityAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+}
+
+model AdministrativePlan {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  identifier String @unique @db.VarChar(100)
+
+  tier   AdministrativeSubscriptionTier
+  period SubscriptionPeriod
+
+  // null = unlimited
+  storage_gb   Int?
+  staff_limit  Int?
+  client_limit Int?
+  branch_limit Int?
+
+  price Decimal @db.Decimal(12, 2)
+
+  is_active Boolean @default(true)
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  subscriptions AdministrativeSubscription[]
+
+  @@unique([tier, period])
+  @@index([tier])
+  @@index([is_active])
+  @@map("administrative_plans")
+}
+
+model AdministrativeSubscription {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  business_id String @db.Uuid
+  plan_id     String @db.Uuid
+
+  status SubscriptionStatus @default(PENDING)
+
+  // Snapshot of the amount paid at purchase time.
+  amount_paid Decimal @db.Decimal(12, 2)
+
+  starts_at  DateTime @db.Timestamptz(6)
+  expires_at DateTime @db.Timestamptz(6)
+
+  cancelled_at DateTime? @db.Timestamptz(6)
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  plan AdministrativePlan @relation(fields: [plan_id], references: [id], onDelete: Restrict)
+
+  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@index([business_id])
+  @@index([plan_id])
+  @@index([status])
+  @@index([expires_at])
+  @@map("administrative_subscriptions")
+}
+
+model AdministrativeUsage {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  business_id String @unique @db.Uuid
+
+  storage_bytes BigInt @default(0)
+  staff_count   Int    @default(0)
+  client_count  Int    @default(0)
+  branch_count  Int    @default(0)
+
+  updated_at DateTime @updatedAt @db.Timestamptz(6)
+
+  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@map("administrative_usage")
+}
+
+model Team {
+  id Int @id @default(autoincrement())
+
+  business_id String @db.Uuid
+
+  name        String
+  description String?
+
+  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  tasks Task[]
+
+  members workers[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([business_id])
+  @@map("teams")
+}
+
+model Task {
+  id Int @id @default(autoincrement())
+
+  business_id String  @db.Uuid
+  team_id     Int?
+  worker_id   String? @db.Uuid
+
+  title       String
+  description String?
+
+  status TaskStatus @default(INPROGRESS)
+
+  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  team Team? @relation(fields: [team_id], references: [id], onDelete: SetNull)
+
+  creator workers? @relation(fields: [worker_id], references: [id], onDelete: SetNull)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([business_id])
+  @@index([team_id])
+  @@index([worker_id])
+  @@index([status])
+  @@map("tasks")
+}
+
+model Client {
+  id Int @id @default(autoincrement())
+
+  business_id String @db.Uuid
+
+  name        String
+  client_code String?
+  email       String?
+  phone       String?
+  address     String?
+
+  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  obligations Obligation[]
+  expenses    ObligationExpense[]
+  documents   Document[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([business_id, client_code])
+  @@index([business_id])
+  @@index([client_code])
+  @@map("clients")
+}
+
+model Obligation {
+  id Int @id @default(autoincrement())
+
+  business_id String @db.Uuid
+  client_id   Int?
+
+  title       String
+  description String?
+  note        String?
+
+  type ObligationType
+
+  due_date      DateTime?
+  duration_days Int?
+
+  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  client Client? @relation(fields: [client_id], references: [id], onDelete: SetNull)
+
+  expenses ObligationExpense[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([business_id])
+  @@index([client_id])
+  @@index([type])
+  @@index([due_date])
+  @@map("obligations")
+}
+
+model ObligationExpense {
+  id Int @id @default(autoincrement())
+
+  business_id   String  @db.Uuid
+  obligation_id Int
+  client_id     Int?
+  worker_id     String? @db.Uuid
+
+  amount Decimal @db.Decimal(12, 2)
+
+  date_incurred DateTime
+
+  review String?
+
+  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  obligation Obligation @relation(fields: [obligation_id], references: [id], onDelete: Cascade)
+
+  client Client? @relation(fields: [client_id], references: [id], onDelete: SetNull)
+
+  worker workers? @relation(fields: [worker_id], references: [id], onDelete: SetNull)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([business_id])
+  @@index([obligation_id])
+  @@index([client_id])
+  @@index([worker_id])
+  @@index([date_incurred])
+  @@map("obligation_expenses")
+}
+
+model Folder {
+  id Int @id @default(autoincrement())
+
+  business_id String @db.Uuid
+
+  name String
+
+  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  documents Document[]
+  archives  Archive[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([business_id])
+  @@map("folders")
+}
+
+model Document {
+  id Int @id @default(autoincrement())
+
+  business_id String @db.Uuid
+  folder_id   Int
+  client_id   Int?
+
+  name String
+
+  // Path/key in S3, MinIO, etc.
+  storage_key String
+
+  mime_type  String?
+  size_bytes BigInt?
+
+  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  folder Folder @relation(fields: [folder_id], references: [id], onDelete: Cascade)
+
+  client Client? @relation(fields: [client_id], references: [id], onDelete: SetNull)
+
+  archives Archive[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([business_id])
+  @@index([folder_id])
+  @@index([client_id])
+  @@map("documents")
+}
+
+model Archive {
+  id Int @id @default(autoincrement())
+
+  business_id String @db.Uuid
+
+  folder_id   Int?
+  document_id Int
+
+  data   String?
+  review String?
+
+  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  folder Folder? @relation(fields: [folder_id], references: [id], onDelete: SetNull)
+
+  document Document @relation(fields: [document_id], references: [id], onDelete: Cascade)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([business_id])
+  @@index([folder_id])
+  @@index([document_id])
+  @@map("archives")
+}
+
+model Activity {
+  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+
+  business_id        String @db.Uuid
+  business_member_id String @db.Uuid
+
+  action ActivityAction
+
+  entity_type String
+  entity_id   String?
+
+  description String?
+
+  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  business_member business_members @relation(fields: [business_member_id], references: [id], onDelete: Cascade)
+
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([business_id])
+  @@index([business_member_id])
+  @@index([entity_type, entity_id])
+  @@index([created_at])
+  @@map("activities")
+}
