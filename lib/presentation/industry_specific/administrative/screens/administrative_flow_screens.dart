@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:pdf/pdf.dart';
@@ -184,10 +186,10 @@ class _AdministrativeDocumentsScreenState
         surfaceTintColor: Colors.transparent,
         title: Text('${widget.clientName} Documents'),
         actions: [
-          if (canManageDocuments)
+          if (widget.canManageDocuments)
             IconButton(
               tooltip: 'Create folder',
-            onPressed: _createFolder,
+              onPressed: _createFolder,
               icon: const Icon(Icons.create_new_folder_outlined),
             ),
         ],
@@ -195,7 +197,7 @@ class _AdministrativeDocumentsScreenState
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (canManageDocuments)
+          if (widget.canManageDocuments)
             FilledButton.icon(
               onPressed: _uploadDocument,
               icon: const Icon(Icons.upload_file_outlined),
@@ -1793,6 +1795,23 @@ class _AdministrativeActivityScreenState
     _activity = context.read<AdministrativeProvider>().loadActivity();
   }
 
+  Future<void> _exportActivity() async {
+    try {
+      final activity = await context.read<AdministrativeProvider>().loadActivity();
+      final filtered = activity.where((item) {
+        final action = item['action']?.toString() ?? 'Activity';
+        final text = '${item['actor_name'] ?? ''} ${item['client_name'] ?? ''} $action'
+            .toLowerCase();
+        return (_filter == 'All' || action == _filter) && text.contains(_query.toLowerCase());
+      });
+      String escape(Object? value) => '"${(value?.toString() ?? '').replaceAll('"', '""')}"';
+      final csv = ['Timestamp,Action,Actor,Client', ...filtered.map((item) => [escape(item['created_at']), escape(item['action']), escape(item['actor_name']), escape(item['client_name'])].join(','))].join('\n');
+      await Share.share(csv, subject: 'ManageCare activity log export');
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to export activity log: $error');
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: AppColors.background,
@@ -1802,7 +1821,7 @@ class _AdministrativeActivityScreenState
             IconButton(
               tooltip: 'Export activity log',
               icon: const Icon(Icons.ios_share_outlined),
-              onPressed: () => _exportActivity(),
+              onPressed: _exportActivity,
             ),
           ],
         ),
@@ -2238,19 +2257,6 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
     if (saved == true && mounted) setState(() => _entries = _loadEntries());
   }
 
-  Future<void> _exportActivity() async {
-    try {
-      final activity = await context.read<AdministrativeProvider>().loadActivity();
-      final filtered = activity.where((item) {
-        final action = item['action']?.toString() ?? 'Activity';
-        final text = '${item['actor_name'] ?? ''} ${item['client_name'] ?? ''} $action'.toLowerCase();
-        return (_filter == 'All' || action == _filter) && text.contains(_query.toLowerCase());
-      });
-      String escape(Object? value) => '"${(value?.toString() ?? '').replaceAll('"', '""')}"';
-      final csv = ['Timestamp,Action,Actor,Client', ...filtered.map((item) => [escape(item['created_at']), escape(item['action']), escape(item['actor_name']), escape(item['client_name'])].join(','))].join('\n');
-      await Share.share(csv, subject: 'ManageCare activity log export');
-    } catch (error) { if (mounted) _message(context, 'Unable to export activity log: $error'); }
-  }
 }
 
 class AdministrativeInvoicesScreen extends StatefulWidget {
@@ -2711,10 +2717,11 @@ class _AdministrativeCreateInvoiceScreenState
     );
   }
 
-  String? _required(String? value) => value == null || value.trim().isEmpty ? 'Required' : null;
-  String? _positiveNumber(String? value) => (double.tryParse(value ?? '') ?? 0) > 0 ? null : 'Enter a value above zero';
-  String? _nonNegativeNumber(String? value) => (double.tryParse(value ?? '') ?? -1) >= 0 ? null : 'Enter zero or more';
 }
+
+String? _required(String? value) => value == null || value.trim().isEmpty ? 'Required' : null;
+String? _positiveNumber(String? value) => (double.tryParse(value ?? '') ?? 0) > 0 ? null : 'Enter a value above zero';
+String? _nonNegativeNumber(String? value) => (double.tryParse(value ?? '') ?? -1) >= 0 ? null : 'Enter zero or more';
 
 class _AmountSummary extends StatelessWidget {
   const _AmountSummary({required this.label, required this.value, required this.color});

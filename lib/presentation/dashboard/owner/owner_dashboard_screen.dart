@@ -53,6 +53,7 @@ import '../../industry_specific/retail/screens/retail_dashboard.dart';
 import '../../industry_specific/gas/screens/gas_dashboard_screen.dart';
 import '../../industry_specific/gas/utils/fuel_station_scope.dart';
 import '../../industry_specific/apartment/screens/apartment_dashboard_screen.dart';
+import '../../industry_specific/administrative/screens/administrative_dashboard_screen.dart';
 import '../../reports/screens/reports_dashboard_screen.dart';
 import '../../settings/screens/profile_screen.dart';
 import 'package:business_manager/core/utils/formatters.dart';
@@ -3576,6 +3577,9 @@ Future<void> _loadRetailMetrics(String businessId) async {
           ...commonItems,
         ];
 
+      case 'administrative':
+        return commonItems;
+
       default: // retail and other businesses
         return [
           _QuickActionItem(
@@ -3779,6 +3783,10 @@ class _MenuTabState extends State<_MenuTab> {
       case 'pharmacy':
         print('[MenuTab] Loading PharmacyDashboard');
         screen = const PharmacyDashboard();
+        break;
+      case 'administrative':
+        print('[MenuTab] Loading AdministrativeDashboardScreen');
+        screen = const AdministrativeDashboardScreen();
         break;
       case 'retail':
         print('[MenuTab] Loading RetailDashboard');
