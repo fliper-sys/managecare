@@ -1,930 +1,907 @@
+
+/**
+ * Administrative Services API routes for ManageCare.
+ * Implements the route table in docs/ADMINISTRATIVE_SERVICES_IMPLEMENTATION_SPEC.md
+ * on top of the tables created by migration_042_administrative.sql and
+ * migration_051_administrative_usage.sql.
+ *
+ * Mount (server.js):
+ *   const administrativeRoutes = require('./routes/administrative');
+ *   app.use('/api/administrative', authMiddleware, administrativeRoutes(pool));
+ *
+ * Rules every route follows:
+ *  - Caller must be an active member of the business in the URL
+ *    (requireBusinessMembership), the business must be an Administrative
+ *    business, and its subscription must be active (one cached read).
+ *  - Owners and admins see everything. Any other member sees only clients
+ *    assigned to them and tasks / obligations assigned to them.
+ *  - Every query filters on business_id.
+ *  - Lists are paginated and fetch limit+1 rows to compute hasMore (no COUNT).
+ *  - Plan limits are enforced with atomic conditional updates on the usage
+ *    counters, in the same transaction as the insert, so two concurrent
+ *    requests cannot both slip under a limit.
+ *  - Sensitive client columns (portal_credentials, revenue_access_pin_hash)
+ *    are never selected, so they cannot reach a response.
+ *  - Every state change writes an activity-log row in the same transaction.
+ */
 const express = require('express');
-const bcrypt = require('bcrypt');
-const crypto = require('crypto');
-const { asyncHandler, requireFields } = require('../middleware/validation');
+const { asyncHandler, pagination } = require('../middleware/validation');
 const { requireBusinessMembership } = require('../middleware/auth');
+const { getPrisma } = require('../src/lib/prisma-bridge');
 
-module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
+// ── Settings ────────────────────────────────────────────────
+const GRACE_DAYS = 7; // matches GRACE_PERIOD_DAYS in routes/subscriptions.js
+const ENTITLEMENT_TTL_MS = 60 * 1000;
+const ENTITLEMENT_CACHE_MAX = 5000;
+const DASHBOARD_DUE_ITEMS = 10;
+const FOLDER_LIST_CAP = 200;
+const GIB = 1024n * 1024n * 1024n;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MANAGER_ROLES = ['owner', 'admin', 'sub_admin']; // spec: owner/admin-only actions
+
+// Plan limits by tier. They are identical for the 3 / 6 / 12 month plans, so
+// this is a five-row constant instead of 15 database rows. Mirrors
+// lib/services/subscription_service.dart and the spec. null = unlimited.
+const TIER_LIMITS = {
+  tier1: { storageGb: 4, staffLimit: 4, clientLimit: 30, branchLimit: 0 },
+  tier2: { storageGb: 10, staffLimit: 10, clientLimit: 75, branchLimit: 2 },
+  tier3: { storageGb: 25, staffLimit: 20, clientLimit: 200, branchLimit: 5 },
+  premium: { storageGb: 50, staffLimit: 50, clientLimit: 400, branchLimit: 10 },
+  enterprise: { storageGb: null, staffLimit: null, clientLimit: null, branchLimit: null },
+};
+const PLAN_ID_RE = /^administrative_(tier1|tier2|tier3|premium|enterprise)_(3m|6m|12m)$/;
+
+const TASK_STATUSES = ['assigned', 'in_progress', 'submitted', 'approved'];
+const STORAGE_ACTIONS = ['replace_original', 'store_as_new_version'];
+
+// ── Errors ──────────────────────────────────────────────────
+class HttpError extends Error {
+  constructor(statusCode, message, extra) {
+    super(message);
+    this.statusCode = statusCode;
+    this.extra = extra;
+  }
+}
+
+function limitError(limitType, limit, current) {
+  return new HttpError(409, `Your plan's ${limitType} limit has been reached`, {
+    limit_type: limitType,
+    limit: limit == null ? null : Number(limit),
+    current_usage: Number(current),
+  });
+}
+
+// ── Validation helpers ──────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
+
+function requireUuid(value, name) {
+  if (!isUuid(value)) throw new HttpError(400, `${name} must be a valid id`);
+  return value;
+}
+function optionalUuid(value, name) {
+  if (value === undefined || value === null || value === '') return null;
+  return requireUuid(value, name);
+}
+function requireText(value, name, max = 200) {
+  if (typeof value !== 'string' || value.trim() === '') throw new HttpError(400, `${name} is required`);
+  const t = value.trim();
+  if (t.length > max) throw new HttpError(400, `${name} must be at most ${max} characters`);
+  return t;
+}
+function optionalText(value, name, max = 2000) {
+  if (value === undefined || value === null || value === '') return null;
+  return requireText(value, name, max);
+}
+function parseDateTime(value, name) {
+  if (typeof value !== 'string') throw new HttpError(400, `${name} must be an ISO date or date-time`);
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime()) || d.getUTCFullYear() < 2000 || d.getUTCFullYear() > 2100) {
+    throw new HttpError(400, `${name} is not a valid date`);
+  }
+  return d;
+}
+function optionalDateTime(value, name) {
+  if (value === undefined || value === null || value === '') return null;
+  return parseDateTime(value, name);
+}
+function intInRange(value, name, min, max) {
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new HttpError(400, `${name} must be a whole number from ${min} to ${max}`);
+  }
+  return value;
+}
+function oneOf(value, allowed, name) {
+  if (!allowed.includes(value)) throw new HttpError(400, `${name} must be one of: ${allowed.join(', ')}`);
+  return value;
+}
+
+// ── Date math ───────────────────────────────────────────────
+// Moves to the same time of day in a later month, on `day` (clamped to the
+// last day of that month: day 31 in April becomes April 30).
+function addMonthsOnDay(date, months, day) {
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth() + months;
+  const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m, Math.min(day, lastDay),
+    date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds(), date.getUTCMilliseconds()));
+}
+
+// Spec "State Rules / Obligation completion".
+//  trailing: next = completion time + interval_days
+//  fixed:    anchored to the schedule; completing early (or late) does not move it.
+//            With a fixed_day_of_month it is the next calendar occurrence after
+//            the current due date (31 Jan + monthly -> 28/29 Feb, then 31 Mar);
+//            without one it is the current due date + interval_days.
+function computeNextDue(ob, completedAt) {
+  if (ob.recurrenceType === 'trailing') {
+    return new Date(completedAt.getTime() + ob.intervalDays * DAY_MS);
+  }
+  if (ob.fixedDayOfMonth) {
+    const months = Math.max(1, Math.round(ob.intervalDays / 30.4375));
+    return addMonthsOnDay(ob.nextDueAt, months, ob.fixedDayOfMonth);
+  }
+  return new Date(ob.nextDueAt.getTime() + ob.intervalDays * DAY_MS);
+}
+
+// ── Response shaping ────────────────────────────────────────
+function paged(rows, { page, limit }) {
+  const hasMore = rows.length > limit;
+  return { data: hasMore ? rows.slice(0, limit) : rows, page, limit, hasMore };
+}
+
+// res.json cannot serialise BigInt.
+const serializeDocument = (d) => (d ? { ...d, fileSizeBytes: d.fileSizeBytes == null ? null : Number(d.fileSizeBytes) } : d);
+function serializeUsage(u) {
+  return { storageBytes: u ? Number(u.storageBytes) : 0, clientCount: u ? u.clientCount : 0 };
+}
+
+// Allow-list of client columns. portalCredentials and revenueAccessPinHash are
+// deliberately absent: they cannot be returned by any route.
+const CLIENT_SELECT = {
+  id: true, businessId: true, name: true, companyName: true, location: true,
+  contactAddress: true, archivedAt: true, createdAt: true, updatedAt: true,
+};
+
+// ── Access helpers ──────────────────────────────────────────
+function isManager(req) {
+  const m = req.businessMembership;
+  if (!m) return false;
+  return Boolean(m.is_owner) || MANAGER_ROLES.includes(String(m.role || '').trim().toLowerCase());
+}
+function requireManager(req, _res, next) {
+  if (!isManager(req)) return next(new HttpError(403, 'Owner or admin access required'));
+  next();
+}
+const me = (req) => req.user.id;
+
+// ── Entitlement: one cached read of the business row ────────
+const entitlementCache = new Map(); // businessId -> { value, at }
+
+function invalidateEntitlement(businessId) {
+  if (businessId) entitlementCache.delete(businessId);
+  else entitlementCache.clear();
+}
+
+// The business row is already where payments write subscription state
+// (syncBusinessSubscription in routes/subscriptions.js), so no new table is read.
+async function loadEntitlement(prisma, businessId) {
+  const biz = await prisma.businesses.findUnique({
+    where: { id: businessId },
+    select: {
+      business_type: true, subscription_family: true, subscription_plan: true,
+      subscription_tier: true, subscription_end_date: true, is_subscription_active: true,
+      is_active: true, is_deleted: true, is_restricted: true,
+    },
+  });
+  if (!biz || biz.is_deleted || biz.is_active === false) return { error: [404, 'Business not found'] };
+  if (biz.business_type !== 'administrative' && biz.subscription_family !== 'administrative') {
+    return { error: [403, 'Administrative Services is not enabled for this business'] };
+  }
+  if (biz.is_restricted) return { error: [403, 'This business is restricted'] };
+
+  const planMatch = PLAN_ID_RE.exec(String(biz.subscription_plan || ''));
+  const tier = planMatch ? planMatch[1] : String(biz.subscription_tier || '').toLowerCase();
+  const limits = TIER_LIMITS[tier];
+  const end = biz.subscription_end_date;
+  const live = biz.is_subscription_active === true && (!end || end.getTime() + GRACE_DAYS * DAY_MS > Date.now());
+  if (!limits || !live) return { error: [402, 'No active administrative subscription for this business'] };
+  return { value: { tier, expiresAt: end, ...limits } };
+}
+
+async function getEntitlement(prisma, businessId) {
+  const now = Date.now();
+  const hit = entitlementCache.get(businessId);
+  let result;
+  if (hit && now - hit.at < ENTITLEMENT_TTL_MS) {
+    result = hit.result;
+  } else {
+    result = await loadEntitlement(prisma, businessId);
+    if (entitlementCache.size >= ENTITLEMENT_CACHE_MAX) entitlementCache.clear();
+    entitlementCache.set(businessId, { result, at: now });
+  }
+  // A cached entry must never outlive the subscription itself.
+  const v = result.value;
+  if (v && v.expiresAt && v.expiresAt.getTime() + GRACE_DAYS * DAY_MS <= now) {
+    return { error: [402, 'No active administrative subscription for this business'] };
+  }
+  return result;
+}
+
+// ── Usage counters (atomic) ─────────────────────────────────
+async function ensureUsageRow(tx, businessId) {
+  await tx.administrativeUsage.upsert({ where: { businessId }, create: { businessId }, update: {} });
+}
+
+// Takes one client slot, or throws a 409 with limit_type / limit / current_usage.
+async function takeClientSlot(tx, businessId, limit) {
+  await ensureUsageRow(tx, businessId);
+  const r = await tx.administrativeUsage.updateMany({
+    where: limit == null ? { businessId } : { businessId, clientCount: { lt: limit } },
+    data: { clientCount: { increment: 1 } },
+  });
+  if (r.count === 0) {
+    const u = await tx.administrativeUsage.findUnique({ where: { businessId } });
+    throw limitError('clients', limit, u ? u.clientCount : 0);
+  }
+}
+
+async function releaseClientSlot(tx, businessId) {
+  await tx.administrativeUsage.updateMany({
+    where: { businessId, clientCount: { gt: 0 } },
+    data: { clientCount: { decrement: 1 } },
+  });
+}
+
+async function takeStorage(tx, businessId, bytes, limitGb) {
+  if (bytes === 0n) return;
+  await ensureUsageRow(tx, businessId);
+  const where = limitGb == null
+    ? { businessId }
+    : { businessId, storageBytes: { lte: BigInt(limitGb) * GIB - bytes } };
+  const r = await tx.administrativeUsage.updateMany({ where, data: { storageBytes: { increment: bytes } } });
+  if (r.count === 0) {
+    const u = await tx.administrativeUsage.findUnique({ where: { businessId } });
+    throw limitError('storage', limitGb == null ? null : BigInt(limitGb) * GIB, u ? u.storageBytes : 0n);
+  }
+}
+
+// ── Audit log ───────────────────────────────────────────────
+// Written in the same transaction as the change. Never put passwords,
+// passcodes, tokens or document content in `metadata`.
+function logActivity(tx, { businessId, clientId, actorId, action, entityType, entityId, metadata }) {
+  return tx.administrativeActivityLog.create({
+    data: {
+      businessId, clientId: clientId || null, actorId: actorId || null,
+      action, entityType, entityId: entityId || null, metadata: metadata || {},
+    },
+  });
+}
+
+// ── Router ──────────────────────────────────────────────────
+module.exports = function administrativeRoutes(pool) {
+  // Created inside the factory so calling it twice does not stack handlers.
   const router = express.Router();
+
+  for (const name of ['businessId', 'clientId', 'workerId', 'documentId', 'taskId', 'obligationId']) {
+    router.param(name, (_req, _res, next, value) => {
+      if (!isUuid(value)) return next(new HttpError(400, `${name} must be a valid id`));
+      next();
+    });
+  }
+
+  // 1. membership  2. administrative business + active subscription (cached)
   router.use('/:businessId', requireBusinessMembership(pool));
-
-  const planLimits = {
-    tier1: { clients: 30, workers: 4, storageBytes: 4 * 1024 * 1024 * 1024 },
-    tier2: { clients: 75, workers: 10, storageBytes: 10 * 1024 * 1024 * 1024 },
-    tier3: { clients: 200, workers: 20, storageBytes: 25 * 1024 * 1024 * 1024 },
-    premium: { clients: 400, workers: 50, storageBytes: 50 * 1024 * 1024 * 1024 },
-    enterprise: { clients: null, workers: null, storageBytes: null },
-  };
-
-  router.use('/:businessId', asyncHandler(async (req, res, next) => {
-    const result = await pool.query(
-      `SELECT business_type, subscription_tier, is_subscription_active,
-              subscription_end_date
-       FROM businesses WHERE id = $1`,
-      [req.params.businessId],
-    );
-    const business = result.rows[0];
-    if (!business || String(business.business_type || '').toLowerCase() !== 'administrative') {
-      return res.status(403).json({ error: 'Administrative workspace is not enabled for this business' });
-    }
-    const expired = business.subscription_end_date && new Date(business.subscription_end_date) < new Date();
-    if (!business.is_subscription_active || expired) {
-      return res.status(402).json({ error: 'An active administrative subscription is required' });
-    }
-    req.administrativeLimits = planLimits[String(business.subscription_tier || '').toLowerCase()] || planLimits.tier1;
+  router.use('/:businessId', asyncHandler(async (req, _res, next) => {
+    const prisma = await getPrisma();
+    const { value, error } = await getEntitlement(prisma, req.params.businessId);
+    if (error) throw new HttpError(error[0], error[1]);
+    req.entitlement = value;
     next();
   }));
 
-  const isManager = (req) => {
-    const membership = req.businessMembership;
-    return membership?.is_owner || ['owner', 'admin', 'sub_admin'].includes(
-      String(membership?.role || '').toLowerCase(),
-    );
-  };
+  // Managers see every client; others only clients assigned to them.
+  // Returns 404 (not 403) so the existence of other clients is not revealed.
+  async function loadClient(prisma, req, clientId, { allowArchived = false } = {}) {
+    const where = { id: clientId, businessId: req.params.businessId };
+    if (!allowArchived) where.archivedAt = null;
+    if (!isManager(req)) where.workers = { some: { workerId: me(req) } };
+    const client = await prisma.administrativeClient.findFirst({ where, select: CLIENT_SELECT });
+    if (!client) throw new HttpError(404, 'Client not found');
+    return client;
+  }
 
-  const requireManager = (req, res, next) => {
-    if (!isManager(req)) return res.status(403).json({ error: 'Administrative access is required' });
-    next();
-  };
+  async function requireWorkerInBusiness(prisma, businessId, workerId) {
+    const w = await prisma.workers.findFirst({
+      where: { id: workerId, business_id: businessId, is_active: true }, select: { id: true },
+    });
+    if (!w) throw new HttpError(404, 'Worker not found in this business');
+  }
 
-  const enforceLimit = async (req, res, type, incoming = 0) => {
-    const config = req.administrativeLimits;
-    const limit = type === 'clients' ? config.clients : config.storageBytes;
-    if (limit == null) return true;
-    const { businessId } = req.params;
-    const result = type === 'clients'
-      ? await pool.query('SELECT COUNT(*)::int AS usage FROM administrative_clients WHERE business_id = $1 AND is_active = true', [businessId])
-      : await pool.query('SELECT COALESCE(SUM(file_size_bytes), 0)::bigint AS usage FROM administrative_documents WHERE business_id = $1', [businessId]);
-    const usage = Number(result.rows[0].usage || 0);
-    if (usage + Math.max(0, Number(incoming) || 0) > limit) {
-      res.status(409).json({ error: 'Subscription limit reached', limit_type: type, limit, current_usage: usage });
-      return false;
-    }
-    return true;
-  };
-
-  const logActivity = async (businessId, actorId, action, entityType, entityId, clientId, metadata = {}) => {
-    await pool.query(
-      `INSERT INTO administrative_activity_log
-       (business_id, client_id, actor_id, action, entity_type, entity_id, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6::uuid, $7::jsonb)`,
-      [businessId, clientId || null, actorId, action, entityType, entityId, JSON.stringify(metadata)],
-    );
-  };
-
-  const credentialKey = () => {
-    const value = process.env.ADMIN_CREDENTIAL_ENCRYPTION_KEY || '';
-    const key = /^[0-9a-f]{64}$/i.test(value) ? Buffer.from(value, 'hex') : Buffer.from(value, 'base64');
-    return key.length === 32 ? key : null;
-  };
-  const encryptCredentials = (credentials) => {
-    const key = credentialKey();
-    if (!key) throw new Error('ADMIN_CREDENTIAL_ENCRYPTION_KEY must be a 32-byte base64 or 64-character hex value');
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-    const ciphertext = Buffer.concat([cipher.update(JSON.stringify(credentials), 'utf8'), cipher.final()]);
-    return { alg: 'aes-256-gcm', iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64') };
-  };
-  const decryptCredentials = (value) => {
-    const key = credentialKey();
-    if (!key || !value?.ciphertext || !value?.iv || !value?.tag) throw new Error('Credentials cannot be decrypted');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(value.iv, 'base64'));
-    decipher.setAuthTag(Buffer.from(value.tag, 'base64'));
-    return JSON.parse(Buffer.concat([decipher.update(Buffer.from(value.ciphertext, 'base64')), decipher.final()]).toString('utf8'));
-  };
-
-  const nextFixedDate = (date, requestedDay) => {
-    const day = Math.max(1, Math.min(31, Number(requestedDay) || date.getUTCDate()));
-    const lastDay = (year, month) => new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-    let year = date.getUTCFullYear();
-    let month = date.getUTCMonth();
-    let due = new Date(Date.UTC(year, month, Math.min(day, lastDay(year, month))));
-    if (due <= date) {
-      month += 1;
-      if (month === 12) {
-        month = 0;
-        year += 1;
-      }
-      due = new Date(Date.UTC(year, month, Math.min(day, lastDay(year, month))));
-    }
-    return due;
-  };
-
-  const requireClientAccess = async (req, res, businessId, clientId) => {
-    const params = [clientId, businessId];
-    let query = `SELECT c.* FROM administrative_clients c
-                 WHERE c.id = $1 AND c.business_id = $2`;
-    if (!isManager(req)) {
-      params.push(req.user.id);
-      query += ` AND EXISTS (
-        SELECT 1 FROM administrative_client_workers cw
-        WHERE cw.client_id = c.id AND cw.worker_id = $3
-      )`;
-    }
-    const result = await pool.query(query, params);
-    if (result.rows.length === 0) {
-      res.status(404).json({ error: 'Client not found or not accessible' });
-      return null;
-    }
-    return result.rows[0];
-  };
-
+  // ── Dashboard: counts and the next few due items, never full lists ──
   router.get('/:businessId/dashboard', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
     const { businessId } = req.params;
-    const accessible = isManager(req)
-      ? ''
-      : ` AND EXISTS (SELECT 1 FROM administrative_client_workers cw
-                       WHERE cw.client_id = c.id AND cw.worker_id = $2)`;
-    const assignedTask = isManager(req) ? '' : ' AND t.assigned_to = $2';
-    const assignedObligation = isManager(req) ? '' : ' AND o.assigned_to = $2';
-    const params = isManager(req) ? [businessId] : [businessId, req.user.id];
-    const result = await pool.query(
-      `SELECT
-         (SELECT COUNT(*)::int FROM administrative_clients c
-          WHERE c.business_id = $1 AND c.is_active = true${accessible}) AS client_count,
-         (SELECT COUNT(*)::int FROM administrative_tasks t
-          WHERE t.business_id = $1 AND t.status = 'submitted'${assignedTask}) AS review_count,
-         (SELECT COUNT(*)::int FROM administrative_obligations o
-          WHERE o.business_id = $1 AND o.is_active = true
-            AND o.next_due_at <= NOW() + INTERVAL '7 days'${assignedObligation}) AS urgent_obligation_count`,
-      params,
-    );
-    res.json(result.rows[0]);
+    const manager = isManager(req);
+    const assignee = manager ? null : me(req); // workers see only their own work
+
+    const [usage, staffCount, obligationBuckets, taskBuckets, dueSoon] = await Promise.all([
+      prisma.administrativeUsage.findUnique({ where: { businessId } }),
+      prisma.workers.count({ where: { business_id: businessId, is_active: true } }),
+      prisma.$queryRaw`
+        SELECT
+          COUNT(*) FILTER (WHERE next_due_at < now())::int AS "overdue",
+          COUNT(*) FILTER (WHERE next_due_at >= now() AND next_due_at < now() + interval '1 day')::int  AS "dueWithin24h",
+          COUNT(*) FILTER (WHERE next_due_at >= now() AND next_due_at < now() + interval '3 days')::int AS "dueWithin3d",
+          COUNT(*) FILTER (WHERE next_due_at >= now() AND next_due_at < now() + interval '7 days')::int AS "dueWithin7d"
+        FROM administrative_obligations
+        WHERE business_id = ${businessId}::uuid AND is_active
+          AND next_due_at < now() + interval '7 days'
+          AND (${assignee}::uuid IS NULL OR assigned_to = ${assignee}::uuid)`,
+      prisma.$queryRaw`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'submitted')::int AS "awaitingReview",
+          COUNT(*) FILTER (WHERE status IN ('assigned','in_progress') AND due_at < now())::int AS "overdue",
+          COUNT(*) FILTER (WHERE status IN ('assigned','in_progress') AND due_at >= now()
+                           AND due_at < now() + interval '3 days')::int AS "dueSoon"
+        FROM administrative_tasks
+        WHERE business_id = ${businessId}::uuid AND status <> 'approved'
+          AND (${assignee}::uuid IS NULL OR assigned_to = ${assignee}::uuid)`,
+      prisma.administrativeObligation.findMany({
+        where: { businessId, isActive: true, ...(assignee ? { assignedTo: assignee } : {}) },
+        orderBy: { nextDueAt: 'asc' },
+        take: DASHBOARD_DUE_ITEMS,
+        select: { id: true, clientId: true, title: true, nextDueAt: true, recurrenceType: true, assignedTo: true },
+      }),
+    ]);
+
+    const u = serializeUsage(usage);
+    const e = req.entitlement;
+    res.json({
+      data: {
+        subscription: { tier: e.tier, expiresAt: e.expiresAt },
+        usage: {
+          storage: { usedBytes: u.storageBytes, limitGb: e.storageGb },
+          clients: { used: u.clientCount, limit: e.clientLimit },
+          staff: { used: staffCount, limit: e.staffLimit },
+        },
+        obligations: { ...obligationBuckets[0], next: dueSoon },
+        tasks: taskBuckets[0],
+      },
+    });
   }));
 
-  router.get('/:businessId/clients', asyncHandler(async (req, res) => {
+  // ── Clients ──────────────────────────────────────────────
+  router.get('/:businessId/clients', pagination, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
     const { businessId } = req.params;
-    const { q, location, active = 'true', limit = '50', offset = '0' } = req.query;
-    const params = [businessId];
-    let query = `SELECT c.*, 
-      (SELECT COUNT(*)::int FROM administrative_client_workers cw WHERE cw.client_id = c.id) AS worker_count,
-      (SELECT COUNT(*)::int FROM administrative_documents d WHERE d.client_id = c.id) AS document_count,
-      (SELECT COUNT(*)::int FROM administrative_tasks t WHERE t.client_id = c.id AND t.status IN ('assigned', 'in_progress', 'submitted')) AS open_task_count,
-      (SELECT MIN(o.next_due_at) FROM administrative_obligations o WHERE o.client_id = c.id AND o.is_active = true) AS next_obligation_at
-      FROM administrative_clients c WHERE c.business_id = $1`;
-    if (!isManager(req)) {
-      params.push(req.user.id);
-      query += ` AND EXISTS (SELECT 1 FROM administrative_client_workers cw WHERE cw.client_id = c.id AND cw.worker_id = $${params.length})`;
+    const where = { businessId };
+    const status = req.query.status === undefined ? 'active' : oneOf(String(req.query.status), ['active', 'archived', 'all'], 'status');
+    if (status === 'active') where.archivedAt = null;
+    if (status === 'archived') where.archivedAt = { not: null };
+    if (!isManager(req)) where.workers = { some: { workerId: me(req) } };
+    else if (req.query.workerId !== undefined) where.workers = { some: { workerId: requireUuid(String(req.query.workerId), 'workerId') } };
+    if (typeof req.query.q === 'string' && req.query.q.trim()) {
+      const q = req.query.q.trim().slice(0, 100);
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { companyName: { contains: q, mode: 'insensitive' } },
+        { location: { contains: q, mode: 'insensitive' } },
+      ];
     }
-    if (active === 'true' || active === 'false') { params.push(active === 'true'); query += ` AND c.is_active = $${params.length}`; }
-    if (location) { params.push(location); query += ` AND c.location = $${params.length}`; }
-    if (q) {
-      params.push(`%${q}%`);
-      query += ` AND (c.name ILIKE $${params.length} OR c.company_name ILIKE $${params.length} OR c.location ILIKE $${params.length})`;
+    if (typeof req.query.location === 'string' && req.query.location.trim()) {
+      where.location = { contains: req.query.location.trim().slice(0, 100), mode: 'insensitive' };
     }
-    params.push(Math.min(100, Math.max(1, Number(limit) || 50)));
-    params.push(Math.max(0, Number(offset) || 0));
-    query += ` ORDER BY c.name ASC LIMIT $${params.length - 1} OFFSET $${params.length}`;
-    const result = await pool.query(query, params);
-    res.json({ data: result.rows });
+    const rows = await prisma.administrativeClient.findMany({
+      where,
+      select: { ...CLIENT_SELECT, _count: { select: { workers: true, documents: true } } },
+      orderBy: { name: 'asc' },
+      take: req.pagination.limit + 1,
+      skip: req.pagination.offset,
+    });
+    res.json(paged(rows, req.pagination));
   }));
 
-  router.post('/:businessId/clients', requireManager, requireFields('name'), asyncHandler(async (req, res) => {
+  router.post('/:businessId/clients', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
     const { businessId } = req.params;
-    const { name, company_name, location, contact_address } = req.body;
-    if (!await enforceLimit(req, res, 'clients', 1)) return;
-    const result = await pool.query(
-      `INSERT INTO administrative_clients (business_id, name, company_name, location, contact_address, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [businessId, name.trim(), company_name || null, location || null, contact_address || null, req.user.id],
-    );
-    const client = result.rows[0];
-    await logActivity(businessId, req.user.id, 'client_created', 'client', client.id, client.id);
-    res.status(201).json(client);
+    const b = req.body || {};
+    const data = {
+      name: requireText(b.name, 'name'),
+      companyName: optionalText(b.companyName, 'companyName'),
+      location: optionalText(b.location, 'location'),
+      contactAddress: optionalText(b.contactAddress, 'contactAddress', 500),
+    };
+    const client = await prisma.$transaction(async (tx) => {
+      await takeClientSlot(tx, businessId, req.entitlement.clientLimit);
+      const created = await tx.administrativeClient.create({
+        data: { businessId, createdBy: me(req), ...data }, select: CLIENT_SELECT,
+      });
+      await logActivity(tx, { businessId, clientId: created.id, actorId: me(req), action: 'client.created', entityType: 'client', entityId: created.id });
+      return created;
+    });
+    res.status(201).json({ data: client });
   }));
 
   router.get('/:businessId/clients/:clientId', asyncHandler(async (req, res) => {
-    const { businessId, clientId } = req.params;
-    const client = await requireClientAccess(req, res, businessId, clientId);
-    if (!client) return;
-    const response = { ...client };
-    delete response.portal_credentials;
-    await logActivity(businessId, req.user.id, 'client_viewed', 'client', clientId, clientId);
-    res.json(response);
+    const prisma = await getPrisma();
+    const client = await loadClient(prisma, req, req.params.clientId, { allowArchived: true });
+    const workers = await prisma.administrativeClientWorker.findMany({
+      where: { clientId: client.id }, select: { workerId: true, assignedAt: true },
+    });
+    res.json({ data: { ...client, workers } });
   }));
 
   router.patch('/:businessId/clients/:clientId', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
     const { businessId, clientId } = req.params;
-    const allowed = ['name', 'company_name', 'location', 'contact_address', 'portal_credentials', 'is_active'];
-    const fields = [];
-    const values = [];
-    for (const key of allowed) {
-      if (req.body[key] !== undefined) {
-        values.push(key === 'portal_credentials' ? JSON.stringify(encryptCredentials(req.body[key])) : req.body[key]);
-        fields.push(`${key} = $${values.length}${key === 'portal_credentials' ? '::jsonb' : ''}`);
-      }
-    }
-    if (fields.length === 0) return res.status(400).json({ error: 'No supported client fields supplied' });
-    if (req.body.is_active === false) fields.push('archived_at = NOW()');
-    if (req.body.is_active === true) fields.push('archived_at = NULL');
-    values.push(clientId, businessId);
-    const result = await pool.query(
-      `UPDATE administrative_clients SET ${fields.join(', ')}, updated_at = NOW()
-       WHERE id = $${values.length - 1} AND business_id = $${values.length} RETURNING *`,
-      values,
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
-    await logActivity(businessId, req.user.id, req.body.is_active === false ? 'client_archived' : 'client_updated', 'client', clientId, clientId);
-    res.json(result.rows[0]);
+    const b = req.body || {};
+    const data = {};
+    if (b.name !== undefined) data.name = requireText(b.name, 'name');
+    if (b.companyName !== undefined) data.companyName = optionalText(b.companyName, 'companyName');
+    if (b.location !== undefined) data.location = optionalText(b.location, 'location');
+    if (b.contactAddress !== undefined) data.contactAddress = optionalText(b.contactAddress, 'contactAddress', 500);
+    if (Object.keys(data).length === 0) throw new HttpError(400, 'No valid fields supplied');
+    const client = await prisma.$transaction(async (tx) => {
+      const r = await tx.administrativeClient.updateMany({ where: { id: clientId, businessId }, data: { ...data, updatedAt: new Date() } });
+      if (r.count === 0) throw new HttpError(404, 'Client not found');
+      await logActivity(tx, { businessId, clientId, actorId: me(req), action: 'client.updated', entityType: 'client', entityId: clientId, metadata: { fields: Object.keys(data) } });
+      return tx.administrativeClient.findFirst({ where: { id: clientId, businessId }, select: CLIENT_SELECT });
+    });
+    res.json({ data: client });
   }));
 
-  router.put('/:businessId/clients/:clientId/access-passcode', requireManager, requireFields('passcode'), asyncHandler(async (req, res) => {
+  // DELETE archives (soft). Documents, tasks and obligations are kept, and the
+  // client stops counting against the plan.
+  router.delete('/:businessId/clients/:clientId', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
     const { businessId, clientId } = req.params;
-    const passcode = String(req.body.passcode || '');
-    if (passcode.length < 6) return res.status(400).json({ error: 'Passcode must contain at least 6 characters' });
-    const hash = await bcrypt.hash(passcode, 12);
-    const result = await pool.query('UPDATE administrative_clients SET revenue_access_pin_hash = $1, updated_at = NOW() WHERE id = $2 AND business_id = $3 RETURNING id', [hash, clientId, businessId]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Client not found' });
-    await logActivity(businessId, req.user.id, 'client_access_passcode_set', 'client', clientId, clientId);
-    res.status(204).end();
+    await prisma.$transaction(async (tx) => {
+      const r = await tx.administrativeClient.updateMany({
+        where: { id: clientId, businessId, archivedAt: null }, data: { archivedAt: new Date() },
+      });
+      if (r.count === 0) throw new HttpError(404, 'Client not found or already archived');
+      await releaseClientSlot(tx, businessId);
+      await logActivity(tx, { businessId, clientId, actorId: me(req), action: 'client.archived', entityType: 'client', entityId: clientId });
+    });
+    res.json({ data: { id: clientId, archived: true } });
   }));
 
-  router.post('/:businessId/clients/:clientId/credentials/reveal', requireManager, requireFields('passcode'), asyncHandler(async (req, res) => {
+  router.post('/:businessId/clients/:clientId/restore', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
     const { businessId, clientId } = req.params;
-    const result = await pool.query('SELECT portal_credentials, revenue_access_pin_hash FROM administrative_clients WHERE id = $1 AND business_id = $2', [clientId, businessId]);
-    const client = result.rows[0];
-    if (!client) return res.status(404).json({ error: 'Client not found' });
-    if (!client.revenue_access_pin_hash || !await bcrypt.compare(String(req.body.passcode), client.revenue_access_pin_hash)) return res.status(403).json({ error: 'Invalid client access passcode' });
-    let credentials;
-    try { credentials = decryptCredentials(client.portal_credentials); } catch (_) { return res.status(409).json({ error: 'Credentials are not available or were stored with an unavailable encryption key' }); }
-    await logActivity(businessId, req.user.id, 'client_credentials_revealed', 'client', clientId, clientId);
-    res.json({ credentials });
+    await prisma.$transaction(async (tx) => {
+      const r = await tx.administrativeClient.updateMany({
+        where: { id: clientId, businessId, archivedAt: { not: null } }, data: { archivedAt: null },
+      });
+      if (r.count === 0) throw new HttpError(404, 'Archived client not found');
+      await takeClientSlot(tx, businessId, req.entitlement.clientLimit); // rolls the restore back if over limit
+      await logActivity(tx, { businessId, clientId, actorId: me(req), action: 'client.restored', entityType: 'client', entityId: clientId });
+    });
+    res.json({ data: { id: clientId, archived: false } });
   }));
 
-  router.post('/:businessId/clients/:clientId/credentials/copy-audit', requireManager, asyncHandler(async (req, res) => {
-    const { businessId, clientId } = req.params;
-    await logActivity(businessId, req.user.id, 'client_credentials_copied', 'client', clientId, clientId, { field: req.body.field || 'unknown' });
-    res.status(204).end();
-  }));
-
+  // ── Worker assignment (owner / admin) ────────────────────
   router.put('/:businessId/clients/:clientId/workers/:workerId', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
     const { businessId, clientId, workerId } = req.params;
-    const client = await requireClientAccess(req, res, businessId, clientId);
-    if (!client) return;
-    const worker = await pool.query('SELECT id FROM workers WHERE id = $1 AND business_id = $2 AND is_active = true', [workerId, businessId]);
-    if (worker.rows.length === 0) return res.status(400).json({ error: 'Active worker not found for this business' });
-    await pool.query(
-      `INSERT INTO administrative_client_workers (client_id, worker_id, assigned_by)
-       VALUES ($1, $2, $3) ON CONFLICT (client_id, worker_id) DO NOTHING`,
-      [clientId, workerId, req.user.id],
-    );
-    await logActivity(businessId, req.user.id, 'client_worker_assigned', 'client', clientId, clientId, { worker_id: workerId });
-    res.status(204).end();
+    await loadClient(prisma, req, clientId);
+    await requireWorkerInBusiness(prisma, businessId, workerId);
+    await prisma.$transaction(async (tx) => {
+      await tx.administrativeClientWorker.upsert({
+        where: { clientId_workerId: { clientId, workerId } },
+        create: { clientId, workerId, assignedBy: me(req) },
+        update: {},
+      });
+      await logActivity(tx, { businessId, clientId, actorId: me(req), action: 'client.worker_assigned', entityType: 'client', entityId: clientId, metadata: { workerId } });
+    });
+    res.json({ data: { clientId, workerId, assigned: true } });
   }));
 
   router.delete('/:businessId/clients/:clientId/workers/:workerId', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
     const { businessId, clientId, workerId } = req.params;
-    const client = await requireClientAccess(req, res, businessId, clientId);
-    if (!client) return;
-    await pool.query('DELETE FROM administrative_client_workers WHERE client_id = $1 AND worker_id = $2', [clientId, workerId]);
-    await logActivity(businessId, req.user.id, 'client_worker_unassigned', 'client', clientId, clientId, { worker_id: workerId });
-    res.status(204).end();
-  }));
-
-  router.get('/:businessId/clients/:clientId/folders', asyncHandler(async (req, res) => {
-    const { businessId, clientId } = req.params;
-    const client = await requireClientAccess(req, res, businessId, clientId);
-    if (!client) return;
-    const result = await pool.query(
-      `SELECT f.*, COUNT(d.id)::int AS document_count
-       FROM administrative_document_folders f
-       LEFT JOIN administrative_documents d ON d.folder_id = f.id
-       WHERE f.business_id = $1 AND f.client_id = $2
-       GROUP BY f.id ORDER BY f.name ASC`,
-      [businessId, clientId],
-    );
-    res.json({ data: result.rows });
-  }));
-
-  router.post('/:businessId/clients/:clientId/folders', requireManager, requireFields('name'), asyncHandler(async (req, res) => {
-    const { businessId, clientId } = req.params;
-    const client = await requireClientAccess(req, res, businessId, clientId);
-    if (!client) return;
-    const result = await pool.query(
-      `INSERT INTO administrative_document_folders (business_id, client_id, name, created_by)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [businessId, clientId, req.body.name.trim(), req.user.id],
-    );
-    const folder = result.rows[0];
-    await logActivity(businessId, req.user.id, 'document_folder_created', 'folder', folder.id, clientId, { name: folder.name });
-    res.status(201).json(folder);
-  }));
-
-  router.get('/:businessId/clients/:clientId/documents', asyncHandler(async (req, res) => {
-    const { businessId, clientId } = req.params;
-    const client = await requireClientAccess(req, res, businessId, clientId);
-    if (!client) return;
-    const { folderId, q, mimeType, status, limit = '50', offset = '0' } = req.query;
-    const params = [businessId, clientId];
-    let query = `SELECT d.*, f.name AS folder_name, p.full_name AS uploaded_by_name
-                 FROM administrative_documents d
-                 LEFT JOIN administrative_document_folders f ON f.id = d.folder_id
-                 LEFT JOIN profiles p ON p.id = d.uploaded_by
-                 WHERE d.business_id = $1 AND d.client_id = $2`;
-    if (folderId) { params.push(folderId); query += ` AND d.folder_id = $${params.length}`; }
-    if (status) { params.push(status); query += ` AND d.status = $${params.length}`; }
-    if (mimeType) { params.push(mimeType); query += ` AND d.mime_type = $${params.length}`; }
-    if (q) { params.push(`%${q}%`); query += ` AND d.file_name ILIKE $${params.length}`; }
-    params.push(Math.min(100, Math.max(1, Number(limit) || 50)));
-    params.push(Math.max(0, Number(offset) || 0));
-    query += ` ORDER BY d.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
-    const result = await pool.query(query, params);
-    await logActivity(businessId, req.user.id, 'documents_listed', 'client', clientId, clientId);
-    res.json({ data: result.rows });
-  }));
-
-  router.post('/:businessId/clients/:clientId/documents', requireManager, requireFields('file_name', 'file_url'), asyncHandler(async (req, res) => {
-    const { businessId, clientId } = req.params;
-    const client = await requireClientAccess(req, res, businessId, clientId);
-    if (!client) return;
-    const { file_name, file_url, folder_id, file_size_bytes, mime_type } = req.body;
-    if (!await enforceLimit(req, res, 'storage', file_size_bytes)) return;
-    if (folder_id) {
-      const folder = await pool.query(
-        'SELECT id FROM administrative_document_folders WHERE id = $1 AND client_id = $2 AND business_id = $3',
-        [folder_id, clientId, businessId],
-      );
-      if (folder.rows.length === 0) return res.status(400).json({ error: 'Folder does not belong to this client' });
-    }
-    const result = await pool.query(
-      `INSERT INTO administrative_documents
-       (business_id, client_id, folder_id, file_name, file_url, file_size_bytes, mime_type, uploaded_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-      [businessId, clientId, folder_id || null, file_name.trim(), file_url, file_size_bytes || null, mime_type || null, req.user.id],
-    );
-    const document = result.rows[0];
-    await pool.query(
-      `INSERT INTO administrative_document_versions
-       (business_id, document_id, version_number, file_name, file_url, file_size_bytes, mime_type, created_by)
-       VALUES ($1, $2, 1, $3, $4, $5, $6, $7)`,
-      [businessId, document.id, document.file_name, document.file_url, document.file_size_bytes, document.mime_type, req.user.id],
-    );
-    await logActivity(businessId, req.user.id, 'document_uploaded', 'document', document.id, clientId, { file_name: document.file_name });
-    res.status(201).json(document);
-  }));
-
-  router.get('/:businessId/documents/:documentId/versions', asyncHandler(async (req, res) => {
-    const { businessId, documentId } = req.params;
-    const result = await pool.query('SELECT * FROM administrative_documents WHERE id = $1 AND business_id = $2', [documentId, businessId]);
-    const document = result.rows[0];
-    if (!document) return res.status(404).json({ error: 'Document not found' });
-    const client = await requireClientAccess(req, res, businessId, document.client_id);
-    if (!client) return;
-    const versions = await pool.query(
-      'SELECT * FROM administrative_document_versions WHERE document_id = $1 ORDER BY version_number DESC',
-      [documentId],
-    );
-    res.json({ data: versions.rows });
-  }));
-
-  router.post('/:businessId/documents/:documentId/versions', requireManager, requireFields('file_name', 'file_url', 'action'), asyncHandler(async (req, res) => {
-    const { businessId, documentId } = req.params;
-    const { file_name, file_url, file_size_bytes, mime_type, action } = req.body;
-    if (!['replace', 'new_version'].includes(action)) return res.status(400).json({ error: 'action must be replace or new_version' });
-    const found = await pool.query('SELECT * FROM administrative_documents WHERE id = $1 AND business_id = $2', [documentId, businessId]);
-    const document = found.rows[0];
-    if (!document) return res.status(404).json({ error: 'Document not found' });
-    if (!await requireClientAccess(req, res, businessId, document.client_id)) return;
-    if (!await enforceLimit(req, res, 'storage', file_size_bytes)) return;
-    const versionResult = await pool.query('SELECT COALESCE(MAX(version_number), 0)::int AS version FROM administrative_document_versions WHERE document_id = $1', [documentId]);
-    const version = Number(versionResult.rows[0].version) + 1;
-    await pool.query(
-      `INSERT INTO administrative_document_versions
-       (business_id, document_id, version_number, file_name, file_url, file_size_bytes, mime_type, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [businessId, documentId, version, file_name.trim(), file_url, file_size_bytes || null, mime_type || null, req.user.id],
-    );
-    if (action === 'replace') {
-      await pool.query(
-        `UPDATE administrative_documents SET file_name = $1, file_url = $2, file_size_bytes = $3, mime_type = $4, updated_at = NOW()
-         WHERE id = $5`,
-        [file_name.trim(), file_url, file_size_bytes || null, mime_type || null, documentId],
-      );
-    }
-    await logActivity(businessId, req.user.id, 'document_version_approved', 'document', documentId, document.client_id, { action, version });
-    res.status(201).json({ document_id: documentId, version_number: version, action });
-  }));
-
-  router.get('/:businessId/documents/:documentId/download', asyncHandler(async (req, res) => {
-    const { businessId, documentId } = req.params;
-    const result = await pool.query(
-      `SELECT d.* FROM administrative_documents d
-       WHERE d.id = $1 AND d.business_id = $2`,
-      [documentId, businessId],
-    );
-    const document = result.rows[0];
-    if (!document) return res.status(404).json({ error: 'Document not found' });
-    const client = await requireClientAccess(req, res, businessId, document.client_id);
-    if (!client) return;
-    await logActivity(businessId, req.user.id, 'document_downloaded', 'document', documentId, document.client_id, { file_name: document.file_name });
-    res.json({ file_name: document.file_name, file_url: document.file_url, mime_type: document.mime_type });
-  }));
-
-  router.get('/:businessId/activity', requireManager, asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const { clientId, action, limit = '100', offset = '0' } = req.query;
-    const params = [businessId];
-    let query = `SELECT a.*, c.name AS client_name, p.full_name AS actor_name
-                 FROM administrative_activity_log a
-                 LEFT JOIN administrative_clients c ON c.id = a.client_id
-                 LEFT JOIN profiles p ON p.id = a.actor_id
-                 WHERE a.business_id = $1`;
-    if (clientId) { params.push(clientId); query += ` AND a.client_id = $${params.length}`; }
-    if (action) { params.push(action); query += ` AND a.action = $${params.length}`; }
-    params.push(Math.min(200, Math.max(1, Number(limit) || 100)));
-    params.push(Math.max(0, Number(offset) || 0));
-    query += ` ORDER BY a.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
-    const result = await pool.query(query, params);
-    res.json({ data: result.rows });
-  }));
-
-  router.get('/:businessId/staffing', requireManager, asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const result = await pool.query(
-      `SELECT w.id, w.full_name, w.role, w.is_active,
-              COUNT(DISTINCT cw.client_id)::int AS assigned_client_count,
-              COALESCE(array_agg(DISTINCT cw.client_id) FILTER (WHERE cw.client_id IS NOT NULL), '{}') AS assigned_client_ids,
-              COUNT(DISTINCT t.id) FILTER (WHERE t.status IN ('assigned', 'in_progress', 'submitted'))::int AS open_task_count
-       FROM workers w
-       LEFT JOIN administrative_client_workers cw ON cw.worker_id = w.id
-       LEFT JOIN administrative_tasks t ON t.assigned_to = w.id AND t.business_id = $1
-       WHERE w.business_id = $1
-       GROUP BY w.id ORDER BY w.full_name ASC`,
-      [businessId],
-    );
-    res.json({ data: result.rows });
-  }));
-
-  router.get('/:businessId/calendar', asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const { from, to } = req.query;
-    if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
-    const params = [businessId, from, to];
-    const taskScope = isManager(req) ? '' : ' AND t.assigned_to = $4';
-    const obligationScope = isManager(req) ? '' : ' AND o.assigned_to = $4';
-    if (!isManager(req)) params.push(req.user.id);
-    const result = await pool.query(
-      `SELECT 'task' AS event_type, t.id, t.title, t.due_at AS starts_at, t.status,
-              t.client_id, c.name AS client_name
-       FROM administrative_tasks t
-       LEFT JOIN administrative_clients c ON c.id = t.client_id
-       WHERE t.business_id = $1 AND t.due_at >= $2::timestamptz
-         AND t.due_at < $3::timestamptz${taskScope}
-       UNION ALL
-       SELECT 'obligation' AS event_type, o.id, o.title, o.next_due_at AS starts_at,
-              CASE WHEN o.next_due_at <= NOW() + INTERVAL '7 days' THEN 'urgent' ELSE 'open' END AS status,
-              o.client_id, c.name AS client_name
-       FROM administrative_obligations o
-       JOIN administrative_clients c ON c.id = o.client_id
-       WHERE o.business_id = $1 AND o.is_active = true
-         AND o.next_due_at >= $2::timestamptz
-         AND o.next_due_at < $3::timestamptz${obligationScope}
-       UNION ALL
-       SELECT 'calendar' AS event_type, e.id, e.title, e.starts_at,
-              'scheduled' AS status, e.client_id, c.name AS client_name
-       FROM administrative_calendar_events e
-       LEFT JOIN administrative_clients c ON c.id = e.client_id
-       WHERE e.business_id = $1 AND e.starts_at >= $2::timestamptz
-         AND e.starts_at < $3::timestamptz
-       ORDER BY starts_at ASC`,
-      params,
-    );
-    res.json({ data: result.rows });
-  }));
-
-  router.post('/:businessId/calendar-events', requireManager, requireFields('title', 'starts_at'), asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const { title, description, starts_at, client_id } = req.body;
-    if (Number.isNaN(Date.parse(starts_at))) return res.status(400).json({ error: 'starts_at must be a valid date' });
-    if (client_id && !await requireClientAccess(req, res, businessId, client_id)) return;
-    const result = await pool.query(
-      `INSERT INTO administrative_calendar_events (business_id, client_id, title, description, starts_at, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [businessId, client_id || null, title.trim(), description?.trim() || null, starts_at, req.user.id],
-    );
-    const event = result.rows[0];
-    await logActivity(businessId, req.user.id, 'calendar_event_created', 'calendar_event', event.id, event.client_id);
-    res.status(201).json(event);
-  }));
-
-  router.get('/:businessId/financial-entries', requireManager, asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const { type, clientId, from, to, limit = '100', offset = '0' } = req.query;
-    const params = [businessId];
-    let query = `SELECT e.*, c.name AS client_name
-                 FROM administrative_financial_entries e
-                 LEFT JOIN administrative_clients c ON c.id = e.client_id
-                 WHERE e.business_id = $1`;
-    if (type) { if (!['revenue', 'expense'].includes(type)) return res.status(400).json({ error: 'Invalid entry type' }); params.push(type); query += ` AND e.entry_type = $${params.length}`; }
-    if (clientId) { params.push(clientId); query += ` AND e.client_id = $${params.length}`; }
-    if (from) { params.push(from); query += ` AND e.occurred_at >= $${params.length}::timestamptz`; }
-    if (to) { params.push(to); query += ` AND e.occurred_at < $${params.length}::timestamptz`; }
-    params.push(Math.min(200, Math.max(1, Number(limit) || 100)), Math.max(0, Number(offset) || 0));
-    query += ` ORDER BY e.occurred_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
-    const result = await pool.query(query, params);
-    res.json({ data: result.rows });
-  }));
-
-  router.post('/:businessId/financial-entries', requireManager, requireFields('entry_type', 'amount', 'description'), asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const { entry_type, amount, description, client_id, occurred_at } = req.body;
-    if (!['revenue', 'expense'].includes(entry_type) || Number(amount) < 0) return res.status(400).json({ error: 'Invalid financial entry' });
-    const result = await pool.query(
-      `INSERT INTO administrative_financial_entries
-       (business_id, client_id, entry_type, amount, occurred_at, description, created_by)
-       VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, NOW()), $6, $7) RETURNING *`,
-      [businessId, client_id || null, entry_type, amount, occurred_at || null, description.trim(), req.user.id],
-    );
-    const entry = result.rows[0];
-    await logActivity(businessId, req.user.id, `${entry_type}_recorded`, 'financial_entry', entry.id, entry.client_id);
-    res.status(201).json(entry);
-  }));
-
-  router.patch('/:businessId/financial-entries/:entryId', requireManager, asyncHandler(async (req, res) => {
-    const { businessId, entryId } = req.params;
-    const { entry_type, amount, description, client_id, occurred_at } = req.body;
-    if (entry_type !== undefined && !['revenue', 'expense'].includes(entry_type)) return res.status(400).json({ error: 'Invalid entry_type' });
-    if (amount !== undefined && (!Number.isFinite(Number(amount)) || Number(amount) < 0)) return res.status(400).json({ error: 'Invalid amount' });
-    if (occurred_at !== undefined && Number.isNaN(Date.parse(occurred_at))) return res.status(400).json({ error: 'Invalid occurred_at' });
-    if (client_id && !await requireClientAccess(req, res, businessId, client_id)) return;
-    const fields = [];
-    const values = [];
-    const add = (field, value) => { values.push(value); fields.push(`${field} = $${values.length}`); };
-    if (entry_type !== undefined) add('entry_type', entry_type);
-    if (amount !== undefined) add('amount', amount);
-    if (description !== undefined) add('description', String(description).trim());
-    if (client_id !== undefined) add('client_id', client_id || null);
-    if (occurred_at !== undefined) add('occurred_at', occurred_at);
-    if (fields.length === 0) return res.status(400).json({ error: 'No supported fields supplied' });
-    values.push(entryId, businessId);
-    const result = await pool.query(
-      `UPDATE administrative_financial_entries SET ${fields.join(', ')}
-       WHERE id = $${values.length - 1} AND business_id = $${values.length} RETURNING *`,
-      values,
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Financial entry not found' });
-    const entry = result.rows[0];
-    await logActivity(businessId, req.user.id, 'financial_entry_updated', 'financial_entry', entry.id, entry.client_id);
-    res.json(entry);
-  }));
-
-  router.get('/:businessId/invoices', requireManager, asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const { status, clientId, limit = '100', offset = '0' } = req.query;
-    const params = [businessId];
-    let query = `SELECT i.*, c.name AS client_name
-                 FROM administrative_invoices i
-                 JOIN administrative_clients c ON c.id = i.client_id
-                 WHERE i.business_id = $1`;
-    if (status) { params.push(status); query += ` AND i.status = $${params.length}`; }
-    if (clientId) { params.push(clientId); query += ` AND i.client_id = $${params.length}`; }
-    params.push(Math.min(200, Math.max(1, Number(limit) || 100)), Math.max(0, Number(offset) || 0));
-    query += ` ORDER BY i.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
-    const result = await pool.query(query, params);
-    res.json({ data: result.rows });
-  }));
-
-  router.get('/:businessId/invoices/:invoiceId', requireManager, asyncHandler(async (req, res) => {
-    const { businessId, invoiceId } = req.params;
-    const invoiceResult = await pool.query(
-      `SELECT i.*, c.name AS client_name
-       FROM administrative_invoices i
-       JOIN administrative_clients c ON c.id = i.client_id
-       WHERE i.id = $1 AND i.business_id = $2`,
-      [invoiceId, businessId],
-    );
-    const invoice = invoiceResult.rows[0];
-    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
-    const items = await pool.query(
-      'SELECT * FROM administrative_invoice_items WHERE invoice_id = $1 ORDER BY created_at ASC',
-      [invoiceId],
-    );
-    res.json({ ...invoice, items: items.rows });
-  }));
-
-  router.post('/:businessId/invoices', requireManager, requireFields('client_id', 'invoice_number', 'items'), asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const { client_id, invoice_number, items, due_date, notes, currency = 'NGN', tax_amount = 0 } = req.body;
-    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'At least one invoice item is required' });
-    const client = await requireClientAccess(req, res, businessId, client_id);
-    if (!client) return;
-    const normalizedItems = items.map((item) => ({
-      description: String(item.description || '').trim(),
-      quantity: Number(item.quantity),
-      unitPrice: Number(item.unit_price),
-    }));
-    if (normalizedItems.some((item) => !item.description || !Number.isFinite(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.unitPrice) || item.unitPrice < 0)) {
-      return res.status(400).json({ error: 'Each invoice item needs a description, positive quantity, and non-negative unit_price' });
-    }
-    const subtotal = normalizedItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-    const tax = Number(tax_amount);
-    if (!Number.isFinite(tax) || tax < 0) return res.status(400).json({ error: 'Invalid tax_amount' });
-    const invoiceResult = await pool.query(
-      `INSERT INTO administrative_invoices
-       (business_id, client_id, invoice_number, currency, due_date, subtotal, tax_amount, total_amount, notes, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [businessId, client_id, invoice_number.trim(), currency, due_date || null, subtotal, tax, subtotal + tax, notes || null, req.user.id],
-    );
-    const invoice = invoiceResult.rows[0];
-    for (const item of normalizedItems) {
-      await pool.query(
-        `INSERT INTO administrative_invoice_items (invoice_id, description, quantity, unit_price, line_total)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [invoice.id, item.description, item.quantity, item.unitPrice, item.quantity * item.unitPrice],
-      );
-    }
-    await logActivity(businessId, req.user.id, 'invoice_created', 'invoice', invoice.id, client_id, { invoice_number: invoice.invoice_number });
-    res.status(201).json(invoice);
-  }));
-
-  router.post('/:businessId/invoices/:invoiceId/send', requireManager, asyncHandler(async (req, res) => {
-    const { businessId, invoiceId } = req.params;
-    const result = await pool.query(
-      `UPDATE administrative_invoices SET status = 'sent', sent_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND business_id = $2 AND status = 'draft' RETURNING *`,
-      [invoiceId, businessId],
-    );
-    if (result.rows.length === 0) return res.status(409).json({ error: 'Only draft invoices can be sent' });
-    const invoice = result.rows[0];
-    await logActivity(businessId, req.user.id, 'invoice_sent', 'invoice', invoice.id, invoice.client_id);
-    res.json(invoice);
-  }));
-
-  router.post('/:businessId/invoices/:invoiceId/email', requireManager, requireFields('email'), asyncHandler(async (req, res) => {
-    if (!sendMail) return res.status(503).json({ error: 'Invoice email delivery is not configured' });
-    const { businessId, invoiceId } = req.params;
-    const email = String(req.body.email || '').trim();
-    if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'A valid email is required' });
-    const result = await pool.query(
-      `SELECT i.*, c.name AS client_name FROM administrative_invoices i
-       JOIN administrative_clients c ON c.id = i.client_id
-       WHERE i.id = $1 AND i.business_id = $2`,
-      [invoiceId, businessId],
-    );
-    const invoice = result.rows[0];
-    if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
-    const items = await pool.query('SELECT description, quantity, line_total FROM administrative_invoice_items WHERE invoice_id = $1', [invoiceId]);
-    const lines = items.rows.map((item) => `<tr><td>${String(item.description).replace(/[&<>]/g, '')}</td><td>${item.quantity}</td><td>${item.line_total}</td></tr>`).join('');
-    await sendMail({
-      to: email,
-      subject: `Invoice ${invoice.invoice_number}`,
-      html: `<h2>Invoice ${invoice.invoice_number}</h2><p>Client: ${invoice.client_name}</p><table><tr><th>Description</th><th>Qty</th><th>Amount</th></tr>${lines}</table><p><strong>Total: ${invoice.currency} ${invoice.total_amount}</strong></p>`,
+    await loadClient(prisma, req, clientId, { allowArchived: true });
+    const removed = await prisma.$transaction(async (tx) => {
+      const r = await tx.administrativeClientWorker.deleteMany({ where: { clientId, workerId } });
+      if (r.count > 0) {
+        await logActivity(tx, { businessId, clientId, actorId: me(req), action: 'client.worker_unassigned', entityType: 'client', entityId: clientId, metadata: { workerId } });
+      }
+      return r.count;
     });
-    if (invoice.status === 'draft') {
-      await pool.query("UPDATE administrative_invoices SET status = 'sent', sent_at = NOW(), updated_at = NOW() WHERE id = $1", [invoiceId]);
+    res.json({ data: { clientId, workerId, assigned: false, removed } });
+  }));
+
+  // ── Folders ──────────────────────────────────────────────
+  router.get('/:businessId/clients/:clientId/folders', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, clientId } = req.params;
+    await loadClient(prisma, req, clientId, { allowArchived: true });
+    const rows = await prisma.administrativeDocumentFolder.findMany({
+      where: { businessId, clientId }, orderBy: { name: 'asc' }, take: FOLDER_LIST_CAP + 1,
+      select: { id: true, clientId: true, name: true, createdAt: true },
+    });
+    res.json({ data: rows.slice(0, FOLDER_LIST_CAP), hasMore: rows.length > FOLDER_LIST_CAP });
+  }));
+
+  router.post('/:businessId/clients/:clientId/folders', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, clientId } = req.params;
+    const name = requireText((req.body || {}).name, 'name', 120);
+    await loadClient(prisma, req, clientId);
+    const folder = await prisma.$transaction(async (tx) => {
+      const f = await tx.administrativeDocumentFolder.create({
+        data: { businessId, clientId, name, createdBy: me(req) },
+        select: { id: true, clientId: true, name: true, createdAt: true },
+      });
+      await logActivity(tx, { businessId, clientId, actorId: me(req), action: 'folder.created', entityType: 'folder', entityId: f.id });
+      return f;
+    });
+    res.status(201).json({ data: folder });
+  }));
+
+  // ── Documents (metadata; the file itself goes through /api/upload) ──
+  router.get('/:businessId/clients/:clientId/documents', pagination, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, clientId } = req.params;
+    await loadClient(prisma, req, clientId, { allowArchived: true });
+    const where = { businessId, clientId };
+    if (req.query.folderId !== undefined) {
+      where.folderId = req.query.folderId === 'none' ? null : requireUuid(String(req.query.folderId), 'folderId');
     }
-    await logActivity(businessId, req.user.id, 'invoice_emailed', 'invoice', invoiceId, invoice.client_id, { email });
-    res.json({ delivered: true });
+    if (req.query.status !== undefined) where.status = oneOf(String(req.query.status), ['stored', ...TASK_STATUSES], 'status');
+    if (typeof req.query.q === 'string' && req.query.q.trim()) {
+      where.fileName = { contains: req.query.q.trim().slice(0, 100), mode: 'insensitive' };
+    }
+    const rows = await prisma.administrativeDocument.findMany({
+      where, orderBy: { createdAt: 'desc' }, take: req.pagination.limit + 1, skip: req.pagination.offset,
+    });
+    const out = paged(rows, req.pagination);
+    out.data = out.data.map(serializeDocument);
+    res.json(out);
   }));
 
-  router.post('/:businessId/invoices/:invoiceId/void', requireManager, asyncHandler(async (req, res) => {
-    const { businessId, invoiceId } = req.params;
-    const result = await pool.query(
-      `UPDATE administrative_invoices SET status = 'void', updated_at = NOW()
-       WHERE id = $1 AND business_id = $2 AND status IN ('draft', 'sent') RETURNING *`,
-      [invoiceId, businessId],
-    );
-    if (result.rows.length === 0) return res.status(409).json({ error: 'Only unpaid invoices can be voided' });
-    const invoice = result.rows[0];
-    await logActivity(businessId, req.user.id, 'invoice_voided', 'invoice', invoice.id, invoice.client_id);
-    res.json(invoice);
+  router.post('/:businessId/clients/:clientId/documents', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, clientId } = req.params;
+    const b = req.body || {};
+    const fileName = requireText(b.fileName, 'fileName', 255);
+    const fileUrl = requireText(b.fileUrl, 'fileUrl', 2048);
+    const mimeType = optionalText(b.mimeType, 'mimeType', 127);
+    const size = b.fileSizeBytes === undefined || b.fileSizeBytes === null
+      ? 0 : intInRange(b.fileSizeBytes, 'fileSizeBytes', 0, Number.MAX_SAFE_INTEGER);
+    const folderId = optionalUuid(b.folderId, 'folderId');
+
+    await loadClient(prisma, req, clientId);
+    if (folderId) {
+      const folder = await prisma.administrativeDocumentFolder.findFirst({ where: { id: folderId, clientId, businessId }, select: { id: true } });
+      if (!folder) throw new HttpError(404, 'Folder not found for this client');
+    }
+    const doc = await prisma.$transaction(async (tx) => {
+      await takeStorage(tx, businessId, BigInt(size), req.entitlement.storageGb);
+      const d = await tx.administrativeDocument.create({
+        data: { businessId, clientId, folderId, fileName, fileUrl, fileSizeBytes: BigInt(size), mimeType, uploadedBy: me(req) },
+      });
+      await logActivity(tx, { businessId, clientId, actorId: me(req), action: 'document.uploaded', entityType: 'document', entityId: d.id, metadata: { fileName, size } });
+      return d;
+    });
+    res.status(201).json({ data: serializeDocument(doc) });
   }));
 
-  router.post('/:businessId/invoices/:invoiceId/payments', requireManager, requireFields('amount'), asyncHandler(async (req, res) => {
-    const { businessId, invoiceId } = req.params;
-    const amount = Number(req.body.amount);
-    if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Payment amount must be positive' });
-    const db = await pool.connect();
-    let updated;
-    try {
-      await db.query('BEGIN');
-      const existing = await db.query('SELECT * FROM administrative_invoices WHERE id = $1 AND business_id = $2 FOR UPDATE', [invoiceId, businessId]);
-      const invoice = existing.rows[0];
-      if (!invoice || !['sent', 'paid'].includes(invoice.status)) {
-        await db.query('ROLLBACK');
-        return res.status(409).json({ error: 'Only sent invoices can receive payments' });
+  // Assign a stored document to a worker already assigned to its client.
+  router.post('/:businessId/documents/:documentId/assignments', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, documentId } = req.params;
+    const b = req.body || {};
+    const workerId = requireUuid(b.workerId, 'workerId');
+    const remark = optionalText(b.remark, 'remark', 1000);
+    const dueAt = optionalDateTime(b.dueAt, 'dueAt');
+
+    const doc = await prisma.administrativeDocument.findFirst({
+      where: { id: documentId, businessId }, select: { id: true, clientId: true, fileName: true },
+    });
+    if (!doc) throw new HttpError(404, 'Document not found');
+    await requireWorkerInBusiness(prisma, businessId, workerId);
+    const link = await prisma.administrativeClientWorker.findUnique({ where: { clientId_workerId: { clientId: doc.clientId, workerId } } });
+    if (!link) throw new HttpError(409, 'Assign this worker to the client first');
+
+    const task = await prisma.$transaction(async (tx) => {
+      const moved = await tx.administrativeDocument.updateMany({
+        where: { id: documentId, businessId, status: 'stored' }, data: { status: 'assigned', updatedAt: new Date() },
+      });
+      if (moved.count === 0) throw new HttpError(409, 'Document is not available for assignment');
+      const t = await tx.administrativeTask.create({
+        data: {
+          businessId, clientId: doc.clientId, documentId, assignedTo: workerId, assignedBy: me(req),
+          title: optionalText(b.title, 'title', 200) || doc.fileName, remark, dueAt, status: 'assigned',
+        },
+      });
+      await logActivity(tx, { businessId, clientId: doc.clientId, actorId: me(req), action: 'document.assigned', entityType: 'document', entityId: documentId, metadata: { workerId, taskId: t.id } });
+      return t;
+    });
+    res.status(201).json({ data: task });
+  }));
+
+  // ── Tasks ────────────────────────────────────────────────
+  router.get('/:businessId/tasks', pagination, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId } = req.params;
+    const where = { businessId };
+    if (!isManager(req)) where.assignedTo = me(req);
+    else if (req.query.assignedTo !== undefined) where.assignedTo = requireUuid(String(req.query.assignedTo), 'assignedTo');
+    if (req.query.status !== undefined) where.status = oneOf(String(req.query.status), TASK_STATUSES, 'status');
+    if (req.query.clientId !== undefined) where.clientId = requireUuid(String(req.query.clientId), 'clientId');
+    if (req.query.overdue === 'true') {
+      where.dueAt = { lt: new Date() };
+      if (where.status === undefined) where.status = { in: ['assigned', 'in_progress'] };
+    }
+    const rows = await prisma.administrativeTask.findMany({
+      where, orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
+      take: req.pagination.limit + 1, skip: req.pagination.offset,
+    });
+    res.json(paged(rows, req.pagination));
+  }));
+
+  router.post('/:businessId/tasks', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId } = req.params;
+    const b = req.body || {};
+    const manager = isManager(req);
+    const data = {
+      businessId, assignedBy: me(req), status: 'assigned',
+      title: requireText(b.title, 'title'),
+      remark: optionalText(b.remark, 'remark', 1000),
+      dueAt: optionalDateTime(b.dueAt, 'dueAt'),
+    };
+    if (manager) {
+      data.clientId = optionalUuid(b.clientId, 'clientId');
+      data.documentId = optionalUuid(b.documentId, 'documentId');
+      data.assignedTo = optionalUuid(b.assignedTo, 'assignedTo');
+      if (data.clientId) await loadClient(prisma, req, data.clientId, { allowArchived: true });
+      if (data.documentId) {
+        const doc = await prisma.administrativeDocument.findFirst({ where: { id: data.documentId, businessId }, select: { clientId: true } });
+        if (!doc) throw new HttpError(404, 'Document not found');
+        if (data.clientId && data.clientId !== doc.clientId) throw new HttpError(400, 'documentId does not belong to clientId');
+        data.clientId = doc.clientId;
       }
-      if (Number(invoice.paid_amount) + amount > Number(invoice.total_amount)) {
-        await db.query('ROLLBACK');
-        return res.status(400).json({ error: 'Payment exceeds outstanding invoice balance' });
+      if (data.assignedTo) await requireWorkerInBusiness(prisma, businessId, data.assignedTo);
+    } else {
+      data.assignedTo = me(req); // a personal task
+    }
+    const task = await prisma.$transaction(async (tx) => {
+      const t = await tx.administrativeTask.create({ data });
+      await logActivity(tx, { businessId, clientId: t.clientId, actorId: me(req), action: 'task.created', entityType: 'task', entityId: t.id });
+      return t;
+    });
+    res.status(201).json({ data: task });
+  }));
+
+  async function loadTask(prisma, businessId, taskId) {
+    const t = await prisma.administrativeTask.findFirst({ where: { id: taskId, businessId } });
+    if (!t) throw new HttpError(404, 'Task not found');
+    return t;
+  }
+
+  router.patch('/:businessId/tasks/:taskId', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, taskId } = req.params;
+    const b = req.body || {};
+    const task = await loadTask(prisma, businessId, taskId);
+    const data = {};
+    if (isManager(req)) {
+      if (b.title !== undefined) data.title = requireText(b.title, 'title');
+      if (b.remark !== undefined) data.remark = optionalText(b.remark, 'remark', 1000);
+      if (b.dueAt !== undefined) data.dueAt = optionalDateTime(b.dueAt, 'dueAt');
+      if (b.assignedTo !== undefined) {
+        data.assignedTo = optionalUuid(b.assignedTo, 'assignedTo');
+        if (data.assignedTo) await requireWorkerInBusiness(prisma, businessId, data.assignedTo);
       }
-      const paidAmount = Number(invoice.paid_amount) + amount;
-      const paidInFull = paidAmount >= Number(invoice.total_amount);
-      const updatedResult = await db.query(
-        `UPDATE administrative_invoices
-         SET paid_amount = $1, status = $2, paid_at = CASE WHEN $2 = 'paid' THEN NOW() ELSE paid_at END, updated_at = NOW()
-         WHERE id = $3 RETURNING *`,
-        [paidAmount, paidInFull ? 'paid' : 'sent', invoiceId],
-      );
-      updated = updatedResult.rows[0];
-      await db.query(
-        `INSERT INTO administrative_financial_entries (business_id, client_id, invoice_id, entry_type, amount, description, created_by)
-         VALUES ($1, $2, $3, 'revenue', $4, $5, $6)`,
-        [businessId, updated.client_id, invoiceId, amount, `Invoice payment ${updated.invoice_number}`, req.user.id],
-      );
-      await db.query('COMMIT');
-    } catch (error) {
-      await db.query('ROLLBACK');
-      throw error;
-    } finally {
-      db.release();
+    } else {
+      // A worker can only start their own task.
+      if (task.assignedTo !== me(req)) throw new HttpError(404, 'Task not found');
+      if (b.status !== 'in_progress') throw new HttpError(403, 'You can only mark your own task as in_progress');
+      data.status = 'in_progress';
     }
-    await logActivity(businessId, req.user.id, 'invoice_payment_recorded', 'invoice', invoiceId, updated.client_id, { amount });
-    res.json(updated);
-  }));
-
-  router.get('/:businessId/tasks', asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const { status, assignedTo, clientId } = req.query;
-    const params = [businessId];
-    let query = `SELECT t.*, c.name AS client_name, d.file_name AS document_name,
-                        w.full_name AS assigned_worker_name
-                 FROM administrative_tasks t
-                 LEFT JOIN administrative_clients c ON c.id = t.client_id
-                 LEFT JOIN administrative_documents d ON d.id = t.document_id
-                 LEFT JOIN workers w ON w.id = t.assigned_to
-                 WHERE t.business_id = $1`;
-    if (status) { params.push(status); query += ` AND t.status = $${params.length}`; }
-    if (clientId) { params.push(clientId); query += ` AND t.client_id = $${params.length}`; }
-    if (assignedTo) {
-      if (!isManager(req) && assignedTo !== req.user.id) return res.status(403).json({ error: 'You can only view your own tasks' });
-      params.push(assignedTo);
-      query += ` AND t.assigned_to = $${params.length}`;
-    } else if (!isManager(req)) {
-      params.push(req.user.id);
-      query += ` AND t.assigned_to = $${params.length}`;
-    }
-    query += ' ORDER BY t.due_at NULLS LAST, t.created_at DESC';
-    const result = await pool.query(query, params);
-    res.json({ data: result.rows });
-  }));
-
-  router.post('/:businessId/tasks', requireManager, requireFields('title'), asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const { client_id, document_id, title, remark, assigned_to, due_at, priority = 'normal' } = req.body;
-    if (!['low', 'normal', 'high', 'urgent'].includes(priority)) return res.status(400).json({ error: 'Invalid task priority' });
-    if (client_id && !await requireClientAccess(req, res, businessId, client_id)) return;
-    if (document_id) {
-      const document = await pool.query('SELECT id, client_id FROM administrative_documents WHERE id = $1 AND business_id = $2', [document_id, businessId]);
-      if (document.rows.length === 0) return res.status(400).json({ error: 'Document not found for this business' });
-      if (client_id && document.rows[0].client_id !== client_id) return res.status(400).json({ error: 'Document does not belong to this client' });
-    }
-    if (assigned_to) {
-      const worker = await pool.query('SELECT id FROM workers WHERE id = $1 AND business_id = $2 AND is_active = true', [assigned_to, businessId]);
-      if (worker.rows.length === 0) return res.status(400).json({ error: 'Active worker not found' });
-      if (client_id) {
-        const permitted = await pool.query('SELECT 1 FROM administrative_client_workers WHERE client_id = $1 AND worker_id = $2', [client_id, assigned_to]);
-        if (permitted.rows.length === 0) return res.status(400).json({ error: 'Worker is not assigned to this client' });
+    if (Object.keys(data).length === 0) throw new HttpError(400, 'No valid fields supplied');
+    const where = { id: taskId, businessId };
+    if (data.status === 'in_progress') where.status = 'assigned'; // only assigned -> in_progress
+    const updated = await prisma.$transaction(async (tx) => {
+      const r = await tx.administrativeTask.updateMany({ where, data: { ...data, updatedAt: new Date() } });
+      if (r.count === 0) throw new HttpError(409, 'Task is not in a state that allows this change');
+      if (task.documentId && data.status === 'in_progress') {
+        await tx.administrativeDocument.updateMany({ where: { id: task.documentId, businessId, status: 'assigned' }, data: { status: 'in_progress', updatedAt: new Date() } });
       }
-    }
-    const result = await pool.query(
-      `INSERT INTO administrative_tasks
-       (business_id, client_id, document_id, title, remark, assigned_to, assigned_by, due_at, priority)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [businessId, client_id || null, document_id || null, title.trim(), remark || null, assigned_to || null, req.user.id, due_at || null, priority],
-    );
-    const task = result.rows[0];
-    await logActivity(businessId, req.user.id, 'task_assigned', 'task', task.id, task.client_id, { assigned_to: task.assigned_to });
-    res.status(201).json(task);
+      await logActivity(tx, { businessId, clientId: task.clientId, actorId: me(req), action: 'task.updated', entityType: 'task', entityId: taskId, metadata: { fields: Object.keys(data) } });
+      return tx.administrativeTask.findFirst({ where: { id: taskId, businessId } });
+    });
+    res.json({ data: updated });
   }));
 
-  router.get('/:businessId/tasks/:taskId/comments', asyncHandler(async (req, res) => {
+  // Worker submits finished work. Only the assignee, only from assigned / in_progress.
+  router.post('/:businessId/tasks/:taskId/submit', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
     const { businessId, taskId } = req.params;
-    const taskResult = await pool.query('SELECT * FROM administrative_tasks WHERE id = $1 AND business_id = $2', [taskId, businessId]);
-    const task = taskResult.rows[0];
-    if (!task) return res.status(404).json({ error: 'Task not found' });
-    if (!isManager(req) && task.assigned_to !== req.user.id) return res.status(403).json({ error: 'Task access is required' });
-    const result = await pool.query(
-      `SELECT c.*, p.full_name AS author_name
-       FROM administrative_task_comments c
-       LEFT JOIN profiles p ON p.id = c.author_id
-       WHERE c.task_id = $1 ORDER BY c.created_at ASC`,
-      [taskId],
-    );
-    res.json({ data: result.rows });
+    const remark = optionalText((req.body || {}).remark, 'remark', 1000);
+    const task = await loadTask(prisma, businessId, taskId);
+    if (task.assignedTo !== me(req)) throw new HttpError(403, 'Only the assigned worker can submit this task');
+    const updated = await prisma.$transaction(async (tx) => {
+      const r = await tx.administrativeTask.updateMany({
+        where: { id: taskId, businessId, assignedTo: me(req), status: { in: ['assigned', 'in_progress'] } },
+        data: { status: 'submitted', updatedAt: new Date() },
+      });
+      if (r.count === 0) throw new HttpError(409, 'Task cannot be submitted from its current status');
+      if (task.documentId) {
+        await tx.administrativeDocument.updateMany({ where: { id: task.documentId, businessId }, data: { status: 'submitted', updatedAt: new Date() } });
+      }
+      await logActivity(tx, { businessId, clientId: task.clientId, actorId: me(req), action: 'task.submitted', entityType: 'task', entityId: taskId, metadata: { remark } });
+      return tx.administrativeTask.findFirst({ where: { id: taskId, businessId } });
+    });
+    res.json({ data: updated });
   }));
 
-  router.post('/:businessId/tasks/:taskId/comments', requireFields('body'), asyncHandler(async (req, res) => {
+  // Owner / admin approves or rejects submitted work.
+  //  approve: needs a storage action (replace_original | store_as_new_version)
+  //  reject:  needs a remark, and the task returns to in_progress
+  // NOTE: this records the decision. Swapping the stored file / creating the new
+  // version needs the administrative_document_versions table the spec lists as
+  // future work, so it is not done here.
+  router.post('/:businessId/tasks/:taskId/review', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
     const { businessId, taskId } = req.params;
-    const taskResult = await pool.query('SELECT * FROM administrative_tasks WHERE id = $1 AND business_id = $2', [taskId, businessId]);
-    const task = taskResult.rows[0];
-    if (!task) return res.status(404).json({ error: 'Task not found' });
-    if (!isManager(req) && task.assigned_to !== req.user.id) return res.status(403).json({ error: 'Task access is required' });
-    const result = await pool.query(
-      `INSERT INTO administrative_task_comments (task_id, business_id, author_id, body)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [taskId, businessId, req.user.id, req.body.body.trim()],
-    );
-    const comment = result.rows[0];
-    await logActivity(businessId, req.user.id, 'task_comment_added', 'task', taskId, task.client_id);
-    res.status(201).json(comment);
-  }));
+    const b = req.body || {};
+    const decision = oneOf(b.decision, ['approve', 'reject'], 'decision');
+    const remark = optionalText(b.remark, 'remark', 1000);
+    let storageAction = null;
+    if (decision === 'approve') storageAction = oneOf(b.storageAction, STORAGE_ACTIONS, 'storageAction');
+    if (decision === 'reject' && !remark) throw new HttpError(400, 'remark is required when rejecting');
 
-  router.patch('/:businessId/tasks/:taskId/status', requireFields('status'), asyncHandler(async (req, res) => {
-    const { businessId, taskId } = req.params;
-    const { status, review_action } = req.body;
-    const allowed = ['assigned', 'in_progress', 'submitted', 'approved', 'rejected'];
-    if (!allowed.includes(status)) return res.status(400).json({ error: 'Invalid task status' });
-
-    const found = await pool.query(
-      'SELECT * FROM administrative_tasks WHERE id = $1 AND business_id = $2',
-      [taskId, businessId],
-    );
-    const task = found.rows[0];
-    if (!task) return res.status(404).json({ error: 'Task not found' });
-
-    const workerUpdate = ['in_progress', 'submitted'].includes(status);
-    const reviewing = ['approved', 'rejected'].includes(status);
-    if (workerUpdate && task.assigned_to !== req.user.id) return res.status(403).json({ error: 'Only the assigned worker can update this task' });
-    if (reviewing && !isManager(req)) return res.status(403).json({ error: 'Administrative access is required for review' });
-    if (!workerUpdate && !reviewing && !isManager(req)) return res.status(403).json({ error: 'Administrative access is required' });
-    if (reviewing && !['replace', 'new_version'].includes(review_action || 'replace') && status === 'approved') {
-      return res.status(400).json({ error: 'review_action must be replace or new_version' });
-    }
-
-    const result = await pool.query(
-      `UPDATE administrative_tasks SET
-         status = $1,
-         completed_at = CASE WHEN $1 = 'submitted' THEN NOW() ELSE completed_at END,
-         reviewed_by = CASE WHEN $1 IN ('approved', 'rejected') THEN $2 ELSE reviewed_by END,
-         reviewed_at = CASE WHEN $1 IN ('approved', 'rejected') THEN NOW() ELSE reviewed_at END,
-         review_action = CASE WHEN $1 = 'approved' THEN $3 ELSE review_action END,
-         updated_at = NOW()
-       WHERE id = $4 AND business_id = $5
-       RETURNING *`,
-      [status, req.user.id, status === 'approved' ? review_action || 'replace' : null, taskId, businessId],
-    );
-    const updated = result.rows[0];
-    await logActivity(businessId, req.user.id, `task_${status}`, 'task', updated.id, updated.client_id, { review_action: updated.review_action });
-    res.json(updated);
-  }));
-
-  router.get('/:businessId/obligations', asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const params = [businessId];
-    let query = `SELECT o.*, c.name AS client_name, w.full_name AS assigned_worker_name
-                 FROM administrative_obligations o
-                 JOIN administrative_clients c ON c.id = o.client_id
-                 LEFT JOIN workers w ON w.id = o.assigned_to
-                 WHERE o.business_id = $1 AND o.is_active = true`;
-    if (!isManager(req)) {
-      params.push(req.user.id);
-      query += ` AND o.assigned_to = $${params.length}`;
-    }
-    query += ' ORDER BY o.next_due_at ASC';
-    const result = await pool.query(query, params);
-    res.json({ data: result.rows });
-  }));
-
-  router.post('/:businessId/obligations', requireManager, requireFields('client_id', 'title', 'recurrence_type', 'interval_days'), asyncHandler(async (req, res) => {
-    const { businessId } = req.params;
-    const { client_id, title, recurrence_type, interval_days, fixed_day_of_month, assigned_to } = req.body;
-    if (!['fixed', 'trailing'].includes(recurrence_type)) return res.status(400).json({ error: 'recurrence_type must be fixed or trailing' });
-    if (!Number.isInteger(Number(interval_days)) || Number(interval_days) < 1) return res.status(400).json({ error: 'interval_days must be a positive integer' });
-    if (recurrence_type === 'fixed' && (!Number.isInteger(Number(fixed_day_of_month)) || Number(fixed_day_of_month) < 1 || Number(fixed_day_of_month) > 31)) {
-      return res.status(400).json({ error: 'fixed_day_of_month must be between 1 and 31' });
-    }
+    const task = await loadTask(prisma, businessId, taskId);
     const now = new Date();
-    const nextDueAt = recurrence_type === 'fixed'
-      ? nextFixedDate(now, fixed_day_of_month)
-      : new Date(now.getTime() + Number(interval_days) * 86400000);
-    const result = await pool.query(
-      `INSERT INTO administrative_obligations
-       (business_id, client_id, title, recurrence_type, interval_days, fixed_day_of_month, next_due_at, assigned_to, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [businessId, client_id, title.trim(), recurrence_type, interval_days, fixed_day_of_month || null, nextDueAt, assigned_to || null, req.user.id],
-    );
-    const obligation = result.rows[0];
-    await logActivity(businessId, req.user.id, 'obligation_created', 'obligation', obligation.id, obligation.client_id);
-    res.status(201).json(obligation);
+    const updated = await prisma.$transaction(async (tx) => {
+      const approved = decision === 'approve';
+      const r = await tx.administrativeTask.updateMany({
+        where: { id: taskId, businessId, status: 'submitted' },
+        data: {
+          status: approved ? 'approved' : 'in_progress',
+          completedAt: approved ? now : null,
+          reviewedBy: me(req), reviewedAt: now, reviewAction: approved ? storageAction : 'rejected',
+          updatedAt: now,
+        },
+      });
+      if (r.count === 0) throw new HttpError(409, 'Only submitted work can be reviewed');
+      if (task.documentId) {
+        await tx.administrativeDocument.updateMany({ where: { id: task.documentId, businessId }, data: { status: approved ? 'approved' : 'in_progress', updatedAt: now } });
+      }
+      await logActivity(tx, { businessId, clientId: task.clientId, actorId: me(req), action: approved ? 'task.approved' : 'task.rejected', entityType: 'task', entityId: taskId, metadata: { remark, storageAction } });
+      return tx.administrativeTask.findFirst({ where: { id: taskId, businessId } });
+    });
+    res.json({ data: updated });
   }));
 
+  // ── Obligations ──────────────────────────────────────────
+  router.get('/:businessId/obligations', pagination, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId } = req.params;
+    const where = { businessId, isActive: req.query.active === 'false' ? false : true };
+    if (!isManager(req)) where.assignedTo = me(req);
+    if (req.query.clientId !== undefined) where.clientId = requireUuid(String(req.query.clientId), 'clientId');
+    if (req.query.due !== undefined) {
+      const due = oneOf(String(req.query.due), ['overdue', '24h', '3d', '7d'], 'due');
+      const now = Date.now();
+      where.nextDueAt = due === 'overdue' ? { lt: new Date(now) }
+        : { lt: new Date(now + { '24h': 1, '3d': 3, '7d': 7 }[due] * DAY_MS) };
+    }
+    const rows = await prisma.administrativeObligation.findMany({
+      where, orderBy: { nextDueAt: 'asc' }, take: req.pagination.limit + 1, skip: req.pagination.offset,
+    });
+    res.json(paged(rows, req.pagination));
+  }));
+
+  router.post('/:businessId/obligations', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId } = req.params;
+    const b = req.body || {};
+    const clientId = requireUuid(b.clientId, 'clientId');
+    const recurrenceType = oneOf(b.recurrenceType, ['fixed', 'trailing'], 'recurrenceType');
+    const intervalDays = intInRange(b.intervalDays, 'intervalDays', 1, 3650);
+    let fixedDayOfMonth = null;
+    if (b.fixedDayOfMonth !== undefined && b.fixedDayOfMonth !== null) {
+      if (recurrenceType !== 'fixed') throw new HttpError(400, 'fixedDayOfMonth only applies to fixed recurrence');
+      fixedDayOfMonth = intInRange(b.fixedDayOfMonth, 'fixedDayOfMonth', 1, 31);
+      if (intervalDays < 28) throw new HttpError(400, 'fixedDayOfMonth needs an intervalDays of at least 28');
+    }
+    const data = {
+      businessId, clientId, recurrenceType, intervalDays, fixedDayOfMonth,
+      title: requireText(b.title, 'title'),
+      nextDueAt: parseDateTime(b.nextDueAt, 'nextDueAt'),
+      assignedTo: optionalUuid(b.assignedTo, 'assignedTo'),
+      createdBy: me(req),
+    };
+    await loadClient(prisma, req, clientId);
+    if (data.assignedTo) await requireWorkerInBusiness(prisma, businessId, data.assignedTo);
+    const created = await prisma.$transaction(async (tx) => {
+      const o = await tx.administrativeObligation.create({ data });
+      await logActivity(tx, { businessId, clientId, actorId: me(req), action: 'obligation.created', entityType: 'obligation', entityId: o.id });
+      return o;
+    });
+    res.status(201).json({ data: created });
+  }));
+
+  // Complete the current occurrence and move to the next. The previous due date
+  // is kept in the activity log, so history is not lost.
+  //
+  // Double-submit protection has two layers:
+  //  1. expectedDueAt (optional body field): the due date the client was showing.
+  //     If it no longer matches, the occurrence was already completed -> 409.
+  //     This is the layer that catches a double click that arrives AFTER the
+  //     first request committed. Clients should always send it.
+  //  2. The update below only matches the due date this request read, so two
+  //     requests that read the same state cannot both advance it.
+  // Without expectedDueAt, a second request that arrives after the first has
+  // committed is indistinguishable from a genuine completion of the next
+  // occurrence, and is accepted.
   router.post('/:businessId/obligations/:obligationId/complete', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
     const { businessId, obligationId } = req.params;
-    const found = await pool.query(
-      'SELECT * FROM administrative_obligations WHERE id = $1 AND business_id = $2 AND is_active = true',
-      [obligationId, businessId],
-    );
-    const obligation = found.rows[0];
-    if (!obligation) return res.status(404).json({ error: 'Obligation not found' });
-    if (!isManager(req) && obligation.assigned_to !== req.user.id) return res.status(403).json({ error: 'Only the assigned worker can complete this obligation' });
-    const now = new Date();
-    const nextDueAt = obligation.recurrence_type === 'fixed'
-      ? nextFixedDate(now, obligation.fixed_day_of_month)
-      : new Date(now.getTime() + Number(obligation.interval_days) * 86400000);
-    const result = await pool.query(
-      `UPDATE administrative_obligations
-       SET last_completed_at = NOW(), next_due_at = $1, updated_at = NOW()
-       WHERE id = $2 AND business_id = $3
-       RETURNING *`,
-      [nextDueAt, obligationId, businessId],
-    );
-    const updated = result.rows[0];
-    await logActivity(businessId, req.user.id, 'obligation_completed', 'obligation', updated.id, updated.client_id, { next_due_at: updated.next_due_at });
-    res.json(updated);
+    let expectedDueAt = null;
+    if (req.body && req.body.expectedDueAt !== undefined && req.body.expectedDueAt !== null) {
+      expectedDueAt = new Date(req.body.expectedDueAt);
+      if (Number.isNaN(expectedDueAt.getTime())) throw new HttpError(400, 'expectedDueAt must be a valid date');
+    }
+    const ob = await prisma.administrativeObligation.findFirst({ where: { id: obligationId, businessId, isActive: true } });
+    if (!ob) throw new HttpError(404, 'Obligation not found');
+    if (!isManager(req) && ob.assignedTo !== me(req)) throw new HttpError(404, 'Obligation not found');
+    if (expectedDueAt && expectedDueAt.getTime() !== ob.nextDueAt.getTime()) {
+      throw new HttpError(409, 'This obligation was just updated. Reload and try again.');
+    }
+
+    const completedAt = new Date();
+    const nextDueAt = computeNextDue(ob, completedAt);
+    const updated = await prisma.$transaction(async (tx) => {
+      const r = await tx.administrativeObligation.updateMany({
+        where: { id: obligationId, businessId, isActive: true, nextDueAt: ob.nextDueAt },
+        data: { nextDueAt, lastCompletedAt: completedAt, updatedAt: completedAt },
+      });
+      if (r.count === 0) throw new HttpError(409, 'This obligation was just updated. Reload and try again.');
+      await logActivity(tx, {
+        businessId, clientId: ob.clientId, actorId: me(req), action: 'obligation.completed',
+        entityType: 'obligation', entityId: obligationId,
+        metadata: { previousDueAt: ob.nextDueAt, completedAt, nextDueAt },
+      });
+      return tx.administrativeObligation.findFirst({ where: { id: obligationId, businessId } });
+    });
+    res.json({ data: updated });
   }));
+
+  // ── Activity (owner / admin) ─────────────────────────────
+  router.get('/:businessId/activity', requireManager, pagination, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const where = { businessId: req.params.businessId };
+    if (req.query.clientId !== undefined) where.clientId = requireUuid(String(req.query.clientId), 'clientId');
+    if (typeof req.query.entityType === 'string') where.entityType = req.query.entityType.slice(0, 50);
+    if (typeof req.query.action === 'string') where.action = req.query.action.slice(0, 80);
+    const rows = await prisma.administrativeActivityLog.findMany({
+      where, orderBy: { createdAt: 'desc' }, take: req.pagination.limit + 1, skip: req.pagination.offset,
+    });
+    res.json(paged(rows, req.pagination));
+  }));
+
+  // ── Errors: shape this router's own errors, pass the rest on ──
+  // eslint-disable-next-line no-unused-vars
+  router.use((err, _req, res, next) => {
+    if (err instanceof HttpError) {
+      return res.status(err.statusCode).json({ error: err.message, ...(err.extra || {}) });
+    }
+    // Prisma known-request errors (the global handler only knows raw pg codes).
+    if (err && err.code === 'P2002') return res.status(409).json({ error: 'A record with this value already exists' });
+    if (err && err.code === 'P2003') return res.status(400).json({ error: 'Referenced record does not exist' });
+    if (err && err.code === 'P2025') return res.status(404).json({ error: 'Record not found' });
+    next(err);
+  });
 
   return router;
 };
+
+module.exports.invalidateEntitlement = invalidateEntitlement;
+module.exports.computeNextDue = computeNextDue;
+module.exports.TIER_LIMITS = TIER_LIMITS;

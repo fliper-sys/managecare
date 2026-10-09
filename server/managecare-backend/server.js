@@ -17,6 +17,8 @@ const cors = require('cors');
 const Minio = require('minio');
 
 // ── Route imports ───────────────────────────────────────────
+//prisma test route
+//const prismaTestRoutes = require('./routes/prisma-test');
 const inventoryRoutes = require('./routes/inventory');
 const storesRoutes = require('./routes/stores');
 const returnsRoutes = require('./routes/returns');
@@ -301,6 +303,8 @@ app.set('trust proxy', 1); // behind nginx — use X-Forwarded-For for req.ip
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+//test prisma
+//app.use('/api/prisma-test', prismaTestRoutes);
 
 // Raw text parser ONLY for ADMS routes (device sends plain text, not JSON)
 app.use('/iclock', express.text({ type: '*/*' }));

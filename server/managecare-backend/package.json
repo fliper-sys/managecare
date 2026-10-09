@@ -6,18 +6,32 @@
     "node": "20"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
     "bcrypt": "^5.1.1",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
+    "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "firebase-admin": "^11.11.0",
     "firebase-functions": "^4.5.0",
+    "joi": "^18.0.1",
     "jsonwebtoken": "^9.0.2",
     "minio": "^8.0.3",
     "multer": "^2.0.2",
     "nodemailer": "^6.9.16",
     "pg": "^8.13.1",
     "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "prisma": "^7.10.0",
+    "tsx": "^4.23.15"
+  },
+  "scripts": {
+    "start": "tsx server.js",
+    "dev": "tsx watch server.js",
+    "postinstall": "prisma skills sync || exit 0",
+    "contract:emit": "prisma contract emit"
   }
 }
