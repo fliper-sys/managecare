@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../../../widgets/profile_avatar.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../data/repositories/sales_repository_supabase.dart';
 import 'prescription_detail_screen.dart';
 
 class PatientRecordsScreen extends StatefulWidget {
@@ -228,6 +230,11 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
 
   void _showPatientDetails(BuildContext context, Map<String, dynamic> patient,
       PharmacyProvider provider) {
+    final patientId = patient['id'] as String;
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    final patientSalesFuture = businessId == null
+      ? Future<List<dynamic>>.value(const [])
+      : SalesRepositorySupabase().getSales(businessId);
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -240,7 +247,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
         final treatmentHistory = provider.getPatientTreatmentHistory(patient['id'] as String);
 
         return DefaultTabController(
-          length: 3,
+          length: 4,
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -280,8 +287,9 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                 const TabBar(
                   tabs: [
                     Tab(text: 'Prescriptions'),
-                    Tab(text: 'Active Treatments'),
+                    Tab(text: 'Treatments'),
                     Tab(text: 'Treatment History'),
+                    Tab(text: 'Sales'),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -483,6 +491,50 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                                 ),
                               )).toList(),
                             ),
+                      FutureBuilder<List<dynamic>>(
+                        future: patientSalesFuture,
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          if (snapshot.hasError) {
+                            return const Center(
+                              child: Text('Sales history is unavailable'),
+                            );
+                          }
+                          final sales = (snapshot.data ?? const [])
+                              .whereType<Map>()
+                              .map((sale) => Map<String, dynamic>.from(sale))
+                              .where((sale) => (sale['notes'] ?? '')
+                                  .toString()
+                                  .contains('pharmacy_patient_id=$patientId'))
+                              .toList();
+                          if (sales.isEmpty) {
+                            return const Center(
+                              child: Text('No sales linked to this patient'),
+                            );
+                          }
+                          return ListView(
+                            children: sales.map((sale) {
+                              final amount = (sale['final_amount'] ??
+                                      sale['finalAmount'] ??
+                                      sale['total_amount'] ??
+                                      0) as num;
+                              final date = (sale['created_at'] ??
+                                      sale['createdAt'] ??
+                                      '')
+                                  .toString();
+                              return ListTile(
+                                title: Text('₦${amount.toStringAsFixed(2)}'),
+                                subtitle: Text(date.split('T').first),
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -673,7 +725,7 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                 ) ?? false;
                 if (!keep) return;
               }
-              final id = 'P${DateTime.now().millisecondsSinceEpoch}';
+              final id = const Uuid().v4();
               DateTime? dob;
               if (dateOfBirthController.text.isNotEmpty) {
                 try {
@@ -711,10 +763,14 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
     final dosageController = TextEditingController();
     final frequencyController = TextEditingController(text: '1');
     final durationController = TextEditingController(text: '7');
+    final consultationFeeController = TextEditingController(text: '0');
+    final selectedInventory = <String, int>{};
+    var paymentMethod = 'Cash';
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
         title: const Text('Add Treatment'),
         content: SingleChildScrollView(
           child: Column(
@@ -761,6 +817,82 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
                   border: OutlineInputBorder(),
                 ),
               ),
+              const SizedBox(height: 16),
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Treatment inventory'),
+              ),
+              ...provider.drugs.map((drug) {
+                final quantity = selectedInventory[drug.id] ?? 0;
+                return Row(
+                  children: [
+                    Checkbox(
+                      value: quantity > 0,
+                      onChanged: (selected) {
+                        setDialogState(() {
+                          if (selected == true) {
+                            selectedInventory[drug.id] = 1;
+                          } else {
+                            selectedInventory.remove(drug.id);
+                          }
+                        });
+                      },
+                    ),
+                    Expanded(
+                      child: Text('${drug.name} · ${drug.stock} available'),
+                    ),
+                    if (quantity > 0) ...[
+                      IconButton(
+                        onPressed: quantity > 1
+                            ? () => setDialogState(() {
+                                  selectedInventory[drug.id] = quantity - 1;
+                                })
+                            : null,
+                        icon: const Icon(Icons.remove_circle_outline),
+                      ),
+                      Text('$quantity'),
+                      IconButton(
+                        onPressed: quantity < drug.stock
+                            ? () => setDialogState(() {
+                                  selectedInventory[drug.id] = quantity + 1;
+                                })
+                            : null,
+                        icon: const Icon(Icons.add_circle_outline),
+                      ),
+                    ],
+                  ],
+                );
+              }),
+              TextField(
+                controller: consultationFeeController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'Consultation Fee',
+                  prefixText: '₦',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: paymentMethod,
+                decoration: const InputDecoration(
+                  labelText: 'Payment Method',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'Cash', child: Text('Cash')),
+                  DropdownMenuItem(
+                      value: 'Debit/Credit Card', child: Text('Debit/Credit Card')),
+                  DropdownMenuItem(
+                      value: 'Digital Wallet', child: Text('Digital Wallet')),
+                ],
+                onChanged: (value) {
+                  if (value != null) {
+                    setDialogState(() => paymentMethod = value);
+                  }
+                },
+              ),
             ],
           ),
         ),
@@ -776,34 +908,142 @@ class _PatientRecordsScreenState extends State<PatientRecordsScreen> {
               final dosage = dosageController.text.trim();
               final frequency = int.tryParse(frequencyController.text) ?? 1;
               final duration = int.tryParse(durationController.text) ?? 7;
+              final consultationFee =
+                  double.tryParse(consultationFeeController.text.trim());
+              final inventoryItems = provider.drugs
+                  .where((drug) => selectedInventory.containsKey(drug.id))
+                  .map((drug) => {
+                        'drugId': drug.id,
+                        'name': drug.name,
+                        'quantity': selectedInventory[drug.id],
+                        'unitPrice': drug.price,
+                        'total':
+                            drug.price * (selectedInventory[drug.id] ?? 0),
+                      })
+                  .toList();
+              final resolvedDrugName = drugName.isNotEmpty
+                  ? drugName
+                  : inventoryItems.map((item) => item['name']).join(', ');
 
-              if (name.isEmpty || drugName.isEmpty || dosage.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please fill all required fields'))
+              if (name.isEmpty || resolvedDrugName.isEmpty || dosage.isEmpty ||
+                  frequency < 1 || duration < 1 || consultationFee == null ||
+                  consultationFee < 0) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(content: Text('Check the treatment details and amounts')),
+                );
+                return;
+              }
+              if (inventoryItems.any((item) {
+                final drug = provider.drugs.firstWhere(
+                    (candidate) => candidate.id == item['drugId']);
+                return (item['quantity'] as int) > drug.stock;
+              })) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(content: Text('Selected quantity exceeds available stock')),
                 );
                 return;
               }
 
+              final businessId =
+                  dialogContext.read<BusinessProvider>().currentBusiness?.id;
+              if (provider.hasRemote && (businessId == null || businessId.isEmpty)) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(content: Text('Select a business before saving treatment')),
+                );
+                return;
+              }
+
+              final treatmentId = const Uuid().v4();
               final treatment = Treatment(
-                id: 'T${DateTime.now().millisecondsSinceEpoch}',
+                id: treatmentId,
                 patientId: patientId,
                 name: name,
-                drugName: drugName,
+                drugName: resolvedDrugName,
                 dosage: dosage,
                 frequencyPerDay: frequency,
                 durationDays: duration,
                 startDate: DateTime.now(),
+                inventoryItems: inventoryItems,
+                consultationFee: consultationFee,
               );
 
-              await provider.addTreatment(treatment, persist: true);
-              if (context.mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Treatment added')));
+              final saleItems = inventoryItems.map((item) => {
+                    'product_id': item['drugId'],
+                    'product_name': item['name'],
+                    'quantity': item['quantity'],
+                    'unit_price': item['unitPrice'],
+                    'discount': 0,
+                    'total': item['total'],
+                    'pricing_mode': 'retail',
+                    'inventory_unit': 'unit',
+                    'sale_unit': 'unit',
+                    'sale_unit_multiplier': 1,
+                  }).toList();
+              if (consultationFee > 0) {
+                saleItems.add({
+                  'product_id': null,
+                  'product_name': 'Consultation Fee',
+                  'quantity': 1,
+                  'unit_price': consultationFee,
+                  'discount': 0,
+                  'total': consultationFee,
+                });
+              }
+              final total = saleItems.fold<double>(
+                0,
+                (sum, item) => sum + (item['total'] as num).toDouble(),
+              );
+
+              try {
+                if (total > 0) {
+                  await SalesRepositorySupabase().createSale({
+                    'id': 'PHARM-TREATMENT-${DateTime.now().millisecondsSinceEpoch}',
+                    'businessId': businessId,
+                    'items': saleItems,
+                    'total_amount': total,
+                    'discount_amount': 0,
+                    'tax_amount': 0,
+                    'final_amount': total,
+                    'payment_method': paymentMethod,
+                    'status': 'completed',
+                    'sale_type': 'pharmacy_treatment',
+                    'created_by': dialogContext.read<AuthProvider>().currentUser?.id,
+                    'notes': 'Treatment $treatmentId for patient $patientId',
+                  });
+                  for (final item in inventoryItems) {
+                    final drug = provider.drugs.firstWhere(
+                        (candidate) => candidate.id == item['drugId']);
+                    await provider.updateDrugStock(
+                      drug.id,
+                      drug.stock - (item['quantity'] as int),
+                      persist: provider.hasRemote,
+                      businessId: businessId,
+                    );
+                  }
+                }
+                await provider.addTreatment(
+                  treatment,
+                  persist: provider.hasRemote,
+                  businessId: businessId,
+                );
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(content: Text('Treatment checked out and saved')),
+                  );
+                }
+              } catch (error) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(content: Text('Treatment checkout failed: $error')),
+                  );
+                }
               }
             },
-            child: const Text('Add'),
+            child: const Text('Checkout & Add Treatment'),
           ),
         ],
+      ),
       ),
     );
   }

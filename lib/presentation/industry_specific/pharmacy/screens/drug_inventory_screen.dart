@@ -195,7 +195,9 @@ class _DrugInventoryScreenState extends State<DrugInventoryScreen> {
                           children: [
                             Text('Batch: ${drug.batch}'),
                             Text(
-                              'Exp: ${drug.expiry.toString().split(' ')[0]} ${isExpired ? '(EXPIRED)' : isExpiringSoon ? '($daysUntilExpiry days)' : ''}',
+                              isExpired
+                                  ? 'Expired ${DateTime.now().difference(drug.expiry).inDays.abs()} days ago'
+                                  : 'Expires in ${daysUntilExpiry} days',
                               style: TextStyle(
                                 color: isExpired
                                     ? Colors.red
@@ -279,6 +281,9 @@ class _DrugInventoryScreenState extends State<DrugInventoryScreen> {
   }
 
   void _showDrugDetails(BuildContext context, dynamic drug) {
+    final daysUntilExpiry = drug.expiry.difference(DateTime.now()).inDays;
+    final isExpired = daysUntilExpiry < 0;
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -297,37 +302,27 @@ class _DrugInventoryScreenState extends State<DrugInventoryScreen> {
             _buildDetailRow('Batch Number', drug.batch),
             _buildDetailRow(
                 'Expiry Date', drug.expiry.toString().split(' ')[0]),
+            _buildDetailRow(
+                'Expiry Countdown',
+                isExpired
+                    ? 'Expired ${DateTime.now().difference(drug.expiry).inDays.abs()} days ago'
+                    : 'Expires in ${drug.expiry.difference(DateTime.now()).inDays} days'),
             _buildDetailRow('Stock', '${drug.stock} units'),
             _buildDetailRow('Price', '₦${drug.price.toStringAsFixed(2)}'),
             _buildDetailRow('Inventory Value',
                 '₦${(drug.price * drug.stock).toStringAsFixed(2)}'),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.edit),
-                    label: const Text('Edit'),
-                    onPressed: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, Routes.pharmacyEditDrug,
-                          arguments: drug.id);
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.remove),
-                    label: const Text('Adjust Stock'),
-                    onPressed: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, Routes.pharmacyEditDrug,
-                          arguments: drug.id);
-                    },
-                  ),
-                ),
-              ],
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.edit),
+                label: const Text('Edit'),
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.pushNamed(context, Routes.pharmacyEditDrug,
+                      arguments: drug.id);
+                },
+              ),
             ),
           ],
         ),

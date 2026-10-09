@@ -62,6 +62,7 @@ import 'data/local/database_helper.dart';
 import 'providers/admin_provider.dart';
 import 'providers/marketer_provider.dart';
 import 'services/services_initializer.dart';
+import 'presentation/industry_specific/administrative/providers/administrative_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -273,6 +274,7 @@ class MyApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(create: (_) => SyncProvider()),
         ChangeNotifierProvider(create: (_) => AdminProvider()),
+        ChangeNotifierProvider(create: (_) => AdministrativeProvider()),
         ChangeNotifierProvider(create: (_) => ReceiptSettingsProvider()),
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ChangeNotifierProvider(

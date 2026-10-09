@@ -21,6 +21,34 @@ import '../providers/restaurant_provider.dart';
 import '../../../../services/pdf_receipt_generator.dart';
 import '../../../../services/web_download.dart' as web_download;
 
+class OrderChargeBreakdownLine {
+  final String label;
+  final int quantity;
+  final double unitPrice;
+  final double total;
+
+  const OrderChargeBreakdownLine({
+    required this.label,
+    required this.quantity,
+    required this.unitPrice,
+    required this.total,
+  });
+}
+
+List<OrderChargeBreakdownLine> buildRestaurantOrderChargeBreakdown(
+    RestaurantOrder order) {
+  return order.items
+      .map(
+        (item) => OrderChargeBreakdownLine(
+          label: item.menuItemName,
+          quantity: item.quantity,
+          unitPrice: item.price,
+          total: item.subtotal,
+        ),
+      )
+      .toList();
+}
+
 class PendingOrdersAndCheckoutScreen extends StatefulWidget {
   const PendingOrdersAndCheckoutScreen({super.key});
 
@@ -226,6 +254,43 @@ class _PendingOrdersAndCheckoutScreenState
                                     '${order.items.length} items (${order.items.fold<int>(0, (sum, item) => sum + item.quantity)} qty)',
                               ),
                               const Divider(),
+                              if (order.items.isNotEmpty) ...[
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    'Charged items',
+                                    style: AppTextStyles.body1.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ...buildRestaurantOrderChargeBreakdown(order)
+                                    .map(
+                                      (line) => Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 8),
+                                        child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                '${line.label} x${line.quantity}',
+                                                style: AppTextStyles.body2,
+                                              ),
+                                            ),
+                                            Text(
+                                              formatCurrency(line.total),
+                                              style: AppTextStyles.body2,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                                const Divider(),
+                              ],
                               _DetailRow(
                                 label: 'Subtotal',
                                 value: formatCurrency(order.subtotal),

@@ -358,6 +358,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             final unread = docs
                                 .where((record) => !_isRead(record.data))
                                 .length;
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) {
+                                context
+                                    .read<NotificationProvider>()
+                                    .updateUnreadCount(unread);
+                              }
+                            });
                             final filtered = docs.where((record) {
                               switch (_filter) {
                                 case _FeedFilter.unread:

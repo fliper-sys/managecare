@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 import '../../../../providers/pharmacy_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../core/theme/colors.dart';
@@ -63,6 +64,14 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
     if (!_formKey.currentState!.validate()) return;
     final provider = context.read<PharmacyProvider>();
     final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    final existingDrug = widget.drug ??
+        () {
+          try {
+            return provider.drugs.firstWhere((x) => x.id == widget.drugId);
+          } catch (_) {
+            return null;
+          }
+        }();
 
     final name = _nameController.text.trim();
     final batch = _batchController.text.trim();
@@ -70,32 +79,55 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
     final price = double.tryParse(_priceController.text.trim()) ?? 0.0;
     final costPrice = double.tryParse(_costPriceController.text.trim()) ?? 0.0;
 
-    if (widget.drug == null) {
-      final newDrug = Drug(
-        id: 'D${DateTime.now().millisecondsSinceEpoch}',
-        name: name,
-        batch: batch,
-        expiry: _expiry,
-        stock: stock,
-        price: price,
-        costPrice: costPrice,
-        prescriptions: _prescriptions,
+    if (provider.hasRemote && (businessId == null || businessId.isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a business before saving inventory')),
       );
+      return;
+    }
 
-      provider.addDrug(newDrug, persist: provider.hasRemote, businessId: businessId);
-    } else {
-      final existing = widget.drug!;
-      final updated = Drug(
-        id: existing.id,
-        name: name,
-        batch: batch,
-        expiry: _expiry,
-        stock: stock,
-        price: price,
-        costPrice: costPrice,
-        prescriptions: _prescriptions,
-      );
-      await provider.updateDrug(updated, persist: provider.hasRemote, businessId: businessId);
+    try {
+      if (existingDrug == null) {
+        final newDrug = Drug(
+          id: const Uuid().v4(),
+          name: name,
+          batch: batch,
+          expiry: _expiry,
+          stock: stock,
+          price: price,
+          costPrice: costPrice,
+          prescriptions: _prescriptions,
+        );
+
+        await provider.addDrug(
+          newDrug,
+          persist: provider.hasRemote,
+          businessId: businessId,
+        );
+      } else {
+        final updated = Drug(
+          id: existingDrug.id,
+          name: name,
+          batch: batch,
+          expiry: _expiry,
+          stock: stock,
+          price: price,
+          costPrice: costPrice,
+          prescriptions: _prescriptions,
+        );
+        await provider.updateDrug(
+          updated,
+          persist: provider.hasRemote,
+          businessId: businessId,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Inventory save failed: $e')),
+        );
+      }
+      return;
     }
 
     if (!mounted) return;
@@ -170,7 +202,7 @@ class _AddEditDrugScreenState extends State<AddEditDrugScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isEdit = widget.drug != null;
+    final isEdit = widget.drug != null || widget.drugId != null;
     return Scaffold(
       appBar: AppBar(
         title: Text(isEdit ? 'Edit Drug' : 'Add Drug'),

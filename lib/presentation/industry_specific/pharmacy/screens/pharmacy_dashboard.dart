@@ -80,12 +80,6 @@ class _PharmacyDashboardState extends State<PharmacyDashboard> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.pushNamed(context, Routes.pharmacyPos),
-        icon: const Icon(Icons.add),
-        label: const Text('New Sale'),
-        backgroundColor: AppColors.pharmacy,
-      ),
       body: RefreshIndicator(
         onRefresh: _refreshPharmacy,
         child: SingleChildScrollView(
@@ -240,37 +234,6 @@ class _PharmacyDashboardState extends State<PharmacyDashboard> {
                             title: 'Expiry Tracker',
                             icon: Icons.event_busy_outlined,
                             color: AppColors.error,
-                          ),
-                        ));
-                      }
-
-                      // Add Drug quick action (manage inventory)
-                      if (auth.isOwnerUser ||
-                          WorkerPermissions.canManageInventory(role)) {
-                        widgets.add(PermissionedAction(
-                          allow: (a) =>
-                              a.isOwnerUser ||
-                              WorkerPermissions.canManageInventory(role),
-                          onTapRoute: Routes.pharmacyAddDrug,
-                          child: _ActionCard(
-                            title: 'Add Drug',
-                            icon: Icons.add_box_outlined,
-                            color: AppColors.pharmacy,
-                          ),
-                        ));
-                      }
-
-                      // POS quick action
-                      if (auth.isOwnerUser ||
-                          WorkerPermissions.canManageSales(role)) {
-                        widgets.add(PermissionedAction(
-                          allow: (a) =>
-                              a.isOwnerUser || WorkerPermissions.canManageSales(role),
-                          onTapRoute: Routes.pharmacyPos,
-                          child: _ActionCard(
-                            title: 'POS',
-                            icon: Icons.point_of_sale_outlined,
-                            color: AppColors.success,
                           ),
                         ));
                       }

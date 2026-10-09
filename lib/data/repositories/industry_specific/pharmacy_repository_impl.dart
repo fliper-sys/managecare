@@ -316,7 +316,9 @@ class PharmacyRepositoryImpl {
         '/pharmacy/$businessId/prescriptions',
         data: {
           'id': data['id'],
-          'patient_id': data['patientId'],
+            'patient_id': data['patientId'] == 'WALKIN'
+              ? null
+              : data['patientId'],
           'patient_name': data['patientName'],
           'items': data['items'],
           'status': data['status'],

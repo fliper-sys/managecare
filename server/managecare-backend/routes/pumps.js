@@ -682,12 +682,17 @@ module.exports = function(pool) {
          bank_name, account_number, account_name, receipt_url,
          recorded_by, recorded_by_name, submitted_at
        ) VALUES (
-         $1, $2, COALESCE($3::date, CURRENT_DATE), COALESCE($4::time, CURRENT_TIME), $5,
+         $1, $2,
+         COALESCE($3::date, CURRENT_DATE),
+         COALESCE($4::time, CURRENT_TIME),
+         $5,
          $6,
-         COALESCE((SELECT SUM(cash_amount) FROM petroleum_cash_entries WHERE business_id = $1), 0)
-           - COALESCE((SELECT SUM(amount) FROM petroleum_bank_deposits WHERE business_id = $1), 0)
-           - COALESCE((SELECT SUM(amount) FROM petroleum_admin_cash_submissions WHERE business_id = $1), 0)
-           - $5,
+         COALESCE($7, (
+           COALESCE((SELECT SUM(cash_amount) FROM petroleum_cash_entries WHERE business_id = $1), 0)
+             - COALESCE((SELECT SUM(amount) FROM petroleum_bank_deposits WHERE business_id = $1), 0)
+             - COALESCE((SELECT SUM(amount) FROM petroleum_admin_cash_submissions WHERE business_id = $1), 0)
+             - $5
+         )),
          $8, $9, $10, $11, $12, $13, NOW()
        )
        RETURNING *`,
@@ -698,7 +703,7 @@ module.exports = function(pool) {
         b.deposit_time || null,
         b.amount || 0,
         b.deposited_cash_entry || b.amount || 0,
-        b.balance_cash_at_hand || 0,
+        b.balance_cash_at_hand ?? null,
         b.bank_name,
         b.account_number || null,
         b.account_name || null,

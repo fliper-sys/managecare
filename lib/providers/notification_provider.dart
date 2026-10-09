@@ -44,6 +44,7 @@ class NotificationProvider extends ChangeNotifier {
 
   // Notification Frequency
   NotificationFrequency _frequency = NotificationFrequency.realTime;
+  int _unreadCount = 0;
 
   // Getters
   bool get isPushEnabled => _isPushEnabled;
@@ -63,6 +64,14 @@ class NotificationProvider extends ChangeNotifier {
 
   NotificationFrequency get frequency => _frequency;
   bool get isInitialized => _isInitialized;
+  int get unreadCount => _unreadCount;
+
+  void updateUnreadCount(int value) {
+    final next = value < 0 ? 0 : value;
+    if (_unreadCount == next) return;
+    _unreadCount = next;
+    notifyListeners();
+  }
 
   // Initialize provider
   Future<void> initialize() async {

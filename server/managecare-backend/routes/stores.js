@@ -9,6 +9,17 @@ const { requireBusinessMembership, requireBusinessOwner } = require('../middlewa
 module.exports = function(pool) {
   router.use('/:businessId', requireBusinessMembership(pool));
 
+  const administrativeBranchLimit = async (businessId) => {
+    const businessResult = await pool.query('SELECT business_type, subscription_tier FROM businesses WHERE id = $1', [businessId]);
+    const business = businessResult.rows[0];
+    if (!business || String(business.business_type).toLowerCase() !== 'administrative') return null;
+    const limits = { tier1: 0, tier2: 2, tier3: 5, premium: 10, enterprise: null };
+    const limit = limits[String(business.subscription_tier || 'tier1').toLowerCase()] ?? 0;
+    if (limit == null) return null;
+    const count = await pool.query('SELECT COUNT(*)::int AS count FROM stores WHERE business_id = $1 AND is_active = true', [businessId]);
+    return { limit, usage: Number(count.rows[0].count || 0) };
+  };
+
   // GET /api/stores/:businessId - List stores
   router.get('/:businessId', asyncHandler(async (req, res) => {
     const { businessId } = req.params;
@@ -23,6 +34,10 @@ module.exports = function(pool) {
   router.post('/:businessId', requireBusinessOwner, requireFields('name'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { name, location, address, phone } = req.body;
+    const quota = await administrativeBranchLimit(businessId);
+    if (quota && quota.usage >= quota.limit) {
+      return res.status(409).json({ error: 'Subscription branch limit reached', limit_type: 'branches', limit: quota.limit, current_usage: quota.usage });
+    }
     const result = await pool.query(
       `INSERT INTO stores (business_id, name, location, address, phone)
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,

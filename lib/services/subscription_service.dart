@@ -36,6 +36,7 @@ class SubscriptionService {
   final ManagecareApiClient _api;
 
   static const String familyStandard = 'standard';
+  static const String familyPharmacy = 'pharmacy';
   static const String familyKitchen = 'kitchen';
   static const String familyLounge = 'lounge';
   static const String familyHospitality = 'hospitality';
@@ -78,6 +79,8 @@ class SubscriptionService {
 
   static String _familyLabel(String family) {
     switch (family) {
+      case familyPharmacy:
+        return 'Pharmacy';
       case familyKitchen:
         return 'Kitchen';
       case familyLounge:
@@ -143,8 +146,21 @@ class SubscriptionService {
     _plan(family: familyAdministrative, tier: 'enterprise', durationCode: '12m', price: 983203, days: 365, features: ['Unlimited storage', 'Unlimited staff', 'Unlimited clients', 'Unlimited branches'], limits: {'storage_gb': null, 'workers': null, 'clients': null, 'branches': null}),
   ];
 
+  static final List<SubscriptionPlan> _pharmacyPlans = [
+    _plan(family: familyPharmacy, tier: 'tier1', durationCode: '3m', price: 30885, days: 90, features: ['1 store', '300 products', '3 workers'], limits: {'products': 300, 'workers': 3, 'locations': 1, 'branches': 0}),
+    _plan(family: familyPharmacy, tier: 'tier1', durationCode: '6m', price: 55832, days: 180, features: ['1 store', '300 products', '3 workers'], limits: {'products': 300, 'workers': 3, 'locations': 1, 'branches': 0}),
+    _plan(family: familyPharmacy, tier: 'tier1', durationCode: '12m', price: 99978, days: 365, features: ['1 store', '300 products', '3 workers'], limits: {'products': 300, 'workers': 3, 'locations': 1, 'branches': 0}),
+    _plan(family: familyPharmacy, tier: 'tier2', durationCode: '3m', price: 41665, days: 90, features: ['1 branch', '700 products', '5 workers'], limits: {'products': 700, 'workers': 5, 'locations': 2, 'branches': 1}),
+    _plan(family: familyPharmacy, tier: 'tier2', durationCode: '6m', price: 69914, days: 180, features: ['1 branch', '700 products', '5 workers'], limits: {'products': 700, 'workers': 5, 'locations': 2, 'branches': 1}),
+    _plan(family: familyPharmacy, tier: 'tier2', durationCode: '12m', price: 113685, days: 365, features: ['1 branch', '700 products', '5 workers'], limits: {'products': 700, 'workers': 5, 'locations': 2, 'branches': 1}),
+    _plan(family: familyPharmacy, tier: 'tier3', durationCode: '3m', price: 49279, days: 90, features: ['2 branches', '1000 products', '10 workers'], limits: {'products': 1000, 'workers': 10, 'locations': 3, 'branches': 2}),
+    _plan(family: familyPharmacy, tier: 'tier3', durationCode: '6m', price: 84045, days: 180, features: ['2 branches', '1000 products', '10 workers'], limits: {'products': 1000, 'workers': 10, 'locations': 3, 'branches': 2}),
+    _plan(family: familyPharmacy, tier: 'tier3', durationCode: '12m', price: 127270, days: 365, features: ['2 branches', '1000 products', '10 workers'], limits: {'products': 1000, 'workers': 10, 'locations': 3, 'branches': 2}),
+  ];
+
   static final List<SubscriptionPlan> plans = [
     ..._administrativePlans,
+    ..._pharmacyPlans,
     _plan(
         family: familyStandard,
         tier: 'tier1',
@@ -986,6 +1002,8 @@ class SubscriptionService {
         return familyHospitality;
       case 'administrative':
         return familyAdministrative;
+      case 'pharmacy':
+        return familyPharmacy;
       case 'gas':
       case 'petrol':
       case 'petroleum':

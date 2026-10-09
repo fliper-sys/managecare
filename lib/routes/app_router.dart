@@ -84,6 +84,7 @@ import '../presentation/industry_specific/pharmacy/screens/expiry_tracker_screen
 import '../presentation/industry_specific/pharmacy/screens/patient_records_screen.dart';
 import '../presentation/industry_specific/pharmacy/screens/pharmacy_pos_screen.dart';
 import '../presentation/industry_specific/pharmacy/screens/pharmacy_dashboard.dart';
+import '../presentation/industry_specific/pharmacy/screens/pharmacy_treatments_screen.dart';
 import '../presentation/industry_specific/pharmacy/screens/add_edit_drug_screen.dart';
 import '../presentation/industry_specific/pharmacy/screens/pharmacy_sales_history_screen.dart';
 import '../presentation/industry_specific/pharmacy/screens/pharmacy_sales_report_screen.dart';
@@ -631,6 +632,9 @@ class AppRouter {
 
       case Routes.pharmacyPrescriptions:
         return _buildRoute(const PrescriptionScreen());
+
+      case Routes.pharmacyTreatments:
+        return _buildRoute(const PharmacyTreatmentsScreen());
 
       case Routes.pharmacyViewPrescription:
         final args = settings.arguments as String?;

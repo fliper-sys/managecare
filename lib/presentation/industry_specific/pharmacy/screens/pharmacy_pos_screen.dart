@@ -406,7 +406,7 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                                       prescriptionNote: _prescriptionNote,
                                     );
                                   },
-                                  child: const Text('Checkout'),
+                                  child: const Text('Complete Sale'),
                                 ),
                               ],
                             ),
@@ -574,6 +574,7 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
         'total': finalTotal,
         'customerName': customerName ?? 'Walk-in',
         if (patientId != null) 'patientId': patientId,
+        if (patientId != null) 'notes': 'pharmacy_patient_id=$patientId',
         if (prescriptionNote != null) 'prescriptionNote': prescriptionNote,
         if (prescriptionLines.isNotEmpty) 'prescriptionLines': prescriptionLines,
         'paymentMethod': paymentMethod,
@@ -798,33 +799,6 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
             icon: const Icon(Icons.description_outlined),
             tooltip: 'Prescribe to a patient',
           ),
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: Center(
-              child: Stack(
-                alignment: Alignment.topRight,
-                children: [
-                  IconButton(
-                    onPressed: () => _showCart(provider),
-                    icon: const Icon(Icons.shopping_cart_outlined),
-                    tooltip: 'View cart',
-                  ),
-                  if (_cartCount > 0)
-                    Positioned(
-                      right: 6,
-                      top: 6,
-                      child: CircleAvatar(
-                        radius: 9,
-                        backgroundColor: AppColors.error,
-                        child: Text('$_cartCount',
-                            style: AppTextStyles.caption
-                                .copyWith(color: Colors.white)),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
       body: Column(
@@ -945,8 +919,8 @@ class _PharmacyPosScreenState extends State<PharmacyPosScreen> {
                     child:
                         Text('Items: $_cartCount', style: AppTextStyles.body2)),
                 ElevatedButton(
-                  onPressed: _cart.isEmpty ? null : () => _confirmSale(provider),
-                  child: const Text('Confirm Sale'),
+                  onPressed: _cart.isEmpty ? null : () => _showCart(provider),
+                  child: const Text('View Cart'),
                 ),
               ],
             ),

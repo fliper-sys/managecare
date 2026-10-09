@@ -120,6 +120,7 @@ class Routes {
   
   static const String pharmacyDashboard = '/pharmacy';
   static const String pharmacyPrescriptions = '/pharmacy/prescriptions';
+    static const String pharmacyTreatments = '/pharmacy/treatments';
   static const String pharmacyAddPrescription = '/pharmacy/prescriptions/add';
   static const String pharmacyViewPrescription = '/pharmacy/prescriptions/view';
   static const String pharmacyDrugInventory = '/pharmacy/drugs';

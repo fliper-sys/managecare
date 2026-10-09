@@ -40,6 +40,7 @@ const distributorsRoutes = require('./routes/distributors');
 const invoicesRoutes = require('./routes/invoices');
 const uploadRoutes = require('./routes/upload');
 const pushRoutes = require('./routes/push');
+const administrativeRoutes = require('./routes/administrative');
 
 // ── Middleware imports ──────────────────────────────────────
 const { authMiddleware, requireAuth } = require('./middleware/auth');
@@ -2234,6 +2235,7 @@ app.use('/api/payments', authMiddleware, paymentsRoutes());
 app.use('/api/distributors', authMiddleware, distributorsRoutes(pool));
 app.use('/api/invoices', authMiddleware, invoicesRoutes(pool));
 app.use('/api/upload', authMiddleware, uploadRoutes(pool, minioClient, minioPublicClient));
+app.use('/api/administrative', authMiddleware, administrativeRoutes(pool, { sendMail }));
 // Separate routers for push and notifications
 const pushRouter = pushRoutes(pool);
 const notificationRouter = pushRoutes(pool);

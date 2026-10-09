@@ -989,24 +989,7 @@ Future<void> _loadRetailMetrics(String businessId) async {
                   if (current != null) {
                     final businessType = current.businessType.toLowerCase();
 
-                    if (businessType.contains('pharmacy')) {
-                      // Pharmacy specific actions - lead with New Sale,
-                      // matching every other business type's POS-first
-                      // quick action. "Drug Inventory" is intentionally not
-                      // re-inserted here since it's already included in
-                      // the base pharmacy quick-actions list below,
-                      // avoiding a duplicate entry.
-                      actions.insert(
-                        0,
-                        _QuickActionItem(
-                          title: 'New Sale',
-                          subtitle: 'Start a sale',
-                          icon: Icons.point_of_sale,
-                          color: AppColors.pharmacy,
-                          route: Routes.pharmacyPos,
-                        ),
-                      );
-                    }  else if (businessType.contains('wholesale')) {
+                    if (businessType.contains('wholesale')) {
                       // Wholesale specific actions
                       actions.insert(
                         0,
@@ -2794,13 +2777,14 @@ Future<void> _loadRetailMetrics(String businessId) async {
         color: AppColors.primary,
         route: Routes.advancedAnalytics,
       ),
-      _QuickActionItem(
-        title: 'Customers',
-        subtitle: 'View & manage',
-        icon: Icons.people_rounded,
-        color: Colors.purple,
-        route: Routes.customers,
-      ),
+      if (type != 'pharmacy')
+        _QuickActionItem(
+          title: 'Customers',
+          subtitle: 'View & manage',
+          icon: Icons.people_rounded,
+          color: Colors.purple,
+          route: Routes.customers,
+        ),
       _QuickActionItem(
         title: 'Settings',
         subtitle: 'Configure',
@@ -2909,11 +2893,11 @@ Future<void> _loadRetailMetrics(String businessId) async {
       case 'pharmacy':
         return [
           _QuickActionItem(
-            title: 'Prescriptions',
-            subtitle: 'Manage prescriptions',
+            title: 'Treatments',
+            subtitle: 'Manage patient treatments',
             icon: Icons.medical_services_rounded,
             color: Colors.blue,
-            route: Routes.pharmacyPrescriptions,
+            route: Routes.pharmacyTreatments,
           ),
           _QuickActionItem(
             title: 'Inventory',
@@ -2930,8 +2914,8 @@ Future<void> _loadRetailMetrics(String businessId) async {
             route: Routes.pharmacyPatients,
           ),
           _QuickActionItem(
-            title: 'POS',
-            subtitle: 'Point of sale',
+            title: 'New Sale',
+            subtitle: 'Add items and review cart',
             icon: Icons.point_of_sale_rounded,
             color: Colors.teal,
             route: Routes.pharmacyPos,
