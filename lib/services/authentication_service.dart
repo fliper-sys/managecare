@@ -469,13 +469,8 @@ class AuthenticationService {
 
   /// Authenticate a worker by email and password.
   ///
-  /// The previous Firestore-backed version also supported signing in with a
-  /// short numeric "worker ID" (looked up in a separate `workers`
-  /// collection, falling back to email). GoTrue only supports email-based
-  /// sign-in natively, so that lookup has been dropped for now - workers
-  /// sign in with email, same as owners. A short-code lookup can be
-  /// reintroduced later (e.g. a `worker_code` column on business_members)
-  /// if the cashier/POS workflow needs it.
+  /// The UI used to call this value "worker ID", but the backend auth flow
+  /// signs staff in with their worker email, same as owners.
   Future<UserModel> authenticateWorkerByWorkerId({
     required String workerId,
     required String password,

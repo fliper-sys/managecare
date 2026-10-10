@@ -85,7 +85,9 @@ class BusinessProvider with ChangeNotifier {
     }
 
     // Throttle: Don't reload if we loaded recently
-    if (_loadedForUserId == userId && !_shouldRefreshData()) {
+    if (_loadedForUserId == userId &&
+        _userBusinesses.isNotEmpty &&
+        !_shouldRefreshData()) {
       print(
           '[BusinessProvider] ⏭️ Skipping reload - data refreshed ${DateTime.now().difference(_lastLoadTime!).inSeconds}s ago');
       // Still restore current business from cache if needed

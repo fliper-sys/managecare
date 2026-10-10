@@ -1660,6 +1660,8 @@ model workers {
   obligation_expenses   ObligationExpense[]
   team                  Team?               @relation(fields: [teamId], references: [id])
   teamId                Int?
+  administrative_client_workers AdministrativeClientWorker[]
+  administrative_tasks_assigned AdministrativeTask[] @relation("AdministrativeTaskAssignedTo")
 
   @@unique([business_id, legacy_firestore_id], map: "idx_workers_business_legacy_firestore_id", where: raw("(legacy_firestore_id IS NOT NULL)"))
   @@index([business_id], map: "idx_workers_business")
@@ -1764,20 +1766,265 @@ model AdministrativeSubscription {
 }
 
 model AdministrativeUsage {
-  id String @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-
-  business_id String @unique @db.Uuid
-
-  storage_bytes BigInt @default(0)
-  staff_count   Int    @default(0)
-  client_count  Int    @default(0)
-  branch_count  Int    @default(0)
-
-  updated_at DateTime @updatedAt @db.Timestamptz(6)
-
-  business businesses @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  id           String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId   String     @unique @map("business_id") @db.Uuid
+  storageBytes BigInt     @default(0) @map("storage_bytes")
+  staffCount   Int        @default(0) @map("staff_count")
+  clientCount  Int        @default(0) @map("client_count")
+  branchCount  Int        @default(0) @map("branch_count")
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  business     businesses @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@map("administrative_usage")
+}
+
+model AdministrativeClient {
+  id                    String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId            String   @map("business_id") @db.Uuid
+  name                  String
+  companyName           String?  @map("company_name")
+  location              String?
+  contactAddress        String?  @map("contact_address")
+  portalCredentials     Json     @default("[]") @map("portal_credentials")
+  revenueAccessPinHash  String?  @map("revenue_access_pin_hash")
+  isActive              Boolean  @default(true) @map("is_active")
+  archivedAt            DateTime? @map("archived_at") @db.Timestamptz(6)
+  createdBy             String?  @map("created_by") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  workers               AdministrativeClientWorker[]
+  folders               AdministrativeDocumentFolder[]
+  documents             AdministrativeDocument[]
+  tasks                 AdministrativeTask[]
+  obligations           AdministrativeObligation[]
+  activityLogs          AdministrativeActivityLog[]
+  financialEntries      AdministrativeFinancialEntry[]
+  invoices              AdministrativeInvoice[]
+  calendarEvents        AdministrativeCalendarEvent[]
+
+  @@index([businessId], map: "administrative_clients_business_idx")
+  @@index([businessId, isActive, createdAt(sort: Desc)], map: "administrative_clients_active_idx")
+  @@map("administrative_clients")
+}
+
+model AdministrativeClientWorker {
+  clientId   String   @map("client_id") @db.Uuid
+  workerId   String   @map("worker_id") @db.Uuid
+  assignedBy String?  @map("assigned_by") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  client     AdministrativeClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  worker     workers @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@id([clientId, workerId], name: "clientId_workerId")
+  @@map("administrative_client_workers")
+}
+
+model AdministrativeDocumentFolder {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  clientId   String   @map("client_id") @db.Uuid
+  name       String
+  createdBy  String?  @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  client     AdministrativeClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  documents  AdministrativeDocument[]
+
+  @@unique([clientId, name], name: "clientId_name")
+  @@map("administrative_document_folders")
+}
+
+model AdministrativeDocument {
+  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  clientId      String   @map("client_id") @db.Uuid
+  folderId      String?  @map("folder_id") @db.Uuid
+  fileName      String   @map("file_name")
+  fileUrl       String   @map("file_url")
+  fileSizeBytes BigInt?  @map("file_size_bytes")
+  mimeType      String?  @map("mime_type")
+  status        String   @default("stored")
+  uploadedBy    String?  @map("uploaded_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  client        AdministrativeClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  folder        AdministrativeDocumentFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  versions      AdministrativeDocumentVersion[]
+  tasks         AdministrativeTask[]
+
+  @@index([clientId, folderId], map: "administrative_documents_client_idx")
+  @@map("administrative_documents")
+}
+
+model AdministrativeTask {
+  id           String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  clientId     String?  @map("client_id") @db.Uuid
+  documentId   String?  @map("document_id") @db.Uuid
+  title        String
+  remark       String?
+  assignedTo   String?  @map("assigned_to") @db.Uuid
+  assignedBy   String?  @map("assigned_by") @db.Uuid
+  dueAt        DateTime? @map("due_at") @db.Timestamptz(6)
+  priority     String   @default("normal")
+  status       String   @default("assigned")
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz(6)
+  reviewedBy   String?  @map("reviewed_by") @db.Uuid
+  reviewedAt   DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  reviewAction String?  @map("review_action")
+  submittedVersionId String? @map("submitted_version_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  client       AdministrativeClient? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  document     AdministrativeDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  assignedWorker workers? @relation("AdministrativeTaskAssignedTo", fields: [assignedTo], references: [id], onDelete: SetNull)
+  comments     AdministrativeTaskComment[]
+
+  @@index([assignedTo, dueAt], map: "administrative_tasks_assignee_idx")
+  @@index([businessId, priority, dueAt], map: "administrative_tasks_business_priority_idx")
+  @@map("administrative_tasks")
+}
+
+model AdministrativeObligation {
+  id              String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  clientId        String   @map("client_id") @db.Uuid
+  title           String
+  recurrenceType  String   @map("recurrence_type")
+  intervalDays    Int      @map("interval_days")
+  fixedDayOfMonth Int?     @map("fixed_day_of_month")
+  nextDueAt       DateTime @map("next_due_at") @db.Timestamptz(6)
+  lastCompletedAt DateTime? @map("last_completed_at") @db.Timestamptz(6)
+  assignedTo      String?  @map("assigned_to") @db.Uuid
+  isActive        Boolean  @default(true) @map("is_active")
+  createdBy       String?  @map("created_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  client          AdministrativeClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, nextDueAt], map: "administrative_obligations_due_idx")
+  @@map("administrative_obligations")
+}
+
+model AdministrativeActivityLog {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  clientId   String?  @map("client_id") @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id") @db.Uuid
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  client     AdministrativeClient? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt(sort: Desc)], map: "administrative_activity_business_idx")
+  @@map("administrative_activity_log")
+}
+
+model AdministrativeDocumentVersion {
+  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  documentId    String   @map("document_id") @db.Uuid
+  versionNumber Int      @map("version_number")
+  fileName      String   @map("file_name")
+  fileUrl       String   @map("file_url")
+  fileSizeBytes BigInt?  @map("file_size_bytes")
+  mimeType      String?  @map("mime_type")
+  createdBy     String?  @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  document      AdministrativeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, versionNumber], name: "documentId_versionNumber")
+  @@index([documentId, versionNumber(sort: Desc)], map: "administrative_document_versions_document_idx")
+  @@map("administrative_document_versions")
+}
+
+model AdministrativeTaskComment {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  taskId     String   @map("task_id") @db.Uuid
+  businessId String   @map("business_id") @db.Uuid
+  authorId   String?  @map("author_id") @db.Uuid
+  body       String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  task       AdministrativeTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt], map: "administrative_task_comments_task_idx")
+  @@map("administrative_task_comments")
+}
+
+model AdministrativeCalendarEvent {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  clientId    String?  @map("client_id") @db.Uuid
+  title       String
+  description String?
+  startsAt    DateTime @map("starts_at") @db.Timestamptz(6)
+  createdBy   String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  client      AdministrativeClient? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, startsAt], map: "administrative_calendar_events_business_starts_idx")
+  @@map("administrative_calendar_events")
+}
+
+model AdministrativeInvoice {
+  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  clientId      String   @map("client_id") @db.Uuid
+  invoiceNumber String   @map("invoice_number")
+  status        String   @default("draft")
+  currency      String   @default("NGN")
+  issueDate     DateTime @default(now()) @map("issue_date") @db.Date
+  dueDate       DateTime? @map("due_date") @db.Date
+  subtotal      Decimal  @default(0) @db.Decimal(14, 2)
+  taxAmount     Decimal  @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  totalAmount   Decimal  @default(0) @map("total_amount") @db.Decimal(14, 2)
+  paidAmount    Decimal  @default(0) @map("paid_amount") @db.Decimal(14, 2)
+  notes         String?
+  sentAt        DateTime? @map("sent_at") @db.Timestamptz(6)
+  paidAt        DateTime? @map("paid_at") @db.Timestamptz(6)
+  createdBy     String?  @map("created_by") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  client        AdministrativeClient @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  items         AdministrativeInvoiceItem[]
+  financialEntries AdministrativeFinancialEntry[]
+
+  @@unique([businessId, invoiceNumber], name: "businessId_invoiceNumber")
+  @@index([businessId, status, dueDate], map: "administrative_invoices_business_status_idx")
+  @@map("administrative_invoices")
+}
+
+model AdministrativeInvoiceItem {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  invoiceId   String   @map("invoice_id") @db.Uuid
+  description String
+  quantity    Decimal  @default(1) @db.Decimal(12, 2)
+  unitPrice   Decimal  @default(0) @map("unit_price") @db.Decimal(14, 2)
+  lineTotal   Decimal  @default(0) @map("line_total") @db.Decimal(14, 2)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  invoice     AdministrativeInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("administrative_invoice_items")
+}
+
+model AdministrativeFinancialEntry {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId  String   @map("business_id") @db.Uuid
+  clientId    String?  @map("client_id") @db.Uuid
+  invoiceId   String?  @map("invoice_id") @db.Uuid
+  entryType   String   @map("entry_type")
+  amount      Decimal  @db.Decimal(14, 2)
+  occurredAt  DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  description String
+  createdBy   String?  @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  client      AdministrativeClient? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  invoice     AdministrativeInvoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, entryType, occurredAt(sort: Desc)], map: "administrative_financial_entries_business_idx")
+  @@map("administrative_financial_entries")
 }
 
 model Team {

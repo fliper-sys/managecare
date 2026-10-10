@@ -11,9 +11,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/colors.dart';
 import '../../../../providers/auth_provider.dart';
+import '../../../../providers/business_provider.dart';
 import '../providers/administrative_provider.dart';
 
-class AdministrativeClientProfileScreen extends StatelessWidget {
+class AdministrativeClientProfileScreen extends StatefulWidget {
   const AdministrativeClientProfileScreen({
     super.key,
     this.clientId,
@@ -26,6 +27,105 @@ class AdministrativeClientProfileScreen extends StatelessWidget {
   final String? clientId;
   final String companyName;
   final String location;
+
+  @override
+  State<AdministrativeClientProfileScreen> createState() =>
+      _AdministrativeClientProfileScreenState();
+}
+
+class _AdministrativeClientProfileScreenState
+    extends State<AdministrativeClientProfileScreen> {
+  late Future<Map<String, dynamic>> _details;
+
+  @override
+  void initState() {
+    super.initState();
+    _details = _loadDetails();
+  }
+
+  Future<Map<String, dynamic>> _loadDetails() {
+    final clientId = widget.clientId;
+    if (clientId == null) return Future.value(const {});
+    return context.read<AdministrativeProvider>().loadClientDetails(clientId);
+  }
+
+  Future<void> _editClient(Map<String, dynamic> client) async {
+    final changed = await Navigator.of(context).push<bool>(MaterialPageRoute(
+      builder: (_) => AdministrativeEditClientScreen(
+        clientId: widget.clientId!,
+        name: client['name']?.toString() ?? widget.clientName,
+        companyName: (client['companyName'] ?? client['company_name'])?.toString() ?? widget.companyName,
+        location: client['location']?.toString() ?? widget.location,
+        contactAddress: (client['contactAddress'] ?? client['contact_address'])?.toString() ?? '',
+      ),
+    ));
+    if (changed == true && mounted) setState(() => _details = _loadDetails());
+  }
+
+  Future<void> _manageAssignments(Map<String, dynamic> client) async {
+    final clientId = widget.clientId;
+    if (clientId == null) return;
+    try {
+      final provider = context.read<AdministrativeProvider>();
+      final staffing = await provider.loadStaffing();
+      if (!mounted) return;
+      final assigned = ((client['workers'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((worker) => worker['workerId']?.toString())
+          .whereType<String>()
+          .toSet();
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (sheetContext) => StatefulBuilder(
+          builder: (context, setSheetState) => SafeArea(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                const ListTile(title: Text('Assign workers to this client')),
+                if (staffing.isEmpty)
+                  const ListTile(title: Text('No staff records found.')),
+                ...staffing.map((worker) {
+                  final id = worker['id']?.toString() ?? '';
+                  if (id.isEmpty || worker['is_active'] == false) {
+                    return const SizedBox.shrink();
+                  }
+                  return CheckboxListTile(
+                    value: assigned.contains(id),
+                    title: Text(worker['full_name']?.toString() ?? 'Worker'),
+                    subtitle: Text(worker['role']?.toString() ?? 'Staff'),
+                    onChanged: (value) async {
+                      try {
+                        await provider.setWorkerClientAssignment(
+                          workerId: id,
+                          clientId: clientId,
+                          assigned: value == true,
+                        );
+                        setSheetState(() {
+                          if (value == true) {
+                            assigned.add(id);
+                          } else {
+                            assigned.remove(id);
+                          }
+                        });
+                      } catch (error) {
+                        if (context.mounted) {
+                          _message(context, 'Unable to update assignment: $error');
+                        }
+                      }
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (mounted) setState(() => _details = _loadDetails());
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to load staff assignments: $error');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +143,12 @@ class AdministrativeClientProfileScreen extends StatelessWidget {
             if (canManageClient)
               IconButton(
                 tooltip: 'Edit client',
-                onPressed: () => _message(context, 'Edit client details'),
+                onPressed: widget.clientId == null
+                    ? null
+                    : () async {
+                        final client = await _details;
+                        if (mounted) await _editClient(client);
+                      },
                 icon: const Icon(Icons.edit_outlined),
               ),
           ],
@@ -65,67 +170,105 @@ class AdministrativeClientProfileScreen extends StatelessWidget {
             ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                Row(children: [
-                  CircleAvatar(radius: 28, child: Text(clientName.substring(0, 1))),
-                  const SizedBox(width: 12),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(clientName, style: Theme.of(context).textTheme.titleLarge),
-                    Text('$companyName | $location'),
-                    const SizedBox(height: 4),
-                    const Text('Active', style: TextStyle(color: Colors.green)),
-                  ])),
-                ]),
-                const SizedBox(height: 24),
-                const _SectionTitle('Personal Information'),
-                _InfoRow('Care of Date', '14 Feb 1983'),
-                _InfoRow('Phone', '+234 812 000 6277'),
-                _InfoRow('Address', '12 Cooper Road, Ikeja'),
-                const SizedBox(height: 18),
-                const _SectionTitle('Portal Access'),
-                if (canManageClient) ...[
-                  const _InfoRow('Portal', 'HMRC'),
-                  const _InfoRow('Login', 'carehome.admin@example.com'),
-                  const _InfoRow('Password', 'Hidden - tap Access & Security'),
-                ] else
-                  const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.lock_outline),
-                    title: Text('Restricted information'),
-                    subtitle: Text('Your role cannot view portal credentials.'),
-                  ),
-                const SizedBox(height: 18),
-                const _SectionTitle('Assigned Workers'),
-                const ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: CircleAvatar(child: Text('SD')),
-                  title: Text('Sarah Daniels'),
-                  subtitle: Text('General Worker'),
-                  trailing: Icon(Icons.chevron_right),
+                FutureBuilder<Map<String, dynamic>>(
+                  future: _details,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState != ConnectionState.done) {
+                      return const Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (snapshot.hasError) {
+                      return _LoadError(onRetry: () => setState(() => _details = _loadDetails()));
+                    }
+                    final client = snapshot.data ?? const <String, dynamic>{};
+                    final name = client['name']?.toString() ?? widget.clientName;
+                    final company = (client['companyName'] ?? client['company_name'])?.toString() ?? widget.companyName;
+                    final location = client['location']?.toString() ?? widget.location;
+                    final address = (client['contactAddress'] ?? client['contact_address'])?.toString() ?? '';
+                    final workers = ((client['workers'] as List?) ?? const [])
+                        .whereType<Map>()
+                        .toList();
+                    final active = (client['isActive'] ?? client['is_active']) != false;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          CircleAvatar(radius: 28, child: Text(name.isEmpty ? '?' : name.substring(0, 1))),
+                          const SizedBox(width: 12),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(name, style: Theme.of(context).textTheme.titleLarge),
+                            Text([company, location].where((value) => value.isNotEmpty).join(' | ')),
+                            const SizedBox(height: 4),
+                            Text(active ? 'Active' : 'Archived', style: TextStyle(color: active ? Colors.green : Colors.grey)),
+                          ])),
+                        ]),
+                        const SizedBox(height: 24),
+                        const _SectionTitle('Client Information'),
+                        if (company.isNotEmpty) _InfoRow('Company', company),
+                        if (location.isNotEmpty) _InfoRow('Location', location),
+                        if (address.isNotEmpty) _InfoRow('Contact address', address),
+                        const SizedBox(height: 18),
+                        const _SectionTitle('Portal Access'),
+                        const ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.lock_outline),
+                          title: Text('Credentials are masked'),
+                          subtitle: Text('Use Client Access & Security to manage protected access.'),
+                        ),
+                        if (canManageClient)
+                          OutlinedButton.icon(
+                            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                              builder: (_) => AdministrativeSecurityScreen(
+                                clientId: widget.clientId!,
+                                clientName: name,
+                              ),
+                            )),
+                            icon: const Icon(Icons.shield_outlined),
+                            label: const Text('Client Access & Security'),
+                          ),
+                        const SizedBox(height: 18),
+                        const _SectionTitle('Assigned Workers'),
+                        if (workers.isEmpty)
+                          const ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text('No workers assigned.'),
+                          )
+                        else
+                          ...workers.map((worker) {
+                            final details = worker['worker'] as Map? ?? const {};
+                            return ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: CircleAvatar(
+                                child: Text((details['full_name']?.toString() ?? 'W').substring(0, 1)),
+                              ),
+                              title: Text(details['full_name']?.toString() ?? 'Worker'),
+                              subtitle: Text(details['role']?.toString() ?? 'Staff'),
+                            );
+                          }),
+                        if (canManageClient)
+                          FilledButton.icon(
+                            onPressed: () => _manageAssignments(client),
+                            icon: const Icon(Icons.manage_accounts_outlined),
+                            label: const Text('Manage Assignments'),
+                          ),
+                      ],
+                    );
+                  },
                 ),
-                if (canManageClient)
-                  FilledButton(
-                    onPressed: () => _message(context, 'Worker assignment opened'),
-                    child: const Text('Manage Assignments'),
-                  )
-                else
-                  const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.visibility_outlined),
-                    title: Text('View-only access'),
-                    subtitle: Text('You can view assigned workers and permitted documents.'),
-                  ),
               ],
             ),
             AdministrativeDocumentsScreen(
-              clientName: clientName,
-              clientId: clientId,
+              clientName: widget.clientName,
+              clientId: widget.clientId,
               canManageDocuments: canManageClient,
             ),
-            AdministrativeObligationsScreen(clientName: clientName),
-            _ClientRecordsTab(clientId: clientId, title: 'Tasks', type: _ClientRecordType.tasks),
-            _ClientRecordsTab(clientId: clientId, title: 'Expenses', type: _ClientRecordType.expenses),
-            _ClientRecordsTab(clientId: clientId, title: 'Revenue', type: _ClientRecordType.revenue),
-            _ClientRecordsTab(clientId: clientId, title: 'Activity', type: _ClientRecordType.activity),
+            AdministrativeObligationsScreen(clientName: widget.clientName),
+            _ClientRecordsTab(clientId: widget.clientId, title: 'Tasks', type: _ClientRecordType.tasks),
+            _ClientRecordsTab(clientId: widget.clientId, title: 'Expenses', type: _ClientRecordType.expenses),
+            _ClientRecordsTab(clientId: widget.clientId, title: 'Revenue', type: _ClientRecordType.revenue),
+            _ClientRecordsTab(clientId: widget.clientId, title: 'Activity', type: _ClientRecordType.activity),
           ],
         ),
       ),
@@ -434,12 +577,17 @@ class AdministrativeWorkerDashboardScreen extends StatelessWidget {
 
 class _AdministrativeTaskCompletionScreenState
     extends State<AdministrativeTaskCompletionScreen> {
-  bool _fileAttached = false;
+  PlatformFile? _selectedFile;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
-    context.read<AdministrativeProvider>().startTask(widget.taskId);
+    context.read<AdministrativeProvider>().startTask(widget.taskId).catchError(
+      (Object error) {
+        if (mounted) _message(context, 'Unable to start task: $error');
+      },
+    );
   }
 
   @override
@@ -466,30 +614,70 @@ class _AdministrativeTaskCompletionScreenState
             contentPadding: EdgeInsets.zero,
             leading: const CircleAvatar(child: Icon(Icons.picture_as_pdf_outlined)),
             title: Text(widget.taskName),
-            subtitle: Text(task?.note ?? 'Assigned by Sarah Daniels'),
+            subtitle: Text(task?.note ?? 'Task instructions'),
           ),
           const Divider(),
           const SizedBox(height: 12),
-          const Text('Attach the updated file for review.'),
+          Text(task?.documentId == null
+              ? 'Add a completion note or attach supporting work.'
+              : 'Attach the completed document for review.'),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: () => setState(() => _fileAttached = true),
-            icon: Icon(_fileAttached ? Icons.check_circle : Icons.upload_file_outlined),
-            label: Text(_fileAttached ? 'Updated Care Plan.pdf attached' : 'Upload Updated File'),
+            onPressed: _isSubmitting
+                ? null
+                : () async {
+                    final result = await FilePicker.platform.pickFiles(
+                      withData: true,
+                      allowMultiple: false,
+                    );
+                    if (result == null || result.files.isEmpty) return;
+                    final file = result.files.single;
+                    if (file.bytes == null || file.bytes!.isEmpty) {
+                      if (mounted) {
+                        _message(context, 'Unable to read the selected file.');
+                      }
+                      return;
+                    }
+                    setState(() => _selectedFile = file);
+                  },
+            icon: Icon(_selectedFile == null
+                ? Icons.upload_file_outlined
+                : Icons.check_circle),
+            label: Text(_selectedFile?.name ?? 'Choose completed file'),
           ),
           const Spacer(),
           FilledButton(
-            onPressed: _fileAttached
-                ? () {
-                    context.read<AdministrativeProvider>().submitTask(
-                          widget.taskId,
-                          'Updated ${widget.taskName}.pdf',
-                        );
-                    _message(context, 'Document submitted for review');
-                    Navigator.of(context).pop();
-                  }
-                : null,
-            child: const Text('Submit Document for Review'),
+            onPressed: _isSubmitting ||
+                    (task?.documentId != null && _selectedFile == null)
+                ? null
+                : () async {
+                    setState(() => _isSubmitting = true);
+                    try {
+                      final file = _selectedFile;
+                      await context.read<AdministrativeProvider>().submitTask(
+                            widget.taskId,
+                            file?.name ?? 'Task completed',
+                            fileBytes: file?.bytes,
+                            mimeType: file?.extension?.toLowerCase() == 'pdf'
+                                ? 'application/pdf'
+                                : 'application/octet-stream',
+                          );
+                      if (!mounted) return;
+                      _message(context, 'Task submitted for review');
+                      Navigator.of(context).pop();
+                    } catch (error) {
+                      if (mounted) {
+                        setState(() => _isSubmitting = false);
+                        _message(context, 'Unable to submit task: $error');
+                      }
+                    }
+                  },
+            child: _isSubmitting
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Submit for Review'),
           ),
         ]),
       ),
@@ -546,7 +734,7 @@ class _AdministrativeTaskCommentsScreenState
   }
 }
 
-class AdministrativeDocumentReviewScreen extends StatelessWidget {
+class AdministrativeDocumentReviewScreen extends StatefulWidget {
   const AdministrativeDocumentReviewScreen({
     super.key,
     required this.taskId,
@@ -557,7 +745,29 @@ class AdministrativeDocumentReviewScreen extends StatelessWidget {
   final String documentName;
 
   @override
+  State<AdministrativeDocumentReviewScreen> createState() =>
+      _AdministrativeDocumentReviewScreenState();
+}
+
+class _AdministrativeDocumentReviewScreenState
+    extends State<AdministrativeDocumentReviewScreen> {
+  late final Future<List<Map<String, dynamic>>> _versions;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final task = context.read<AdministrativeProvider>().taskById(widget.taskId);
+    _versions = task?.documentId == null
+        ? Future.value(const [])
+        : context
+            .read<AdministrativeProvider>()
+            .loadDocumentVersions(task!.documentId!);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final task = context.watch<AdministrativeProvider>().taskById(widget.taskId);
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Admin Document Review')),
@@ -567,67 +777,149 @@ class AdministrativeDocumentReviewScreen extends StatelessWidget {
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const CircleAvatar(child: Icon(Icons.picture_as_pdf_outlined)),
-            title: Text(documentName),
-            subtitle: const Text('Submitted by Sarah Daniels'),
+            title: Text(task?.documentName ?? widget.documentName),
+            subtitle: Text('Submitted by ${task?.assignedTo ?? 'assigned worker'}'),
           ),
           const Divider(),
-          const ListTile(title: Text('Original document'), subtitle: Text('Care Plan v2.pdf')),
-          const ListTile(title: Text('Submitted document'), subtitle: Text('Care Plan v2.1.pdf')),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _versions,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snapshot.hasError) {
+                return Text('Unable to load document versions: ${snapshot.error}');
+              }
+              final versions = snapshot.data ?? const [];
+              if (versions.isEmpty) {
+                return const ListTile(
+                  title: Text('Task has no linked document versions.'),
+                );
+              }
+              return Column(
+                children: versions.map((version) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.insert_drive_file_outlined),
+                  title: Text(version['fileName']?.toString() ??
+                      version['file_name']?.toString() ?? 'Document version'),
+                  subtitle: Text('Version ${version['versionNumber'] ?? version['version_number'] ?? ''}'),
+                )).toList(),
+              );
+            },
+          ),
           const Spacer(),
           Row(children: [
-            Expanded(child: OutlinedButton(onPressed: () => _reject(context), child: const Text('Reject'))),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _saving ? null : _reject,
+                child: const Text('Return to worker'),
+              ),
+            ),
             const SizedBox(width: 12),
-            Expanded(child: FilledButton(onPressed: () => _approvalAction(context), child: const Text('Approve'))),
+            Expanded(
+              child: FilledButton(
+                onPressed: _saving ? null : _approvalAction,
+                child: _saving
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Approve'),
+              ),
+            ),
           ]),
         ]),
       ),
     );
   }
 
-  void _approvalAction(BuildContext context) {
-    showModalBottomSheet<void>(
+  Future<void> _approvalAction() async {
+    final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
-      builder: (sheetContext) => Padding(
+      builder: (sheetContext) => SafeArea(child: Padding(
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(
             leading: const Icon(Icons.find_replace_outlined),
             title: const Text('Replace original document'),
-            onTap: () {
-              Navigator.pop(sheetContext);
-              context.read<AdministrativeProvider>().reviewTask(
-                    taskId,
-                    approved: true,
-                    storageAction: 'replace',
-                  );
-              _message(context, 'Document approved and original replaced');
-              Navigator.of(context).pop();
-            },
+            onTap: () => Navigator.pop(sheetContext, 'replace_original'),
           ),
           ListTile(
             leading: const Icon(Icons.file_copy_outlined),
             title: const Text('Store as a new document'),
-            onTap: () {
-              Navigator.pop(sheetContext);
-              context.read<AdministrativeProvider>().reviewTask(
-                    taskId,
-                    approved: true,
-                    storageAction: 'new_version',
-                  );
-              _message(context, 'Document approved as a new version');
-              Navigator.of(context).pop();
-            },
+            onTap: () => Navigator.pop(sheetContext, 'store_as_new_version'),
           ),
         ]),
-      ),
+      )),
     );
+    if (action == null || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      await context.read<AdministrativeProvider>().reviewTask(
+            widget.taskId,
+            approved: true,
+            storageAction: action,
+          );
+      if (!mounted) return;
+      _message(context, action == 'replace_original'
+          ? 'Document approved and original replaced'
+          : 'Document approved as a new version');
+      Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to approve document: $error');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
-  void _reject(BuildContext context) {
-    context.read<AdministrativeProvider>().reviewTask(taskId, approved: false);
-    _message(context, 'Document returned to the worker');
-    Navigator.of(context).pop();
+  Future<void> _reject() async {
+    final controller = TextEditingController();
+    final remark = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Return work to the worker'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Reason for return *',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Return'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (remark == null || remark.trim().isEmpty || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      await context.read<AdministrativeProvider>().reviewTask(
+            widget.taskId,
+            approved: false,
+            remark: remark.trim(),
+          );
+      if (!mounted) return;
+      _message(context, 'Document returned to the worker');
+      Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to return document: $error');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 }
 
@@ -707,9 +999,17 @@ class _AdministrativeObligationsScreenState
                 ),
               ...obligations.map((obligation) => _Obligation(
                     obligation: obligation,
-                    onComplete: () {
-                      provider.completeObligation(obligation.id);
-                      _message(context, '${obligation.title} marked complete');
+                    onComplete: () async {
+                      try {
+                        await provider.completeObligationLive(obligation.id);
+                        if (context.mounted) {
+                          _message(context, '${obligation.title} marked complete');
+                        }
+                      } catch (error) {
+                        if (context.mounted) {
+                          _message(context, 'Unable to complete obligation: $error');
+                        }
+                      }
                     },
                   )),
             ],
@@ -722,9 +1022,14 @@ class _AdministrativeObligationsScreenState
   void _createObligation(BuildContext context) {
     String countdown = 'Fixed date';
     final taskController = TextEditingController();
-    final clientController = TextEditingController(text: widget.clientName ?? '');
     final durationController = TextEditingController(text: '30');
     final dateController = TextEditingController(text: '${DateTime.now().day}');
+    String? selectedClientId = context
+      .read<AdministrativeProvider>()
+      .clients
+      .where((client) => client.name == widget.clientName)
+      .map((client) => client.id)
+      .firstOrNull;
     showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -733,7 +1038,19 @@ class _AdministrativeObligationsScreenState
           content: Column(mainAxisSize: MainAxisSize.min, children: [
             TextField(controller: taskController, decoration: const InputDecoration(labelText: 'Task name')),
             const SizedBox(height: 12),
-            TextField(controller: clientController, decoration: const InputDecoration(labelText: 'Client')),
+            DropdownButtonFormField<String>(
+              value: selectedClientId,
+              decoration: const InputDecoration(labelText: 'Client *'),
+              items: context
+                  .read<AdministrativeProvider>()
+                  .clients
+                  .map((client) => DropdownMenuItem(
+                        value: client.id,
+                        child: Text(client.name),
+                      ))
+                  .toList(),
+              onChanged: (value) => setDialogState(() => selectedClientId = value),
+            ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: countdown,
@@ -761,24 +1078,41 @@ class _AdministrativeObligationsScreenState
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
             FilledButton(
-              onPressed: () {
+              onPressed: () async {
                 final title = taskController.text.trim();
-                final client = clientController.text.trim();
-                final duration = int.tryParse(durationController.text) ?? 30;
-                if (title.isEmpty || client.isEmpty || duration < 1) return;
-                context.read<AdministrativeProvider>().createObligation(
-                      title: title,
-                      clientName: client,
-                      countdownType: countdown == 'Fixed date'
-                          ? AdministrativeCountdownType.fixedDate
-                          : AdministrativeCountdownType.trailing,
-                      intervalDays: duration,
-                      fixedDayOfMonth: countdown == 'Fixed date'
-                          ? int.tryParse(dateController.text)?.clamp(1, 28).toInt()
-                          : null,
-                    );
-                Navigator.pop(dialogContext);
-                _message(context, 'Obligation created');
+                final duration = int.tryParse(durationController.text);
+                final fixedDay = countdown == 'Fixed date'
+                    ? int.tryParse(dateController.text)
+                    : null;
+                if (title.isEmpty || selectedClientId == null || duration == null || duration < 1) {
+                  _message(context, 'Enter a task, client, and valid interval.');
+                  return;
+                }
+                if (countdown == 'Fixed date' &&
+                    (fixedDay == null || fixedDay < 1 || fixedDay > 31 || duration < 28)) {
+                  _message(context, 'Fixed monthly obligations need a day from 1-31 and an interval of at least 28 days.');
+                  return;
+                }
+                final now = DateTime.now();
+                final nextDueAt = countdown == 'Fixed date'
+                    ? _nextFixedObligationDate(now, fixedDay!)
+                    : now.add(Duration(days: duration));
+                try {
+                  await context.read<AdministrativeProvider>().createLiveObligation(
+                        title: title,
+                        clientId: selectedClientId!,
+                        countdownType: countdown == 'Fixed date'
+                            ? AdministrativeCountdownType.fixedDate
+                            : AdministrativeCountdownType.trailing,
+                        intervalDays: duration,
+                        nextDueAt: nextDueAt,
+                        fixedDayOfMonth: fixedDay,
+                      );
+                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  if (context.mounted) _message(context, 'Obligation created');
+                } catch (error) {
+                  if (context.mounted) _message(context, 'Unable to create obligation: $error');
+                }
               },
               child: const Text('Create'),
             ),
@@ -787,11 +1121,26 @@ class _AdministrativeObligationsScreenState
       ),
     );
   }
+
+  DateTime _nextFixedObligationDate(DateTime from, int day) {
+    final monthEnd = DateTime(from.year, from.month + 1, 0).day;
+    var due = DateTime(from.year, from.month, day.clamp(1, monthEnd));
+    if (!due.isAfter(from)) {
+      final nextMonthEnd = DateTime(from.year, from.month + 2, 0).day;
+      due = DateTime(from.year, from.month + 1, day.clamp(1, nextMonthEnd));
+    }
+    return due;
+  }
 }
 
 class AdministrativeSecurityScreen extends StatefulWidget {
-  const AdministrativeSecurityScreen({super.key, required this.clientName});
+  const AdministrativeSecurityScreen({
+    super.key,
+    required this.clientId,
+    required this.clientName,
+  });
 
+  final String clientId;
   final String clientName;
 
   @override
@@ -801,7 +1150,135 @@ class AdministrativeSecurityScreen extends StatefulWidget {
 
 class _AdministrativeSecurityScreenState
     extends State<AdministrativeSecurityScreen> {
-  bool _portalAccess = true;
+  late Future<Map<String, dynamic>> _security;
+  List<Map<String, dynamic>> _revealedCredentials = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _security = context.read<AdministrativeProvider>()
+        .loadClientSecurity(widget.clientId);
+  }
+
+  Future<String?> _promptPasscode() async {
+    final controller = TextEditingController();
+    final passcode = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Verify client passcode'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          obscureText: true,
+          maxLength: 6,
+          decoration: const InputDecoration(labelText: '6-digit passcode'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Verify')),
+        ],
+      ),
+    );
+    controller.dispose();
+    return passcode;
+  }
+
+  Future<void> _rotatePasscode() async {
+    try {
+      final passcode = await context
+          .read<AdministrativeProvider>()
+          .rotateClientPasscode(widget.clientId);
+      if (!mounted) return;
+      setState(() => _security = context
+          .read<AdministrativeProvider>()
+          .loadClientSecurity(widget.clientId));
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('New passcode'),
+          content: SelectableText(passcode),
+          actions: [
+            FilledButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Done')),
+          ],
+        ),
+      );
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to generate passcode: $error');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>?> _getVerifiedCredentials() async {
+    final passcode = await _promptPasscode();
+    if (passcode == null || passcode.isEmpty || !mounted) return null;
+    try {
+      return await context
+          .read<AdministrativeProvider>()
+          .revealClientCredentials(widget.clientId, passcode);
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to reveal credentials: $error');
+      return null;
+    }
+  }
+
+  Future<void> _revealCredentials() async {
+    final credentials = await _getVerifiedCredentials();
+    if (!mounted || credentials == null) return;
+    setState(() => _revealedCredentials = credentials);
+  }
+
+  Future<void> _addCredential() async {
+    final existing = await _getVerifiedCredentials();
+    if (existing == null || !mounted) return;
+    final portal = TextEditingController();
+    final username = TextEditingController();
+    final password = TextEditingController();
+    final notes = TextEditingController();
+    final credential = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add portal credential'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: portal, decoration: const InputDecoration(labelText: 'Portal name')),
+            TextField(controller: username, decoration: const InputDecoration(labelText: 'Username / email')),
+            TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'Password')),
+            TextField(controller: notes, decoration: const InputDecoration(labelText: 'Notes (optional)')),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              if (portal.text.trim().isEmpty || username.text.trim().isEmpty || password.text.isEmpty) return;
+              Navigator.pop(dialogContext, {
+                'portal': portal.text.trim(),
+                'username': username.text.trim(),
+                'password': password.text,
+                'notes': notes.text.trim(),
+              });
+            },
+            child: const Text('Save Encrypted'),
+          ),
+        ],
+      ),
+    );
+    portal.dispose();
+    username.dispose();
+    password.dispose();
+    notes.dispose();
+    if (credential == null || !mounted) return;
+    try {
+      await context.read<AdministrativeProvider>().saveClientCredentials(
+            widget.clientId,
+            [...existing, credential],
+          );
+      setState(() => _revealedCredentials = [...existing, credential]);
+      _message(context, 'Credential saved encrypted.');
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to save credential: $error');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -817,22 +1294,81 @@ class _AdministrativeSecurityScreenState
           subtitle: const Text('Client access controls'),
         ),
         const Divider(),
-        SwitchListTile(
-          value: _portalAccess,
-          onChanged: canManageAccess
-              ? (value) => setState(() => _portalAccess = value)
-              : null,
-          title: const Text('Portal access'),
-          subtitle: Text(canManageAccess
-              ? 'Allow access to stored portal credentials'
-              : 'Only an administrator can change this setting.'),
+        FutureBuilder<Map<String, dynamic>>(
+          future: _security,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const LinearProgressIndicator();
+            }
+            if (snapshot.hasError) {
+              return _LoadError(onRetry: () => setState(() => _security = context
+                  .read<AdministrativeProvider>()
+                  .loadClientSecurity(widget.clientId)));
+            }
+            final hasPasscode = snapshot.data?['hasPasscode'] == true;
+            final hasCredentials = snapshot.data?['hasCredentials'] == true;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.password_outlined),
+                  title: const Text('Access passcode'),
+                  subtitle: Text(hasPasscode ? 'A passcode is configured.' : 'No passcode configured.'),
+                ),
+                if (canManageAccess)
+                  FilledButton.tonalIcon(
+                    onPressed: _rotatePasscode,
+                    icon: const Icon(Icons.refresh),
+                    label: Text(hasPasscode ? 'Rotate Passcode' : 'Generate Passcode'),
+                  ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.key_outlined),
+                  title: const Text('Portal credentials'),
+                  subtitle: Text(hasCredentials ? 'Encrypted credentials are stored.' : 'No credentials stored.'),
+                ),
+                if (canManageAccess) ...[
+                  OutlinedButton.icon(
+                    onPressed: hasPasscode ? _revealCredentials : null,
+                    icon: const Icon(Icons.visibility_outlined),
+                    label: const Text('Reveal with passcode'),
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: hasPasscode ? _addCredential : null,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Portal Credential'),
+                  ),
+                ],
+                ..._revealedCredentials.map((credential) => Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(credential['portal']?.toString() ?? 'Portal', style: Theme.of(context).textTheme.titleMedium),
+                            Text('Username: ${credential['username'] ?? ''}'),
+                            SelectableText('Password: ${credential['password'] ?? ''}'),
+                            if ((credential['notes']?.toString() ?? '').isNotEmpty)
+                              Text('Notes: ${credential['notes']}'),
+                          ],
+                        ),
+                      ),
+                    )),
+                if (!canManageAccess)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text('Only an administrator can manage or reveal portal credentials.'),
+                  ),
+              ],
+            );
+          },
         ),
-        const ListTile(title: Text('Passcode'), subtitle: Text('••••••'), trailing: Icon(Icons.visibility_off_outlined)),
-        FilledButton.tonal(onPressed: () => _message(context, 'New secure passcode generated'), child: const Text('Generate New Passcode')),
         const SizedBox(height: 18),
-        const _SectionTitle('Activity Trail'),
-        const ListTile(leading: Icon(Icons.visibility_outlined), title: Text('Viewed client profile'), subtitle: Text('Today, 10:22 AM')),
-        const ListTile(leading: Icon(Icons.description_outlined), title: Text('Viewed document'), subtitle: Text('Today, 09:50 AM')),
+        const _SectionTitle('Security audit'),
+        const Text('Passcode rotations, credential updates, and reveal attempts are recorded in the Activity Log.'),
       ]),
     );
   }
@@ -1119,12 +1655,14 @@ class AdministrativeEditClientScreen extends StatefulWidget {
     required this.name,
     required this.companyName,
     required this.location,
+    this.contactAddress = '',
   });
 
   final String clientId;
   final String name;
   final String companyName;
   final String location;
+  final String contactAddress;
 
   @override
   State<AdministrativeEditClientScreen> createState() =>
@@ -1137,6 +1675,7 @@ class _AdministrativeEditClientScreenState
   late final TextEditingController _name;
   late final TextEditingController _company;
   late final TextEditingController _location;
+  late final TextEditingController _address;
   bool _saving = false;
 
   @override
@@ -1145,6 +1684,7 @@ class _AdministrativeEditClientScreenState
     _name = TextEditingController(text: widget.name);
     _company = TextEditingController(text: widget.companyName);
     _location = TextEditingController(text: widget.location);
+    _address = TextEditingController(text: widget.contactAddress);
   }
 
   @override
@@ -1152,6 +1692,7 @@ class _AdministrativeEditClientScreenState
     _name.dispose();
     _company.dispose();
     _location.dispose();
+    _address.dispose();
     super.dispose();
   }
 
@@ -1164,6 +1705,7 @@ class _AdministrativeEditClientScreenState
             name: _name.text,
             companyName: _company.text,
             location: _location.text,
+            contactAddress: _address.text,
           );
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
@@ -1209,6 +1751,15 @@ class _AdministrativeEditClientScreenState
                 textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(
                   labelText: 'Location',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _address,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: 'Contact address',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -1263,11 +1814,21 @@ class _AdministrativeCreateClientScreenState
     if (!_formKey.currentState!.validate() || _saving) return;
     setState(() => _saving = true);
     try {
-      final client = await context.read<AdministrativeProvider>().createClient(
+      final businessId =
+          context.read<BusinessProvider>().currentBusiness?.id ?? '';
+      if (businessId.isEmpty) {
+        throw StateError(
+          'Select an administrative business before creating a client.',
+        );
+      }
+      final provider = context.read<AdministrativeProvider>();
+      await provider.loadForBusiness(businessId);
+      final client = await provider.createClient(
             name: _name.text,
             companyName: _company.text,
             location: _location.text,
             contactAddress: _address.text,
+            businessId: businessId,
           );
       if (!mounted) return;
       Navigator.of(context).pop(client);

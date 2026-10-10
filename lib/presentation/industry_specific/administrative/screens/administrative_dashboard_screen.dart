@@ -23,14 +23,6 @@ class _AdministrativeDashboardScreenState
   String? _loadedBusinessId;
   bool _showArchivedClients = false;
 
-  static const _clients = <_Client>[
-    _Client('preview-mary', 'Mary Johnson', 'Care For Homes', 'Ikeja', true),
-    _Client('preview-jala', 'Jala Smith', 'Response High', 'Ikeja', true),
-    _Client('preview-pottles', 'Pottles Biy', 'Caris & Live', 'Lagos', true),
-    _Client('preview-great-green', 'Great Green', 'Response Living', 'Lagos', false),
-    _Client('preview-james', 'James Taylor', 'Care 4 Living', 'Ikeja', true),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final business = context.watch<BusinessProvider>().currentBusiness;
@@ -107,66 +99,94 @@ class _AdministrativeDashboardScreenState
 
   Widget _home() {
     final theme = Theme.of(context);
-    return RefreshIndicator(
-      onRefresh: () async => setState(() {}),
-      child: ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        children: [
-          Text('Admin Dashboard', style: theme.textTheme.headlineSmall),
-          const SizedBox(height: 4),
-          Text('Insights and work that need your attention.',
-              style: theme.textTheme.bodyMedium),
-          const SizedBox(height: 16),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            childAspectRatio: 1.7,
-            children: const [
-              _Metric('Revenue', 'NGN 4,850,000', '+7.0%', Icons.trending_up, Colors.green),
-              _Metric('Expenses', 'NGN 2,940,000', '-1.0%', Icons.trending_down, Colors.red),
-              _Metric('Clients', '48', '+5%', Icons.people_outline, Colors.teal),
-              _Metric('Total Staff', '12', '+6%', Icons.badge_outlined, Colors.indigo),
-            ],
-          ),
-          const SizedBox(height: 18),
-          const _Title('Revenue & Expenses', trailing: 'This month'),
-          const SizedBox(height: 8),
-          const _Chart(),
-          const SizedBox(height: 18),
-          const _Title('Recent Activity', trailing: 'View all'),
-          const _Activity(Icons.description_outlined, 'Document received', 'Care Plan v2.pdf', '40m ago', Colors.blue),
-          const _Activity(Icons.task_alt_outlined, 'Task completed', 'Tax report review', '1h ago', Colors.green),
-          const _Activity(Icons.person_search_outlined, 'Client checked', 'James T. profile', '2h ago', Colors.purple),
-          const SizedBox(height: 18),
-          const _Title('Quick Action'),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
+    return Consumer<AdministrativeProvider>(
+      builder: (context, provider, _) {
+        final metrics = provider.dashboard['metrics'] as Map? ?? const {};
+        final tasksNeedingAttention = provider.tasks
+            .where((task) => task.isOpen || task.needsReview)
+            .take(3)
+            .toList();
+        return RefreshIndicator(
+          onRefresh: provider.refreshWorkspace,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
-              _action('Add Client', Icons.person_add_alt_1_outlined, _addClient),
-              _action('Assign Document', Icons.assignment_outlined, _assignDocument),
-              _action('Create Task', Icons.add_task_outlined, () => setState(() => _page = 1)),
-              _action('Review Work', Icons.rate_review_outlined, _reviewWork),
+              Text('Admin Dashboard', style: theme.textTheme.headlineSmall),
+              const SizedBox(height: 4),
+              Text('Insights and work that need your attention.',
+                  style: theme.textTheme.bodyMedium),
+              const SizedBox(height: 16),
+              if (provider.loadError != null)
+                ListTile(
+                  leading: const Icon(Icons.error_outline),
+                  title: Text(provider.loadError!),
+                  trailing: IconButton(
+                    tooltip: 'Retry loading workspace',
+                    onPressed: provider.refreshWorkspace,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ),
+              if (provider.isLoading) const LinearProgressIndicator(),
+              GridView.count(
+                crossAxisCount: 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 1.7,
+                children: [
+                  _Metric('Revenue', _adminCurrency(metrics['revenue']), 'Total', Icons.trending_up, Colors.green),
+                  _Metric('Expenses', _adminCurrency(metrics['expenses']), 'Total', Icons.trending_down, Colors.red),
+                  _Metric('Clients', '${metrics['clients'] ?? 0}', 'Active', Icons.people_outline, Colors.teal),
+                  _Metric('Total Staff', '${metrics['staff'] ?? 0}', 'Active', Icons.badge_outlined, Colors.indigo),
+                ],
+              ),
+              const SizedBox(height: 18),
+              _Title('Tasks needing attention', trailing: 'View all', onTap: () => setState(() => _page = 1)),
+              if (tasksNeedingAttention.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 18),
+                  child: Text('No open or submitted tasks.'),
+                ),
+              ...tasksNeedingAttention.map((task) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(task.needsReview ? Icons.rate_review_outlined : Icons.task_alt_outlined),
+                    title: Text(task.title),
+                    subtitle: Text('${task.clientName} · ${task.status.name}'),
+                    onTap: () => setState(() => _page = 1),
+                  )),
+              const SizedBox(height: 18),
+              const _Title('Quick Actions'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _action('Add Client', Icons.person_add_alt_1_outlined, _addClient),
+                  _action('Assign Document', Icons.assignment_outlined, _assignDocument),
+                  _action('Create Task', Icons.add_task_outlined, () => setState(() => _page = 1)),
+                  _action('Review Work', Icons.rate_review_outlined, _reviewWork),
+                ],
+              ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
+  }
+
+  String _adminCurrency(Object? value) {
+    final amount = value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+    return 'NGN ${amount.toStringAsFixed(2)}';
   }
 
   Widget _clientsPage() {
     return Consumer<AdministrativeProvider>(builder: (context, provider, _) {
-      final source = provider.clients.isEmpty && provider.loadError != null
-          ? _clients
-          : provider.clients
-              .map((client) => _Client(client.id, client.name,
-                  client.companyName, client.location, client.isActive))
-              .toList();
+      final source = provider.clients
+        .map((client) => _Client(client.id, client.name,
+          client.companyName, client.location, client.isActive))
+        .toList();
       final clients = source.where((client) {
         return '${client.name} ${client.company} ${client.location}'
             .toLowerCase()
@@ -237,27 +257,256 @@ class _AdministrativeDashboardScreenState
     });
   }
 
-  Widget _tasks() => ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _Title('Task Management', trailing: 'Calendar', onTap: _calendar),
-          const SizedBox(height: 12),
-          _Task(
-            'Review Care Plan',
-            'Mary Johnson',
-            'Today, 1:00 PM',
-            Colors.red,
-            onTap: _completeTask,
-          ),
-          const _Task('Client Tax', 'Doe-Son', 'Tomorrow, 2:00 PM', Colors.orange),
-          const SizedBox(height: 12),
-          FilledButton.icon(onPressed: () => _message('Create task'), icon: const Icon(Icons.add), label: const Text('Create Task')),
-          const SizedBox(height: 22),
-          const _Title('Obligations', trailing: 'View all'),
-          const _Task('Training Certificate', 'Care Home', '7 days left', Colors.red),
-          const _Task('Medical Assessment', 'Smith Home', '7 days left', Colors.red),
-        ],
+  Widget _tasks() => Consumer<AdministrativeProvider>(
+        builder: (context, provider, _) => ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _Title('Task Management', trailing: 'Calendar', onTap: _calendar),
+            const SizedBox(height: 12),
+            if (provider.isLoading) const LinearProgressIndicator(),
+            if (provider.tasks.isEmpty && !provider.isLoading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text('No tasks have been created for this business.'),
+              ),
+            ...provider.tasks.map((task) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.task_alt_outlined),
+                  title: Text(task.title),
+                  subtitle: Text(
+                    '${task.clientName} · ${MaterialLocalizations.of(context).formatMediumDate(task.dueAt)}',
+                  ),
+                  trailing: Text(task.status.name),
+                  onTap: task.needsReview
+                      ? () => Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => AdministrativeDocumentReviewScreen(
+                              taskId: task.id,
+                              documentName: task.documentName ?? task.title,
+                            ),
+                          ))
+                      : () => Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => AdministrativeTaskCompletionScreen(
+                              taskId: task.id,
+                              taskName: task.title,
+                            ),
+                          )),
+                )),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: provider.isLoading ? null : _createTask,
+              icon: const Icon(Icons.add),
+              label: const Text('Create Task'),
+            ),
+            const SizedBox(height: 22),
+            _Title('Obligations', trailing: 'View all', onTap: _obligations),
+            if (provider.obligations.isEmpty && !provider.isLoading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text('No active obligations for this business.'),
+              ),
+            ...provider.obligations
+                .where((obligation) => !obligation.isCompleted)
+                .map((obligation) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.event_repeat_outlined),
+                      title: Text(obligation.title),
+                      subtitle: Text(
+                        '${obligation.clientName} · ${MaterialLocalizations.of(context).formatMediumDate(obligation.dueAt)}',
+                      ),
+                      trailing: IconButton(
+                        tooltip: 'Complete obligation',
+                        icon: const Icon(Icons.check_circle_outline),
+                        onPressed: () async {
+                          try {
+                            await provider.completeObligationLive(obligation.id);
+                          } catch (error) {
+                            if (mounted) {
+                              _message('Unable to complete obligation: $error');
+                            }
+                          }
+                        },
+                      ),
+                    )),
+          ],
+        ),
       );
+
+  Future<void> _createTask() async {
+    final provider = context.read<AdministrativeProvider>();
+    final titleController = TextEditingController();
+    final remarkController = TextEditingController();
+    final staffFuture = provider.loadStaffing();
+    String? clientId;
+    String? workerId;
+    var priority = 'normal';
+    var dueAt = DateTime.now().add(const Duration(days: 1));
+    var isSaving = false;
+
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Create Task'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: titleController,
+                      autofocus: true,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: const InputDecoration(
+                        labelText: 'Task title *',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String?>(
+                      value: clientId,
+                      decoration: const InputDecoration(
+                        labelText: 'Client (optional)',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('Business-wide task'),
+                        ),
+                        ...provider.clients.map((client) =>
+                            DropdownMenuItem<String?>(
+                              value: client.id,
+                              child: Text(client.name),
+                            )),
+                      ],
+                      onChanged: (value) =>
+                          setDialogState(() => clientId = value),
+                    ),
+                    const SizedBox(height: 12),
+                    FutureBuilder<List<Map<String, dynamic>>>(
+                      future: staffFuture,
+                      builder: (context, snapshot) => DropdownButtonFormField<String?>(
+                        value: workerId,
+                        decoration: const InputDecoration(
+                          labelText: 'Assign to worker (optional)',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: [
+                          const DropdownMenuItem<String?>(
+                            value: null,
+                            child: Text('Unassigned'),
+                          ),
+                          ...(snapshot.data ?? const <Map<String, dynamic>>[])
+                              .map((worker) => DropdownMenuItem<String?>(
+                                    value: worker['id']?.toString(),
+                                    child: Text(worker['full_name']?.toString() ??
+                                        'Worker'),
+                                  )),
+                        ],
+                        onChanged: (value) =>
+                            setDialogState(() => workerId = value),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: priority,
+                      decoration: const InputDecoration(
+                        labelText: 'Priority',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'low', child: Text('Low')),
+                        DropdownMenuItem(value: 'normal', child: Text('Normal')),
+                        DropdownMenuItem(value: 'high', child: Text('High')),
+                        DropdownMenuItem(value: 'urgent', child: Text('Urgent')),
+                      ],
+                      onChanged: (value) =>
+                          setDialogState(() => priority = value ?? 'normal'),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Due date'),
+                      subtitle: Text(MaterialLocalizations.of(context)
+                          .formatMediumDate(dueAt)),
+                      trailing: const Icon(Icons.event_outlined),
+                      onTap: () async {
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate: dueAt,
+                          firstDate: DateTime.now(),
+                          lastDate: DateTime(2100),
+                        );
+                        if (date != null) {
+                          setDialogState(() => dueAt = date);
+                        }
+                      },
+                    ),
+                    TextField(
+                      controller: remarkController,
+                      maxLines: 3,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: const InputDecoration(
+                        labelText: 'Instructions / remark',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSaving
+                    ? null
+                    : () => Navigator.of(dialogContext).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: isSaving
+                    ? null
+                    : () async {
+                        final title = titleController.text.trim();
+                        if (title.isEmpty) {
+                          _message('Enter a task title.');
+                          return;
+                        }
+                        setDialogState(() => isSaving = true);
+                        try {
+                          await provider.createLiveTask(
+                            title: title,
+                            clientId: clientId,
+                            workerId: workerId,
+                            remark: remarkController.text,
+                            priority: priority,
+                            dueAt: dueAt,
+                          );
+                          if (dialogContext.mounted) {
+                            Navigator.of(dialogContext).pop();
+                          }
+                          if (mounted) _message('Task created.');
+                        } catch (error) {
+                          setDialogState(() => isSaving = false);
+                          _message('Unable to create task: $error');
+                        }
+                      },
+                child: isSaving
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Create Task'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      titleController.dispose();
+      remarkController.dispose();
+    }
+  }
 
   Widget _finance() => const AdministrativeFinancePanel();
 
@@ -320,15 +569,62 @@ class _AdministrativeDashboardScreenState
         ),
       );
 
-  void _assignDocument() => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => AdministrativeAssignDocumentScreen(
-            documentName: 'Care Plan v2.1.pdf',
-          ),
+  Future<void> _assignDocument() async {
+    final client = await _chooseClient('Choose a client to assign a document');
+    if (client == null || !mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => AdministrativeDocumentsScreen(
+        clientName: client.name,
+        clientId: client.id,
+        canManageDocuments: true,
+      ),
+    ));
+  }
+
+  Future<_Client?> _chooseClient(String title) {
+    final clients = context.read<AdministrativeProvider>().clients
+        .map((client) => _Client(client.id, client.name, client.companyName,
+            client.location, client.isActive))
+        .where((client) => client.active)
+        .toList();
+    if (clients.isEmpty) {
+      _message('Create or load a client before continuing.');
+      return Future.value(null);
+    }
+    return showModalBottomSheet<_Client>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(title: Text(title)),
+            ...clients.map((client) => ListTile(
+                  leading: const Icon(Icons.business_outlined),
+                  title: Text(client.name),
+                  subtitle: Text(client.company),
+                  onTap: () => Navigator.of(sheetContext).pop(client),
+                )),
+          ],
         ),
-      );
+      ),
+    );
+  }
 
   Future<void> _addClient() async {
+    final businessId =
+        context.read<BusinessProvider>().currentBusiness?.id ?? '';
+    if (businessId.isEmpty) {
+      _message('Select an administrative business before adding a client.');
+      return;
+    }
+    try {
+      await context.read<AdministrativeProvider>().loadForBusiness(businessId);
+    } catch (error) {
+      if (mounted) _message('Unable to load administrative business: $error');
+      return;
+    }
+    if (!mounted) return;
     final client = await Navigator.of(context).push<AdministrativeClientRecord>(
       MaterialPageRoute(
         builder: (_) => const AdministrativeCreateClientScreen(),
@@ -352,10 +648,6 @@ class _AdministrativeDashboardScreenState
     _Client client,
     _ClientAction action,
   ) async {
-    if (client.id.startsWith('preview-')) {
-      _message('Preview client records cannot be changed.');
-      return;
-    }
     if (action == _ClientAction.edit) {
       final changed = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
@@ -405,19 +697,19 @@ class _AdministrativeDashboardScreenState
     }
   }
 
-  void _reviewWork() => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => AdministrativeDocumentReviewScreen(
-            documentName: 'Care Plan v2.1.pdf', taskId: '',
-          ),
-        ),
-      );
+  void _reviewWork() => setState(() => _page = 1);
 
-  void _documents() => Navigator.of(context).push(
-         MaterialPageRoute(
-          builder: (_) => AdministrativeDocumentsScreen(clientName: 'Mary Johnson'),
-        ),
-      );
+  Future<void> _documents() async {
+    final client = await _chooseClient('Choose a client');
+    if (client == null || !mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => AdministrativeDocumentsScreen(
+        clientName: client.name,
+        clientId: client.id,
+        canManageDocuments: true,
+      ),
+    ));
+  }
 
   void _obligations() => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => AdministrativeObligationsScreen()),
@@ -435,20 +727,16 @@ class _AdministrativeDashboardScreenState
         MaterialPageRoute(builder: (_) => const AdministrativeActivityScreen()),
       );
 
-  void _security() => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => AdministrativeSecurityScreen(clientName: 'Mary Johnson'),
-        ),
-      );
-
-  void _completeTask() => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => AdministrativeTaskCompletionScreen(
-            taskId: 'care-plan-review',
-            taskName: 'Review Care Plan',
-          ),
-        ),
-      );
+  Future<void> _security() async {
+    final client = await _chooseClient('Choose a client to manage access');
+    if (client == null || !mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => AdministrativeSecurityScreen(
+        clientId: client.id,
+        clientName: client.name,
+      ),
+    ));
+  }
 
   void _workerDashboard() => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => AdministrativeWorkerDashboardScreen()),

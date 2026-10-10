@@ -25,6 +25,7 @@
  *  - Every state change writes an activity-log row in the same transaction.
  */
 const express = require('express');
+const crypto = require('crypto');
 const { asyncHandler, pagination } = require('../middleware/validation');
 const { requireBusinessMembership } = require('../middleware/auth');
 const { getPrisma } = require('../src/lib/prisma-bridge');
@@ -51,7 +52,7 @@ const TIER_LIMITS = {
 };
 const PLAN_ID_RE = /^administrative_(tier1|tier2|tier3|premium|enterprise)_(3m|6m|12m)$/;
 
-const TASK_STATUSES = ['assigned', 'in_progress', 'submitted', 'approved'];
+const TASK_STATUSES = ['assigned', 'in_progress', 'submitted', 'approved', 'rejected'];
 const STORAGE_ACTIONS = ['replace_original', 'store_as_new_version'];
 
 // ── Errors ──────────────────────────────────────────────────
@@ -69,6 +70,64 @@ function limitError(limitType, limit, current) {
     limit: limit == null ? null : Number(limit),
     current_usage: Number(current),
   });
+}
+
+function credentialEncryptionKey() {
+  const configured = process.env.ADMIN_CREDENTIALS_ENCRYPTION_KEY || '';
+  const key = /^[0-9a-f]{64}$/i.test(configured)
+    ? Buffer.from(configured, 'hex')
+    : Buffer.from(configured, 'base64');
+  if (key.length !== 32) {
+    throw new HttpError(503, 'Client credential encryption is not configured');
+  }
+  return key;
+}
+
+function encryptCredentials(credentials) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', credentialEncryptionKey(), iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(credentials), 'utf8'),
+    cipher.final(),
+  ]);
+  return {
+    version: 1,
+    iv: iv.toString('base64'),
+    authTag: cipher.getAuthTag().toString('base64'),
+    ciphertext: ciphertext.toString('base64'),
+  };
+}
+
+function decryptCredentials(envelope) {
+  if (!envelope || envelope.version !== 1) {
+    throw new HttpError(409, 'Stored credentials must be re-entered to enable encrypted storage');
+  }
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    credentialEncryptionKey(),
+    Buffer.from(envelope.iv, 'base64'),
+  );
+  decipher.setAuthTag(Buffer.from(envelope.authTag, 'base64'));
+  const plaintext = Buffer.concat([
+    decipher.update(Buffer.from(envelope.ciphertext, 'base64')),
+    decipher.final(),
+  ]).toString('utf8');
+  const parsed = JSON.parse(plaintext);
+  if (!Array.isArray(parsed)) throw new HttpError(500, 'Stored credential data is invalid');
+  return parsed;
+}
+
+function hashAccessPasscode(passcode, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.scryptSync(passcode, salt, 32).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+}
+
+function verifyAccessPasscode(passcode, stored) {
+  if (typeof stored !== 'string') return false;
+  const [scheme, salt, hash] = stored.split('$');
+  if (scheme !== 'scrypt' || !salt || !/^[0-9a-f]{64}$/i.test(hash || '')) return false;
+  const actual = crypto.scryptSync(passcode, salt, 32);
+  return crypto.timingSafeEqual(actual, Buffer.from(hash, 'hex'));
 }
 
 // ── Validation helpers ──────────────────────────────────────
@@ -151,7 +210,51 @@ function paged(rows, { page, limit }) {
 }
 
 // res.json cannot serialise BigInt.
-const serializeDocument = (d) => (d ? { ...d, fileSizeBytes: d.fileSizeBytes == null ? null : Number(d.fileSizeBytes) } : d);
+const serializeDocument = (d) => {
+  if (!d) return d;
+  const fileSizeBytes = d.fileSizeBytes == null ? null : Number(d.fileSizeBytes);
+  return {
+    ...d,
+    fileSizeBytes,
+    file_name: d.fileName ?? null,
+    file_url: d.fileUrl ?? null,
+    file_size_bytes: fileSizeBytes,
+    mime_type: d.mimeType ?? null,
+    folder_name: d.folder?.name ?? null,
+    version_number: d.versionNumber ?? null,
+    document_id: d.documentId ?? null,
+    created_at: d.createdAt ?? null,
+  };
+};
+function serializeInvoice(invoice) {
+  if (!invoice) return invoice;
+  return {
+    id: invoice.id,
+    business_id: invoice.businessId,
+    client_id: invoice.clientId,
+    client_name: invoice.client?.name ?? invoice.clientName ?? null,
+    invoice_number: invoice.invoiceNumber,
+    status: invoice.status,
+    currency: invoice.currency,
+    issue_date: invoice.issueDate,
+    due_date: invoice.dueDate,
+    subtotal: Number(invoice.subtotal),
+    tax_amount: Number(invoice.taxAmount),
+    total_amount: Number(invoice.totalAmount),
+    paid_amount: Number(invoice.paidAmount),
+    notes: invoice.notes,
+    sent_at: invoice.sentAt,
+    paid_at: invoice.paidAt,
+    created_at: invoice.createdAt,
+    items: (invoice.items ?? []).map((item) => ({
+      id: item.id,
+      description: item.description,
+      quantity: Number(item.quantity),
+      unit_price: Number(item.unitPrice),
+      line_total: Number(item.lineTotal),
+    })),
+  };
+}
 function serializeUsage(u) {
   return { storageBytes: u ? Number(u.storageBytes) : 0, clientCount: u ? u.clientCount : 0 };
 }
@@ -279,7 +382,7 @@ function logActivity(tx, { businessId, clientId, actorId, action, entityType, en
 }
 
 // ── Router ──────────────────────────────────────────────────
-module.exports = function administrativeRoutes(pool) {
+module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
   // Created inside the factory so calling it twice does not stack handlers.
   const router = express.Router();
 
@@ -325,9 +428,15 @@ module.exports = function administrativeRoutes(pool) {
     const manager = isManager(req);
     const assignee = manager ? null : me(req); // workers see only their own work
 
-    const [usage, staffCount, obligationBuckets, taskBuckets, dueSoon] = await Promise.all([
+    const [usage, staffCount, clientCount, financialTotals, obligationBuckets, taskBuckets, dueSoon] = await Promise.all([
       prisma.administrativeUsage.findUnique({ where: { businessId } }),
       prisma.workers.count({ where: { business_id: businessId, is_active: true } }),
+      prisma.administrativeClient.count({ where: { businessId, archivedAt: null } }),
+      prisma.administrativeFinancialEntry.groupBy({
+        by: ['entryType'],
+        where: { businessId },
+        _sum: { amount: true },
+      }),
       prisma.$queryRaw`
         SELECT
           COUNT(*) FILTER (WHERE next_due_at < now())::int AS "overdue",
@@ -357,9 +466,19 @@ module.exports = function administrativeRoutes(pool) {
 
     const u = serializeUsage(usage);
     const e = req.entitlement;
+    const financial = Object.fromEntries(financialTotals.map((row) => [
+      row.entryType,
+      Number(row._sum.amount ?? 0),
+    ]));
     res.json({
       data: {
         subscription: { tier: e.tier, expiresAt: e.expiresAt },
+        metrics: {
+          revenue: financial.revenue ?? 0,
+          expenses: financial.expense ?? 0,
+          clients: clientCount,
+          staff: staffCount,
+        },
         usage: {
           storage: { usedBytes: u.storageBytes, limitGb: e.storageGb },
           clients: { used: u.clientCount, limit: e.clientLimit },
@@ -402,6 +521,134 @@ module.exports = function administrativeRoutes(pool) {
     res.json(paged(rows, req.pagination));
   }));
 
+  router.get('/:businessId/staffing', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId } = req.params;
+    const workers = await prisma.workers.findMany({
+      where: { business_id: businessId },
+      select: { id: true, full_name: true, role: true, is_active: true },
+      orderBy: { full_name: 'asc' },
+    });
+    const workerIds = workers.map((worker) => worker.id);
+    if (workerIds.length === 0) return res.json({ data: [] });
+    const [links, tasks] = await Promise.all([
+      prisma.administrativeClientWorker.findMany({
+        where: { workerId: { in: workerIds } },
+        select: { workerId: true, clientId: true },
+      }),
+      prisma.administrativeTask.findMany({
+        where: {
+          businessId,
+          assignedTo: { in: workerIds },
+          status: { in: ['assigned', 'in_progress', 'submitted'] },
+        },
+        select: { assignedTo: true },
+      }),
+    ]);
+    const clientIdsByWorker = new Map();
+    for (const link of links) {
+      const ids = clientIdsByWorker.get(link.workerId) || new Set();
+      ids.add(link.clientId);
+      clientIdsByWorker.set(link.workerId, ids);
+    }
+    const openTasksByWorker = new Map();
+    for (const task of tasks) {
+      if (task.assignedTo) {
+        openTasksByWorker.set(task.assignedTo, (openTasksByWorker.get(task.assignedTo) || 0) + 1);
+      }
+    }
+    res.json({ data: workers.map((worker) => ({
+      ...worker,
+      assigned_client_ids: [...(clientIdsByWorker.get(worker.id) || [])],
+      assigned_client_count: (clientIdsByWorker.get(worker.id) || new Set()).size,
+      open_task_count: openTasksByWorker.get(worker.id) || 0,
+    })) });
+  }));
+
+  router.get('/:businessId/calendar', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId } = req.params;
+    const from = parseDateTime(String(req.query.from ?? ''), 'from');
+    const to = parseDateTime(String(req.query.to ?? ''), 'to');
+    if (to <= from) throw new HttpError(400, 'to must be after from');
+    const workerScope = isManager(req) ? {} : { assignedTo: me(req) };
+    const eventScope = isManager(req) ? {} : { createdBy: me(req) };
+    const [tasks, obligations, events] = await Promise.all([
+      prisma.administrativeTask.findMany({
+        where: { businessId, dueAt: { gte: from, lt: to }, ...workerScope },
+        select: {
+          id: true, title: true, dueAt: true, status: true, clientId: true,
+          client: { select: { name: true } },
+        },
+        orderBy: { dueAt: 'asc' },
+        take: 500,
+      }),
+      prisma.administrativeObligation.findMany({
+        where: {
+          businessId, isActive: true, nextDueAt: { gte: from, lt: to },
+          ...workerScope,
+        },
+        select: {
+          id: true, title: true, nextDueAt: true, clientId: true,
+          client: { select: { name: true } },
+        },
+        orderBy: { nextDueAt: 'asc' },
+        take: 500,
+      }),
+      prisma.administrativeCalendarEvent.findMany({
+        where: { businessId, startsAt: { gte: from, lt: to }, ...eventScope },
+        select: {
+          id: true, title: true, description: true, startsAt: true, clientId: true,
+          client: { select: { name: true } },
+        },
+        orderBy: { startsAt: 'asc' },
+        take: 500,
+      }),
+    ]);
+    res.json({ data: [
+      ...tasks.map((task) => ({
+        event_type: 'task', id: task.id, title: task.title, starts_at: task.dueAt,
+        status: task.status, client_id: task.clientId, client_name: task.client?.name,
+      })),
+      ...obligations.map((obligation) => ({
+        event_type: 'obligation', id: obligation.id, title: obligation.title,
+        starts_at: obligation.nextDueAt, client_id: obligation.clientId,
+        client_name: obligation.client?.name,
+      })),
+      ...events.map((event) => ({
+        event_type: 'event', id: event.id, title: event.title,
+        description: event.description, starts_at: event.startsAt,
+        client_id: event.clientId, client_name: event.client?.name,
+      })),
+    ] });
+  }));
+
+  router.post('/:businessId/calendar-events', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId } = req.params;
+    const b = req.body || {};
+    const clientId = optionalUuid(b.clientId, 'clientId');
+    if (clientId) await loadClient(prisma, req, clientId);
+    const created = await prisma.$transaction(async (tx) => {
+      const event = await tx.administrativeCalendarEvent.create({
+        data: {
+          businessId,
+          clientId,
+          title: requireText(b.title, 'title'),
+          description: optionalText(b.description, 'description', 2000),
+          startsAt: parseDateTime(b.startsAt, 'startsAt'),
+          createdBy: me(req),
+        },
+      });
+      await logActivity(tx, {
+        businessId, clientId, actorId: me(req), action: 'calendar_event.created',
+        entityType: 'calendar_event', entityId: event.id,
+      });
+      return event;
+    });
+    res.status(201).json({ data: created });
+  }));
+
   router.post('/:businessId/clients', requireManager, asyncHandler(async (req, res) => {
     const prisma = await getPrisma();
     const { businessId } = req.params;
@@ -427,9 +674,105 @@ module.exports = function administrativeRoutes(pool) {
     const prisma = await getPrisma();
     const client = await loadClient(prisma, req, req.params.clientId, { allowArchived: true });
     const workers = await prisma.administrativeClientWorker.findMany({
-      where: { clientId: client.id }, select: { workerId: true, assignedAt: true },
+      where: { clientId: client.id },
+      select: {
+        workerId: true,
+        assignedAt: true,
+        worker: { select: { full_name: true, role: true, is_active: true } },
+      },
     });
     res.json({ data: { ...client, workers } });
+  }));
+
+  router.get('/:businessId/clients/:clientId/security', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, clientId } = req.params;
+    await loadClient(prisma, req, clientId, { allowArchived: true });
+    const client = await prisma.administrativeClient.findFirst({
+      where: { id: clientId, businessId },
+      select: { revenueAccessPinHash: true, portalCredentials: true },
+    });
+    const credentials = client.portalCredentials;
+    res.json({ data: {
+      hasPasscode: Boolean(client.revenueAccessPinHash),
+      hasCredentials: Boolean(credentials && credentials.version === 1 && credentials.ciphertext),
+    } });
+  }));
+
+  router.put('/:businessId/clients/:clientId/security/passcode', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, clientId } = req.params;
+    await loadClient(prisma, req, clientId, { allowArchived: true });
+    const passcode = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    await prisma.$transaction(async (tx) => {
+      await tx.administrativeClient.updateMany({
+        where: { id: clientId, businessId },
+        data: { revenueAccessPinHash: hashAccessPasscode(passcode), updatedAt: new Date() },
+      });
+      await logActivity(tx, {
+        businessId, clientId, actorId: me(req), action: 'client.passcode_rotated',
+        entityType: 'client', entityId: clientId,
+      });
+    });
+    res.json({ data: { passcode } });
+  }));
+
+  router.put('/:businessId/clients/:clientId/credentials', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, clientId } = req.params;
+    await loadClient(prisma, req, clientId, { allowArchived: true });
+    const input = (req.body || {}).credentials;
+    if (!Array.isArray(input) || input.length > 100) {
+      throw new HttpError(400, 'credentials must be an array with at most 100 entries');
+    }
+    const credentials = input.map((item, index) => ({
+      id: optionalText(item.id, `credentials[${index}].id`, 80) || crypto.randomUUID(),
+      portal: requireText(item.portal, `credentials[${index}].portal`, 120),
+      username: requireText(item.username, `credentials[${index}].username`, 254),
+      password: requireText(item.password, `credentials[${index}].password`, 1000),
+      notes: optionalText(item.notes, `credentials[${index}].notes`, 1000),
+    }));
+    const encrypted = encryptCredentials(credentials);
+    await prisma.$transaction(async (tx) => {
+      await tx.administrativeClient.updateMany({
+        where: { id: clientId, businessId },
+        data: { portalCredentials: encrypted, updatedAt: new Date() },
+      });
+      await logActivity(tx, {
+        businessId, clientId, actorId: me(req), action: 'client.credentials_updated',
+        entityType: 'client', entityId: clientId,
+        metadata: { credentialCount: credentials.length },
+      });
+    });
+    res.json({ data: { saved: true, credentialCount: credentials.length } });
+  }));
+
+  router.post('/:businessId/clients/:clientId/credentials/reveal', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, clientId } = req.params;
+    await loadClient(prisma, req, clientId, { allowArchived: true });
+    const passcode = requireText((req.body || {}).passcode, 'passcode', 6);
+    if (!/^\d{6}$/.test(passcode)) throw new HttpError(400, 'passcode must contain exactly six digits');
+    const client = await prisma.administrativeClient.findFirst({
+      where: { id: clientId, businessId },
+      select: { revenueAccessPinHash: true, portalCredentials: true },
+    });
+    if (!verifyAccessPasscode(passcode, client.revenueAccessPinHash)) {
+      await logActivity(prisma, {
+        businessId, clientId, actorId: me(req), action: 'client.credentials_reveal_failed',
+        entityType: 'client', entityId: clientId,
+      });
+      throw new HttpError(403, 'Passcode is incorrect');
+    }
+    const credentials = Array.isArray(client.portalCredentials) && client.portalCredentials.length === 0
+      ? []
+      : decryptCredentials(client.portalCredentials);
+    await logActivity(prisma, {
+      businessId, clientId, actorId: me(req), action: 'client.credentials_revealed',
+      entityType: 'client', entityId: clientId,
+      metadata: { credentialCount: credentials.length },
+    });
+    res.json({ data: { credentials } });
   }));
 
   router.patch('/:businessId/clients/:clientId', requireManager, asyncHandler(async (req, res) => {
@@ -554,7 +897,11 @@ module.exports = function administrativeRoutes(pool) {
       where.fileName = { contains: req.query.q.trim().slice(0, 100), mode: 'insensitive' };
     }
     const rows = await prisma.administrativeDocument.findMany({
-      where, orderBy: { createdAt: 'desc' }, take: req.pagination.limit + 1, skip: req.pagination.offset,
+      where,
+      include: { folder: { select: { name: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: req.pagination.limit + 1,
+      skip: req.pagination.offset,
     });
     const out = paged(rows, req.pagination);
     out.data = out.data.map(serializeDocument);
@@ -586,6 +933,85 @@ module.exports = function administrativeRoutes(pool) {
       return d;
     });
     res.status(201).json({ data: serializeDocument(doc) });
+  }));
+
+  router.get('/:businessId/documents/:documentId/versions', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, documentId } = req.params;
+    const document = await prisma.administrativeDocument.findFirst({
+      where: { id: documentId, businessId },
+      select: { id: true, clientId: true },
+    });
+    if (!document) throw new HttpError(404, 'Document not found');
+    await loadClient(prisma, req, document.clientId, { allowArchived: true });
+    const rows = await prisma.administrativeDocumentVersion.findMany({
+      where: { businessId, documentId },
+      orderBy: { versionNumber: 'desc' },
+      take: FOLDER_LIST_CAP,
+    });
+    res.json({ data: rows.map(serializeDocument) });
+  }));
+
+  router.post('/:businessId/documents/:documentId/versions', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, documentId } = req.params;
+    const b = req.body || {};
+    const document = await prisma.administrativeDocument.findFirst({
+      where: { id: documentId, businessId },
+    });
+    if (!document) throw new HttpError(404, 'Document not found');
+    const fileName = requireText(b.fileName, 'fileName', 255);
+    const fileUrl = requireText(b.fileUrl, 'fileUrl', 2048);
+    const fileSizeBytes = b.fileSizeBytes == null
+      ? 0
+      : intInRange(b.fileSizeBytes, 'fileSizeBytes', 0, Number.MAX_SAFE_INTEGER);
+    const mimeType = optionalText(b.mimeType, 'mimeType', 127);
+    const action = oneOf(b.action ?? 'store_as_new_version', STORAGE_ACTIONS, 'action');
+    const version = await prisma.$transaction(async (tx) => {
+      await takeStorage(tx, businessId, BigInt(fileSizeBytes), req.entitlement.storageGb);
+      const latest = await tx.administrativeDocumentVersion.findFirst({
+        where: { businessId, documentId },
+        orderBy: { versionNumber: 'desc' },
+        select: { versionNumber: true },
+      });
+      const created = await tx.administrativeDocumentVersion.create({
+        data: {
+          businessId, documentId, versionNumber: (latest?.versionNumber ?? 0) + 1,
+          fileName, fileUrl, fileSizeBytes: BigInt(fileSizeBytes), mimeType,
+          createdBy: me(req),
+        },
+      });
+      if (action === 'replace_original') {
+        await tx.administrativeDocument.updateMany({
+          where: { id: documentId, businessId },
+          data: { fileName, fileUrl, fileSizeBytes: BigInt(fileSizeBytes), mimeType, updatedAt: new Date() },
+        });
+      }
+      await logActivity(tx, {
+        businessId, clientId: document.clientId, actorId: me(req),
+        action: 'document.version_approved', entityType: 'document', entityId: documentId,
+        metadata: { versionId: created.id, action },
+      });
+      return created;
+    });
+    res.status(201).json({ data: serializeDocument(version) });
+  }));
+
+  router.get('/:businessId/documents/:documentId/download', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, documentId } = req.params;
+    const document = await prisma.administrativeDocument.findFirst({
+      where: { id: documentId, businessId },
+      select: { id: true, clientId: true, fileName: true, fileUrl: true },
+    });
+    if (!document) throw new HttpError(404, 'Document not found');
+    await loadClient(prisma, req, document.clientId, { allowArchived: true });
+    await logActivity(prisma, {
+      businessId, clientId: document.clientId, actorId: me(req),
+      action: 'document.downloaded', entityType: 'document', entityId: documentId,
+      metadata: { fileName: document.fileName },
+    });
+    res.json({ data: { file_name: document.fileName, file_url: document.fileUrl } });
   }));
 
   // Assign a stored document to a worker already assigned to its client.
@@ -638,6 +1064,10 @@ module.exports = function administrativeRoutes(pool) {
     const rows = await prisma.administrativeTask.findMany({
       where, orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
       take: req.pagination.limit + 1, skip: req.pagination.offset,
+      include: {
+        client: { select: { name: true } },
+        assignedWorker: { select: { full_name: true } },
+      },
     });
     res.json(paged(rows, req.pagination));
   }));
@@ -652,6 +1082,7 @@ module.exports = function administrativeRoutes(pool) {
       title: requireText(b.title, 'title'),
       remark: optionalText(b.remark, 'remark', 1000),
       dueAt: optionalDateTime(b.dueAt, 'dueAt'),
+      priority: oneOf(b.priority ?? 'normal', ['low', 'normal', 'high', 'urgent'], 'priority'),
     };
     if (manager) {
       data.clientId = optionalUuid(b.clientId, 'clientId');
@@ -664,14 +1095,29 @@ module.exports = function administrativeRoutes(pool) {
         if (data.clientId && data.clientId !== doc.clientId) throw new HttpError(400, 'documentId does not belong to clientId');
         data.clientId = doc.clientId;
       }
-      if (data.assignedTo) await requireWorkerInBusiness(prisma, businessId, data.assignedTo);
+      if (data.assignedTo) {
+        await requireWorkerInBusiness(prisma, businessId, data.assignedTo);
+        if (data.clientId) {
+          const assignment = await prisma.administrativeClientWorker.findUnique({
+            where: { clientId_workerId: { clientId: data.clientId, workerId: data.assignedTo } },
+            select: { clientId: true },
+          });
+          if (!assignment) throw new HttpError(409, 'Assign this worker to the client first');
+        }
+      }
     } else {
       data.assignedTo = me(req); // a personal task
     }
     const task = await prisma.$transaction(async (tx) => {
       const t = await tx.administrativeTask.create({ data });
       await logActivity(tx, { businessId, clientId: t.clientId, actorId: me(req), action: 'task.created', entityType: 'task', entityId: t.id });
-      return t;
+      return tx.administrativeTask.findFirst({
+        where: { id: t.id, businessId },
+        include: {
+          client: { select: { name: true } },
+          assignedWorker: { select: { full_name: true } },
+        },
+      });
     });
     res.status(201).json({ data: task });
   }));
@@ -681,6 +1127,41 @@ module.exports = function administrativeRoutes(pool) {
     if (!t) throw new HttpError(404, 'Task not found');
     return t;
   }
+
+  router.get('/:businessId/tasks/:taskId/comments', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, taskId } = req.params;
+    const task = await loadTask(prisma, businessId, taskId);
+    if (!isManager(req) && task.assignedTo !== me(req)) {
+      throw new HttpError(404, 'Task not found');
+    }
+    const rows = await prisma.administrativeTaskComment.findMany({
+      where: { businessId, taskId },
+      orderBy: { createdAt: 'asc' },
+    });
+    res.json({ data: rows });
+  }));
+
+  router.post('/:businessId/tasks/:taskId/comments', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, taskId } = req.params;
+    const task = await loadTask(prisma, businessId, taskId);
+    if (!isManager(req) && task.assignedTo !== me(req)) {
+      throw new HttpError(404, 'Task not found');
+    }
+    const body = requireText((req.body || {}).body, 'body', 2000);
+    const comment = await prisma.$transaction(async (tx) => {
+      const created = await tx.administrativeTaskComment.create({
+        data: { businessId, taskId, authorId: me(req), body },
+      });
+      await logActivity(tx, {
+        businessId, clientId: task.clientId, actorId: me(req),
+        action: 'task.comment_added', entityType: 'task', entityId: taskId,
+      });
+      return created;
+    });
+    res.status(201).json({ data: comment });
+  }));
 
   router.patch('/:businessId/tasks/:taskId', asyncHandler(async (req, res) => {
     const prisma = await getPrisma();
@@ -721,20 +1202,53 @@ module.exports = function administrativeRoutes(pool) {
   router.post('/:businessId/tasks/:taskId/submit', asyncHandler(async (req, res) => {
     const prisma = await getPrisma();
     const { businessId, taskId } = req.params;
-    const remark = optionalText((req.body || {}).remark, 'remark', 1000);
+    const b = req.body || {};
+    const remark = optionalText(b.remark, 'remark', 1000);
     const task = await loadTask(prisma, businessId, taskId);
     if (task.assignedTo !== me(req)) throw new HttpError(403, 'Only the assigned worker can submit this task');
+    let submittedVersion = null;
+    if (task.documentId) {
+      const fileName = requireText(b.fileName, 'fileName', 255);
+      const fileUrl = requireText(b.fileUrl, 'fileUrl', 2048);
+      const fileSizeBytes = intInRange(b.fileSizeBytes, 'fileSizeBytes', 0, Number.MAX_SAFE_INTEGER);
+      const mimeType = optionalText(b.mimeType, 'mimeType', 127);
+      submittedVersion = { fileName, fileUrl, fileSizeBytes: BigInt(fileSizeBytes), mimeType };
+    }
     const updated = await prisma.$transaction(async (tx) => {
+      let submittedVersionId = null;
+      if (submittedVersion) {
+        const latest = await tx.administrativeDocumentVersion.findFirst({
+          where: { businessId, documentId: task.documentId },
+          orderBy: { versionNumber: 'desc' },
+          select: { versionNumber: true },
+        });
+        const version = await tx.administrativeDocumentVersion.create({
+          data: {
+            businessId,
+            documentId: task.documentId,
+            versionNumber: (latest?.versionNumber ?? 0) + 1,
+            ...submittedVersion,
+            createdBy: me(req),
+          },
+        });
+        submittedVersionId = version.id;
+      }
       const r = await tx.administrativeTask.updateMany({
         where: { id: taskId, businessId, assignedTo: me(req), status: { in: ['assigned', 'in_progress'] } },
-        data: { status: 'submitted', updatedAt: new Date() },
+        data: { status: 'submitted', submittedVersionId, updatedAt: new Date() },
       });
       if (r.count === 0) throw new HttpError(409, 'Task cannot be submitted from its current status');
       if (task.documentId) {
         await tx.administrativeDocument.updateMany({ where: { id: task.documentId, businessId }, data: { status: 'submitted', updatedAt: new Date() } });
       }
       await logActivity(tx, { businessId, clientId: task.clientId, actorId: me(req), action: 'task.submitted', entityType: 'task', entityId: taskId, metadata: { remark } });
-      return tx.administrativeTask.findFirst({ where: { id: taskId, businessId } });
+      return tx.administrativeTask.findFirst({
+        where: { id: taskId, businessId },
+        include: {
+          client: { select: { name: true } },
+          assignedWorker: { select: { full_name: true } },
+        },
+      });
     });
     res.json({ data: updated });
   }));
@@ -759,6 +1273,14 @@ module.exports = function administrativeRoutes(pool) {
     const now = new Date();
     const updated = await prisma.$transaction(async (tx) => {
       const approved = decision === 'approve';
+      const version = task.submittedVersionId
+        ? await tx.administrativeDocumentVersion.findFirst({
+            where: { id: task.submittedVersionId, businessId, documentId: task.documentId },
+          })
+        : null;
+      if (approved && task.documentId && !version) {
+        throw new HttpError(409, 'The worker has not submitted a replacement document');
+      }
       const r = await tx.administrativeTask.updateMany({
         where: { id: taskId, businessId, status: 'submitted' },
         data: {
@@ -770,12 +1292,306 @@ module.exports = function administrativeRoutes(pool) {
       });
       if (r.count === 0) throw new HttpError(409, 'Only submitted work can be reviewed');
       if (task.documentId) {
-        await tx.administrativeDocument.updateMany({ where: { id: task.documentId, businessId }, data: { status: approved ? 'approved' : 'in_progress', updatedAt: now } });
+        const documentData = { status: approved ? 'approved' : 'in_progress', updatedAt: now };
+        if (approved && storageAction === 'replace_original' && version) {
+          Object.assign(documentData, {
+            fileName: version.fileName,
+            fileUrl: version.fileUrl,
+            fileSizeBytes: version.fileSizeBytes,
+            mimeType: version.mimeType,
+          });
+        }
+        await tx.administrativeDocument.updateMany({ where: { id: task.documentId, businessId }, data: documentData });
       }
       await logActivity(tx, { businessId, clientId: task.clientId, actorId: me(req), action: approved ? 'task.approved' : 'task.rejected', entityType: 'task', entityId: taskId, metadata: { remark, storageAction } });
-      return tx.administrativeTask.findFirst({ where: { id: taskId, businessId } });
+      return tx.administrativeTask.findFirst({
+        where: { id: taskId, businessId },
+        include: {
+          client: { select: { name: true } },
+          assignedWorker: { select: { full_name: true } },
+        },
+      });
     });
     res.json({ data: updated });
+  }));
+
+  router.get('/:businessId/financial-entries', requireManager, pagination, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId } = req.params;
+    const where = { businessId };
+    if (req.query.type !== undefined) {
+      where.entryType = oneOf(String(req.query.type), ['revenue', 'expense'], 'type');
+    }
+    if (req.query.clientId !== undefined) {
+      where.clientId = requireUuid(String(req.query.clientId), 'clientId');
+    }
+    const rows = await prisma.administrativeFinancialEntry.findMany({
+      where,
+      include: { client: { select: { name: true } } },
+      orderBy: { occurredAt: 'desc' },
+      take: req.pagination.limit + 1,
+      skip: req.pagination.offset,
+    });
+    const result = paged(rows, req.pagination);
+    result.data = result.data.map((entry) => ({
+      id: entry.id,
+      business_id: entry.businessId,
+      client_id: entry.clientId,
+      client_name: entry.client?.name ?? null,
+      invoice_id: entry.invoiceId,
+      entry_type: entry.entryType,
+      amount: Number(entry.amount),
+      occurred_at: entry.occurredAt,
+      description: entry.description,
+      created_at: entry.createdAt,
+    }));
+    res.json(result);
+  }));
+
+  router.post('/:businessId/financial-entries', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId } = req.params;
+    const b = req.body || {};
+    const entryType = oneOf(b.entry_type, ['revenue', 'expense'], 'entry_type');
+    const amount = Number(b.amount);
+    if (!Number.isFinite(amount) || amount < 0) throw new HttpError(400, 'amount must be a non-negative number');
+    const clientId = optionalUuid(b.client_id, 'client_id');
+    if (clientId) await loadClient(prisma, req, clientId);
+    const entry = await prisma.$transaction(async (tx) => {
+      const created = await tx.administrativeFinancialEntry.create({
+        data: {
+          businessId, clientId, entryType, amount,
+          description: requireText(b.description, 'description', 1000),
+          createdBy: me(req),
+        },
+      });
+      await logActivity(tx, {
+        businessId, clientId, actorId: me(req), action: `financial_entry.${entryType}`,
+        entityType: 'financial_entry', entityId: created.id,
+        metadata: { amount },
+      });
+      return created;
+    });
+    res.status(201).json({ data: entry });
+  }));
+
+  router.patch('/:businessId/financial-entries/:entryId', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, entryId } = req.params;
+    const current = await prisma.administrativeFinancialEntry.findFirst({
+      where: { id: entryId, businessId },
+    });
+    if (!current) throw new HttpError(404, 'Financial entry not found');
+    if (current.invoiceId) throw new HttpError(409, 'Invoice payment entries cannot be edited here');
+    const b = req.body || {};
+    const data = {};
+    if (b.entry_type !== undefined) data.entryType = oneOf(b.entry_type, ['revenue', 'expense'], 'entry_type');
+    if (b.amount !== undefined) {
+      const amount = Number(b.amount);
+      if (!Number.isFinite(amount) || amount < 0) throw new HttpError(400, 'amount must be a non-negative number');
+      data.amount = amount;
+    }
+    if (b.description !== undefined) data.description = requireText(b.description, 'description', 1000);
+    if (b.client_id !== undefined) {
+      data.clientId = optionalUuid(b.client_id, 'client_id');
+      if (data.clientId) await loadClient(prisma, req, data.clientId);
+    }
+    if (Object.keys(data).length === 0) throw new HttpError(400, 'No valid fields supplied');
+    const entry = await prisma.$transaction(async (tx) => {
+      await tx.administrativeFinancialEntry.updateMany({ where: { id: entryId, businessId }, data });
+      await logActivity(tx, {
+        businessId, clientId: data.clientId ?? current.clientId, actorId: me(req),
+        action: 'financial_entry.updated', entityType: 'financial_entry', entityId: entryId,
+        metadata: { fields: Object.keys(data) },
+      });
+      return tx.administrativeFinancialEntry.findFirst({
+        where: { id: entryId, businessId }, include: { client: { select: { name: true } } },
+      });
+    });
+    res.json({ data: {
+      id: entry.id, business_id: entry.businessId, client_id: entry.clientId,
+      client_name: entry.client?.name ?? null, entry_type: entry.entryType,
+      amount: Number(entry.amount), description: entry.description,
+      occurred_at: entry.occurredAt,
+    } });
+  }));
+
+  router.get('/:businessId/invoices', requireManager, pagination, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const rows = await prisma.administrativeInvoice.findMany({
+      where: { businessId: req.params.businessId },
+      include: { client: { select: { name: true } }, items: true },
+      orderBy: { createdAt: 'desc' },
+      take: req.pagination.limit + 1,
+      skip: req.pagination.offset,
+    });
+    const result = paged(rows, req.pagination);
+    result.data = result.data.map(serializeInvoice);
+    res.json(result);
+  }));
+
+  router.post('/:businessId/invoices', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId } = req.params;
+    const b = req.body || {};
+    const clientId = requireUuid(b.client_id, 'client_id');
+    await loadClient(prisma, req, clientId);
+    if (!Array.isArray(b.items) || b.items.length === 0 || b.items.length > 100) {
+      throw new HttpError(400, 'items must contain between 1 and 100 entries');
+    }
+    const items = b.items.map((item, index) => {
+      const quantity = Number(item.quantity);
+      const unitPrice = Number(item.unit_price);
+      if (!Number.isFinite(quantity) || quantity <= 0) throw new HttpError(400, `items[${index}].quantity must be greater than zero`);
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new HttpError(400, `items[${index}].unit_price must be non-negative`);
+      return {
+        description: requireText(item.description, `items[${index}].description`, 500),
+        quantity,
+        unitPrice,
+        lineTotal: quantity * unitPrice,
+      };
+    });
+    const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+    const taxAmount = Number(b.tax_amount ?? 0);
+    if (!Number.isFinite(taxAmount) || taxAmount < 0) throw new HttpError(400, 'tax_amount must be non-negative');
+    const totalAmount = subtotal + taxAmount;
+    const dueDate = b.due_date == null || b.due_date === '' ? null : parseDateTime(`${b.due_date}T00:00:00.000Z`, 'due_date');
+    const invoice = await prisma.$transaction(async (tx) => {
+      const created = await tx.administrativeInvoice.create({
+        data: {
+          businessId, clientId,
+          invoiceNumber: requireText(b.invoice_number, 'invoice_number', 80),
+          subtotal, taxAmount, totalAmount,
+          dueDate, notes: optionalText(b.notes, 'notes', 4000),
+          createdBy: me(req),
+          items: { create: items },
+        },
+        include: { client: { select: { name: true } }, items: true },
+      });
+      await logActivity(tx, {
+        businessId, clientId, actorId: me(req), action: 'invoice.created',
+        entityType: 'invoice', entityId: created.id,
+        metadata: { invoiceNumber: created.invoiceNumber, totalAmount },
+      });
+      return created;
+    });
+    res.status(201).json({ data: serializeInvoice(invoice) });
+  }));
+
+  router.get('/:businessId/invoices/:invoiceId', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const invoice = await prisma.administrativeInvoice.findFirst({
+      where: { id: req.params.invoiceId, businessId: req.params.businessId },
+      include: { client: { select: { name: true } }, items: true },
+    });
+    if (!invoice) throw new HttpError(404, 'Invoice not found');
+    res.json(serializeInvoice(invoice));
+  }));
+
+  router.post('/:businessId/invoices/:invoiceId/send', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, invoiceId } = req.params;
+    const invoice = await prisma.$transaction(async (tx) => {
+      const updated = await tx.administrativeInvoice.updateMany({
+        where: { id: invoiceId, businessId, status: 'draft' },
+        data: { status: 'sent', sentAt: new Date(), updatedAt: new Date() },
+      });
+      if (updated.count === 0) throw new HttpError(409, 'Only draft invoices can be sent');
+      await logActivity(tx, { businessId, actorId: me(req), action: 'invoice.sent', entityType: 'invoice', entityId: invoiceId });
+      return tx.administrativeInvoice.findFirst({
+        where: { id: invoiceId, businessId },
+        include: { client: { select: { name: true } }, items: true },
+      });
+    });
+    res.json({ data: serializeInvoice(invoice) });
+  }));
+
+  router.post('/:businessId/invoices/:invoiceId/void', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, invoiceId } = req.params;
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.administrativeInvoice.updateMany({
+        where: { id: invoiceId, businessId, status: { in: ['draft', 'sent'] } },
+        data: { status: 'void', updatedAt: new Date() },
+      });
+      if (result.count === 0) throw new HttpError(409, 'This invoice can no longer be voided');
+      await logActivity(tx, { businessId, actorId: me(req), action: 'invoice.voided', entityType: 'invoice', entityId: invoiceId });
+      return tx.administrativeInvoice.findFirst({
+        where: { id: invoiceId, businessId },
+        include: { client: { select: { name: true } }, items: true },
+      });
+    });
+    res.json({ data: serializeInvoice(updated) });
+  }));
+
+  router.post('/:businessId/invoices/:invoiceId/payments', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, invoiceId } = req.params;
+    const amount = Number((req.body || {}).amount);
+    if (!Number.isFinite(amount) || amount <= 0) throw new HttpError(400, 'amount must be greater than zero');
+    const invoice = await prisma.$transaction(async (tx) => {
+      const current = await tx.administrativeInvoice.findFirst({ where: { id: invoiceId, businessId } });
+      if (!current) throw new HttpError(404, 'Invoice not found');
+      if (!['sent', 'paid'].includes(current.status)) throw new HttpError(409, 'Only sent invoices can receive payments');
+      const paidAmount = Number(current.paidAmount) + amount;
+      if (paidAmount > Number(current.totalAmount) + 0.005) throw new HttpError(400, 'Payment exceeds the remaining invoice balance');
+      const fullyPaid = paidAmount >= Number(current.totalAmount) - 0.005;
+      const updated = await tx.administrativeInvoice.update({
+        where: { id: invoiceId },
+        data: {
+          paidAmount,
+          status: fullyPaid ? 'paid' : 'sent',
+          paidAt: fullyPaid ? new Date() : null,
+          updatedAt: new Date(),
+        },
+      });
+      await tx.administrativeFinancialEntry.create({
+        data: {
+          businessId, clientId: current.clientId, invoiceId,
+          entryType: 'revenue', amount,
+          description: `Payment for invoice ${current.invoiceNumber}`,
+          createdBy: me(req),
+        },
+      });
+      await logActivity(tx, {
+        businessId, clientId: current.clientId, actorId: me(req),
+        action: 'invoice.payment_recorded', entityType: 'invoice', entityId: invoiceId,
+        metadata: { amount, paidAmount },
+      });
+      return tx.administrativeInvoice.findFirst({
+        where: { id: updated.id, businessId },
+        include: { client: { select: { name: true } }, items: true },
+      });
+    });
+    res.json({ data: serializeInvoice(invoice) });
+  }));
+
+  router.post('/:businessId/invoices/:invoiceId/email', requireManager, asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    if (typeof sendMail !== 'function') throw new HttpError(503, 'Invoice email delivery is not configured');
+    const { businessId, invoiceId } = req.params;
+    const to = requireText((req.body || {}).email, 'email', 254);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) throw new HttpError(400, 'email is invalid');
+    const invoice = await prisma.administrativeInvoice.findFirst({
+      where: { id: invoiceId, businessId },
+      include: { client: { select: { name: true } }, items: true },
+    });
+    if (!invoice) throw new HttpError(404, 'Invoice not found');
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    const lines = invoice.items.map((item) => `<li>${escapeHtml(item.description)} — ${Number(item.quantity)} × ${Number(item.unitPrice).toFixed(2)}</li>`).join('');
+    await sendMail({
+      to,
+      subject: `Invoice ${invoice.invoiceNumber}`,
+      html: `<p>Hello ${escapeHtml(invoice.client?.name)},</p><p>Invoice ${escapeHtml(invoice.invoiceNumber)} for NGN ${Number(invoice.totalAmount).toFixed(2)}.</p><ul>${lines}</ul><p>${escapeHtml(invoice.notes)}</p>`,
+    });
+    if (invoice.status === 'draft') {
+      await prisma.administrativeInvoice.updateMany({
+        where: { id: invoiceId, businessId, status: 'draft' },
+        data: { status: 'sent', sentAt: new Date(), updatedAt: new Date() },
+      });
+    }
+    await logActivity(prisma, { businessId, clientId: invoice.clientId, actorId: me(req), action: 'invoice.emailed', entityType: 'invoice', entityId: invoiceId, metadata: { to } });
+    res.json({ data: { id: invoiceId, sent: true } });
   }));
 
   // ── Obligations ──────────────────────────────────────────
@@ -792,7 +1608,11 @@ module.exports = function administrativeRoutes(pool) {
         : { lt: new Date(now + { '24h': 1, '3d': 3, '7d': 7 }[due] * DAY_MS) };
     }
     const rows = await prisma.administrativeObligation.findMany({
-      where, orderBy: { nextDueAt: 'asc' }, take: req.pagination.limit + 1, skip: req.pagination.offset,
+      where,
+      include: { client: { select: { name: true } } },
+      orderBy: { nextDueAt: 'asc' },
+      take: req.pagination.limit + 1,
+      skip: req.pagination.offset,
     });
     res.json(paged(rows, req.pagination));
   }));
@@ -820,7 +1640,10 @@ module.exports = function administrativeRoutes(pool) {
     await loadClient(prisma, req, clientId);
     if (data.assignedTo) await requireWorkerInBusiness(prisma, businessId, data.assignedTo);
     const created = await prisma.$transaction(async (tx) => {
-      const o = await tx.administrativeObligation.create({ data });
+      const o = await tx.administrativeObligation.create({
+        data,
+        include: { client: { select: { name: true } } },
+      });
       await logActivity(tx, { businessId, clientId, actorId: me(req), action: 'obligation.created', entityType: 'obligation', entityId: o.id });
       return o;
     });

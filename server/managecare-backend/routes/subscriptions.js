@@ -21,6 +21,20 @@ function isWithinAccessWindow(endDate, now) {
 }
 
 module.exports = function(pool) {
+  async function hasBusinessAccess(userId, businessId, ownerOnly = false) {
+    const result = await pool.query(
+      `SELECT 1
+       FROM businesses b
+       LEFT JOIN business_members bm
+         ON bm.business_id = b.id AND bm.user_id = $2 AND bm.is_active = true
+       WHERE b.id = $1
+         AND (b.owner_id = $2 ${ownerOnly ? "OR (bm.user_id IS NOT NULL AND bm.is_owner = true)" : 'OR bm.user_id IS NOT NULL'})
+       LIMIT 1`,
+      [businessId, userId]
+    );
+    return result.rows.length > 0;
+  }
+
   async function resolveBusinessId(userId, explicitBusinessId) {
     if (explicitBusinessId) return explicitBusinessId;
     if (!userId) return null;
@@ -97,24 +111,37 @@ module.exports = function(pool) {
   }
 
   router.get('/business/:businessId', asyncHandler(async (req, res) => {
+    if (!(await hasBusinessAccess(req.user.id, req.params.businessId))) {
+      return res.status(403).json({ error: 'Not permitted for this business' });
+    }
     const result = await pool.query('SELECT * FROM businesses WHERE id = $1', [req.params.businessId]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Business not found' });
     res.json(result.rows[0]);
   }));
 
   router.get('/user/:userId', asyncHandler(async (req, res) => {
+    if (req.params.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Cannot read another user subscription' });
+    }
     const result = await pool.query('SELECT * FROM profiles WHERE id = $1', [req.params.userId]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
-    res.json(result.rows[0]);
+    const profile = result.rows[0];
+    delete profile.password_hash;
+    delete profile.pin;
+    res.json(profile);
   }));
 
   // POST /activate - mode 'immediate' (Kora self-checkout: always starts now)
   // or 'renew' (extends from the existing end date if it's still in the future).
   router.post('/activate', asyncHandler(async (req, res) => {
     const {
-      userId, businessId: explicitBusinessId, planId, planTier, planFamily, businessType,
+      userId: requestedUserId, businessId: explicitBusinessId, planId, planTier, planFamily, businessType,
       amount, receiptUrl, durationDays, mode,
     } = req.body || {};
+    if (requestedUserId && requestedUserId !== req.user.id) {
+      return res.status(403).json({ error: 'Cannot activate another user subscription' });
+    }
+    const userId = req.user.id;
     if (!planId || !durationDays) {
       return res.status(400).json({ error: 'planId and durationDays are required' });
     }
@@ -123,6 +150,10 @@ module.exports = function(pool) {
     try {
       await client.query('BEGIN');
       const businessId = await resolveBusinessId(userId, explicitBusinessId);
+      if (businessId && !(await hasBusinessAccess(userId, businessId, true))) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Only the business owner can change its subscription' });
+      }
       const now = new Date();
 
       let startDate = now;
@@ -175,6 +206,9 @@ module.exports = function(pool) {
   // (no per-user profile write, matches syncSubscriptionToBusiness).
   router.post('/business/:businessId/sync', asyncHandler(async (req, res) => {
     const { businessId } = req.params;
+    if (!(await hasBusinessAccess(req.user.id, businessId, true))) {
+      return res.status(403).json({ error: 'Only the business owner can change its subscription' });
+    }
     const { planId, planTier, planFamily, businessType, startDate, endDate, amount, receiptUrl } = req.body || {};
     if (!planId || !startDate || !endDate) {
       return res.status(400).json({ error: 'planId, startDate and endDate are required' });
@@ -202,11 +236,19 @@ module.exports = function(pool) {
   }));
 
   router.post('/expire', asyncHandler(async (req, res) => {
-    const { userId, businessId: explicitBusinessId } = req.body || {};
+    const { userId: requestedUserId, businessId: explicitBusinessId } = req.body || {};
+    if (requestedUserId && requestedUserId !== req.user.id) {
+      return res.status(403).json({ error: 'Cannot expire another user subscription' });
+    }
+    const userId = req.user.id;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       const businessId = await resolveBusinessId(userId, explicitBusinessId);
+      if (businessId && !(await hasBusinessAccess(userId, businessId, true))) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Only the business owner can change its subscription' });
+      }
       if (userId) {
         await client.query(`
           UPDATE profiles SET has_active_subscription = false, subscription_payment_required = true,
@@ -233,11 +275,19 @@ module.exports = function(pool) {
   }));
 
   router.post('/cancel', asyncHandler(async (req, res) => {
-    const { userId, businessId: explicitBusinessId } = req.body || {};
+    const { userId: requestedUserId, businessId: explicitBusinessId } = req.body || {};
+    if (requestedUserId && requestedUserId !== req.user.id) {
+      return res.status(403).json({ error: 'Cannot cancel another user subscription' });
+    }
+    const userId = req.user.id;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       const businessId = await resolveBusinessId(userId, explicitBusinessId);
+      if (businessId && !(await hasBusinessAccess(userId, businessId, true))) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Only the business owner can change its subscription' });
+      }
       if (userId) {
         await client.query(`
           UPDATE profiles SET has_active_subscription = false, subscription_payment_required = false,
@@ -266,7 +316,11 @@ module.exports = function(pool) {
   // POST /validate - checks grace-period expiry, writes back 'expired' if
   // needed, syncs the profile row, returns whether access is currently valid.
   router.post('/validate', asyncHandler(async (req, res) => {
-    const { userId, businessId: explicitBusinessId } = req.body || {};
+    const { userId: requestedUserId, businessId: explicitBusinessId } = req.body || {};
+    if (requestedUserId && requestedUserId !== req.user.id) {
+      return res.status(403).json({ error: 'Cannot validate another user subscription' });
+    }
+    const userId = req.user.id;
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -274,6 +328,23 @@ module.exports = function(pool) {
       const now = new Date();
 
       if (businessId) {
+        const membership = await client.query(
+          `SELECT 1
+           FROM businesses b
+           LEFT JOIN business_members bm
+             ON bm.business_id = b.id
+            AND bm.user_id = $2
+            AND bm.is_active = true
+           WHERE b.id = $1
+             AND (b.owner_id = $2 OR bm.user_id IS NOT NULL)
+           LIMIT 1`,
+          [businessId, userId]
+        );
+        if (membership.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(403).json({ error: 'Not permitted for this business' });
+        }
+
         const bizResult = await client.query('SELECT * FROM businesses WHERE id = $1', [businessId]);
         if (bizResult.rows.length === 0) {
           await client.query('ROLLBACK');
@@ -362,6 +433,12 @@ module.exports = function(pool) {
     if (!businessId && !userId) {
       return res.status(400).json({ error: 'businessId or userId is required' });
     }
+    if (userId && userId !== req.user.id) {
+      return res.status(403).json({ error: 'Cannot read another user subscription history' });
+    }
+    if (businessId && !(await hasBusinessAccess(req.user.id, businessId))) {
+      return res.status(403).json({ error: 'Not permitted for this business' });
+    }
 
     const reqParams = [];
     const reqWhere = [];
@@ -398,6 +475,15 @@ module.exports = function(pool) {
 
   router.get('/events', asyncHandler(async (req, res) => {
     const { userId, businessId } = req.query;
+    if (!userId && !businessId) {
+      return res.status(400).json({ error: 'businessId or userId is required' });
+    }
+    if (userId && userId !== req.user.id) {
+      return res.status(403).json({ error: 'Cannot read another user subscription events' });
+    }
+    if (businessId && !(await hasBusinessAccess(req.user.id, businessId))) {
+      return res.status(403).json({ error: 'Not permitted for this business' });
+    }
     const params = [];
     const where = [];
     if (userId) { params.push(userId); where.push(`user_id = $${params.length}`); }

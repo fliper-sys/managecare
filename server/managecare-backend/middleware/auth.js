@@ -3,6 +3,7 @@
  * Verifies JWT tokens issued by GoTrue (Supabase Auth).
  */
 const jwt = require('jsonwebtoken');
+const { getRequestUserId, runWithUser } = require('./db_request_context');
 
 /**
  * Express middleware: validates Bearer token and attaches user to req.
@@ -35,7 +36,13 @@ function authMiddleware(req, res, next) {
       // Support both Supabase anon key (role: 'anon') and authenticated users
       isAnon: decoded.role === 'anon',
     };
+    if (!req.user.id) {
+      return res.status(401).json({ error: 'Invalid token subject' });
+    }
 
+    if (getRequestUserId() !== req.user.id) {
+      return runWithUser(req.user.id, next);
+    }
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
@@ -97,6 +104,17 @@ function requireBusinessMembership(pool) {
       );
 
       if (result.rows.length === 0) {
+        const ownerResult = await pool.query(
+          `SELECT id, 'owner'::text AS role, true AS is_owner, '{}'::jsonb AS permissions
+           FROM businesses
+           WHERE id = $1 AND owner_id = $2 AND is_active = true`,
+          [businessId, req.user.id]
+        );
+        if (ownerResult.rows.length > 0) {
+          req.businessMembership = ownerResult.rows[0];
+          return next();
+        }
+
         // Imported workers may predate business_members; their active worker
         // row is still scoped to exactly one business and carries their grants.
         const workerResult = await pool.query(

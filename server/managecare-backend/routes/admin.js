@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const { asyncHandler } = require('../middleware/validation');
+const { runWithUser } = require('../middleware/db_request_context');
 
 const revenueStatuses = ['approved', 'completed', 'paid', 'successful', 'success'];
 
@@ -36,6 +37,17 @@ function pickColumns(body, allowed) {
 }
 
 module.exports = function(pool) {
+  router.use((req, res, next) => {
+    const allowedEmails = (process.env.PLATFORM_ADMIN_EMAILS || '')
+      .split(',')
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean);
+    if (!allowedEmails.includes(String(req.user?.email || '').toLowerCase())) {
+      return res.status(403).json({ error: 'Platform admin access required' });
+    }
+    next();
+  });
+
   router.get('/dashboard', asyncHandler(async (req, res) => {
     const [
       businessStats,
@@ -168,35 +180,56 @@ module.exports = function(pool) {
 
   router.get('/businesses/:id/daily-sales', asyncHandler(async (req, res) => {
     const { id: businessId } = req.params;
-    const date = req.query.date ? new Date(req.query.date) : new Date();
-    if (Number.isNaN(date.getTime())) {
+    const lagosDateParts = new Intl.DateTimeFormat('en', {
+      timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date()).reduce((parts, part) => {
+      if (part.type !== 'literal') parts[part.type] = part.value;
+      return parts;
+    }, {});
+    const dateKey = req.query.date
+      ? String(req.query.date).slice(0, 10)
+      : `${lagosDateParts.year}-${lagosDateParts.month}-${lagosDateParts.day}`;
+    const parsedDate = new Date(`${dateKey}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)
+      || Number.isNaN(parsedDate.getTime())
+      || parsedDate.toISOString().slice(0, 10) !== dateKey) {
       return res.status(400).json({ error: 'Invalid date' });
     }
-    const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-    const prevStart = new Date(start.getTime() - 24 * 60 * 60 * 1000);
 
-    const [salesResult, itemsResult, prevResult] = await Promise.all([
+    const businessResult = await pool.query(
+      'SELECT owner_id FROM businesses WHERE id = $1 AND is_active = true',
+      [businessId]
+    );
+    const ownerId = businessResult.rows[0]?.owner_id;
+    if (!ownerId) return res.status(404).json({ error: 'Business not found' });
+
+    const [salesResult, itemsResult, prevResult] = await runWithUser(ownerId, () => Promise.all([
       pool.query(`
         SELECT id, worker_name, payment_method, final_amount, created_at
         FROM sales
-        WHERE business_id = $1 AND created_at >= $2 AND created_at < $3
+        WHERE business_id = $1
+          AND created_at >= ($2::date::timestamp AT TIME ZONE 'Africa/Lagos')
+          AND created_at < (($2::date + 1)::timestamp AT TIME ZONE 'Africa/Lagos')
         ORDER BY created_at DESC
-      `, [businessId, start, end]),
+      `, [businessId, dateKey]),
       pool.query(`
         SELECT si.sale_id, si.product_name, si.quantity, si.total,
                COALESCE(i.cost_price, 0) AS cost_price
         FROM sale_items si
         JOIN sales s ON s.id = si.sale_id
         LEFT JOIN inventory i ON i.id = si.product_id
-        WHERE s.business_id = $1 AND s.created_at >= $2 AND s.created_at < $3
-      `, [businessId, start, end]),
+        WHERE s.business_id = $1
+          AND s.created_at >= ($2::date::timestamp AT TIME ZONE 'Africa/Lagos')
+          AND s.created_at < (($2::date + 1)::timestamp AT TIME ZONE 'Africa/Lagos')
+      `, [businessId, dateKey]),
       pool.query(`
         SELECT COALESCE(SUM(final_amount), 0)::DECIMAL(12,2) AS total
         FROM sales
-        WHERE business_id = $1 AND created_at >= $2 AND created_at < $3
-      `, [businessId, prevStart, start]),
-    ]);
+        WHERE business_id = $1
+          AND created_at >= (($2::date - 1)::timestamp AT TIME ZONE 'Africa/Lagos')
+          AND created_at < ($2::date::timestamp AT TIME ZONE 'Africa/Lagos')
+      `, [businessId, dateKey]),
+    ]));
 
     const cashierTotals = {};
     const paymentMethodTotals = {};

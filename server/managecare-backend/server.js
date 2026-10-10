@@ -1,7 +1,10 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+if (!process.env.JWT_SECRET) {
+  throw new Error(`JWT_SECRET is missing from ${path.join(__dirname, '.env')} and the process environment`);
+}
 const express = require('express');
 const http = require('http');
-const path = require('path');
 const fs = require('fs');
 const { Server } = require('socket.io');
 const { Pool, types } = require('pg');
@@ -45,7 +48,8 @@ const pushRoutes = require('./routes/push');
 const administrativeRoutes = require('./routes/administrative');
 
 // ── Middleware imports ──────────────────────────────────────
-const { authMiddleware, requireAuth } = require('./middleware/auth');
+const { authMiddleware, requireAuth, requireBusinessMembership } = require('./middleware/auth');
+const { bindPoolToRequestUser, getRequestUserId, runWithUser } = require('./middleware/db_request_context');
 const { errorHandler } = require('./middleware/validation');
 const crypto = require('crypto');
 const os = require('os');
@@ -270,6 +274,7 @@ const pool = new Pool({
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
 });
+bindPoolToRequestUser(pool);
 
 // ── MinIO client (optional - for file storage) ──────────────
 let minioClient = null;
@@ -884,7 +889,7 @@ function stripSensitiveRows(rows) {
 // an active member of that business.
 const BUSINESS_SCOPED_TABLES = new Set([
   'inventory', 'sales', 'customers', 'workers',
-  'expenses', 'procurements', 'distributors', 'subscription_transactions',
+  'expenses', 'procurements', 'distributors', 'attendance', 'subscription_transactions',
   'notifications', 'device_tokens',
 ]);
 
@@ -893,7 +898,12 @@ async function isBusinessMember(userId, businessId) {
     'SELECT 1 FROM business_members WHERE user_id = $1 AND business_id = $2 AND is_active = true',
     [userId, businessId]
   );
-  return result.rows.length > 0;
+  if (result.rows.length > 0) return true;
+  const ownerResult = await pool.query(
+    'SELECT 1 FROM businesses WHERE id = $1 AND owner_id = $2 AND is_active = true',
+    [businessId, userId]
+  );
+  return ownerResult.rows.length > 0;
 }
 
 async function isBusinessOwner(userId, businessId) {
@@ -901,7 +911,12 @@ async function isBusinessOwner(userId, businessId) {
     'SELECT 1 FROM business_members WHERE user_id = $1 AND business_id = $2 AND is_owner = true AND is_active = true',
     [userId, businessId]
   );
-  return result.rows.length > 0;
+  if (result.rows.length > 0) return true;
+  const ownerResult = await pool.query(
+    'SELECT 1 FROM businesses WHERE id = $1 AND owner_id = $2 AND is_active = true',
+    [businessId, userId]
+  );
+  return ownerResult.rows.length > 0;
 }
 
 // Requires auth on every /rest/v1/:table request, then enforces per-table
@@ -911,7 +926,14 @@ async function restAuthorize(req, res, next) {
   if (!bearerUser) {
     return res.status(401).json({ error: 'Authentication required' });
   }
+  if (!bearerUser.id) {
+    return res.status(401).json({ error: 'Invalid token subject' });
+  }
   req.user = bearerUser;
+
+  if (getRequestUserId() !== bearerUser.id) {
+    return runWithUser(bearerUser.id, () => restAuthorize(req, res, next));
+  }
 
   const table = req.params.table;
 
@@ -974,6 +996,28 @@ async function restAuthorize(req, res, next) {
     return res.status(400).json({ error: 'A business_id filter, or a user_id filter matching yourself, is required' });
   }
 
+  if (table === 'sale_items') {
+    const rawSaleId = req.query.sale_id;
+    const saleId = typeof rawSaleId === 'string' && rawSaleId.startsWith('eq.')
+      ? rawSaleId.slice(3)
+      : null;
+    const requestedSaleIds = req.method === 'POST'
+      ? (Array.isArray(req.body) ? req.body : [req.body || {}])
+          .map((row) => row.sale_id)
+          .filter(Boolean)
+      : [saleId].filter(Boolean);
+    if (requestedSaleIds.length === 0 || (req.method !== 'POST' && !saleId)) {
+      return res.status(400).json({ error: 'sale_id filter is required' });
+    }
+    for (const requestedSaleId of requestedSaleIds) {
+      const sale = await pool.query('SELECT 1 FROM sales WHERE id = $1', [requestedSaleId]);
+      if (sale.rows.length === 0) {
+        return res.status(403).json({ error: 'Not permitted for this sale' });
+      }
+    }
+    return next();
+  }
+
   if (BUSINESS_SCOPED_TABLES.has(table)) {
     // Worker records grant role/permissions - like business_members,
     // mutating them requires owner status, matching /api/workers.
@@ -1013,7 +1057,7 @@ async function restAuthorize(req, res, next) {
   return res.status(403).json({ error: `Direct access to '${table}' is not permitted` });
 }
 
-app.post('/rest/v1/rpc/create_business_with_owner', async (req, res) => {
+app.post('/rest/v1/rpc/create_business_with_owner', authMiddleware, requireAuth, async (req, res) => {
   const bearerUser = getBearerUser(req);
   if (!bearerUser) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -1112,7 +1156,7 @@ app.post('/rest/v1/rpc/create_business_with_owner', async (req, res) => {
   }
 });
 
-app.post('/rest/v1/rpc/get_daily_sales_summary', async (req, res) => {
+app.post('/rest/v1/rpc/get_daily_sales_summary', authMiddleware, requireAuth, async (req, res) => {
   const bearerUser = getBearerUser(req);
   if (!bearerUser) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -1144,6 +1188,26 @@ app.get('/rest/v1/:table', restAuthorize, async (req, res) => {
     const limit = buildRestLimit(req.query, values);
     let rows = (await pool.query(`SELECT * FROM ${table}${where}${order}${limit}`, values)).rows;
 
+    if (req.params.table === 'business_members') {
+      const rawUserId = req.query.user_id;
+      const userId = typeof rawUserId === 'string' && rawUserId.startsWith('eq.')
+        ? rawUserId.slice(3)
+        : req.user.id;
+      if (userId === req.user.id) {
+        const owned = await pool.query(
+          `SELECT NULL::uuid AS id, b.owner_id AS user_id, b.id AS business_id,
+                  'owner'::text AS role, NULL::uuid AS store_id, true AS is_owner,
+                  true AS is_active, '{}'::jsonb AS permissions,
+                  b.created_at, b.updated_at
+           FROM businesses b
+           WHERE b.owner_id = $1 AND b.is_active = true`,
+          [req.user.id]
+        );
+        const seen = new Set(rows.map((row) => `${row.user_id}:${row.business_id}`));
+        rows.push(...owned.rows.filter((row) => !seen.has(`${row.user_id}:${row.business_id}`)));
+      }
+    }
+
     // businesses has no direct membership filter applied above (a caller
     // may legitimately list several businesses at once) - post-filter here.
     if (req.params.table === 'businesses') {
@@ -1152,6 +1216,11 @@ app.get('/rest/v1/:table', restAuthorize, async (req, res) => {
         [req.user.id]
       );
       const allowed = new Set(memberships.rows.map((m) => m.business_id));
+      const owned = await pool.query(
+        'SELECT id FROM businesses WHERE owner_id = $1 AND is_active = true',
+        [req.user.id]
+      );
+      for (const business of owned.rows) allowed.add(business.id);
       rows = rows.filter((r) => allowed.has(r.id));
     }
 
@@ -2194,7 +2263,7 @@ app.post('/iclock/devicecmd', (req, res) => {
 });
 
 // ── Attendance API (for Flutter client) ─────────────────────
-app.get('/api/attendance', authMiddleware, async (req, res) => {
+app.get('/api/attendance', authMiddleware, requireBusinessMembership(pool), async (req, res) => {
   const { businessId, limit: queryLimit } = req.query;
   let query = 'SELECT * FROM attendance';
   const params = [];
@@ -2248,6 +2317,31 @@ app.use('/api/notifications', authMiddleware, notificationRouter);
 
 app.get('/api/session/worker-membership', authMiddleware, requireAuth, async (req, res) => {
   try {
+    const ownerResult = await pool.query(
+      `SELECT b.id AS business_id, 'owner'::text AS role, '{}'::jsonb AS permissions,
+              NULL::uuid AS store_id, true AS is_active, true AS is_owner,
+              to_jsonb(b) AS business
+       FROM businesses b
+       WHERE b.owner_id = $1 AND b.is_active = true
+       ORDER BY b.created_at DESC
+       LIMIT 1`,
+      [req.user.id]
+    );
+    if (ownerResult.rows.length > 0) {
+      const row = ownerResult.rows[0];
+      return res.json({
+        membership: {
+          business_id: row.business_id,
+          role: row.role,
+          permissions: row.permissions,
+          store_id: row.store_id,
+          is_active: row.is_active,
+          is_owner: true,
+        },
+        business: row.business,
+      });
+    }
+
     const result = await pool.query(
       `SELECT w.business_id, w.role, w.permissions, w.store_id, w.is_active, w.full_name,
               to_jsonb(b) AS business
@@ -2268,10 +2362,8 @@ app.get('/api/session/worker-membership', authMiddleware, requireAuth, async (re
       [req.user.id, row.full_name]
     );
     await pool.query(
-      `INSERT INTO business_members (user_id, business_id, role, is_owner, is_active, permissions, store_id)
-       VALUES ($1, $2, $3, false, true, $4, $5)
-       ON CONFLICT (user_id, business_id) DO NOTHING`,
-      [req.user.id, row.business_id, row.role, JSON.stringify(row.permissions || {}), row.store_id]
+      'SELECT ensure_worker_business_membership($1, $2)',
+      [req.user.id, row.business_id]
     );
     res.json({
       membership: {
@@ -2294,9 +2386,10 @@ app.get('/api/session/worker-membership', authMiddleware, requireAuth, async (re
 app.get('/api/businesses', authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT b.* FROM businesses b
-       JOIN business_members bm ON bm.business_id = b.id
-       WHERE bm.user_id = $1 AND bm.is_active = true AND b.is_active = true
+      `SELECT DISTINCT b.* FROM businesses b
+       LEFT JOIN business_members bm ON bm.business_id = b.id
+       WHERE ((bm.user_id = $1 AND bm.is_active = true) OR b.owner_id = $1)
+         AND b.is_active = true
        ORDER BY b.created_at DESC`,
       [req.user.id]
     );
@@ -2306,11 +2399,11 @@ app.get('/api/businesses', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/businesses/:id', authMiddleware, async (req, res) => {
+app.get('/api/businesses/:businessId', authMiddleware, requireBusinessMembership(pool), async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM businesses WHERE id = $1 AND is_active = true',
-      [req.params.id]
+      [req.params.businessId]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Business not found' });
@@ -2330,7 +2423,7 @@ function isWithinSubscriptionAccessWindow(endDate, now = new Date()) {
   return now.getTime() <= graceEnd.getTime();
 }
 
-app.post('/api/subscriptions/validate/:businessId', authMiddleware, async (req, res) => {
+app.post('/api/subscriptions/validate/:businessId', authMiddleware, requireBusinessMembership(pool), async (req, res) => {
   try {
     const { businessId } = req.params;
     const result = await pool.query(
@@ -2367,7 +2460,17 @@ app.post('/admin-api/workers', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'business_id is required' });
     }
     const ownerCheck = await pool.query(
-      'SELECT id FROM business_members WHERE user_id = $1 AND business_id = $2 AND is_owner = true AND is_active = true',
+      `SELECT b.id, b.owner_id
+         FROM businesses b
+         LEFT JOIN business_members bm
+           ON bm.business_id = b.id
+          AND bm.user_id = $1
+          AND bm.is_owner = true
+          AND bm.is_active = true
+        WHERE b.id = $2
+          AND b.is_active = true
+          AND (b.owner_id = $1 OR bm.user_id IS NOT NULL)
+        LIMIT 1`,
       [req.user.id, business_id]
     );
     if (ownerCheck.rows.length === 0) {
@@ -2380,6 +2483,19 @@ app.post('/admin-api/workers', authMiddleware, async (req, res) => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+
+      if (ownerCheck.rows[0].owner_id === req.user.id) {
+        await client.query(
+          `INSERT INTO business_members (user_id, business_id, role, is_owner, is_active, permissions)
+           VALUES ($1, $2, 'owner', true, true, '{}')
+           ON CONFLICT (user_id, business_id) DO UPDATE SET
+             role = 'owner',
+             is_owner = true,
+             is_active = true,
+             updated_at = NOW()`,
+          [req.user.id, business_id]
+        );
+      }
 
       const existingProfile = await client.query(
         'SELECT id FROM profiles WHERE lower(email) = $1',

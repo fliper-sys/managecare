@@ -27,6 +27,18 @@ class AdministrativeRepositorySupabase {
   Future<List<Map<String, dynamic>>> getTasks(String businessId) =>
       _getList('/administrative/$businessId/tasks');
 
+  Future<Map<String, dynamic>> getDashboard(String businessId) async {
+    final response = await _http.get(
+      '/administrative/$businessId/dashboard',
+      options: _options,
+    );
+    final data = response.data;
+    if (data is Map && data['data'] is Map) {
+      return Map<String, dynamic>.from(data['data'] as Map);
+    }
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
   Future<List<Map<String, dynamic>>> getTasksForClient(
     String businessId,
     String clientId,
@@ -110,7 +122,11 @@ class AdministrativeRepositorySupabase {
       '/administrative/$businessId/documents/$documentId/download',
       options: _options,
     );
-    return Map<String, dynamic>.from(response.data as Map);
+    final data = response.data;
+    if (data is Map && data['data'] is Map) {
+      return Map<String, dynamic>.from(data['data'] as Map);
+    }
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
 
   Future<void> createDocumentVersion(
@@ -139,6 +155,67 @@ class AdministrativeRepositorySupabase {
           if (active != null) 'active': active.toString(),
         },
       );
+
+  Future<Map<String, dynamic>> getClient(
+    String businessId,
+    String clientId,
+  ) async {
+    final response = await _http.get(
+      '/administrative/$businessId/clients/$clientId',
+      options: _options,
+    );
+    final data = response.data;
+    if (data is Map && data['data'] is Map) {
+      return Map<String, dynamic>.from(data['data'] as Map);
+    }
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> getClientSecurity(
+    String businessId,
+    String clientId,
+  ) async {
+    final response = await _http.get(
+      '/administrative/$businessId/clients/$clientId/security',
+      options: _options,
+    );
+    return Map<String, dynamic>.from(response.data['data'] as Map);
+  }
+
+  Future<String> rotateClientPasscode(String businessId, String clientId) async {
+    final response = await _http.put(
+      '/administrative/$businessId/clients/$clientId/security/passcode',
+      options: _options,
+    );
+    return (response.data['data'] as Map)['passcode'].toString();
+  }
+
+  Future<void> saveClientCredentials(
+    String businessId,
+    String clientId,
+    List<Map<String, dynamic>> credentials,
+  ) =>
+      _http.put(
+        '/administrative/$businessId/clients/$clientId/credentials',
+        data: {'credentials': credentials},
+        options: _options,
+      );
+
+  Future<List<Map<String, dynamic>>> revealClientCredentials(
+    String businessId,
+    String clientId,
+    String passcode,
+  ) async {
+    final response = await _http.post(
+      '/administrative/$businessId/clients/$clientId/credentials/reveal',
+      data: {'passcode': passcode},
+      options: _options,
+    );
+    return ((response.data['data'] as Map)['credentials'] as List)
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
 
   Future<List<Map<String, dynamic>>> getCalendar(
     String businessId, {
@@ -301,13 +378,49 @@ class AdministrativeRepositorySupabase {
     String businessId,
     String taskId, {
     required String status,
-    String? reviewAction,
   }) async {
     await _http.patch(
-      '/administrative/$businessId/tasks/$taskId/status',
+      '/administrative/$businessId/tasks/$taskId',
+      data: {'status': status},
+      options: _options,
+    );
+  }
+
+  Future<void> submitTask(
+    String businessId,
+    String taskId, {
+    String? remark,
+    String? fileName,
+    String? fileUrl,
+    int? fileSizeBytes,
+    String? mimeType,
+  }) async {
+    await _http.post(
+      '/administrative/$businessId/tasks/$taskId/submit',
       data: {
-        'status': status,
-        if (reviewAction != null) 'review_action': reviewAction,
+        if (remark != null && remark.trim().isNotEmpty) 'remark': remark.trim(),
+        if (fileName != null) 'fileName': fileName,
+        if (fileUrl != null) 'fileUrl': fileUrl,
+        if (fileSizeBytes != null) 'fileSizeBytes': fileSizeBytes,
+        if (mimeType != null) 'mimeType': mimeType,
+      },
+      options: _options,
+    );
+  }
+
+  Future<void> reviewTask(
+    String businessId,
+    String taskId, {
+    required bool approved,
+    String? storageAction,
+    String? remark,
+  }) async {
+    await _http.post(
+      '/administrative/$businessId/tasks/$taskId/review',
+      data: {
+        'decision': approved ? 'approve' : 'reject',
+        if (approved && storageAction != null) 'storageAction': storageAction,
+        if (remark != null && remark.trim().isNotEmpty) 'remark': remark.trim(),
       },
       options: _options,
     );
@@ -319,6 +432,18 @@ class AdministrativeRepositorySupabase {
   ) async {
     final response = await _http.post(
       '/administrative/$businessId/tasks',
+      data: payload,
+      options: _options,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> createObligation(
+    String businessId,
+    Map<String, dynamic> payload,
+  ) async {
+    final response = await _http.post(
+      '/administrative/$businessId/obligations',
       data: payload,
       options: _options,
     );
@@ -342,14 +467,24 @@ class AdministrativeRepositorySupabase {
         options: _options,
       );
 
-  Future<void> completeObligation(
+  Future<Map<String, dynamic>> completeObligation(
     String businessId,
     String obligationId,
+    {DateTime? expectedDueAt}
   ) async {
-    await _http.post(
+    final response = await _http.post(
       '/administrative/$businessId/obligations/$obligationId/complete',
+      data: {
+        if (expectedDueAt != null)
+          'expectedDueAt': expectedDueAt.toIso8601String(),
+      },
       options: _options,
     );
+    final data = response.data;
+    if (data is Map && data['data'] is Map) {
+      return Map<String, dynamic>.from(data['data'] as Map);
+    }
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
 
   Future<List<Map<String, dynamic>>> _getList(

@@ -633,7 +633,7 @@ class _LoginScreenState extends State<LoginScreen>
           const SizedBox(height: 8),
           Text(
             _isWorkerLogin
-                ? 'Use your worker ID and password to access shift tools.'
+                ? 'Use your worker email and password to access shift tools.'
                 : 'Use your business email and password to continue.',
             style: AppTextStyles.body2.copyWith(
               color: bodyColor,
@@ -676,11 +676,15 @@ class _LoginScreenState extends State<LoginScreen>
                 ? CustomTextField(
                     key: const ValueKey('workerId'),
                     controller: _workerIdController,
-                    label: 'Worker ID',
-                    hint: 'Enter your staff ID',
+                    label: 'Worker Email',
+                    hint: 'name@business.com',
+                    keyboardType: TextInputType.emailAddress,
                     prefixIcon: Icons.badge_outlined,
-                    validator: (v) =>
-                        v?.trim().isEmpty == true ? 'ID required' : null,
+                    validator: (v) {
+                      if (v?.trim().isEmpty == true) return 'Email required';
+                      if (!v!.contains('@')) return 'Invalid email';
+                      return null;
+                    },
                   )
                 : CustomTextField(
                     key: const ValueKey('email'),
