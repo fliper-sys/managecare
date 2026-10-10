@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../data/repositories/auth_repository_impl.dart';
 import '../../../data/repositories/worker_repository_impl.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/utils/worker_permissions.dart';
@@ -640,7 +639,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                         );
                         break;
                       case 'reset_password':
-                        _sendPasswordResetEmail(email);
+                        _setWorkerPassword(workerId, name, businessId);
                         break;
                       case 'remove':
                         _showRemoveWorkerDialog(workerId, name, businessId);
@@ -654,7 +653,7 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
                     ),
                     const PopupMenuItem(
                       value: 'reset_password',
-                      child: Text('Reset Password'),
+                      child: Text('Set Password'),
                     ),
                     const PopupMenuItem(
                       value: 'remove',
@@ -685,22 +684,24 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
     );
   }
 
-  Future<void> _sendPasswordResetEmail(String? email) async {
-    final workerEmail = email?.trim() ?? '';
-    if (workerEmail.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Worker email is missing')),
-      );
-      return;
-    }
-
+  Future<void> _setWorkerPassword(
+    String workerId,
+    String workerName,
+    String? businessId,
+  ) async {
+    final passwordController = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Reset Worker Password'),
-        content: Text(
-          'A password reset email will be sent to $workerEmail. '
-          'The worker can use it to create a new password.',
+        title: Text('Set password for $workerName'),
+        content: TextField(
+          controller: passwordController,
+          obscureText: true,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'New password',
+            helperText: 'Use at least 8 characters',
+          ),
         ),
         actions: [
           TextButton(
@@ -709,26 +710,41 @@ class _WorkerManagementScreenState extends State<WorkerManagementScreen>
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Send'),
+            child: const Text('Save'),
           ),
         ],
       ),
     );
 
-    if (confirmed != true) return;
+    final password = passwordController.text.trim();
+    passwordController.dispose();
+    if (confirmed != true || !mounted) return;
+    if (password.length < 8) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password must be at least 8 characters')),
+      );
+      return;
+    }
 
     try {
-      await AuthRepositoryImpl().resetPassword(workerEmail);
-
+      final targetBusinessId = businessId?.trim() ?? '';
+      if (targetBusinessId.isEmpty) {
+        throw StateError('Business context is missing for this worker.');
+      }
+      await context.read<WorkersProvider>().updateWorker(
+        workerId,
+        {'password': password},
+        businessId: targetBusinessId,
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Password reset email sent to $workerEmail')),
+          SnackBar(content: Text('Password updated for $workerName')),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send password reset email: $e')),
+          SnackBar(content: Text('Could not update worker password: $e')),
         );
       }
     }

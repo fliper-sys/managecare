@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -9,6 +8,7 @@ import '../../../../core/utils/currency.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/retail_provider.dart';
+import '../../../../services/managecare_api_client.dart';
 import '../../../../core/utils/worker_permissions.dart';
 
 class GasStockScreen extends StatefulWidget {
@@ -41,16 +41,7 @@ class _GasStockScreenState extends State<GasStockScreen> {
     return _isFuelCategory(normalized);
   }
 
-  CollectionReference<Map<String, dynamic>>? _historyCollection() {
-    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-    if (businessId == null || businessId.isEmpty) return null;
-    return FirebaseFirestore.instance
-        .collection('businesses')
-        .doc(businessId)
-        .collection('fuel_stock_procurement_history');
-  }
-
-  Future<void> _recordFuelStockHistory({
+  Future<bool> _recordFuelStockHistory({
     required Product product,
     required double previousStock,
     required double nextStock,
@@ -61,38 +52,48 @@ class _GasStockScreenState extends State<GasStockScreen> {
     required String action,
     required double quantityChange,
   }) async {
-    final history = _historyCollection();
-    if (history == null) return;
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty || product.id.isEmpty) {
+      return false;
+    }
     final user = context.read<AuthProvider>().currentUser;
-    await history.add({
-      'productId': product.id,
-      'productName': product.name,
-      'category': product.category,
-      'unit': product.unit,
-      'action': action,
-      'quantityChange': quantityChange,
-      'previousStock': previousStock,
-      'nextStock': nextStock,
-      'previousPrice': previousPrice,
-      'nextPrice': nextPrice,
-      'previousCost': previousCost,
-      'nextCost': nextCost,
-      'priceChanged': (previousPrice - nextPrice).abs() > 0.0001,
-      'stockChanged': (previousStock - nextStock).abs() > 0.0001,
-      'createdBy': user?.id,
-      'createdById': user?.id,
-      'createdByName': user?.fullName ?? user?.email,
-      'createdByEmail': user?.email,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    try {
+      await ManagecareApiClient.instance.post(
+        '/api/inventory/$businessId/${product.id}/history',
+        body: {
+          'change_type': action,
+          'quantity_change': quantityChange,
+          'quantity_after': nextStock,
+          'performed_by_id': user?.id,
+          'performed_by_name': user?.fullName ?? user?.email,
+          'source': 'fuel_stock',
+          'action': action,
+          'product_name': product.name,
+          'category': product.category,
+          'unit': product.unit,
+          'previous_stock': previousStock,
+          'next_stock': nextStock,
+          'previous_price': previousPrice,
+          'next_price': nextPrice,
+          'previous_cost': previousCost,
+          'next_cost': nextCost,
+          'price_changed': (previousPrice - nextPrice).abs() > 0.0001,
+          'stock_changed': (previousStock - nextStock).abs() > 0.0001,
+        },
+      );
+      return true;
+    } catch (error) {
+      debugPrint('[FuelStock] History write failed: $error');
+      return false;
+    }
   }
 
   void _openProcurementHistory() {
-    final history = _historyCollection();
-    if (history == null) return;
+    final businessId = context.read<BusinessProvider>().currentBusiness?.id;
+    if (businessId == null || businessId.isEmpty) return;
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _FuelStockProcurementHistoryScreen(history: history),
+        builder: (_) => _FuelStockProcurementHistoryScreen(businessId: businessId),
       ),
     );
   }
@@ -255,8 +256,7 @@ class _GasStockScreenState extends State<GasStockScreen> {
       return;
     }
 
-    await context.read<RetailProvider>().addProduct(
-      Product(
+    final newProduct = Product(
         id: '',
         name: name,
         price: price,
@@ -265,12 +265,21 @@ class _GasStockScreenState extends State<GasStockScreen> {
         category: category,
         emoji: unit == 'cyl' ? '🛢' : '⛽',
         unit: unit,
-      ),
-    );
+      );
+    String? productId;
+    try {
+      productId = await context.read<RetailProvider>().addProduct(newProduct);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not add fuel product: $error')),
+      );
+      return;
+    }
 
-    await _recordFuelStockHistory(
+    final historyRecorded = await _recordFuelStockHistory(
       product: Product(
-        id: '',
+        id: productId ?? '',
         name: name,
         price: price,
         cost: cost,
@@ -287,6 +296,14 @@ class _GasStockScreenState extends State<GasStockScreen> {
       action: 'add_product',
       quantityChange: stock,
     );
+
+    if (!historyRecorded && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Fuel was added, but its history could not be saved.'),
+        ),
+      );
+    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -396,9 +413,7 @@ class _GasStockScreenState extends State<GasStockScreen> {
     }
 
     final nextStock = addToStock ? product.stock + quantity : quantity;
-    await context.read<RetailProvider>().updateProduct(
-      product.id,
-      Product(
+    final updatedProduct = Product(
         id: product.id,
         name: product.name,
         price: price,
@@ -412,10 +427,21 @@ class _GasStockScreenState extends State<GasStockScreen> {
         unit: product.unit,
         saleUnit: product.resolvedSaleUnit,
         saleUnitMultiplier: product.resolvedSaleUnitMultiplier,
-      ),
-    );
-    await _recordFuelStockHistory(
-      product: product,
+      );
+    try {
+      await context.read<RetailProvider>().updateProduct(
+        product.id,
+        updatedProduct,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update fuel stock: $error')),
+      );
+      return;
+    }
+    final historyRecorded = await _recordFuelStockHistory(
+      product: updatedProduct,
       previousStock: product.stock,
       nextStock: nextStock,
       previousPrice: product.price,
@@ -425,6 +451,14 @@ class _GasStockScreenState extends State<GasStockScreen> {
       action: addToStock ? 'add_stock' : 'set_stock',
       quantityChange: addToStock ? quantity : nextStock - product.stock,
     );
+
+    if (!historyRecorded && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Stock was updated, but its history could not be saved.'),
+        ),
+      );
+    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -925,13 +959,48 @@ class _PriceBadge extends StatelessWidget {
   }
 }
 
-class _FuelStockProcurementHistoryScreen extends StatelessWidget {
-  const _FuelStockProcurementHistoryScreen({required this.history});
+class _FuelStockProcurementHistoryScreen extends StatefulWidget {
+  const _FuelStockProcurementHistoryScreen({required this.businessId});
 
-  final CollectionReference<Map<String, dynamic>> history;
+  final String businessId;
+
+  @override
+  State<_FuelStockProcurementHistoryScreen> createState() =>
+      _FuelStockProcurementHistoryScreenState();
+}
+
+class _FuelStockProcurementHistoryScreenState
+    extends State<_FuelStockProcurementHistoryScreen> {
+  late Future<List<Map<String, dynamic>>> _historyFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _historyFuture = _loadHistory();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadHistory() async {
+    final response = await ManagecareApiClient.instance.get(
+      '/api/inventory/${widget.businessId}/fuel-stock-history',
+      query: {'limit': '200'},
+    );
+    return ((response['data'] as List?) ?? [])
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+  }
+
+  Future<void> _refresh() async {
+    final future = _loadHistory();
+    setState(() => _historyFuture = future);
+    try {
+      await future;
+    } catch (_) {
+      // FutureBuilder renders the retry state.
+    }
+  }
 
   DateTime? _readDate(dynamic value) {
-    if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
     return DateTime.tryParse(value?.toString() ?? '');
   }
@@ -949,37 +1018,65 @@ class _FuelStockProcurementHistoryScreen extends StatelessWidget {
         title: const Text('Fuel Procurement History'),
         backgroundColor: AppColors.primary,
       ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: history
-            .orderBy('createdAt', descending: true)
-            .limit(200)
-            .snapshots(includeMetadataChanges: true),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _historyFuture,
         builder: (context, snapshot) {
-          final docs = snapshot.data?.docs ?? [];
           if (snapshot.connectionState == ConnectionState.waiting &&
-              docs.isEmpty) {
+              !snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (docs.isEmpty) {
-            return const Center(
-              child: Text('No fuel stock changes recorded yet.'),
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Fuel stock history could not be loaded.'),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                  ),
+                ],
+              ),
+            );
+          }
+          final rows = snapshot.data ?? [];
+          if (rows.isEmpty) {
+            return RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 240),
+                  Center(child: Text('No fuel stock changes recorded yet.')),
+                ],
+              ),
             );
           }
 
-          return ListView.separated(
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView.separated(
             padding: const EdgeInsets.all(16),
-            itemCount: docs.length,
+            itemCount: rows.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
-              final data = docs[index].data();
-              final createdAt = _readDate(data['createdAt']);
-              final quantityChange = _readDouble(data, 'quantityChange');
-              final previousStock = _readDouble(data, 'previousStock');
-              final nextStock = _readDouble(data, 'nextStock');
-              final previousPrice = _readDouble(data, 'previousPrice');
-              final nextPrice = _readDouble(data, 'nextPrice');
+              final data = rows[index];
+              final metadata = data['metadata'];
+              if (metadata is Map) {
+                for (final entry in metadata.entries) {
+                  data.putIfAbsent(entry.key.toString(), () => entry.value);
+                }
+              }
+              final createdAt = _readDate(data['created_at']);
+              final quantityChange = _readDouble(data, 'quantity_change');
+              final previousStock = _readDouble(data, 'previous_stock');
+              final nextStock = _readDouble(data, 'next_stock');
+              final previousPrice = _readDouble(data, 'previous_price');
+              final nextPrice = _readDouble(data, 'next_price');
               final unit = data['unit']?.toString() ?? '';
-              final recordedBy = (data['createdByName'] ?? data['createdBy'] ?? data['createdByEmail'])?.toString() ?? '';
+              final recordedBy = (data['performed_by_name'] ?? data['performed_by_id'])?.toString() ?? '';
 
               return Card(
                 child: ListTile(
@@ -987,9 +1084,9 @@ class _FuelStockProcurementHistoryScreen extends StatelessWidget {
                     backgroundColor: AppColors.primary.withOpacity(0.12),
                     child: const Icon(Icons.inventory_2_outlined),
                   ),
-                  title: Text(data['productName']?.toString() ?? 'Fuel'),
+                  title: Text(data['product_name']?.toString() ?? 'Fuel'),
                   subtitle: Text(
-                    '${data['action'] ?? 'stock_change'}'
+                    '${data['action'] ?? data['change_type'] ?? 'stock_change'}'
                     '${createdAt == null ? '' : ' • ${createdAt.toLocal()}'}'
                     '${recordedBy.isNotEmpty ? '\nBy: $recordedBy' : ''}'
                     '\nStock: ${previousStock.toStringAsFixed(2)} → ${nextStock.toStringAsFixed(2)} $unit\n'
@@ -1006,7 +1103,7 @@ class _FuelStockProcurementHistoryScreen extends StatelessWidget {
                 ),
               );
             },
-          );
+          ));
         },
       ),
     );

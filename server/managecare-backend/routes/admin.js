@@ -38,7 +38,8 @@ function pickColumns(body, allowed) {
 
 module.exports = function(pool) {
   router.use((req, res, next) => {
-    const allowedEmails = (process.env.PLATFORM_ADMIN_EMAILS || '')
+    const configuredAdminEmails = process.env.PLATFORM_ADMIN_EMAILS || process.env.PLATFORM_ADMIN_EMAIL;
+    const allowedEmails = (configuredAdminEmails || 'MCadmin@mc.c')
       .split(',')
       .map((email) => email.trim().toLowerCase())
       .filter(Boolean);

@@ -73,18 +73,12 @@ module.exports = function(pool) {
     res.json(result.rows[0]);
   }));
 
-  // POST /api/workers/:businessId - Create worker (owner only).
-  // `password` is optional here - the client-side worker-creation flow
-  // hasn't been ported off Firestore yet, so most workers still end up
-  // with no password at all (password_hash stays NULL) and have to claim
-  // their account later via /change-password. Accepting it here means any
-  // path that does supply one - a rebuilt add-worker screen, an admin
-  // script - just works without another server change.
-  router.post('/:businessId', requireBusinessOwner, requireFields('full_name', 'role'), asyncHandler(async (req, res) => {
+  // POST /api/workers/:businessId - Create a worker with usable login credentials.
+  router.post('/:businessId', requireBusinessOwner, requireFields('email', 'password', 'full_name', 'role'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { email, full_name, phone, role, store_id, permissions, pin, password } = req.body;
     const permissionsJson = JSON.stringify(permissions || {});
-    const passwordHash = password ? await bcrypt.hash(password, 10) : null;
+    const passwordHash = await bcrypt.hash(password, 10);
     const quota = await administrativeWorkerLimit(businessId);
     if (quota && quota.usage >= quota.limit) {
       return res.status(409).json({ error: 'Subscription staff limit reached', limit_type: 'workers', limit: quota.limit, current_usage: quota.usage });
@@ -93,7 +87,7 @@ module.exports = function(pool) {
     const result = await pool.query(
       `INSERT INTO workers (email, full_name, phone, role, business_id, store_id, permissions, pin, password_hash)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [email || null, full_name, phone || null, role, businessId,
+      [email.trim().toLowerCase(), full_name, phone || null, role, businessId,
        store_id || null, permissionsJson, pin || null, passwordHash]
     );
     delete result.rows[0].password_hash;
@@ -113,6 +107,7 @@ module.exports = function(pool) {
     const fields = [];
     const params = [];
     let paramIndex = 1;
+    let passwordHash;
 
     if (email !== undefined) { fields.push(`email = $${paramIndex++}`); params.push(email); }
     if (full_name !== undefined) { fields.push(`full_name = $${paramIndex++}`); params.push(full_name); }
@@ -127,8 +122,9 @@ module.exports = function(pool) {
     // business owner here, so no "current password" proof is needed the
     // way the worker's own self-service /change-password page requires one.
     if (password) {
+      passwordHash = await bcrypt.hash(password, 10);
       fields.push(`password_hash = $${paramIndex++}`);
-      params.push(await bcrypt.hash(password, 10));
+      params.push(passwordHash);
     }
 
     if (fields.length === 0) {
@@ -150,6 +146,13 @@ module.exports = function(pool) {
       if (result.rows.length === 0) {
         await client.query('ROLLBACK');
         return res.status(404).json({ error: 'Worker not found' });
+      }
+
+      if (password) {
+        await client.query(
+          'UPDATE profiles SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+          [passwordHash, id]
+        );
       }
 
       if (is_active !== undefined || role !== undefined || permissions !== undefined || store_id !== undefined) {

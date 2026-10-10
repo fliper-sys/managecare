@@ -69,6 +69,27 @@ module.exports = function(pool) {
     });
   }));
 
+  // GET /api/inventory/:businessId/fuel-stock-history
+  router.get('/:businessId/fuel-stock-history', asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 200));
+    const result = await pool.query(
+      `SELECT h.id, h.inventory_id, h.change_type, h.quantity_change,
+              h.quantity_after, h.performed_by_id, h.performed_by_name,
+              h.created_at, h.metadata,
+              COALESCE(h.metadata->>'product_name', i.name) AS product_name,
+              COALESCE(h.metadata->>'category', i.category) AS category,
+              COALESCE(h.metadata->>'unit', i.unit) AS unit
+       FROM inventory_history h
+       LEFT JOIN inventory i ON i.id = h.inventory_id AND i.business_id = h.business_id
+       WHERE h.business_id = $1 AND h.metadata->>'source' = 'fuel_stock'
+       ORDER BY h.created_at DESC
+       LIMIT $2`,
+      [businessId, limit]
+    );
+    res.json({ data: result.rows });
+  }));
+
   // GET /api/inventory/:businessId/bakery-resupplies - List bakery
   // production assignments issued to bakers.
   router.get('/:businessId/bakery-resupplies', pagination, asyncHandler(async (req, res) => {

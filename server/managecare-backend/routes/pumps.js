@@ -36,10 +36,14 @@ module.exports = function(pool) {
          product_unit = EXCLUDED.product_unit, product_price = EXCLUDED.product_price, model = EXCLUDED.model,
          serial_number = EXCLUDED.serial_number, manufacturer = EXCLUDED.manufacturer,
          manufacture_year = EXCLUDED.manufacture_year, updated_at = NOW()
+       WHERE pumps.business_id = EXCLUDED.business_id
        RETURNING *`,
       [id || null, businessId, pump_number, product_id || null, product_name || null, product_unit || null,
        product_price || 0, model || null, serial_number || null, manufacturer || null, manufacture_year || null]
     );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Pump not found in this business' });
+    }
     res.status(201).json(result.rows[0]);
   }));
 
@@ -156,14 +160,35 @@ module.exports = function(pool) {
     const { businessId } = req.params;
     const b = req.body;
 
+    const pumpResult = await pool.query(
+      `SELECT p.id, p.pump_number, p.product_id, i.name AS product_name,
+              i.unit AS product_unit, i.unit_price AS product_price
+       FROM pumps p
+       JOIN inventory i ON i.id = p.product_id AND i.business_id = p.business_id
+       WHERE p.id = $1 AND p.business_id = $2 AND p.is_active = true AND i.is_active = true`,
+      [b.pump_id, businessId]
+    );
+    if (pumpResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Active pump or linked fuel product not found in this business' });
+    }
+    const configuredPump = pumpResult.rows[0];
+
     const closingVolume = parseFloat(b.closing_volume) || 0;
     const openingVolume = parseFloat(b.opening_volume) || 0;
     if (closingVolume <= openingVolume) {
       return res.status(400).json({ error: 'Closing volume must be greater than opening volume' });
     }
+    const digitalVolume = closingVolume - openingVolume;
+    const unitPrice = Number.parseFloat(configuredPump.product_price) || 0;
+    const expectedAmount = Number((digitalVolume * unitPrice).toFixed(2));
+    const shiftOpeningCash = Number.parseFloat(b.shift_opening_cash) || 0;
+    const shiftCloseCash = Number.parseFloat(b.shift_close_cash) || 0;
+    const shiftCashDifference = shiftCloseCash - shiftOpeningCash;
+    const cashDerivedVolume = unitPrice > 0
+      ? Math.max(0, shiftCashDifference / unitPrice)
+      : 0;
 
     try {
-      const expectedAmount = Number.parseFloat(b.expected_amount) || 0;
       const totalPaid = Number.parseFloat(b.total_paid) || 0;
       if (expectedAmount > 0 || totalPaid > 0) {
         const duplicate = await pool.query(
@@ -209,12 +234,13 @@ module.exports = function(pool) {
          )
          RETURNING *`,
         [
-          businessId, b.pump_id, b.pump_number || null, asUuidOrNull(b.product_id), b.product_name || null, b.product_unit || null, b.product_price || 0,
+          businessId, configuredPump.id, configuredPump.pump_number, configuredPump.product_id,
+          configuredPump.product_name, configuredPump.product_unit, configuredPump.product_price,
           asUuidOrNull(b.worker_id), b.worker_name || null, b.upload_fingerprint || null, asUuidOrNull(b.sale_id),
-          b.opening_volume || 0, b.closing_volume || 0, b.digital_volume || 0, b.volume_difference || 0, b.analog_opening_volume || 0,
-          b.analog_closing_volume || 0, b.sold_volume || 0, b.cash_derived_volume || 0, b.previous_analog_closing_volume ?? null,
-          b.previous_shift_closing_cash ?? null, b.previous_closing_volume ?? null, b.expected_amount || 0, b.shift_opening_cash || 0,
-          b.shift_close_cash || 0, b.shift_cash_difference || 0, b.today_pump_cash || 0, b.cash_amount || 0, b.pos_amount || 0, b.total_paid || 0,
+          openingVolume, closingVolume, digitalVolume, digitalVolume, b.analog_opening_volume || 0,
+          b.analog_closing_volume || 0, digitalVolume, cashDerivedVolume, b.previous_analog_closing_volume ?? null,
+          b.previous_shift_closing_cash ?? null, b.previous_closing_volume ?? null, expectedAmount, shiftOpeningCash,
+          shiftCloseCash, shiftCashDifference, b.today_pump_cash || 0, b.cash_amount || 0, b.pos_amount || 0, b.total_paid || 0,
           b.cash_breakdown ? JSON.stringify(b.cash_breakdown) : null, b.discrepancy_notes ? JSON.stringify(b.discrepancy_notes) : null, b.discrepancy_summary || null,
           b.shift_opening_cash_photo_url || null, b.shift_close_cash_photo_url || null, b.opening_photo_url || null, b.closing_photo_url || null,
           b.submitted_at || null, b.status || 'pending_review', asUuidOrNull(b.submitted_by || b.worker_id), b.submitted_by_name || b.worker_name || null,
@@ -288,9 +314,8 @@ module.exports = function(pool) {
           newValue: merged.cash_breakdown || [],
         });
       }
-      const cashDifference = Math.max(0, (Number.parseFloat(merged.shift_close_cash) || 0) - (Number.parseFloat(merged.shift_opening_cash) || 0));
       const productPrice = Number.parseFloat(merged.product_price) || 0;
-      const soldVolume = productPrice > 0 ? cashDifference / productPrice : 0;
+      const soldVolume = Math.max(0, Number.parseFloat(merged.digital_volume) || 0);
       const totalPaid = Number.parseFloat(merged.total_paid) || 0;
       const cashAmount = Number.parseFloat(merged.cash_amount) || 0;
       const posAmount = Number.parseFloat(merged.pos_amount) || 0;
@@ -341,10 +366,14 @@ module.exports = function(pool) {
         ]
       );
 
-      await client.query(
+      const inventoryResult = await client.query(
         'UPDATE inventory SET quantity = GREATEST(0, quantity - $1), updated_at = NOW() WHERE id = $2 AND business_id = $3',
         [soldVolume, merged.product_id, businessId]
       );
+      if (inventoryResult.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Fuel product was not found in this business inventory' });
+      }
 
       await client.query(
         `INSERT INTO petroleum_cash_entries (
@@ -401,7 +430,7 @@ module.exports = function(pool) {
           merged.analog_opening_volume || 0,
           merged.analog_closing_volume || 0,
           soldVolume,
-          merged.expected_amount || totalPaid,
+          merged.expected_amount,
           merged.shift_opening_cash || 0,
           merged.shift_close_cash || 0,
           merged.shift_cash_difference || 0,
@@ -1042,13 +1071,11 @@ function mergeReviewUpdates(existing, updates) {
   merged.today_pump_cash = cash;
   merged.total_paid = cash + pos;
   const productPrice = Number.parseFloat(merged.product_price) || 0;
-  merged.sold_volume = productPrice > 0 && merged.shift_cash_difference > 0
+  merged.sold_volume = merged.digital_volume;
+  merged.cash_derived_volume = productPrice > 0 && merged.shift_cash_difference > 0
     ? merged.shift_cash_difference / productPrice
     : 0;
-  merged.cash_derived_volume = merged.sold_volume;
-  if ((Number.parseFloat(merged.expected_amount) || 0) <= 0) {
-    merged.expected_amount = merged.total_paid;
-  }
+  merged.expected_amount = Number((merged.digital_volume * productPrice).toFixed(2));
 
   return merged;
 }

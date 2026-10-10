@@ -1293,8 +1293,8 @@ class RetailProvider extends ChangeNotifier {
   }
 
   // Add product via the inventory API
-  Future<void> addProduct(Product product, {String? storeId}) async {
-    if (_businessId == null) return;
+  Future<String?> addProduct(Product product, {String? storeId}) async {
+    if (_businessId == null) throw StateError('Business context is missing');
 
     try {
       final data = product.toJson();
@@ -1303,6 +1303,7 @@ class RetailProvider extends ChangeNotifier {
 
       final created = await _inventoryRepo.addInventory(data);
       final newId = (created is Map ? created['id'] : null)?.toString() ?? '';
+      if (newId.isEmpty) throw StateError('Inventory API returned no product ID');
 
       await _logProductActivity(
         productId: newId,
@@ -1313,17 +1314,19 @@ class RetailProvider extends ChangeNotifier {
       );
 
       await loadProducts(storeId: storeId, forceRefresh: true);
+      return newId;
     } catch (e) {
       _errorMessage = 'Failed to add product: $e';
       notifyListeners();
       debugPrint('Error adding product: $e');
+      rethrow;
     }
   }
 
   // Update product via the inventory API
   Future<void> updateProduct(String productId, Product product,
       {String? storeId}) async {
-    if (_businessId == null) return;
+    if (_businessId == null) throw StateError('Business context is missing');
 
     try {
       final updateData = product.toJson();
@@ -1347,6 +1350,7 @@ class RetailProvider extends ChangeNotifier {
       _errorMessage = 'Failed to update product: $e';
       notifyListeners();
       debugPrint('Error updating product: $e');
+      rethrow;
     }
   }
 

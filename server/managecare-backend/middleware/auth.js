@@ -118,7 +118,7 @@ function requireBusinessMembership(pool) {
         // Imported workers may predate business_members; their active worker
         // row is still scoped to exactly one business and carries their grants.
         const workerResult = await pool.query(
-          'SELECT id, role, permissions, is_active FROM workers WHERE id = $1 AND business_id = $2 AND is_active = true',
+          'SELECT id, role, permissions, is_active FROM workers WHERE id = $1 AND business_id = $2 AND COALESCE(is_active, true) = true',
           [req.user.id, businessId]
         );
         if (workerResult.rows.length === 0) {

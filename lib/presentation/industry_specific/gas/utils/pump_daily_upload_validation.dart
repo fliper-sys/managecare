@@ -75,7 +75,7 @@ class PumpDailyUploadValidation {
       }
     }
 
-    final calculatedCash = shiftCashDifference;
+    final calculatedCash = expectedAmount;
     if (!hasSameDigitCountForCalculatedCashAndCashPosEntry(
       calculatedCash: calculatedCash,
       cashPosEntry: cash + pos,

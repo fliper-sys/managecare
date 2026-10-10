@@ -523,7 +523,7 @@ app.post('/auth/v1/signup', async (req, res) => {
     const existing = await pool.query(
       `SELECT 1 FROM profiles WHERE lower(email) = $1
        UNION ALL
-       SELECT 1 FROM workers WHERE lower(email) = $1
+       SELECT 1 FROM auth_worker_login_candidates($1)
        UNION ALL
        SELECT 1 FROM managecare_workers WHERE lower(email) = $1`,
       [email]
@@ -599,7 +599,7 @@ app.post('/auth/v1/token', async (req, res) => {
         [normalizedEmail]
       )).rows,
       ...(await pool.query(
-        'SELECT * FROM workers WHERE lower(email) = $1 AND is_active = true',
+        'SELECT * FROM auth_worker_login_candidates($1)',
         [normalizedEmail]
       )).rows,
       // Internal ManageCare staff (programmers/testers/etc.) - column
@@ -2130,7 +2130,7 @@ app.post('/api/auth/register', async (req, res) => {
     const existing = await pool.query(
       `SELECT 1 FROM profiles WHERE lower(email) = $1
        UNION ALL
-       SELECT 1 FROM workers WHERE lower(email) = $1
+       SELECT 1 FROM auth_worker_login_candidates($1)
        UNION ALL
        SELECT 1 FROM managecare_workers WHERE lower(email) = $1`,
       [email]
@@ -2179,7 +2179,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     if (result.rows.length === 0) {
       result = await pool.query(
-        'SELECT * FROM workers WHERE lower(email) = $1 AND is_active = true',
+        'SELECT * FROM auth_worker_login_candidates($1)',
         [normalizedEmail]
       );
       if (result.rows.length === 0) {
@@ -2342,15 +2342,7 @@ app.get('/api/session/worker-membership', authMiddleware, requireAuth, async (re
       });
     }
 
-    const result = await pool.query(
-      `SELECT w.business_id, w.role, w.permissions, w.store_id, w.is_active, w.full_name,
-              to_jsonb(b) AS business
-       FROM workers w
-       JOIN businesses b ON b.id = w.business_id
-       WHERE w.id = $1 AND w.is_active = true
-       LIMIT 1`,
-      [req.user.id]
-    );
+    const result = await pool.query('SELECT * FROM auth_worker_session()');
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Worker membership not found' });
     }
@@ -2362,7 +2354,7 @@ app.get('/api/session/worker-membership', authMiddleware, requireAuth, async (re
       [req.user.id, row.full_name]
     );
     await pool.query(
-      'SELECT ensure_worker_business_membership($1, $2)',
+      'SELECT ensure_worker_business_membership($1::uuid, $2::uuid)',
       [req.user.id, row.business_id]
     );
     res.json({

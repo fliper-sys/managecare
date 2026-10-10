@@ -761,13 +761,9 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     return roundedVolume < 0.000001 ? 0.000001 : roundedVolume;
   }
 
-  double _computeExpectedCash(
-    double shiftOpeningCash,
-    double shiftCloseCash,
-  ) {
-    final cashDifference =
-        (shiftCloseCash - shiftOpeningCash).clamp(0.0, 999999999.0);
-    return double.parse(cashDifference.toStringAsFixed(2));
+  double _computeExpectedSalesAmount(double meterVolume, double price) {
+    if (meterVolume <= 0 || price <= 0) return 0.0;
+    return double.parse((meterVolume * price).toStringAsFixed(2));
   }
 
   String _uploadFingerprint({
@@ -943,8 +939,8 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         _shiftOpeningCashController.text.trim().isNotEmpty ||
             _shiftCloseCashController.text.trim().isNotEmpty;
 
-    // Volume sold is derived from the shift cash difference divided by price
-    final calculatedSalesVolume = cashBasedSalesVolume;
+    // Meter readings determine physical stock movement; cash is reconciled separately.
+    final calculatedSalesVolume = digitalVolume;
 
     // Reconciliation checks are now recorded as notes rather than blocking the upload
     final hasAnalogEntry = _analogClosingController.text.trim().isNotEmpty &&
@@ -1022,10 +1018,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     try {
       final auth = context.read<AuthProvider>().currentUser;
       final submittedAt = DateTime.now().toIso8601String();
-      final expectedAmount = _computeExpectedCash(
-        shiftOpeningCash,
-        shiftCloseCash,
-      );
+      final expectedAmount = _computeExpectedSalesAmount(digitalVolume, price);
 
       final discrepancyNotes = buildDiscrepancyNotes(
         opening: opening,
@@ -1065,7 +1058,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
         'volume_difference': digitalVolume,
         'analog_opening_volume': analogOpening,
         'sold_volume': calculatedSalesVolume,
-        'cash_derived_volume': calculatedSalesVolume,
+        'cash_derived_volume': cashBasedSalesVolume,
         'analog_closing_volume': analogClosing,
         'previous_analog_closing_volume': _previousAnalogClosingVolume,
         'previous_shift_closing_cash': _previousShiftClosingCash,
@@ -1228,20 +1221,17 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                 final price = selectedPump == null
                     ? 0.0
                     : _currentProductPrice(retail, selectedPump);
-                // Calculate the sales volume from the meter difference for display
+                // Meter delta is the authoritative volume dispensed.
+                final opening = _parseControllerValue(_openingController);
+                final closing = _parseControllerValue(_closingController);
+                final meterVolume = (closing - opening).clamp(0.0, 999999999.0);
                 final shiftOpeningCash =
                     _parseControllerValue(_shiftOpeningCashController);
                 final shiftCloseCash =
                     _parseControllerValue(_shiftCloseCashController);
-                final calculatedSalesVolume = _computeCashBasedSalesVolume(
-                  shiftOpeningCash,
-                  shiftCloseCash,
-                  price,
-                );
-                final expectedAmount = _computeExpectedCash(
-                  shiftOpeningCash,
-                  shiftCloseCash,
-                );
+                final calculatedSalesVolume = meterVolume;
+                final expectedAmount =
+                    _computeExpectedSalesAmount(meterVolume, price);
                 return ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
@@ -1571,10 +1561,10 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
                     const SizedBox(height: 16),
                     Card(
                       child: ListTile(
-                        title: const Text('Calculated sales (cash-based)'),
+                        title: const Text('Metered sales'),
                         subtitle: Text(
-                          '${formatAmount(calculatedSalesVolume.clamp(0.0, 999999999.0), decimalDigits: 3)} liters'
-                          ' = (shift close cash - shift opening cash) ÷ ${formatAmount(price, decimalDigits: 2)}',
+                          '${formatAmount(calculatedSalesVolume.clamp(0.0, 999999999.0), decimalDigits: 3)} ${selectedPump?['productUnit'] ?? 'units'}'
+                          ' × ${formatAmount(price, decimalDigits: 2)} per ${selectedPump?['productUnit'] ?? 'unit'}',
                         ),
                         trailing: Text(
                           formatAmount(expectedAmount, decimalDigits: 2),

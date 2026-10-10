@@ -136,18 +136,28 @@ module.exports = function(pool) {
 
       for (const item of items) {
         const productId = asUuidOrNull(item.product_id || item.productId);
-        const name = item.name || '';
-        const quantity = parseFloat(item.quantity) || 0;
-        const cost = parseFloat(item.cost) || 0;
+        const name = String(item.name || '').trim();
+        const quantity = Number(item.quantity);
+        const cost = Number(item.cost);
         const unit = item.unit || '';
-        const purchaseQuantity = item.purchase_quantity ?? item.purchaseQuantity ?? quantity;
+        const purchaseQuantity = Number(item.purchase_quantity ?? item.purchaseQuantity ?? quantity);
         const purchaseUnit = item.purchase_unit || item.purchaseUnit || unit;
-        const purchaseUnitCost = item.purchase_unit_cost ?? item.purchaseUnitCost ?? cost;
+        const purchaseUnitCost = Number(item.purchase_unit_cost ?? item.purchaseUnitCost ?? cost);
         const batchLabel = (item.batch_label || item.batchLabel || '').trim() || null;
         const expiryDate = item.expiry_date || item.expiryDate || null;
-        const itemTotal = item.purchase_total ?? item.purchaseTotal ?? (purchaseQuantity * purchaseUnitCost);
+        const itemTotal = Number(item.purchase_total ?? item.purchaseTotal ?? (purchaseQuantity * purchaseUnitCost));
 
-        totalCost += itemTotal;
+        if (!productId || !name || !Number.isFinite(quantity) || quantity <= 0 ||
+            !Number.isFinite(cost) || cost < 0 || !Number.isFinite(purchaseQuantity) ||
+            purchaseQuantity <= 0 || !Number.isFinite(purchaseUnitCost) ||
+            purchaseUnitCost < 0 || !Number.isFinite(itemTotal) || itemTotal < 0) {
+          throw Object.assign(new Error('Each procurement item needs a valid inventory product, quantity, and cost'), {
+            statusCode: 400,
+            expose: true,
+          });
+        }
+
+        totalCost += Number(itemTotal);
         totalQuantity += quantity;
         itemsSnapshot.push({
           productId, name, quantity, unit, cost, total: itemTotal,
@@ -177,13 +187,17 @@ module.exports = function(pool) {
       // procurement id exists for inventory_batches.procurement_id to reference.
       for (const snapshot of itemsSnapshot) {
         const productId = snapshot.productId;
-        if (!productId) continue;
 
         const invResult = await client.query(
           'SELECT * FROM inventory WHERE id = $1 AND business_id = $2 FOR UPDATE',
           [productId, businessId]
         );
-        if (invResult.rows.length === 0) continue;
+        if (invResult.rows.length === 0) {
+          throw Object.assign(new Error('A procurement product was not found in this business inventory'), {
+            statusCode: 400,
+            expose: true,
+          });
+        }
 
         const inv = invResult.rows[0];
         const existingQuantity = parseFloat(inv.quantity) || 0;

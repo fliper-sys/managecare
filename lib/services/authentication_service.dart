@@ -85,10 +85,33 @@ class AuthenticationService {
           await _db.from('profiles').select().eq('id', userId).maybeSingle();
 
       if (profile == null) {
-        return const ResolvedUserAccess(
-          isAllowed: false,
-          message: 'User profile not found.',
-        );
+        // Older staff accounts can exist only in `workers`. Their authenticated
+        // session is valid, and this endpoint safely creates the missing profile
+        // plus business_members row after verifying that worker record.
+        final token = _auth.currentSession?.accessToken;
+        if (token != null && token.isNotEmpty) {
+          try {
+            final response = await http.get(
+              Uri.parse('${SupabaseConfig.url}/api/session/worker-membership'),
+              headers: {'Authorization': 'Bearer $token'},
+            );
+            if (response.statusCode == 200) {
+              profile = await _db
+                  .from('profiles')
+                  .select()
+                  .eq('id', userId)
+                  .maybeSingle();
+            }
+          } catch (_) {
+            // Fall through to the normal unavailable-account response.
+          }
+        }
+        if (profile == null) {
+          return const ResolvedUserAccess(
+            isAllowed: false,
+            message: 'User profile not found.',
+          );
+        }
       }
 
       var recoveredAccount = false;
