@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/push_service.dart';
+import '../services/self_hosted_push_service.dart';
+import '../services/notification_service.dart';
 
 class NotificationProvider extends ChangeNotifier {
   static const List<String> _notificationPreferenceKeys = [
@@ -45,6 +49,7 @@ class NotificationProvider extends ChangeNotifier {
   // Notification Frequency
   NotificationFrequency _frequency = NotificationFrequency.realTime;
   int _unreadCount = 0;
+  StreamSubscription<Map<String, dynamic>>? _pushSubscription;
 
   // Getters
   bool get isPushEnabled => _isPushEnabled;
@@ -80,11 +85,54 @@ class NotificationProvider extends ChangeNotifier {
     try {
       _prefs = await SharedPreferences.getInstance();
       _loadPreferences();
+      _pushSubscription ??= SelfHostedPushService.instance.onNotification.listen(
+        (notification) {
+          final isRead = notification['is_read'] == true ||
+              notification['isRead'] == true;
+          if (!isRead) updateUnreadCount(_unreadCount + 1);
+
+          final createdAt = DateTime.tryParse(
+            notification['created_at']?.toString() ??
+                notification['createdAt']?.toString() ??
+                '',
+          );
+          final isRecent = createdAt == null ||
+              DateTime.now().difference(createdAt).abs() <=
+                  const Duration(minutes: 2);
+          if (_isPushEnabled && isRecent) {
+            final notificationId =
+                int.tryParse(notification['id']?.toString() ?? '') ??
+                    notification.hashCode;
+            unawaited(NotificationService.instance
+                .sendNotification(
+                  notification['title']?.toString() ?? 'ManageCare',
+                  notification['body']?.toString() ?? '',
+                  id: notificationId.abs(),
+                )
+                .catchError((_) {}));
+          }
+        },
+      );
+      final existingUnread = SelfHostedPushService.instance
+          .getLocalNotifications()
+          .where((notification) =>
+              notification['is_read'] != true &&
+              notification['isRead'] != true)
+          .length;
+      if (existingUnread > _unreadCount) {
+        updateUnreadCount(existingUnread);
+      }
       _isInitialized = true;
       notifyListeners();
     } catch (e) {
       print('Error initializing NotificationProvider: $e');
     }
+  }
+
+  @override
+  void dispose() {
+    _pushSubscription?.cancel();
+    super.dispose();
   }
 
   // Load preferences from SharedPreferences

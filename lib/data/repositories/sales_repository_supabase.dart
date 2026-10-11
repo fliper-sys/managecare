@@ -37,6 +37,35 @@ class SalesRepositorySupabase implements SalesRepository {
         'Content-Type': 'application/json',
       };
 
+  Future<Options> _authOptions({bool forceRefresh = false}) async {
+    var session = _supabase.auth.currentSession;
+    if (session == null) {
+      throw StateError('Your sign-in session is missing. Please sign in again.');
+    }
+    if (forceRefresh || session.isExpired) {
+      session = (await _supabase.auth.refreshSession()).session;
+    }
+    final token = session?.accessToken;
+    if (token == null || token.isEmpty) {
+      throw StateError('Your sign-in session expired. Please sign in again.');
+    }
+    return Options(headers: {
+      'Authorization': 'Bearer $token',
+      'Content-Type': 'application/json',
+    });
+  }
+
+  Future<Response<dynamic>> _requestWithAuthRetry(
+    Future<Response<dynamic>> Function(Options options) request,
+  ) async {
+    try {
+      return await request(await _authOptions());
+    } on DioException catch (error) {
+      if (error.response?.statusCode != 401) rethrow;
+      return request(await _authOptions(forceRefresh: true));
+    }
+  }
+
   String _extractError(DioException e) {
     try {
       final data = e.response?.data;
@@ -420,15 +449,19 @@ class SalesRepositorySupabase implements SalesRepository {
 
       if (saleId.isNotEmpty) {
         try {
-          final checkResponse = await _http.get(
-            '/sales/$businessId/$saleId',
-            options: Options(headers: _headers),
+          final checkResponse = await _requestWithAuthRetry(
+            (options) => _http.get(
+              '/sales/$businessId/$saleId',
+              options: options,
+            ),
           );
           if (checkResponse.statusCode == 200) {
-            await _http.put(
-              '/sales/$businessId/$saleId',
-              data: payload,
-              options: Options(headers: _headers),
+            await _requestWithAuthRetry(
+              (options) => _http.put(
+                '/sales/$businessId/$saleId',
+                data: payload,
+                options: options,
+              ),
             );
             return;
           }
@@ -438,10 +471,12 @@ class SalesRepositorySupabase implements SalesRepository {
       }
 
       payload['id'] = saleId.isNotEmpty ? saleId : null;
-      await _http.post(
-        '/sales/$businessId',
-        data: payload,
-        options: Options(headers: _headers),
+      await _requestWithAuthRetry(
+        (options) => _http.post(
+          '/sales/$businessId',
+          data: payload,
+          options: options,
+        ),
       );
     } catch (e) {
       rethrow;

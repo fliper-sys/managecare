@@ -24,19 +24,41 @@ class AdministrativeRepositorySupabase {
         'Content-Type': 'application/json',
       });
 
+  Future<Options> _freshAuthOptions({bool json = true}) async {
+    var session = _supabase.auth.currentSession;
+    if (session == null) {
+      throw StateError('Your sign-in session is missing. Please sign in again.');
+    }
+    if (session.isExpired) {
+      session = (await _supabase.auth.refreshSession()).session;
+    }
+    final token = session?.accessToken;
+    if (token == null || token.isEmpty) {
+      throw StateError('Your sign-in session expired. Please sign in again.');
+    }
+    return Options(headers: {
+      'Authorization': 'Bearer $token',
+      if (json) 'Content-Type': 'application/json',
+    });
+  }
+
   Future<List<Map<String, dynamic>>> getTasks(String businessId) =>
       _getList('/administrative/$businessId/tasks');
 
   Future<Map<String, dynamic>> getDashboard(String businessId) async {
-    final response = await _http.get(
-      '/administrative/$businessId/dashboard',
-      options: _options,
-    );
-    final data = response.data;
-    if (data is Map && data['data'] is Map) {
-      return Map<String, dynamic>.from(data['data'] as Map);
+    try {
+      final response = await _http.get(
+        '/administrative/$businessId/dashboard',
+        options: await _freshAuthOptions(),
+      );
+      final data = response.data;
+      if (data is Map && data['data'] is Map) {
+        return Map<String, dynamic>.from(data['data'] as Map);
+      }
+      return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+    } on DioException catch (error) {
+      throw StateError(_responseError(error, 'Dashboard could not load'));
     }
-    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
   }
 
   Future<List<Map<String, dynamic>>> getTasksForClient(
@@ -90,9 +112,16 @@ class AdministrativeRepositorySupabase {
       'folder': 'administrative',
       'file': MultipartFile.fromBytes(bytes, filename: fileName, contentType: DioMediaType.parse(mimeType)),
     });
-    final response = await _http.post('/upload/$businessId', data: data,
-        options: Options(headers: {'Authorization': _options.headers?['Authorization']}));
-    return Map<String, dynamic>.from(response.data as Map);
+    try {
+      final response = await _http.post(
+        '/upload/$businessId',
+        data: data,
+        options: await _freshAuthOptions(json: false),
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw StateError(_responseError(error, 'File transfer failed'));
+    }
   }
 
   Future<Map<String, dynamic>> createDocument(
@@ -100,12 +129,27 @@ class AdministrativeRepositorySupabase {
     String clientId,
     Map<String, dynamic> payload,
   ) async {
-    final response = await _http.post(
-      '/administrative/$businessId/clients/$clientId/documents',
-      data: payload,
-      options: _options,
-    );
-    return Map<String, dynamic>.from(response.data as Map);
+    try {
+      final response = await _http.post(
+        '/administrative/$businessId/clients/$clientId/documents',
+        data: payload,
+        options: await _freshAuthOptions(),
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw StateError(_responseError(error, 'Document record creation failed'));
+    }
+  }
+
+  String _responseError(DioException error, String fallback) {
+    final body = error.response?.data;
+    if (body is Map) {
+      final message = body['error'] ?? body['message'];
+      if (message is String && message.trim().isNotEmpty) {
+        return '$fallback: $message';
+      }
+    }
+    return '$fallback (HTTP ${error.response?.statusCode ?? 'network error'}).';
   }
 
   Future<List<Map<String, dynamic>>> getDocumentVersions(
@@ -120,6 +164,22 @@ class AdministrativeRepositorySupabase {
   ) async {
     final response = await _http.get(
       '/administrative/$businessId/documents/$documentId/download',
+      options: _options,
+    );
+    final data = response.data;
+    if (data is Map && data['data'] is Map) {
+      return Map<String, dynamic>.from(data['data'] as Map);
+    }
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> getDocumentVersionDownload(
+    String businessId,
+    String documentId,
+    String versionId,
+  ) async {
+    final response = await _http.get(
+      '/administrative/$businessId/documents/$documentId/versions/$versionId/download',
       options: _options,
     );
     final data = response.data;
@@ -152,8 +212,20 @@ class AdministrativeRepositorySupabase {
         '/administrative/$businessId/clients',
         query: {
           if (query != null && query.trim().isNotEmpty) 'q': query,
-          if (active != null) 'active': active.toString(),
+          if (active != null) 'status': active ? 'active' : 'archived',
         },
+      );
+
+  Future<void> archiveClient(String businessId, String clientId) =>
+      _http.delete(
+        '/administrative/$businessId/clients/$clientId',
+        options: _options,
+      );
+
+  Future<void> restoreClient(String businessId, String clientId) =>
+      _http.post(
+        '/administrative/$businessId/clients/$clientId/restore',
+        options: _options,
       );
 
   Future<Map<String, dynamic>> getClient(
@@ -229,6 +301,18 @@ class AdministrativeRepositorySupabase {
 
   Future<List<Map<String, dynamic>>> getStaffing(String businessId) =>
       _getList('/administrative/$businessId/staffing');
+
+  Future<void> updateStaffWorker(
+    String businessId,
+    String workerId,
+    Map<String, dynamic> updates,
+  ) async {
+    await _http.put(
+      '/workers/$businessId/$workerId',
+      data: updates,
+      options: _options,
+    );
+  }
 
   Future<void> assignWorkerToClient(
     String businessId,
@@ -438,6 +522,29 @@ class AdministrativeRepositorySupabase {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> assignDocument(
+    String businessId,
+    String documentId, {
+    required String workerId,
+    required String title,
+    required String priority,
+    required DateTime dueAt,
+    String? remark,
+  }) async {
+    final response = await _http.post(
+      '/administrative/$businessId/documents/$documentId/assignments',
+      data: {
+        'workerId': workerId,
+        'title': title,
+        'priority': priority,
+        'dueAt': dueAt.toIso8601String(),
+        if (remark != null && remark.trim().isNotEmpty) 'remark': remark.trim(),
+      },
+      options: _options,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> createObligation(
     String businessId,
     Map<String, dynamic> payload,
@@ -491,16 +598,33 @@ class AdministrativeRepositorySupabase {
     String path, {
     Map<String, dynamic>? query,
   }) async {
-    final response = await _http.get(
-      path,
-      queryParameters: query,
-      options: _options,
-    );
-    final data = response.data;
-    if (data is! Map || data['data'] is! List) return const [];
-    return (data['data'] as List)
-        .whereType<Map>()
-        .map((row) => Map<String, dynamic>.from(row))
-        .toList();
+    final rows = <Map<String, dynamic>>[];
+    var page = 1;
+    while (true) {
+      late Response<dynamic> response;
+      try {
+        response = await _http.get(
+          path,
+          queryParameters: {
+            ...?query,
+            'page': page,
+            'limit': 500,
+          },
+          options: await _freshAuthOptions(),
+        );
+      } on DioException catch (error) {
+        throw StateError(_responseError(error, 'Unable to load records'));
+      }
+      final data = response.data;
+      if (data is! Map || data['data'] is! List) break;
+      rows.addAll(
+        (data['data'] as List)
+            .whereType<Map>()
+            .map((row) => Map<String, dynamic>.from(row)),
+      );
+      if (data['hasMore'] != true) break;
+      page++;
+    }
+    return rows;
   }
 }

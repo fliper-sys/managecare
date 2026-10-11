@@ -113,6 +113,8 @@ class AdministrativeProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _loadError;
   Map<String, dynamic> _dashboard = const {};
+  int _loadGeneration = 0;
+  int _clientLoadGeneration = 0;
 
   List<AdministrativeTask> get tasks => List.unmodifiable(_tasks);
   List<AdministrativeObligation> get obligations => List.unmodifiable(_obligations);
@@ -120,6 +122,7 @@ class AdministrativeProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get loadError => _loadError;
   Map<String, dynamic> get dashboard => Map.unmodifiable(_dashboard);
+  String? get loadedBusinessId => _loadedBusinessId;
 
   Future<List<Map<String, dynamic>>> loadCalendar(
     DateTime from,
@@ -206,6 +209,16 @@ class AdministrativeProvider extends ChangeNotifier {
         .getDocumentDownload(businessId, documentId);
   }
 
+  Future<Map<String, dynamic>> downloadDocumentVersion(
+    String documentId,
+    String versionId,
+  ) async {
+    final businessId = _loadedBusinessId;
+    if (businessId == null) throw StateError('Select an administrative business first.');
+    return (_repository ??= AdministrativeRepositorySupabase())
+        .getDocumentVersionDownload(businessId, documentId, versionId);
+  }
+
   Future<void> approveDocumentVersion({
     required String documentId,
     required String fileName,
@@ -240,6 +253,18 @@ class AdministrativeProvider extends ChangeNotifier {
     if (businessId == null) return const [];
     return (_repository ??= AdministrativeRepositorySupabase())
         .getStaffing(businessId);
+  }
+
+  Future<void> updateStaffWorker({
+    required String workerId,
+    required Map<String, dynamic> updates,
+  }) async {
+    final businessId = _loadedBusinessId;
+    if (businessId == null) {
+      throw StateError('Select an administrative business first.');
+    }
+    await (_repository ??= AdministrativeRepositorySupabase())
+        .updateStaffWorker(businessId, workerId, updates);
   }
 
   Future<Map<String, dynamic>> loadClientDetails(String clientId) async {
@@ -373,6 +398,31 @@ class AdministrativeProvider extends ChangeNotifier {
     return taskJson;
   }
 
+  Future<void> assignDocumentToWorker({
+    required String documentId,
+    required String workerId,
+    required String title,
+    required String priority,
+    required DateTime dueAt,
+    String? remark,
+  }) async {
+    final businessId = _loadedBusinessId;
+    if (businessId == null) throw StateError('Select an administrative business first.');
+    final response = await (_repository ??= AdministrativeRepositorySupabase())
+        .assignDocument(
+      businessId,
+      documentId,
+      workerId: workerId,
+      title: title.trim(),
+      priority: priority,
+      dueAt: dueAt,
+      remark: remark,
+    );
+    final taskJson = Map<String, dynamic>.from(response['data'] as Map);
+    _tasks.insert(0, _taskFromJson(taskJson));
+    notifyListeners();
+  }
+
   Future<void> createLiveObligation({
     required String title,
     required String clientId,
@@ -475,7 +525,6 @@ class AdministrativeProvider extends ChangeNotifier {
     String? companyName,
     String? location,
     String? contactAddress,
-    bool? isActive,
   }) async {
     final businessId = _loadedBusinessId;
     if (businessId == null) {
@@ -489,10 +538,9 @@ class AdministrativeProvider extends ChangeNotifier {
     final json = await (_repository ??= AdministrativeRepositorySupabase())
         .updateClient(businessId, clientId, {
       'name': name.trim(),
-      'companyName': companyName?.trim() ?? '',
-      'location': location?.trim() ?? '',
+      if (companyName != null) 'companyName': companyName.trim(),
+      if (location != null) 'location': location.trim(),
       if (contactAddress != null) 'contactAddress': contactAddress.trim(),
-      if (isActive != null) 'isActive': isActive,
     });
     final clientJson = Map<String, dynamic>.from(json['data'] as Map? ?? json);
     final client = _clientFromJson(clientJson);
@@ -503,40 +551,55 @@ class AdministrativeProvider extends ChangeNotifier {
   }
 
   Future<void> archiveClient(String clientId) async {
-    await updateClient(clientId, name: _clientName(clientId), isActive: false);
+    final businessId = _loadedBusinessId;
+    if (businessId == null) throw StateError('Select an administrative business first.');
+    if (clientId.startsWith('preview-')) {
+      throw StateError('Preview client records cannot be archived.');
+    }
+    await (_repository ??= AdministrativeRepositorySupabase())
+        .archiveClient(businessId, clientId);
     _clients.removeWhere((client) => client.id == clientId);
     notifyListeners();
   }
 
   Future<void> restoreClient(String clientId) async {
-    await updateClient(clientId, name: _clientName(clientId), isActive: true);
+    final businessId = _loadedBusinessId;
+    if (businessId == null) throw StateError('Select an administrative business first.');
+    if (clientId.startsWith('preview-')) {
+      throw StateError('Preview client records cannot be restored.');
+    }
+    await (_repository ??= AdministrativeRepositorySupabase())
+        .restoreClient(businessId, clientId);
+    _clients.removeWhere((client) => client.id == clientId);
+    notifyListeners();
   }
 
   Future<void> loadClients({bool active = true}) async {
     final businessId = _loadedBusinessId;
     if (businessId == null) return;
+    final generation = ++_clientLoadGeneration;
     _isLoading = true;
     _loadError = null;
     notifyListeners();
     try {
       final records = await (_repository ??= AdministrativeRepositorySupabase())
           .getClients(businessId, active: active);
-      _clients
-        ..clear()
-        ..addAll(records.map(_clientFromJson));
+      if (generation == _clientLoadGeneration &&
+          businessId == _loadedBusinessId) {
+        _clients
+          ..clear()
+          ..addAll(records.map(_clientFromJson));
+      }
     } catch (_) {
-      _loadError = 'Unable to load clients.';
+      if (generation == _clientLoadGeneration) {
+        _loadError = 'Unable to load clients.';
+      }
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (generation == _clientLoadGeneration) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
-  }
-
-  String _clientName(String clientId) {
-    for (final client in _clients) {
-      if (client.id == clientId) return client.name;
-    }
-    throw StateError('Client record is no longer available.');
   }
 
   Future<Map<String, dynamic>> createInvoice({
@@ -633,13 +696,23 @@ class AdministrativeProvider extends ChangeNotifier {
     await action(_repository ??= AdministrativeRepositorySupabase(), businessId);
   }
 
-  Future<void> loadForBusiness(String businessId) async {
-    if (businessId.isEmpty || _loadedBusinessId == businessId || _isLoading) {
-      return;
-    }
+  Future<void> loadForBusiness(String businessId, {bool forceRefresh = false}) async {
+    if (businessId.isEmpty ||
+        (_loadedBusinessId == businessId &&
+            !forceRefresh &&
+            _loadError == null)) return;
+    final generation = ++_loadGeneration;
+    ++_clientLoadGeneration;
+    final businessChanged = _loadedBusinessId != businessId;
     _loadedBusinessId = businessId;
     _isLoading = true;
     _loadError = null;
+    if (businessChanged) {
+      _tasks.clear();
+      _obligations.clear();
+      _clients.clear();
+      _dashboard = const {};
+    }
     notifyListeners();
     try {
       final repository = _repository ??= AdministrativeRepositorySupabase();
@@ -657,34 +730,54 @@ class AdministrativeProvider extends ChangeNotifier {
       final obligationRows = await obligationsFuture;
       final clientRows = await clientsFuture;
       final dashboard = await dashboardFuture;
-      _tasks
-        ..clear()
-        ..addAll(taskRows.map(_taskFromJson));
-      _obligations
-        ..clear()
-        ..addAll(obligationRows.map(_obligationFromJson));
-      _clients
-        ..clear()
-        ..addAll(clientRows.map(_clientFromJson));
-      _dashboard = Map<String, dynamic>.from(dashboard);
-    } catch (_) {
-      _loadError = 'Unable to load administrative workspace data.';
-      _loadedBusinessId = null;
+      if (generation == _loadGeneration) {
+        _tasks
+          ..clear()
+          ..addAll(taskRows.map(_taskFromJson));
+        _obligations
+          ..clear()
+          ..addAll(obligationRows.map(_obligationFromJson));
+        _clients
+          ..clear()
+          ..addAll(clientRows.map(_clientFromJson));
+        _dashboard = Map<String, dynamic>.from(dashboard);
+      }
+    } catch (error) {
+      if (generation == _loadGeneration) {
+        _loadError = 'Unable to load administrative workspace data: $error';
+      }
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (generation == _loadGeneration) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
+  }
+
+  void clearWorkspace() {
+    ++_loadGeneration;
+    ++_clientLoadGeneration;
+    _loadedBusinessId = null;
+    _isLoading = false;
+    _loadError = null;
+    _tasks.clear();
+    _obligations.clear();
+    _clients.clear();
+    _dashboard = const {};
+    notifyListeners();
   }
 
   Future<void> refreshWorkspace() async {
     final businessId = _loadedBusinessId;
-    if (businessId == null || _isLoading) return;
-    _loadedBusinessId = null;
-    await loadForBusiness(businessId);
+    if (businessId == null) return;
+    await loadForBusiness(businessId, forceRefresh: true);
   }
 
   List<AdministrativeTask> tasksForWorker(String worker) =>
-      _tasks.where((task) => task.assignedTo == worker).toList();
+      _tasks
+          .where((task) =>
+              task.assignedWorkerId == worker || task.assignedTo == worker)
+          .toList();
 
   AdministrativeTask? taskById(String id) {
     for (final task in _tasks) {
@@ -938,7 +1031,8 @@ class AdministrativeProvider extends ChangeNotifier {
           ((json['client'] as Map?)?['name']?.toString()) ??
           'Unassigned client',
         clientId: json['client_id']?.toString(),
-        assignedWorkerId: json['assigned_to']?.toString(),
+        assignedWorkerId:
+            (json['assignedTo'] ?? json['assigned_to'])?.toString(),
         countdownType: (json['recurrenceType'] ?? json['recurrence_type']) ==
             'trailing'
             ? AdministrativeCountdownType.trailing
@@ -978,7 +1072,11 @@ class AdministrativeProvider extends ChangeNotifier {
         location: json['location']?.toString() ?? '',
         contactAddress:
           (json['contactAddress'] ?? json['contact_address'])?.toString(),
-        isActive: (json['isActive'] ?? json['is_active']) != false,
+        isActive: json['isActive'] is bool
+            ? json['isActive'] as bool
+            : json['is_active'] is bool
+                ? json['is_active'] as bool
+                : (json['archivedAt'] ?? json['archived_at']) == null,
         workerCount: ((json['workerCount'] ?? json['worker_count']) as num?)
             ?.toInt() ??
           ((json['_count'] as Map?)?['workers'] as num?)?.toInt() ??

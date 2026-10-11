@@ -54,6 +54,9 @@ const PLAN_ID_RE = /^administrative_(tier1|tier2|tier3|premium|enterprise)_(3m|6
 
 const TASK_STATUSES = ['assigned', 'in_progress', 'submitted', 'approved', 'rejected'];
 const STORAGE_ACTIONS = ['replace_original', 'store_as_new_version'];
+// A 10 MB upload becomes about 13.4 MB when the no-MinIO fallback stores it
+// as a data URL. Keep validation bounded while allowing that supported path.
+const MAX_STORED_FILE_URL_LENGTH = 14 * 1024 * 1024;
 
 // ── Errors ──────────────────────────────────────────────────
 class HttpError extends Error {
@@ -212,12 +215,13 @@ function paged(rows, { page, limit }) {
 // res.json cannot serialise BigInt.
 const serializeDocument = (d) => {
   if (!d) return d;
+  const { fileUrl: _privateFileUrl, ...safeDocument } = d;
   const fileSizeBytes = d.fileSizeBytes == null ? null : Number(d.fileSizeBytes);
   return {
-    ...d,
+    ...safeDocument,
     fileSizeBytes,
     file_name: d.fileName ?? null,
-    file_url: d.fileUrl ?? null,
+    file_url: null,
     file_size_bytes: fileSizeBytes,
     mime_type: d.mimeType ?? null,
     folder_name: d.folder?.name ?? null,
@@ -381,12 +385,94 @@ function logActivity(tx, { businessId, clientId, actorId, action, entityType, en
   });
 }
 
+async function createTaskNotification(tx, {
+  businessId, userId, title, body, type, taskId, clientId,
+}) {
+  if (!userId) return null;
+  const profile = await tx.profiles.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
+  if (!profile) return null;
+  return tx.notifications.create({
+    data: {
+      user_id: userId,
+      business_id: businessId,
+      title,
+      body,
+      type,
+      data: { taskId, clientId: clientId || null },
+    },
+  });
+}
+
+async function taskManagerRecipients(tx, businessId) {
+  const [members, business] = await Promise.all([
+    tx.business_members.findMany({
+      where: {
+        business_id: businessId,
+        is_active: true,
+        OR: [{ role: { in: MANAGER_ROLES } }, { is_owner: true }],
+      },
+      select: { user_id: true },
+    }),
+    tx.businesses.findUnique({
+      where: { id: businessId },
+      select: { owner_id: true },
+    }),
+  ]);
+  return [...new Set([
+    ...members.map((member) => member.user_id),
+    business?.owner_id,
+  ].filter(Boolean))];
+}
+
+function emitTaskNotifications(req, notifications) {
+  const io = req.app.get('io');
+  if (!io) return;
+  for (const notification of notifications.filter(Boolean)) {
+    io.to(`user:${notification.user_id}`).emit('notification', {
+      ...notification,
+      id: String(notification.id),
+    });
+  }
+}
+
 // ── Router ──────────────────────────────────────────────────
-module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
+module.exports = function administrativeRoutes(
+  pool,
+  { sendMail } = {},
+) {
   // Created inside the factory so calling it twice does not stack handlers.
   const router = express.Router();
+  const fileBucket = process.env.MINIO_BUCKET || 'managecare-files';
 
-  for (const name of ['businessId', 'clientId', 'workerId', 'documentId', 'taskId', 'obligationId']) {
+  async function authorizedDocumentUrl(fileUrl, businessId) {
+    if (!fileUrl) return fileUrl;
+    let parsed;
+    try {
+      parsed = new URL(fileUrl);
+    } catch (_) {
+      return fileUrl;
+    }
+    const bucket = parsed.searchParams.get('bucket');
+    const key = parsed.searchParams.get('key');
+    if (parsed.pathname.endsWith('/api/public-files') &&
+        bucket === fileBucket &&
+        key?.startsWith(`${businessId}/administrative/`)) {
+      const expires = Math.floor(Date.now() / 1000) + 600;
+      const signature = crypto
+        .createHmac('sha256', process.env.JWT_SECRET)
+        .update(`${bucket}\n${key}\n${expires}`)
+        .digest('hex');
+      parsed.searchParams.set('expires', String(expires));
+      parsed.searchParams.set('signature', signature);
+      return parsed.toString();
+    }
+    return fileUrl;
+  }
+
+  for (const name of ['businessId', 'clientId', 'workerId', 'documentId', 'versionId', 'taskId', 'obligationId']) {
     router.param(name, (_req, _res, next, value) => {
       if (!isUuid(value)) return next(new HttpError(400, `${name} must be a valid id`));
       next();
@@ -526,7 +612,7 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
     const { businessId } = req.params;
     const workers = await prisma.workers.findMany({
       where: { business_id: businessId },
-      select: { id: true, full_name: true, role: true, is_active: true },
+      select: { id: true, full_name: true, email: true, phone: true, role: true, is_active: true },
       orderBy: { full_name: 'asc' },
     });
     const workerIds = workers.map((worker) => worker.id);
@@ -913,7 +999,7 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
     const { businessId, clientId } = req.params;
     const b = req.body || {};
     const fileName = requireText(b.fileName, 'fileName', 255);
-    const fileUrl = requireText(b.fileUrl, 'fileUrl', 2048);
+    const fileUrl = requireText(b.fileUrl, 'fileUrl', MAX_STORED_FILE_URL_LENGTH);
     const mimeType = optionalText(b.mimeType, 'mimeType', 127);
     const size = b.fileSizeBytes === undefined || b.fileSizeBytes === null
       ? 0 : intInRange(b.fileSizeBytes, 'fileSizeBytes', 0, Number.MAX_SAFE_INTEGER);
@@ -961,7 +1047,7 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
     });
     if (!document) throw new HttpError(404, 'Document not found');
     const fileName = requireText(b.fileName, 'fileName', 255);
-    const fileUrl = requireText(b.fileUrl, 'fileUrl', 2048);
+    const fileUrl = requireText(b.fileUrl, 'fileUrl', MAX_STORED_FILE_URL_LENGTH);
     const fileSizeBytes = b.fileSizeBytes == null
       ? 0
       : intInRange(b.fileSizeBytes, 'fileSizeBytes', 0, Number.MAX_SAFE_INTEGER);
@@ -1011,7 +1097,39 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
       action: 'document.downloaded', entityType: 'document', entityId: documentId,
       metadata: { fileName: document.fileName },
     });
-    res.json({ data: { file_name: document.fileName, file_url: document.fileUrl } });
+    res.json({
+      data: {
+        file_name: document.fileName,
+        file_url: await authorizedDocumentUrl(document.fileUrl, businessId),
+      },
+    });
+  }));
+
+  router.get('/:businessId/documents/:documentId/versions/:versionId/download', asyncHandler(async (req, res) => {
+    const prisma = await getPrisma();
+    const { businessId, documentId, versionId } = req.params;
+    const version = await prisma.administrativeDocumentVersion.findFirst({
+      where: { id: versionId, documentId, businessId },
+      select: { id: true, fileName: true, fileUrl: true },
+    });
+    if (!version) throw new HttpError(404, 'Document version not found');
+    const document = await prisma.administrativeDocument.findFirst({
+      where: { id: documentId, businessId },
+      select: { clientId: true },
+    });
+    if (!document) throw new HttpError(404, 'Document not found');
+    await loadClient(prisma, req, document.clientId, { allowArchived: true });
+    await logActivity(prisma, {
+      businessId, clientId: document.clientId, actorId: me(req),
+      action: 'document.version_downloaded', entityType: 'document', entityId: documentId,
+      metadata: { versionId, fileName: version.fileName },
+    });
+    res.json({
+      data: {
+        file_name: version.fileName,
+        file_url: await authorizedDocumentUrl(version.fileUrl, businessId),
+      },
+    });
   }));
 
   // Assign a stored document to a worker already assigned to its client.
@@ -1022,6 +1140,7 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
     const workerId = requireUuid(b.workerId, 'workerId');
     const remark = optionalText(b.remark, 'remark', 1000);
     const dueAt = optionalDateTime(b.dueAt, 'dueAt');
+    const priority = oneOf(b.priority ?? 'normal', ['low', 'normal', 'high', 'urgent'], 'priority');
 
     const doc = await prisma.administrativeDocument.findFirst({
       where: { id: documentId, businessId }, select: { id: true, clientId: true, fileName: true },
@@ -1031,7 +1150,7 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
     const link = await prisma.administrativeClientWorker.findUnique({ where: { clientId_workerId: { clientId: doc.clientId, workerId } } });
     if (!link) throw new HttpError(409, 'Assign this worker to the client first');
 
-    const task = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const moved = await tx.administrativeDocument.updateMany({
         where: { id: documentId, businessId, status: 'stored' }, data: { status: 'assigned', updatedAt: new Date() },
       });
@@ -1039,13 +1158,23 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
       const t = await tx.administrativeTask.create({
         data: {
           businessId, clientId: doc.clientId, documentId, assignedTo: workerId, assignedBy: me(req),
-          title: optionalText(b.title, 'title', 200) || doc.fileName, remark, dueAt, status: 'assigned',
+          title: optionalText(b.title, 'title', 200) || doc.fileName, remark, dueAt, priority, status: 'assigned',
+        },
+        include: {
+          client: { select: { name: true } },
+          assignedWorker: { select: { full_name: true } },
         },
       });
       await logActivity(tx, { businessId, clientId: doc.clientId, actorId: me(req), action: 'document.assigned', entityType: 'document', entityId: documentId, metadata: { workerId, taskId: t.id } });
-      return t;
+      const notification = await createTaskNotification(tx, {
+        businessId, userId: workerId, taskId: t.id, clientId: doc.clientId,
+        title: 'New task assigned', body: t.title,
+        type: 'administrative_task_assigned',
+      });
+      return { task: t, notifications: [notification] };
     });
-    res.status(201).json({ data: task });
+    emitTaskNotifications(req, result.notifications);
+    res.status(201).json({ data: result.task });
   }));
 
   // ── Tasks ────────────────────────────────────────────────
@@ -1108,18 +1237,27 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
     } else {
       data.assignedTo = me(req); // a personal task
     }
-    const task = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const t = await tx.administrativeTask.create({ data });
       await logActivity(tx, { businessId, clientId: t.clientId, actorId: me(req), action: 'task.created', entityType: 'task', entityId: t.id });
-      return tx.administrativeTask.findFirst({
+      const createdTask = await tx.administrativeTask.findFirst({
         where: { id: t.id, businessId },
         include: {
           client: { select: { name: true } },
           assignedWorker: { select: { full_name: true } },
         },
       });
+      const notification = data.assignedTo && data.assignedTo !== me(req)
+        ? await createTaskNotification(tx, {
+            businessId, userId: data.assignedTo, taskId: t.id, clientId: t.clientId,
+            title: 'New task assigned', body: t.title,
+            type: 'administrative_task_assigned',
+          })
+        : null;
+      return { task: createdTask, notifications: [notification] };
     });
-    res.status(201).json({ data: task });
+    emitTaskNotifications(req, result.notifications);
+    res.status(201).json({ data: result.task });
   }));
 
   async function loadTask(prisma, businessId, taskId) {
@@ -1186,16 +1324,25 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
     if (Object.keys(data).length === 0) throw new HttpError(400, 'No valid fields supplied');
     const where = { id: taskId, businessId };
     if (data.status === 'in_progress') where.status = 'assigned'; // only assigned -> in_progress
-    const updated = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const r = await tx.administrativeTask.updateMany({ where, data: { ...data, updatedAt: new Date() } });
       if (r.count === 0) throw new HttpError(409, 'Task is not in a state that allows this change');
       if (task.documentId && data.status === 'in_progress') {
         await tx.administrativeDocument.updateMany({ where: { id: task.documentId, businessId, status: 'assigned' }, data: { status: 'in_progress', updatedAt: new Date() } });
       }
       await logActivity(tx, { businessId, clientId: task.clientId, actorId: me(req), action: 'task.updated', entityType: 'task', entityId: taskId, metadata: { fields: Object.keys(data) } });
-      return tx.administrativeTask.findFirst({ where: { id: taskId, businessId } });
+      const updatedTask = await tx.administrativeTask.findFirst({ where: { id: taskId, businessId } });
+      const notification = data.assignedTo && data.assignedTo !== task.assignedTo
+        ? await createTaskNotification(tx, {
+            businessId, userId: data.assignedTo, taskId, clientId: task.clientId,
+            title: 'Task assigned to you', body: task.title,
+            type: 'administrative_task_assigned',
+          })
+        : null;
+      return { task: updatedTask, notifications: [notification] };
     });
-    res.json({ data: updated });
+    emitTaskNotifications(req, result.notifications);
+    res.json({ data: result.task });
   }));
 
   // Worker submits finished work. Only the assignee, only from assigned / in_progress.
@@ -1209,12 +1356,12 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
     let submittedVersion = null;
     if (task.documentId) {
       const fileName = requireText(b.fileName, 'fileName', 255);
-      const fileUrl = requireText(b.fileUrl, 'fileUrl', 2048);
+      const fileUrl = requireText(b.fileUrl, 'fileUrl', MAX_STORED_FILE_URL_LENGTH);
       const fileSizeBytes = intInRange(b.fileSizeBytes, 'fileSizeBytes', 0, Number.MAX_SAFE_INTEGER);
       const mimeType = optionalText(b.mimeType, 'mimeType', 127);
       submittedVersion = { fileName, fileUrl, fileSizeBytes: BigInt(fileSizeBytes), mimeType };
     }
-    const updated = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       let submittedVersionId = null;
       if (submittedVersion) {
         const latest = await tx.administrativeDocumentVersion.findFirst({
@@ -1242,15 +1389,26 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
         await tx.administrativeDocument.updateMany({ where: { id: task.documentId, businessId }, data: { status: 'submitted', updatedAt: new Date() } });
       }
       await logActivity(tx, { businessId, clientId: task.clientId, actorId: me(req), action: 'task.submitted', entityType: 'task', entityId: taskId, metadata: { remark } });
-      return tx.administrativeTask.findFirst({
+      const submittedTask = await tx.administrativeTask.findFirst({
         where: { id: taskId, businessId },
         include: {
           client: { select: { name: true } },
           assignedWorker: { select: { full_name: true } },
         },
       });
+      const managers = await taskManagerRecipients(tx, businessId);
+      const notifications = await Promise.all(managers
+        .filter((userId) => userId !== me(req))
+        .map((userId) => createTaskNotification(tx, {
+          businessId, userId, taskId, clientId: task.clientId,
+          title: 'Task submitted for review',
+          body: `${task.title} is ready for review.`,
+          type: 'administrative_task_submitted',
+        })));
+      return { task: submittedTask, notifications };
     });
-    res.json({ data: updated });
+    emitTaskNotifications(req, result.notifications);
+    res.json({ data: result.task });
   }));
 
   // Owner / admin approves or rejects submitted work.
@@ -1271,7 +1429,7 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
 
     const task = await loadTask(prisma, businessId, taskId);
     const now = new Date();
-    const updated = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const approved = decision === 'approve';
       const version = task.submittedVersionId
         ? await tx.administrativeDocumentVersion.findFirst({
@@ -1304,15 +1462,23 @@ module.exports = function administrativeRoutes(pool, { sendMail } = {}) {
         await tx.administrativeDocument.updateMany({ where: { id: task.documentId, businessId }, data: documentData });
       }
       await logActivity(tx, { businessId, clientId: task.clientId, actorId: me(req), action: approved ? 'task.approved' : 'task.rejected', entityType: 'task', entityId: taskId, metadata: { remark, storageAction } });
-      return tx.administrativeTask.findFirst({
+      const reviewedTask = await tx.administrativeTask.findFirst({
         where: { id: taskId, businessId },
         include: {
           client: { select: { name: true } },
           assignedWorker: { select: { full_name: true } },
         },
       });
+      const notification = await createTaskNotification(tx, {
+        businessId, userId: task.assignedTo, taskId, clientId: task.clientId,
+        title: approved ? 'Task approved' : 'Task needs more work',
+        body: approved ? `${task.title} was approved.` : `${task.title} was returned for revision.`,
+        type: approved ? 'administrative_task_approved' : 'administrative_task_rejected',
+      });
+      return { task: reviewedTask, notifications: [notification] };
     });
-    res.json({ data: updated });
+    emitTaskNotifications(req, result.notifications);
+    res.json({ data: result.task });
   }));
 
   router.get('/:businessId/financial-entries', requireManager, pagination, asyncHandler(async (req, res) => {

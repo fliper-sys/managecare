@@ -413,6 +413,8 @@ class AuthenticationService {
           'email': email.trim(),
           'password': password,
           'full_name': fullName.trim(),
+          if (phoneNumber != null && phoneNumber.trim().isNotEmpty)
+            'phone': phoneNumber.trim(),
           'role': role,
           'permissions': permissions,
         }),

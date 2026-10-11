@@ -35,7 +35,9 @@ class SelfHostedPushService {
   // ── State ─────────────────────────────────────────────────
   io.Socket? _socket;
   Timer? _pollingTimer;
+  StreamSubscription<AuthState>? _authSubscription;
   bool _isInitialized = false;
+  int _userGeneration = 0;
   String? _deviceId;
   String? _userId;
   final List<Map<String, dynamic>> _localNotifications = [];
@@ -52,19 +54,39 @@ class SelfHostedPushService {
 
     try {
       await _getOrCreateDeviceId();
-      _userId = _supabase.auth.currentUser?.id;
-
-      if (_userId != null) {
-        await _registerDevice();
-        await _connectSocket();
-        _startPolling();
-      }
+      _authSubscription ??= _supabase.auth.onAuthStateChange.listen((state) {
+        unawaited(_configureUser(state.session?.user.id));
+      });
+      await _configureUser(_supabase.auth.currentUser?.id);
 
       _isInitialized = true;
       debugPrint('[SelfHostedPush] Initialized (device: $_deviceId, user: $_userId)');
     } catch (e) {
       debugPrint('[SelfHostedPush] Init error: $e');
     }
+  }
+
+  Future<void> _configureUser(String? userId) async {
+    if (_userId == userId && (userId == null || _socket != null)) return;
+    final generation = ++_userGeneration;
+    _pollingTimer?.cancel();
+    _socket?.disconnect();
+    _socket?.dispose();
+    _socket = null;
+    _userId = userId;
+    if (userId == null) return;
+
+    await _registerDevice();
+    if (generation != _userGeneration) return;
+    await _connectSocket();
+    if (generation != _userGeneration) {
+      _socket?.disconnect();
+      _socket?.dispose();
+      _socket = null;
+      return;
+    }
+    unawaited(_fetchUnreadNotifications());
+    _startPolling();
   }
 
   // ── Device ID management ──────────────────────────────────

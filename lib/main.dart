@@ -99,6 +99,14 @@ void main() async {
   // sign in again once connectivity returns, instead of the app never
   // opening at all.
   try {
+    await _initializeFirebaseIfAvailable().timeout(const Duration(seconds: 8));
+  } catch (e) {
+    debugPrint(
+      '[main] Firebase startup timed out; Firebase-backed features may be unavailable: $e',
+    );
+  }
+
+  try {
     await Future.wait([
       SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
@@ -106,9 +114,6 @@ void main() async {
         DeviceOrientation.landscapeLeft,
         DeviceOrientation.landscapeRight,
       ]),
-      // Firebase is only used for push notifications (FCM) + crash reporting.
-      // All business data now flows through Supabase/Postgres.
-      _initializeFirebaseIfAvailable(),
       Supabase.initialize(
         url: SupabaseConfig.url,
         anonKey: SupabaseConfig.anonKey,

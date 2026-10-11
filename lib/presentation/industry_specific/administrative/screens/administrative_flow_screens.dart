@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:pdf/pdf.dart';
@@ -12,7 +13,30 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../core/utils/worker_permissions.dart';
+import '../../../../services/web_download.dart' as web_download;
+import '../../../workers/screens/add_worker_screen.dart';
 import '../providers/administrative_provider.dart';
+
+Future<void> _openAdministrativeFile(String value, String fileName) async {
+  final uri = Uri.tryParse(value);
+  if (uri == null) throw StateError('The document link is invalid.');
+  if (uri.data != null) {
+    final bytes = Uint8List.fromList(uri.data!.contentAsBytes());
+    final mimeType = uri.data!.mimeType;
+    if (kIsWeb) {
+      web_download.downloadBytes(bytes, fileName, mimeType);
+    } else {
+      await Share.shareXFiles([
+        XFile.fromData(bytes, name: fileName, mimeType: mimeType),
+      ]);
+    }
+    return;
+  }
+  if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+    throw StateError('Unable to open the document.');
+  }
+}
 
 class AdministrativeClientProfileScreen extends StatefulWidget {
   const AdministrativeClientProfileScreen({
@@ -190,7 +214,13 @@ class _AdministrativeClientProfileScreenState
                     final workers = ((client['workers'] as List?) ?? const [])
                         .whereType<Map>()
                         .toList();
-                    final active = (client['isActive'] ?? client['is_active']) != false;
+                    final active = client['isActive'] is bool
+                        ? client['isActive'] as bool
+                        : client['is_active'] is bool
+                            ? client['is_active'] as bool
+                            : (client['archivedAt'] ??
+                                    client['archived_at']) ==
+                                null;
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -404,8 +434,7 @@ class _AdministrativeDocumentsScreenState
   }
 
   Future<void> _uploadDocument() async {
-    final selected = await FilePicker.platform.pickFiles(withData: true);
-    final file = selected?.files.single;
+    final file = await _pickAdministrativeFile(context);
     if (file?.bytes == null || !mounted) return;
     try {
       await context.read<AdministrativeProvider>().uploadDocument(clientId: widget.clientId!, fileName: file!.name, bytes: file.bytes!, mimeType: _mimeTypeForFile(file.name), folderId: _folderId);
@@ -450,9 +479,26 @@ class _AdministrativeAssignDocumentScreenState
       appBar: AppBar(title: const Text('Assign Document to Worker')),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _staff,
-        builder: (context, snapshot) => Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return _LoadError(
+              onRetry: () => setState(
+                () => _staff = context.read<AdministrativeProvider>().loadStaffing(),
+              ),
+            );
+          }
+          final eligibleWorkers = (snapshot.data ?? const <Map<String, dynamic>>[])
+              .where((worker) =>
+                  worker['is_active'] != false &&
+                  ((worker['assigned_client_ids'] as List?) ?? const [])
+                      .any((id) => id?.toString() == widget.clientId))
+              .toList();
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const CircleAvatar(child: Icon(Icons.picture_as_pdf_outlined)),
@@ -463,12 +509,16 @@ class _AdministrativeAssignDocumentScreenState
           DropdownButtonFormField<String>(
             value: _workerId,
             decoration: const InputDecoration(labelText: 'Assign to Worker', border: OutlineInputBorder()),
-            items: (snapshot.data ?? const <Map<String, dynamic>>[])
-                .where((worker) => worker['is_active'] != false)
+            items: eligibleWorkers
                 .map((worker) => DropdownMenuItem(value: worker['id']?.toString(), child: Text(worker['full_name']?.toString() ?? 'Worker')))
                 .toList(),
             onChanged: (value) => setState(() => _workerId = value),
           ),
+          if (eligibleWorkers.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('Assign an active worker to this client before assigning its document.'),
+            ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(value: _priority, decoration: const InputDecoration(labelText: 'Priority', border: OutlineInputBorder()), items: const [DropdownMenuItem(value: 'low', child: Text('Low')), DropdownMenuItem(value: 'normal', child: Text('Normal')), DropdownMenuItem(value: 'high', child: Text('High')), DropdownMenuItem(value: 'urgent', child: Text('Urgent'))], onChanged: (value) => setState(() => _priority = value ?? 'normal')),
           ListTile(title: const Text('Due date'), subtitle: Text(MaterialLocalizations.of(context).formatMediumDate(_dueAt)), trailing: const Icon(Icons.event_outlined), onTap: () async { final date = await showDatePicker(context: context, initialDate: _dueAt, firstDate: DateTime.now(), lastDate: DateTime(2100)); if (date != null) setState(() => _dueAt = date); }),
@@ -483,16 +533,18 @@ class _AdministrativeAssignDocumentScreenState
           ),
           const Spacer(),
           FilledButton(
-            onPressed: _workerId == null || widget.clientId == null ? null : () async {
+            onPressed: _workerId == null || widget.documentId == null ? null : () async {
               try {
-                await context.read<AdministrativeProvider>().createLiveTask(title: 'Review ${widget.documentName}', clientId: widget.clientId!, documentId: widget.documentId, workerId: _workerId, remark: _noteController.text, priority: _priority, dueAt: _dueAt);
+                await context.read<AdministrativeProvider>().assignDocumentToWorker(documentId: widget.documentId!, workerId: _workerId!, title: 'Review ${widget.documentName}', remark: _noteController.text, priority: _priority, dueAt: _dueAt);
                 if (mounted) { _message(context, '${widget.documentName} assigned'); Navigator.of(context).pop(); }
               } catch (error) { if (mounted) _message(context, 'Unable to assign document: $error'); }
             },
             child: const Text('Assign Document'),
           ),
-        ]),
-      )),
+            ]),
+          );
+        },
+      ),
     );
   }
 }
@@ -517,18 +569,27 @@ class AdministrativeWorkerDashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final user = context.watch<AuthProvider>().currentUser;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Worker Dashboard')),
       body: Consumer<AdministrativeProvider>(
         builder: (context, provider, _) {
-          final tasks = provider.tasksForWorker('Sarah Daniels');
+          final workerId = user?.id;
+          final tasks = workerId == null
+              ? const <AdministrativeTask>[]
+              : provider.tasksForWorker(workerId);
+          final obligations = workerId == null
+              ? const <AdministrativeObligation>[]
+              : provider.obligations
+                  .where((item) => item.assignedWorkerId == workerId)
+                  .toList();
           return ListView(padding: const EdgeInsets.all(16), children: [
-        const ListTile(
+        ListTile(
           contentPadding: EdgeInsets.zero,
-          leading: CircleAvatar(radius: 24, child: Text('SD')),
-          title: Text('Sarah Daniels'),
-          subtitle: Text('General Worker | Available'),
+          leading: CircleAvatar(radius: 24, child: Text(user?.initials ?? 'U')),
+          title: Text(user?.fullName ?? 'Worker'),
+          subtitle: Text(user?.jobTitle ?? user?.role ?? 'Worker'),
         ),
         const _SectionTitle('Current Tasks'),
         if (tasks.isEmpty)
@@ -552,7 +613,7 @@ class AdministrativeWorkerDashboardScreen extends StatelessWidget {
             )),
         const SizedBox(height: 20),
         const _SectionTitle('My Obligations'),
-        if (provider.obligations.isEmpty)
+        if (obligations.isEmpty)
           const ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Icon(Icons.event_available_outlined),
@@ -561,10 +622,10 @@ class AdministrativeWorkerDashboardScreen extends StatelessWidget {
         else
           ListTile(
             leading: const CircleAvatar(child: Icon(Icons.event_note_outlined)),
-            title: Text(provider.obligations.first.title),
-            subtitle: Text(provider.obligations.first.clientName),
+            title: Text(obligations.first.title),
+            subtitle: Text(obligations.first.clientName),
             trailing: Text(
-              _dueText(provider.obligations.first.dueAt),
+              _dueText(obligations.first.dueAt),
               style: const TextStyle(color: Colors.green),
             ),
           ),
@@ -579,6 +640,7 @@ class _AdministrativeTaskCompletionScreenState
     extends State<AdministrativeTaskCompletionScreen> {
   PlatformFile? _selectedFile;
   bool _isSubmitting = false;
+  bool _isDownloadingOriginal = false;
 
   @override
   void initState() {
@@ -621,23 +683,41 @@ class _AdministrativeTaskCompletionScreenState
           Text(task?.documentId == null
               ? 'Add a completion note or attach supporting work.'
               : 'Attach the completed document for review.'),
+          if (task?.documentId != null)
+            OutlinedButton.icon(
+              onPressed: _isDownloadingOriginal
+                  ? null
+                  : () async {
+                      setState(() => _isDownloadingOriginal = true);
+                      try {
+                        final file = await context
+                            .read<AdministrativeProvider>()
+                            .downloadDocument(task!.documentId!);
+                        await _openAdministrativeFile(
+                          file['file_url']?.toString() ?? '',
+                          file['file_name']?.toString() ?? task!.documentName ?? 'document',
+                        );
+                      } catch (error) {
+                        if (mounted) _message(context, 'Unable to download document: $error');
+                      } finally {
+                        if (mounted) setState(() => _isDownloadingOriginal = false);
+                      }
+                    },
+              icon: _isDownloadingOriginal
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.download_outlined),
+              label: const Text('Download original document'),
+            ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
             onPressed: _isSubmitting
                 ? null
                 : () async {
-                    final result = await FilePicker.platform.pickFiles(
-                      withData: true,
-                      allowMultiple: false,
-                    );
-                    if (result == null || result.files.isEmpty) return;
-                    final file = result.files.single;
-                    if (file.bytes == null || file.bytes!.isEmpty) {
-                      if (mounted) {
-                        _message(context, 'Unable to read the selected file.');
-                      }
-                      return;
-                    }
+                    final file = await _pickAdministrativeFile(context);
+                    if (file == null || !mounted) return;
                     setState(() => _selectedFile = file);
                   },
             icon: Icon(_selectedFile == null
@@ -660,7 +740,9 @@ class _AdministrativeTaskCompletionScreenState
                             fileBytes: file?.bytes,
                             mimeType: file?.extension?.toLowerCase() == 'pdf'
                                 ? 'application/pdf'
-                                : 'application/octet-stream',
+                                : file == null
+                                    ? null
+                                    : _mimeTypeForFile(file.name),
                           );
                       if (!mounted) return;
                       _message(context, 'Task submitted for review');
@@ -806,6 +888,31 @@ class _AdministrativeDocumentReviewScreenState
                   title: Text(version['fileName']?.toString() ??
                       version['file_name']?.toString() ?? 'Document version'),
                   subtitle: Text('Version ${version['versionNumber'] ?? version['version_number'] ?? ''}'),
+                  trailing: IconButton(
+                    tooltip: 'Download version for review',
+                    icon: const Icon(Icons.download_outlined),
+                    onPressed: task?.documentId == null
+                        ? null
+                        : () async {
+                            try {
+                              final file = await context
+                                  .read<AdministrativeProvider>()
+                                  .downloadDocumentVersion(
+                                    task!.documentId!,
+                                    version['id'].toString(),
+                                  );
+                              await _openAdministrativeFile(
+                                file['file_url']?.toString() ?? '',
+                                file['file_name']?.toString() ?? 'document',
+                              );
+                            } catch (error) {
+                              if (mounted) {
+                                _message(context,
+                                    'Unable to download version: $error');
+                              }
+                            }
+                          },
+                  ),
                 )).toList(),
               );
             },
@@ -850,7 +957,7 @@ class _AdministrativeDocumentReviewScreenState
           ),
           ListTile(
             leading: const Icon(Icons.file_copy_outlined),
-            title: const Text('Store as a new document'),
+            title: const Text('Keep as a new version'),
             onTap: () => Navigator.pop(sheetContext, 'store_as_new_version'),
           ),
         ]),
@@ -1417,8 +1524,10 @@ class _LiveDocumentTileState extends State<_LiveDocumentTile> {
     setState(() => _downloading = true);
     try {
       final file = await context.read<AdministrativeProvider>().downloadDocument(widget.document['id'].toString());
-      final url = Uri.tryParse(file['file_url']?.toString() ?? '');
-      if (url == null || !await launchUrl(url, mode: LaunchMode.externalApplication)) throw StateError('Unable to open file');
+      await _openAdministrativeFile(
+        file['file_url']?.toString() ?? '',
+        file['file_name']?.toString() ?? 'document',
+      );
     } catch (error) { if (mounted) _message(context, 'Unable to download document: $error'); }
     finally { if (mounted) setState(() => _downloading = false); }
   }
@@ -1431,11 +1540,31 @@ class _LiveDocumentTileState extends State<_LiveDocumentTile> {
     if (action == 'versions') {
       final versions = await context.read<AdministrativeProvider>().loadDocumentVersions(widget.document['id'].toString());
       if (!mounted) return;
-      showModalBottomSheet<void>(context: context, builder: (sheet) => ListView(children: [const ListTile(title: Text('Version History')), ...versions.map((version) => ListTile(title: Text(version['file_name']?.toString() ?? 'Version'), subtitle: Text('Version ${version['version_number']}')))]));
+      showModalBottomSheet<void>(context: context, builder: (sheet) => ListView(children: [const ListTile(title: Text('Version History')), ...versions.map((version) => ListTile(
+        title: Text(version['file_name']?.toString() ?? 'Version'),
+        subtitle: Text('Version ${version['version_number']}'),
+        trailing: IconButton(
+          tooltip: 'Download version',
+          icon: const Icon(Icons.download_outlined),
+          onPressed: () async {
+            try {
+              final file = await context.read<AdministrativeProvider>().downloadDocumentVersion(
+                widget.document['id'].toString(),
+                version['id'].toString(),
+              );
+              await _openAdministrativeFile(
+                file['file_url']?.toString() ?? '',
+                file['file_name']?.toString() ?? 'document',
+              );
+            } catch (error) {
+              if (context.mounted) _message(context, 'Unable to download version: $error');
+            }
+          },
+        ),
+      ))]));
       return;
     }
-    final selected = await FilePicker.platform.pickFiles(withData: true);
-    final file = selected?.files.single;
+    final file = await _pickAdministrativeFile(context);
     if (file?.bytes == null || !mounted) return;
     final approval = await showModalBottomSheet<String>(context: context, builder: (sheet) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [ListTile(title: const Text('Replace current document'), onTap: () => Navigator.pop(sheet, 'replace')), ListTile(title: const Text('Store as version history'), onTap: () => Navigator.pop(sheet, 'new_version'))])));
     if (approval == null) return;
@@ -1466,7 +1595,25 @@ class _ClientRecordsTab extends StatelessWidget {
     };
     return FutureBuilder<List<Map<String, dynamic>>>(future: future, builder: (context, snapshot) {
       if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-      if (snapshot.hasError) return const Center(child: Text('Unable to load this client data.'));
+      if (snapshot.hasError) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Unable to load this client data.'),
+                const SizedBox(height: 8),
+                Text(
+                  snapshot.error.toString(),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        );
+      }
       var records = snapshot.data ?? const <Map<String, dynamic>>[];
       if (type == _ClientRecordType.activity) records = records.where((item) => item['client_id']?.toString() == clientId).toList();
       if (records.isEmpty) return Center(child: Text('No $title records yet.'));
@@ -1482,9 +1629,49 @@ class _ClientRecordsTab extends StatelessWidget {
 
 IconData _documentIcon(String? mimeType) => mimeType == 'application/pdf' ? Icons.picture_as_pdf_outlined : mimeType?.contains('spreadsheet') == true || mimeType == 'text/csv' ? Icons.table_chart_outlined : Icons.description_outlined;
 
+const _administrativeFileExtensions = [
+  'pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'csv', 'xlsx',
+];
+const _administrativeFileMaxBytes = 10 * 1024 * 1024;
+
+Future<PlatformFile?> _pickAdministrativeFile(BuildContext context) async {
+  final result = await FilePicker.platform.pickFiles(
+    type: FileType.custom,
+    allowedExtensions: _administrativeFileExtensions,
+    withData: true,
+    allowMultiple: false,
+  );
+  if (result == null || result.files.isEmpty || !context.mounted) return null;
+  final file = result.files.single;
+  if (file.bytes == null || file.bytes!.isEmpty) {
+    _message(context, 'Unable to read the selected file.');
+    return null;
+  }
+  if (file.size > _administrativeFileMaxBytes) {
+    _message(context, 'Files must be 10 MB or smaller.');
+    return null;
+  }
+  try {
+    _mimeTypeForFile(file.name);
+  } on FormatException catch (error) {
+    _message(context, error.message.toString());
+    return null;
+  }
+  return file;
+}
+
 String _mimeTypeForFile(String name) {
   final extension = name.split('.').last.toLowerCase();
-  return switch (extension) { 'pdf' => 'application/pdf', 'png' => 'image/png', 'jpg' || 'jpeg' => 'image/jpeg', 'csv' => 'text/csv', 'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', _ => 'application/pdf' };
+  return switch (extension) {
+    'pdf' => 'application/pdf',
+    'png' => 'image/png',
+    'jpg' || 'jpeg' => 'image/jpeg',
+    'gif' => 'image/gif',
+    'webp' => 'image/webp',
+    'csv' => 'text/csv',
+    'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    _ => throw FormatException('This file type is not supported.'),
+  };
 }
 
 class _DocumentTile extends StatefulWidget {
@@ -2251,34 +2438,156 @@ class _AdministrativeStaffingScreenState
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) {
+    final canManageWorkers = context.watch<AuthProvider>().currentUser?.isOwner == true;
+    return Scaffold(
         backgroundColor: AppColors.background,
-        appBar: AppBar(title: const Text('Staffing')),
+        appBar: AppBar(
+          title: const Text('Staffing'),
+          actions: canManageWorkers ? [
+            IconButton(
+              tooltip: 'Add worker',
+              icon: const Icon(Icons.person_add_alt_1),
+              onPressed: _addWorker,
+            ),
+          ] : const [],
+        ),
         body: FutureBuilder<List<Map<String, dynamic>>>(
           future: _staff,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
             if (snapshot.hasError) return _LoadError(onRetry: () => setState(() => _staff = context.read<AdministrativeProvider>().loadStaffing()));
             final staff = snapshot.data ?? const [];
-            if (staff.isEmpty) return const Center(child: Text('No staff records found.'));
             return ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: staff.length,
+              itemCount: staff.isEmpty ? 1 : staff.length,
               itemBuilder: (context, index) {
+                if (staff.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 48),
+                    child: Center(child: Text('No staff records found.')),
+                  );
+                }
                 final worker = staff[index];
                 final name = worker['full_name']?.toString() ?? 'Unnamed worker';
                 return ListTile(
                   onTap: () => _manageAssignments(worker),
                   leading: CircleAvatar(child: Text(name.substring(0, 1).toUpperCase())),
                   title: Text(name),
-                  subtitle: Text('${worker['role'] ?? 'Staff'} | ${worker['assigned_client_count'] ?? 0} clients'),
-                  trailing: Text('${worker['open_task_count'] ?? 0} open tasks'),
+                  subtitle: Text(
+                    '${worker['role'] ?? 'Staff'} | ${worker['assigned_client_count'] ?? 0} clients | ${worker['is_active'] == false ? 'Inactive' : 'Active'}',
+                  ),
+                  trailing: canManageWorkers ? PopupMenuButton<String>(
+                    tooltip: 'Worker options',
+                    onSelected: (action) {
+                      if (action == 'edit') _editWorker(worker);
+                      if (action == 'clients') _manageAssignments(worker);
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(value: 'edit', child: Text('Edit worker')),
+                      PopupMenuItem(value: 'clients', child: Text('Client access')),
+                    ],
+                  ) : Text('${worker['open_task_count'] ?? 0} open tasks'),
                 );
               },
             );
           },
         ),
+        floatingActionButton: canManageWorkers ? FloatingActionButton(
+          tooltip: 'Add worker',
+          onPressed: _addWorker,
+          child: const Icon(Icons.person_add_alt_1),
+        ) : null,
       );
+  }
+
+  Future<void> _addWorker() async {
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const AddWorkerScreen(returnToCaller: true)),
+    );
+    if (created == true && mounted) {
+      setState(() => _staff = context.read<AdministrativeProvider>().loadStaffing());
+    }
+  }
+
+  Future<void> _editWorker(Map<String, dynamic> worker) async {
+    final workerId = worker['id']?.toString() ?? '';
+    if (workerId.isEmpty) return;
+    final nameController = TextEditingController(text: worker['full_name']?.toString() ?? '');
+    final phoneController = TextEditingController(text: worker['phone']?.toString() ?? '');
+    final roles = WorkerPermissions.getAvailableRoles('administrative');
+    var role = worker['role']?.toString() ?? 'staff';
+    if (!roles.contains(role)) roles.add(role);
+    var isActive = worker['is_active'] != false;
+    Map<String, dynamic>? updates;
+    try {
+      updates = await showDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Edit worker'),
+            content: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                TextField(controller: nameController, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Full name')),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Login email'),
+                  subtitle: SelectableText(worker['email']?.toString() ?? 'Not set'),
+                ),
+                TextField(controller: phoneController, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone')),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: role,
+                  decoration: const InputDecoration(labelText: 'Role'),
+                  items: roles.map((value) => DropdownMenuItem(value: value, child: Text(WorkerPermissions.getRoleDisplayName(value)))).toList(),
+                  onChanged: (value) { if (value != null) setDialogState(() => role = value); },
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Active worker'),
+                  value: isActive,
+                  onChanged: (value) => setDialogState(() => isActive = value),
+                ),
+              ]),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: () {
+                  final name = nameController.text.trim();
+                  if (name.isEmpty) {
+                    _message(context, 'Enter a worker name.');
+                    return;
+                  }
+                  Navigator.pop(dialogContext, {
+                    'full_name': name,
+                    'phone': phoneController.text.trim(),
+                    'role': role,
+                    'permissions': {
+                      for (final permission in WorkerPermissions.getPermissionsForRole(role))
+                        permission: true,
+                    },
+                    'is_active': isActive,
+                  });
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (updates == null || !mounted) return;
+      await context.read<AdministrativeProvider>().updateStaffWorker(workerId: workerId, updates: updates);
+      if (!mounted) return;
+      _message(context, 'Worker details updated.');
+      setState(() => _staff = context.read<AdministrativeProvider>().loadStaffing());
+    } catch (error) {
+      if (mounted) _message(context, 'Unable to update worker: $error');
+    } finally {
+      nameController.dispose();
+      phoneController.dispose();
+    }
+  }
 
   Future<void> _manageAssignments(Map<String, dynamic> worker) async {
     final clients = context.read<AdministrativeProvider>().clients;

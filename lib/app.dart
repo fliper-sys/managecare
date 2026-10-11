@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -40,9 +41,8 @@ class App extends StatefulWidget {
 
 class _AppState extends State<App> {
   final AppRouter _appRouter = AppRouter();
-  final DunningService _dunningService = DunningService();
-  final BusinessRestrictionService _restrictionService =
-      BusinessRestrictionService();
+  DunningService? _dunningService;
+  BusinessRestrictionService? _restrictionService;
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
   Timer? _dunningTimer;
@@ -69,8 +69,24 @@ class _AppState extends State<App> {
       _attachProviderListeners();
     });
 
-    _startDunningPoller();
-    _startBusinessReminderPoller();
+    if (_hasFirebaseApp) {
+      _dunningService = DunningService();
+      _restrictionService = BusinessRestrictionService();
+      _startDunningPoller();
+      _startBusinessReminderPoller();
+    } else {
+      debugPrint(
+        '[App] Firebase is not initialized; Firestore background services are disabled.',
+      );
+    }
+  }
+
+  bool get _hasFirebaseApp {
+    try {
+      return Firebase.apps.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   void _attachProviderListeners() {
@@ -271,7 +287,7 @@ class _AppState extends State<App> {
   }
 
   Future<void> _syncBusinessRestrictionWatcher() async {
-    if (!mounted || _authProvider == null) return;
+    if (!mounted || _authProvider == null || !_hasFirebaseApp) return;
 
     final authProvider = _authProvider!;
     final user = authProvider.currentUser;
@@ -315,7 +331,7 @@ class _AppState extends State<App> {
     final user = authProvider.currentUser;
     if (!authProvider.isAuthenticated || user == null) return;
 
-    final restrictionState = await _restrictionService.getRestrictionState(
+    final restrictionState = await _restrictionService?.getRestrictionState(
       userId: user.id,
       businessId: businessId,
     );
@@ -372,7 +388,10 @@ class _AppState extends State<App> {
   }
 
   Future<void> _syncBusinessReminders() async {
-    if (!mounted || _authProvider == null || _businessProvider == null) return;
+    if (!mounted ||
+        !_hasFirebaseApp ||
+        _authProvider == null ||
+        _businessProvider == null) return;
 
     final authProvider = _authProvider!;
     final user = authProvider.currentUser;
@@ -410,7 +429,7 @@ class _AppState extends State<App> {
     final user = _authProvider!.currentUser;
     if (user == null || !user.isOwner) return;
 
-    final restrictionState = await _restrictionService.getRestrictionState(
+    final restrictionState = await _restrictionService?.getRestrictionState(
       userId: userId,
       businessId: businessId,
     );
@@ -515,7 +534,7 @@ class _AppState extends State<App> {
               'https://www.globalthrivealliance.com/emailtemplate/dunning_trigger.json';
 
           if (effectiveUrl.isNotEmpty) {
-            await _dunningService.checkAndRunRemoteTrigger(effectiveUrl);
+            await _dunningService?.checkAndRunRemoteTrigger(effectiveUrl);
           }
         } catch (_) {
           // Ignore background poller failures.

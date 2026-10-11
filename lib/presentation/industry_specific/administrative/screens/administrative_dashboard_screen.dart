@@ -30,11 +30,16 @@ class _AdministrativeDashboardScreenState
         ? business!.name
         : 'Administrative Services';
     final businessId = business?.id ?? '';
-    if (businessId.isNotEmpty && _loadedBusinessId != businessId) {
+    if (_loadedBusinessId != businessId) {
       _loadedBusinessId = businessId;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          context.read<AdministrativeProvider>().loadForBusiness(businessId);
+          final provider = context.read<AdministrativeProvider>();
+          if (businessId.isEmpty) {
+            provider.clearWorkspace();
+          } else {
+            provider.loadForBusiness(businessId);
+          }
         }
       });
     }
@@ -258,9 +263,12 @@ class _AdministrativeDashboardScreenState
   }
 
   Widget _tasks() => Consumer<AdministrativeProvider>(
-        builder: (context, provider, _) => ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
+        builder: (context, provider, _) => RefreshIndicator(
+          onRefresh: provider.refreshWorkspace,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
             _Title('Task Management', trailing: 'Calendar', onTap: _calendar),
             const SizedBox(height: 12),
             if (provider.isLoading) const LinearProgressIndicator(),
@@ -327,7 +335,8 @@ class _AdministrativeDashboardScreenState
                         },
                       ),
                     )),
-          ],
+            ],
+          ),
         ),
       );
 

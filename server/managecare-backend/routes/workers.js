@@ -155,6 +155,20 @@ module.exports = function(pool) {
         );
       }
 
+      if (full_name !== undefined) {
+        await client.query(
+          'UPDATE profiles SET full_name = $1, updated_at = NOW() WHERE id = $2',
+          [full_name, id]
+        );
+      }
+
+      if (phone !== undefined) {
+        await client.query(
+          'UPDATE profiles SET phone_number = $1, updated_at = NOW() WHERE id = $2',
+          [phone, id]
+        );
+      }
+
       if (is_active !== undefined || role !== undefined || permissions !== undefined || store_id !== undefined) {
         const workerRow = result.rows[0];
 
@@ -172,10 +186,13 @@ module.exports = function(pool) {
         // UNIQUE and several legacy workers share a blank email; the
         // worker's real email lives on the workers row untouched by this).
         await client.query(
-          `INSERT INTO profiles (id, full_name)
-           VALUES ($1, $2)
-           ON CONFLICT (id) DO NOTHING`,
-          [id, workerRow.full_name]
+          `INSERT INTO profiles (id, full_name, phone_number)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (id) DO UPDATE SET
+             full_name = EXCLUDED.full_name,
+             phone_number = EXCLUDED.phone_number,
+             updated_at = NOW()`,
+          [id, workerRow.full_name, workerRow.phone]
         );
 
         await client.query(

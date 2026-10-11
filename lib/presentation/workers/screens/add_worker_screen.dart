@@ -27,7 +27,9 @@ import '../../../widgets/loading_indicator.dart';
 import '../../industry_specific/gas/utils/pump_config_cache.dart';
 
 class AddWorkerScreen extends StatefulWidget {
-  const AddWorkerScreen({super.key});
+  const AddWorkerScreen({super.key, this.returnToCaller = false});
+
+  final bool returnToCaller;
 
   @override
   State<AddWorkerScreen> createState() => _AddWorkerScreenState();
@@ -408,7 +410,9 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
                 await businessProvider.refreshBusinessStats(bid);
               }
             } catch (_) {}
-            if (authProvider.isOwnerUser) {
+            if (widget.returnToCaller) {
+              Navigator.pop(context, true);
+            } else if (authProvider.isOwnerUser) {
               Navigator.pushReplacementNamed(context, Routes.workers);
             } else {
               Navigator.pop(context);
@@ -464,7 +468,9 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
             backgroundColor: AppColors.success,
           ),
         );
-        if (authProvider.isOwnerUser) {
+        if (widget.returnToCaller) {
+          Navigator.pop(context, true);
+        } else if (authProvider.isOwnerUser) {
           Navigator.pushReplacementNamed(context, Routes.workers);
         } else {
           Navigator.pop(context);
@@ -885,7 +891,9 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
         // If current user is the owner, send them back to the refreshed
         // workers list so they can see/manage the newly added worker.
-        if (authProvider.isOwnerUser) {
+        if (widget.returnToCaller) {
+          Navigator.pop(context, true);
+        } else if (authProvider.isOwnerUser) {
           Navigator.pushReplacementNamed(context, Routes.workers);
         } else {
           // Navigate to worker details and include business context so

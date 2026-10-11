@@ -433,7 +433,10 @@ class DatabaseHelper {
         'attempts': 0,
         'createdAt': DateTime.now().toIso8601String(),
       };
-      await box.put(id, entry);
+      // Hive integer keys are limited to unsigned 32-bit values, while an
+      // epoch-millisecond id is currently 13 digits. Keep the numeric id in
+      // the record for existing queue consumers, but use a string box key.
+      await box.put(id.toString(), entry);
       return;
     }
 
@@ -480,7 +483,7 @@ class DatabaseHelper {
   Future<void> removeSyncItem(int id) async {
     if (kIsWeb) {
       final box = await Hive.openBox('sync_queue');
-      await box.delete(id);
+      await box.delete(id.toString());
       return;
     }
 
@@ -491,12 +494,12 @@ class DatabaseHelper {
   Future<void> incrementSyncAttempt(int id) async {
     if (kIsWeb) {
       final box = await Hive.openBox('sync_queue');
-      final entry = box.get(id);
+      final entry = box.get(id.toString());
       if (entry is Map) {
         final updated = Map<String, dynamic>.from(entry)
           ..['attempts'] = (entry['attempts'] as int? ?? 0) + 1
           ..['lastAttempt'] = DateTime.now().toIso8601String();
-        await box.put(id, updated);
+        await box.put(id.toString(), updated);
       }
       return;
     }

@@ -5,6 +5,23 @@
 const jwt = require('jsonwebtoken');
 const { getRequestUserId, runWithUser } = require('./db_request_context');
 
+function verifyAccessToken(token) {
+  const secrets = [process.env.JWT_SECRET, process.env.JWT_SECRET_PREVIOUS]
+    .filter((secret, index, all) => secret && all.indexOf(secret) === index);
+  let lastError;
+
+  for (const secret of secrets) {
+    try {
+      return jwt.verify(token, secret, { algorithms: ['HS256'] });
+    } catch (error) {
+      if (error.name === 'TokenExpiredError') throw error;
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('JWT signing secret is not configured');
+}
+
 /**
  * Express middleware: validates Bearer token and attaches user to req.
  * If using GoTrue JWTs, they use HS256 with the JWT_SECRET from env.
@@ -23,10 +40,8 @@ function authMiddleware(req, res, next) {
   const token = parts[1];
 
   try {
-    // Verify against the JWT secret configured for GoTrue
-    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-      algorithms: ['HS256'],
-    });
+    // Keep existing client sessions valid briefly during signing-key rotation.
+    const decoded = verifyAccessToken(token);
 
     // GoTrue JWTs have `sub` (user id), `role`, `email`, and `aud`
     req.user = {

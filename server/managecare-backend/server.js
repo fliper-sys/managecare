@@ -306,7 +306,7 @@ if (process.env.MINIO_ENDPOINT) {
 // ── Middleware ──────────────────────────────────────────────
 app.set('trust proxy', 1); // behind nginx — use X-Forwarded-For for req.ip
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true }));
 //test prisma
 //app.use('/api/prisma-test', prismaTestRoutes);
@@ -321,6 +321,19 @@ app.get('/api/public-files', async (req, res) => {
   const key = req.query.key?.toString();
   if (!minioClient || !bucket || !key || bucket !== (process.env.MINIO_BUCKET || 'managecare-files')) {
     return res.status(404).send('File not found');
+  }
+
+  if (key.split('/')[1] === 'administrative') {
+    const expires = Number(req.query.expires);
+    const signature = Buffer.from(req.query.signature?.toString() || '', 'hex');
+    const expected = crypto.createHmac('sha256', process.env.JWT_SECRET)
+      .update(`${bucket}\n${key}\n${expires}`)
+      .digest();
+    const now = Math.floor(Date.now() / 1000);
+    if (!Number.isSafeInteger(expires) || expires <= now || expires > now + 600 ||
+        signature.length !== expected.length || !crypto.timingSafeEqual(signature, expected)) {
+      return res.status(403).send('File link is invalid or expired');
+    }
   }
 
   try {
@@ -2447,7 +2460,7 @@ app.post('/api/subscriptions/validate/:businessId', authMiddleware, requireBusin
 app.post('/admin-api/workers', authMiddleware, async (req, res) => {
   // This endpoint is called from Flutter's AuthenticationService.createWorkerUser
   try {
-    const { business_id, email, password, full_name, role, permissions } = req.body;
+    const { business_id, email, password, full_name, phone, role, permissions } = req.body;
     if (!business_id) {
       return res.status(400).json({ error: 'business_id is required' });
     }
@@ -2497,32 +2510,33 @@ app.post('/admin-api/workers', authMiddleware, async (req, res) => {
       const profileResult = existingProfile.rows.length > 0
         ? await client.query(
             `UPDATE profiles
-             SET email = $2, password_hash = $3, full_name = $4, updated_at = NOW()
+             SET email = $2, password_hash = $3, full_name = $4, phone_number = $5, updated_at = NOW()
              WHERE id = $1
              RETURNING id, email, full_name`,
-            [existingProfile.rows[0].id, normalizedEmail, hash, full_name]
+            [existingProfile.rows[0].id, normalizedEmail, hash, full_name, phone || null]
           )
         : await client.query(
-            `INSERT INTO profiles (email, password_hash, full_name)
-             VALUES ($1, $2, $3)
+            `INSERT INTO profiles (email, password_hash, full_name, phone_number)
+             VALUES ($1, $2, $3, $4)
              RETURNING id, email, full_name`,
-            [normalizedEmail, hash, full_name]
+            [normalizedEmail, hash, full_name, phone || null]
           );
 
       const profile = profileResult.rows[0];
       const workerResult = await client.query(
-        `INSERT INTO workers (id, email, password_hash, full_name, role, business_id, permissions)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO workers (id, email, password_hash, full_name, phone, role, business_id, permissions)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (id) DO UPDATE SET
            email = EXCLUDED.email,
            password_hash = EXCLUDED.password_hash,
            full_name = EXCLUDED.full_name,
+           phone = EXCLUDED.phone,
            role = EXCLUDED.role,
            business_id = EXCLUDED.business_id,
            permissions = EXCLUDED.permissions,
            updated_at = NOW()
          RETURNING id, email, full_name, role`,
-        [profile.id, normalizedEmail, hash, full_name, role || 'staff', business_id, JSON.stringify(permissions || {})]
+        [profile.id, normalizedEmail, hash, full_name, phone || null, role || 'staff', business_id, JSON.stringify(permissions || {})]
       );
 
       await client.query(

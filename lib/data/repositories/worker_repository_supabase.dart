@@ -27,6 +27,33 @@ class WorkerRepositorySupabase implements WorkerRepository {
         'Content-Type': 'application/json',
       };
 
+  Future<Options> _authOptions({bool forceRefresh = false}) async {
+    var session = _supabase.auth.currentSession;
+    if (session == null) {
+      throw StateError('Your sign-in session is missing. Please sign in again.');
+    }
+    if (forceRefresh || session.isExpired) {
+      session = (await _supabase.auth.refreshSession()).session;
+    }
+    final token = session?.accessToken;
+    if (token == null || token.isEmpty) {
+      throw StateError('Your sign-in session expired. Please sign in again.');
+    }
+    return Options(headers: {
+      'Authorization': 'Bearer $token',
+      'Content-Type': 'application/json',
+    });
+  }
+
+  Future<Response<dynamic>> _getWithAuthRetry(String path) async {
+    try {
+      return await _http.get(path, options: await _authOptions());
+    } on DioException catch (error) {
+      if (error.response?.statusCode != 401) rethrow;
+      return _http.get(path, options: await _authOptions(forceRefresh: true));
+    }
+  }
+
   String _extractError(DioException e) {
     try {
       final data = e.response?.data;
@@ -91,10 +118,7 @@ class WorkerRepositorySupabase implements WorkerRepository {
   @override
   Future<List<dynamic>> getWorkers(String businessId) async {
     try {
-      final response = await _http.get(
-        '/workers/$businessId',
-        options: Options(headers: _headers),
-      );
+      final response = await _getWithAuthRetry('/workers/$businessId');
       return ((response.data['data'] as List?) ?? [])
           .whereType<Map>()
           .map((row) => _normalizeWorker(Map<String, dynamic>.from(row)))
