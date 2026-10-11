@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/repositories/sales_repository.dart';
 import '../../data/local/database_helper.dart';
 import '../../core/config/supabase_config.dart';
+import '../../services/supabase_auth_interceptor.dart';
 
 /// Supabase/Postgres-backed implementation of SalesRepository.
 ///
@@ -28,7 +29,9 @@ class SalesRepositorySupabase implements SalesRepository {
               receiveTimeout: const Duration(seconds: 15),
             )),
         _supabase = supabase ?? Supabase.instance.client,
-        _dbHelper = dbHelper ?? DatabaseHelper.instance;
+        _dbHelper = dbHelper ?? DatabaseHelper.instance {
+    installSupabaseAuthInterceptor(_http, _supabase);
+  }
 
   String? get _accessToken => _supabase.auth.currentSession?.accessToken;
 
@@ -40,7 +43,8 @@ class SalesRepositorySupabase implements SalesRepository {
   Future<Options> _authOptions({bool forceRefresh = false}) async {
     var session = _supabase.auth.currentSession;
     if (session == null) {
-      throw StateError('Your sign-in session is missing. Please sign in again.');
+      throw StateError(
+          'Your sign-in session is missing. Please sign in again.');
     }
     if (forceRefresh || session.isExpired) {
       session = (await _supabase.auth.refreshSession()).session;
@@ -58,12 +62,7 @@ class SalesRepositorySupabase implements SalesRepository {
   Future<Response<dynamic>> _requestWithAuthRetry(
     Future<Response<dynamic>> Function(Options options) request,
   ) async {
-    try {
-      return await request(await _authOptions());
-    } on DioException catch (error) {
-      if (error.response?.statusCode != 401) rethrow;
-      return request(await _authOptions(forceRefresh: true));
-    }
+    return request(await _authOptions());
   }
 
   String _extractError(DioException e) {
@@ -119,7 +118,8 @@ class SalesRepositorySupabase implements SalesRepository {
 
   /// Delete a sale with businessId context. The backend restores inventory
   /// and writes a `sale_deletions` audit row atomically as part of this call.
-  Future<Map<String, dynamic>?> deleteSaleForBusiness(String businessId, String saleId,
+  Future<Map<String, dynamic>?> deleteSaleForBusiness(
+      String businessId, String saleId,
       {String? reason}) async {
     try {
       final response = await _http.delete(
@@ -231,7 +231,8 @@ class SalesRepositorySupabase implements SalesRepository {
         'status': row['status'] ?? 'completed',
         'notes': row['notes'],
         'createdBy': row['created_by'] ?? '',
-        'createdAt': row['created_at']?.toString() ?? DateTime.now().toIso8601String(),
+        'createdAt':
+            row['created_at']?.toString() ?? DateTime.now().toIso8601String(),
         'updatedAt': row['updated_at']?.toString(),
         'syncStatus': 'synced',
         'storeId': row['store_id'],
@@ -280,8 +281,8 @@ class SalesRepositorySupabase implements SalesRepository {
       final saleId = row['id']?.toString() ?? '';
       final itemRows = saleId.isEmpty
           ? <Map<String, dynamic>>[]
-          : await _dbHelper.query('sale_items',
-              where: 'saleId = ?', whereArgs: [saleId]);
+          : await _dbHelper
+              .query('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
       result.add({
         ...Map<String, dynamic>.from(row),
         'items': itemRows.map((i) => Map<String, dynamic>.from(i)).toList(),
@@ -309,14 +310,17 @@ class SalesRepositorySupabase implements SalesRepository {
     // Report screen hard-failing with a timeout exception instead of just
     // taking a bit longer to load. This path is a background report fetch,
     // not a user-blocking action like checkout, so it can afford to wait.
-    final reportPageTimeout = Options(receiveTimeout: const Duration(seconds: 45));
+    final reportPageTimeout =
+        Options(receiveTimeout: const Duration(seconds: 45));
     final first = await _http.get(
       '/sales/$businessId',
       queryParameters: {...params, 'page': 1},
       options: reportPageTimeout.copyWith(headers: _headers),
     );
     final items = <dynamic>[...(first.data['data'] as List? ?? [])];
-    if (requestedLimit != null && requestedLimit > 0 && items.length >= requestedLimit) {
+    if (requestedLimit != null &&
+        requestedLimit > 0 &&
+        items.length >= requestedLimit) {
       return items.take(requestedLimit).toList();
     }
     final totalPages = first.data['pagination']?['totalPages'] as int? ?? 1;
@@ -328,8 +332,11 @@ class SalesRepositorySupabase implements SalesRepository {
       // causing unrelated requests across the whole app to time out. Batch
       // it instead.
       const batchSize = 5;
-      for (var batchStart = 2; batchStart <= totalPages; batchStart += batchSize) {
-        final batchEnd = (batchStart + batchSize - 1).clamp(batchStart, totalPages);
+      for (var batchStart = 2;
+          batchStart <= totalPages;
+          batchStart += batchSize) {
+        final batchEnd =
+            (batchStart + batchSize - 1).clamp(batchStart, totalPages);
         final batch = await Future.wait([
           for (var page = batchStart; page <= batchEnd; page++)
             _http.get(
@@ -341,7 +348,9 @@ class SalesRepositorySupabase implements SalesRepository {
         for (final response in batch) {
           items.addAll(response.data['data'] as List? ?? []);
         }
-        if (requestedLimit != null && requestedLimit > 0 && items.length >= requestedLimit) {
+        if (requestedLimit != null &&
+            requestedLimit > 0 &&
+            items.length >= requestedLimit) {
           return items.take(requestedLimit).toList();
         }
       }
@@ -519,9 +528,8 @@ class SalesRepositorySupabase implements SalesRepository {
             'pricing_mode': item['pricingMode'] ?? item['pricing_mode'],
             'inventory_unit': item['inventoryUnit'] ?? item['inventory_unit'],
             'sale_unit': item['saleUnit'] ?? item['sale_unit'],
-            'sale_unit_multiplier': item['saleUnitMultiplier'] ??
-                item['sale_unit_multiplier'] ??
-                1,
+            'sale_unit_multiplier':
+                item['saleUnitMultiplier'] ?? item['sale_unit_multiplier'] ?? 1,
           });
         }
       }
@@ -533,7 +541,8 @@ class SalesRepositorySupabase implements SalesRepository {
       'worker_id': saleData['workerId']?.toString(),
       'worker_name': saleData['workerName']?.toString(),
       'total_amount': (saleData['totalAmount'] ?? saleData['total'] ?? 0),
-      'discount_amount': (saleData['discountAmount'] ?? saleData['discount'] ?? 0),
+      'discount_amount':
+          (saleData['discountAmount'] ?? saleData['discount'] ?? 0),
       'tax_amount': (saleData['taxAmount'] ?? saleData['tax'] ?? 0),
       'final_amount': (saleData['finalAmount'] ?? saleData['total'] ?? 0),
       'payment_method': saleData['paymentMethod']?.toString() ?? 'Cash',
@@ -562,8 +571,9 @@ class SalesRepositorySupabase implements SalesRepository {
       final paymentMethod = saleData['paymentMethod']?.toString() ?? 'Cash';
       final status = saleData['status']?.toString() ?? 'completed';
       final notes = saleData['notes']?.toString();
-      final createdBy =
-          saleData['createdBy']?.toString() ?? saleData['createdById']?.toString() ?? '';
+      final createdBy = saleData['createdBy']?.toString() ??
+          saleData['createdById']?.toString() ??
+          '';
       final createdAt = DateTime.now().toIso8601String();
       final updatedAt = DateTime.now().toIso8601String();
 
@@ -571,18 +581,21 @@ class SalesRepositorySupabase implements SalesRepository {
         'id': saleId,
         'businessId': businessId,
         'customerId': customerId,
-        'totalAmount': (saleData['totalAmount'] ?? saleData['total'] ?? 0).toString(),
-        'discountAmount': (saleData['discountAmount'] ?? saleData['discount'] ?? 0).toString(),
+        'totalAmount':
+            (saleData['totalAmount'] ?? saleData['total'] ?? 0).toString(),
+        'discountAmount':
+            (saleData['discountAmount'] ?? saleData['discount'] ?? 0)
+                .toString(),
         'taxAmount': (saleData['taxAmount'] ?? saleData['tax'] ?? 0).toString(),
-        'finalAmount': (saleData['finalAmount'] ?? saleData['total'] ?? 0).toString(),
+        'finalAmount':
+            (saleData['finalAmount'] ?? saleData['total'] ?? 0).toString(),
         'paymentMethod': paymentMethod,
         if (saleData['paymentBreakdown'] != null ||
             saleData['payment_breakdown'] != null)
           'paymentBreakdown': saleData['paymentBreakdown'] is String
               ? saleData['paymentBreakdown']
               : jsonEncode(
-                  saleData['paymentBreakdown'] ??
-                      saleData['payment_breakdown'],
+                  saleData['paymentBreakdown'] ?? saleData['payment_breakdown'],
                 ),
         'saleType': saleData['saleType']?.toString() ??
             saleData['sale_type']?.toString() ??
@@ -613,13 +626,16 @@ class SalesRepositorySupabase implements SalesRepository {
               : double.tryParse(itemMap['unitPrice']?.toString() ?? '0') ?? 0.0;
           final total = (itemMap['total'] is num)
               ? (itemMap['total'] as num).toDouble()
-              : double.tryParse(itemMap['total']?.toString() ?? '0') ?? (unitPrice * quantity);
+              : double.tryParse(itemMap['total']?.toString() ?? '0') ??
+                  (unitPrice * quantity);
 
           await _dbHelper.insert('sale_items', {
             'id': itemId,
             'saleId': saleId,
             'productId': itemMap['productId']?.toString() ?? '',
-            'productName': itemMap['productName']?.toString() ?? itemMap['name']?.toString() ?? '',
+            'productName': itemMap['productName']?.toString() ??
+                itemMap['name']?.toString() ??
+                '',
             'quantity': quantity,
             'unitPrice': unitPrice,
             'discount': (itemMap['discount'] ?? 0).toString(),
@@ -637,12 +653,12 @@ class SalesRepositorySupabase implements SalesRepository {
   @override
   Future<List<Map<String, dynamic>>> getPendingOfflineSales() async {
     try {
-      final pending = await _dbHelper.query('sales',
-          where: 'syncStatus = ?', whereArgs: ['pending']);
-      final failed = await _dbHelper.query('sales',
-          where: 'syncStatus = ?', whereArgs: ['failed']);
-      final errored = await _dbHelper.query('sales',
-          where: 'syncStatus = ?', whereArgs: ['error']);
+      final pending = await _dbHelper
+          .query('sales', where: 'syncStatus = ?', whereArgs: ['pending']);
+      final failed = await _dbHelper
+          .query('sales', where: 'syncStatus = ?', whereArgs: ['failed']);
+      final errored = await _dbHelper
+          .query('sales', where: 'syncStatus = ?', whereArgs: ['error']);
       final sales = [...pending, ...failed, ...errored];
 
       // This query only ever touched the `sales` table - the returned rows
@@ -657,8 +673,8 @@ class SalesRepositorySupabase implements SalesRepository {
         final saleId = sale['id']?.toString() ?? '';
         final mutable = Map<String, dynamic>.from(sale);
         if (saleId.isNotEmpty) {
-          final items = await _dbHelper.query('sale_items',
-              where: 'saleId = ?', whereArgs: [saleId]);
+          final items = await _dbHelper
+              .query('sale_items', where: 'saleId = ?', whereArgs: [saleId]);
           mutable['items'] = items;
         }
         result.add(mutable);

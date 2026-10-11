@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/repositories/inventory_repository.dart';
 import '../../data/local/database_helper.dart';
 import '../../core/config/supabase_config.dart';
+import '../../services/supabase_auth_interceptor.dart';
 
 /// Supabase/Postgres-backed implementation of InventoryRepository.
 /// Replaces InventoryRepositoryImpl (Firebase Firestore).
@@ -25,7 +26,9 @@ class InventoryRepositorySupabase implements InventoryRepository {
               receiveTimeout: const Duration(seconds: 15),
             )),
         _supabase = supabase ?? Supabase.instance.client,
-        _dbHelper = dbHelper ?? DatabaseHelper.instance;
+        _dbHelper = dbHelper ?? DatabaseHelper.instance {
+    installSupabaseAuthInterceptor(_http, _supabase);
+  }
 
   double? _toDouble(dynamic value) {
     if (value == null) return null;

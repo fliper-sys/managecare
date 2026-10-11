@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/config/supabase_config.dart';
+import '../../../services/supabase_auth_interceptor.dart';
 import '../../../providers/drink_provider.dart';
 
 DateTime _parseDrinkRepoDate(dynamic value) {
@@ -23,14 +24,17 @@ class DrinkRepositoryImpl implements DrinkRepository {
   final Dio _http;
   final SupabaseClient _supabase;
 
-  DrinkRepositoryImpl({required this.businessId, Dio? http, SupabaseClient? supabase})
+  DrinkRepositoryImpl(
+      {required this.businessId, Dio? http, SupabaseClient? supabase})
       : _http = http ??
             Dio(BaseOptions(
               baseUrl: '${SupabaseConfig.url}/api',
               connectTimeout: const Duration(seconds: 10),
               receiveTimeout: const Duration(seconds: 30),
             )),
-        _supabase = supabase ?? Supabase.instance.client;
+        _supabase = supabase ?? Supabase.instance.client {
+    installSupabaseAuthInterceptor(_http, _supabase);
+  }
 
   String? get _accessToken => _supabase.auth.currentSession?.accessToken;
   Map<String, dynamic> get _headers => {
@@ -46,7 +50,7 @@ class DrinkRepositoryImpl implements DrinkRepository {
       if (data != null) return data.toString();
     } catch (_) {}
     return 'HTTP ${e.response?.statusCode ?? 'network'}: '
-      '${e.message ?? e.error ?? 'Unknown error'}';
+        '${e.message ?? e.error ?? 'Unknown error'}';
   }
 
   static const _pollInterval = Duration(seconds: 15);
@@ -54,7 +58,9 @@ class DrinkRepositoryImpl implements DrinkRepository {
   // ---------- Drinks / inventory ----------
 
   DrinkItem _drinkFromRow(Map<String, dynamic> row) {
-    final metadata = (row['metadata'] is Map) ? Map<String, dynamic>.from(row['metadata'] as Map) : <String, dynamic>{};
+    final metadata = (row['metadata'] is Map)
+        ? Map<String, dynamic>.from(row['metadata'] as Map)
+        : <String, dynamic>{};
     return DrinkItem(
       id: (row['id'] ?? '').toString(),
       name: (row['name'] ?? '').toString(),
@@ -101,7 +107,8 @@ class DrinkRepositoryImpl implements DrinkRepository {
       return rows
           .whereType<Map>()
           .map((r) => Map<String, dynamic>.from(r))
-          .where((row) => DrinkProvider.isDrinkCategory((row['category'] ?? '').toString()))
+          .where((row) =>
+              DrinkProvider.isDrinkCategory((row['category'] ?? '').toString()))
           .map((r) => _drinkFromRow(r))
           .toList();
     } on DioException catch (e) {
@@ -125,8 +132,11 @@ class DrinkRepositoryImpl implements DrinkRepository {
       // dozens of simultaneous requests can exhaust the backend's DB
       // connection pool and stall unrelated requests app-wide.
       const batchSize = 5;
-      for (var batchStart = 2; batchStart <= totalPages; batchStart += batchSize) {
-        final batchEnd = (batchStart + batchSize - 1).clamp(batchStart, totalPages);
+      for (var batchStart = 2;
+          batchStart <= totalPages;
+          batchStart += batchSize) {
+        final batchEnd =
+            (batchStart + batchSize - 1).clamp(batchStart, totalPages);
         final batch = await Future.wait([
           for (var page = batchStart; page <= batchEnd; page++)
             _http.get(
@@ -158,12 +168,17 @@ class DrinkRepositoryImpl implements DrinkRepository {
   // ---------- Inventory (bottle/carton stock) ----------
 
   StockItem _stockFromRow(Map<String, dynamic> row) {
-    final metadata = (row['metadata'] is Map) ? Map<String, dynamic>.from(row['metadata'] as Map) : <String, dynamic>{};
+    final metadata = (row['metadata'] is Map)
+        ? Map<String, dynamic>.from(row['metadata'] as Map)
+        : <String, dynamic>{};
     final bottles = int.tryParse('${row['quantity'] ?? ''}') ??
-      int.tryParse('${metadata['bottles'] ?? ''}') ??
-      0;
+        int.tryParse('${metadata['bottles'] ?? ''}') ??
+        0;
     final cartons = int.tryParse('${metadata['cartons'] ?? ''}') ?? 0;
-    return StockItem(drinkId: (row['id'] ?? '').toString(), bottles: bottles, cartons: cartons);
+    return StockItem(
+        drinkId: (row['id'] ?? '').toString(),
+        bottles: bottles,
+        cartons: cartons);
   }
 
   @override
@@ -173,7 +188,8 @@ class DrinkRepositoryImpl implements DrinkRepository {
       return rows
           .whereType<Map>()
           .map((r) => Map<String, dynamic>.from(r))
-          .where((row) => DrinkProvider.isDrinkCategory((row['category'] ?? '').toString()))
+          .where((row) =>
+              DrinkProvider.isDrinkCategory((row['category'] ?? '').toString()))
           .map((r) => _stockFromRow(r))
           .toList();
     } on DioException catch (e) {
@@ -212,7 +228,8 @@ class DrinkRepositoryImpl implements DrinkRepository {
   @override
   Future<void> deleteDrink(String drinkId) async {
     try {
-      await _http.delete('/inventory/$businessId/$drinkId', options: Options(headers: _headers));
+      await _http.delete('/inventory/$businessId/$drinkId',
+          options: Options(headers: _headers));
     } on DioException catch (e) {
       throw Exception('Failed to delete drink: ${_extractError(e)}');
     }
@@ -221,7 +238,8 @@ class DrinkRepositoryImpl implements DrinkRepository {
   @override
   Future<void> deleteInventory(String drinkId) async {
     try {
-      await _http.delete('/inventory/$businessId/$drinkId', options: Options(headers: _headers));
+      await _http.delete('/inventory/$businessId/$drinkId',
+          options: Options(headers: _headers));
     } on DioException catch (e) {
       throw Exception('Failed to delete inventory: ${_extractError(e)}');
     }
@@ -231,7 +249,8 @@ class DrinkRepositoryImpl implements DrinkRepository {
 
   Order _orderFromRow(Map<String, dynamic> row) {
     final lines = (row['lines'] as List<dynamic>? ?? const [])
-        .map((item) => OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
+        .map((item) =>
+            OrderLine.fromJson(Map<String, dynamic>.from(item as Map)))
         .toList();
     return Order(
       id: (row['id'] ?? '').toString(),
@@ -262,9 +281,12 @@ class DrinkRepositoryImpl implements DrinkRepository {
   @override
   Future<List<Order>> fetchOrders() async {
     try {
-      final response = await _http.get('/drink/$businessId/orders', options: Options(headers: _headers));
+      final response = await _http.get('/drink/$businessId/orders',
+          options: Options(headers: _headers));
       final rows = (response.data['data'] as List?) ?? [];
-      return rows.map((r) => _orderFromRow(Map<String, dynamic>.from(r as Map))).toList();
+      return rows
+          .map((r) => _orderFromRow(Map<String, dynamic>.from(r as Map)))
+          .toList();
     } on DioException catch (e) {
       throw Exception('Failed to fetch orders: ${_extractError(e)}');
     }
@@ -330,7 +352,7 @@ class DrinkRepositoryImpl implements DrinkRepository {
       'tax': data['tax'],
       'discount': data['discount'],
       'total': data['total'],
-        'converted_at': data['convertedAt'] is DateTime
+      'converted_at': data['convertedAt'] is DateTime
           ? (data['convertedAt'] as DateTime).toIso8601String()
           : data['convertedAt']?.toString(),
       'linked_sale_id': data['linkedSaleId'],
@@ -368,9 +390,12 @@ class DrinkRepositoryImpl implements DrinkRepository {
   @override
   Future<List<BarInvoice>> fetchInvoices() async {
     try {
-      final response = await _http.get('/drink/$businessId/invoices', options: Options(headers: _headers));
+      final response = await _http.get('/drink/$businessId/invoices',
+          options: Options(headers: _headers));
       final rows = (response.data['data'] as List?) ?? [];
-      final invoices = rows.map((r) => _invoiceFromRow(Map<String, dynamic>.from(r as Map))).toList();
+      final invoices = rows
+          .map((r) => _invoiceFromRow(Map<String, dynamic>.from(r as Map)))
+          .toList();
       invoices.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return invoices;
     } on DioException catch (e) {
@@ -395,9 +420,13 @@ class DrinkRepositoryImpl implements DrinkRepository {
   @override
   Future<List<String>> fetchBarTables() async {
     try {
-      final response = await _http.get('/drink/$businessId/bar-tables', options: Options(headers: _headers));
+      final response = await _http.get('/drink/$businessId/bar-tables',
+          options: Options(headers: _headers));
       final rows = (response.data['data'] as List?) ?? [];
-      return rows.map((r) => (r['label'] ?? '').toString()).where((l) => l.isNotEmpty).toList();
+      return rows
+          .map((r) => (r['label'] ?? '').toString())
+          .where((l) => l.isNotEmpty)
+          .toList();
     } on DioException catch (e) {
       throw Exception('Failed to fetch bar tables: ${_extractError(e)}');
     }
@@ -419,7 +448,9 @@ class DrinkRepositoryImpl implements DrinkRepository {
   @override
   Future<void> deleteBarTable(String label) async {
     try {
-      await _http.delete('/drink/$businessId/bar-tables/${Uri.encodeComponent(label)}', options: Options(headers: _headers));
+      await _http.delete(
+          '/drink/$businessId/bar-tables/${Uri.encodeComponent(label)}',
+          options: Options(headers: _headers));
     } on DioException catch (e) {
       throw Exception('Failed to delete bar table: ${_extractError(e)}');
     }
@@ -430,7 +461,8 @@ class DrinkRepositoryImpl implements DrinkRepository {
   @override
   Future<Map<String, dynamic>> createSale(Map<String, dynamic> saleData) async {
     try {
-      final items = (saleData['items'] as List<dynamic>? ?? const []).map((raw) {
+      final items =
+          (saleData['items'] as List<dynamic>? ?? const []).map((raw) {
         final item = Map<String, dynamic>.from(raw as Map);
         return {
           'product_id': item['productId'] ?? item['product_id'],
@@ -450,11 +482,18 @@ class DrinkRepositoryImpl implements DrinkRepository {
           'store_id': saleData['storeId'] ?? saleData['store_id'],
           'worker_id': saleData['workerId'] ?? saleData['worker_id'],
           'worker_name': saleData['workerName'] ?? saleData['worker_name'],
-          'total_amount': saleData['subtotal'] ?? saleData['total_amount'] ?? saleData['total'],
-          'discount_amount': saleData['discount'] ?? saleData['discount_amount'] ?? 0,
+          'total_amount': saleData['subtotal'] ??
+              saleData['total_amount'] ??
+              saleData['total'],
+          'discount_amount':
+              saleData['discount'] ?? saleData['discount_amount'] ?? 0,
           'tax_amount': saleData['tax'] ?? saleData['tax_amount'] ?? 0,
-          'final_amount': saleData['total'] ?? saleData['finalAmount'] ?? saleData['final_amount'] ?? saleData['totalAmount'],
-          'payment_method': saleData['paymentMethod'] ?? saleData['payment_method'],
+          'final_amount': saleData['total'] ??
+              saleData['finalAmount'] ??
+              saleData['final_amount'] ??
+              saleData['totalAmount'],
+          'payment_method':
+              saleData['paymentMethod'] ?? saleData['payment_method'],
           'status': saleData['status'] ?? 'completed',
           'notes': saleData['notes'],
           'created_by': saleData['workerId'],
@@ -502,7 +541,8 @@ class DrinkRepositoryImpl implements DrinkRepository {
   }
 
   @override
-  Future<void> mergeCustomerMetadata(String customerId, Map<String, dynamic> metadata) async {
+  Future<void> mergeCustomerMetadata(
+      String customerId, Map<String, dynamic> metadata) async {
     try {
       await _http.patch(
         '/customers/$businessId/$customerId/metadata',
@@ -510,7 +550,8 @@ class DrinkRepositoryImpl implements DrinkRepository {
         options: Options(headers: _headers),
       );
     } on DioException catch (e) {
-      throw Exception('Failed to update customer metadata: ${_extractError(e)}');
+      throw Exception(
+          'Failed to update customer metadata: ${_extractError(e)}');
     }
   }
 

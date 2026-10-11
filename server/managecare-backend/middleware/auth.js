@@ -3,30 +3,102 @@
  * Verifies JWT tokens issued by GoTrue (Supabase Auth).
  */
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { getRequestUserId, runWithUser } = require('./db_request_context');
 
-function verifyAccessToken(token) {
-  const secrets = [process.env.JWT_SECRET, process.env.JWT_SECRET_PREVIOUS]
-    .filter((secret, index, all) => secret && all.indexOf(secret) === index);
-  let lastError;
+const DEFAULT_JWKS_URL = 'http://127.0.0.1:8000/auth/v1/.well-known/jwks.json';
+const JWKS_MAX_AGE_MS = 10 * 60 * 1000;
+let jwksCache;
+let jwksRequest;
 
-  for (const secret of secrets) {
-    try {
-      return jwt.verify(token, secret, { algorithms: ['HS256'] });
-    } catch (error) {
-      if (error.name === 'TokenExpiredError') throw error;
-      lastError = error;
+function getSigningSecrets() {
+  return [process.env.JWT_SECRET, process.env.JWT_SECRET_PREVIOUS]
+    .filter((secret, index, all) => secret && all.indexOf(secret) === index);
+}
+
+async function loadJwks({ forceRefresh = false } = {}) {
+  if (!forceRefresh && jwksCache && jwksCache.expiresAt > Date.now()) {
+    return jwksCache.keys;
+  }
+  if (jwksRequest) return jwksRequest;
+
+  jwksRequest = (async () => {
+    const response = await fetch(
+      process.env.SUPABASE_JWKS_URL || DEFAULT_JWKS_URL,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!response.ok) {
+      throw new Error(`Supabase JWKS request failed (${response.status})`);
     }
+    const body = await response.json();
+    if (!Array.isArray(body.keys)) throw new Error('Supabase JWKS response is invalid');
+    const maxAge = Number(response.headers.get('cache-control')?.match(/max-age=(\d+)/)?.[1]);
+    const ttl = Number.isFinite(maxAge) && maxAge > 0
+      ? Math.min(maxAge * 1000, JWKS_MAX_AGE_MS)
+      : JWKS_MAX_AGE_MS;
+    jwksCache = { keys: body.keys, expiresAt: Date.now() + ttl };
+    return jwksCache.keys;
+  })();
+
+  try {
+    return await jwksRequest;
+  } finally {
+    jwksRequest = null;
+  }
+}
+
+async function verifyAccessToken(token) {
+  const completeToken = jwt.decode(token, { complete: true });
+  const algorithm = completeToken?.header?.alg;
+
+  if (algorithm === 'HS256') {
+    let lastError;
+    for (const secret of getSigningSecrets()) {
+      try {
+        return jwt.verify(token, secret, { algorithms: ['HS256'] });
+      } catch (error) {
+        if (error.name === 'TokenExpiredError') throw error;
+        lastError = error;
+      }
+    }
+    throw lastError || new Error('JWT signing secret is not configured');
   }
 
-  throw lastError || new Error('JWT signing secret is not configured');
+  if (algorithm !== 'ES256' || !completeToken.header.kid) {
+    throw new jwt.JsonWebTokenError('Unsupported or unidentified token signing key');
+  }
+
+  let keys = await loadJwks();
+  let jwk = keys.find((key) => key.kid === completeToken.header.kid && key.alg === algorithm);
+  if (!jwk) {
+    keys = await loadJwks({ forceRefresh: true });
+    jwk = keys.find((key) => key.kid === completeToken.header.kid && key.alg === algorithm);
+  }
+  if (!jwk) throw new jwt.JsonWebTokenError('Unknown token signing key');
+
+  const publicKey = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+  return jwt.verify(token, publicKey, { algorithms: ['ES256'] });
+}
+
+function verifyHmacSignature(value, signatureHex) {
+  if (typeof signatureHex !== 'string' || !/^[a-f0-9]{64}$/i.test(signatureHex)) {
+    return false;
+  }
+  const actual = Buffer.from(signatureHex, 'hex');
+  for (const secret of getSigningSecrets()) {
+    const expected = crypto.createHmac('sha256', secret).update(value).digest();
+    if (actual.length === expected.length && crypto.timingSafeEqual(actual, expected)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
  * Express middleware: validates Bearer token and attaches user to req.
  * If using GoTrue JWTs, they use HS256 with the JWT_SECRET from env.
  */
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     return res.status(401).json({ error: 'No authorization header' });
@@ -41,7 +113,7 @@ function authMiddleware(req, res, next) {
 
   try {
     // Keep existing client sessions valid briefly during signing-key rotation.
-    const decoded = verifyAccessToken(token);
+    const decoded = await verifyAccessToken(token);
 
     // GoTrue JWTs have `sub` (user id), `role`, `email`, and `aud`
     req.user = {
@@ -197,6 +269,8 @@ function requireBusinessOwner(req, res, next) {
 }
 
 module.exports = {
+  verifyAccessToken,
+  verifyHmacSignature,
   authMiddleware,
   requireAuth,
   requireRole,

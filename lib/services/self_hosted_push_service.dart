@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/config/supabase_config.dart';
+import 'supabase_auth_interceptor.dart';
 
 /// Self-hosted push notification service.
 ///
@@ -22,15 +23,22 @@ import '../core/config/supabase_config.dart';
 ///
 class SelfHostedPushService {
   SelfHostedPushService._internal();
-  static final SelfHostedPushService instance = SelfHostedPushService._internal();
+  static final SelfHostedPushService instance =
+      SelfHostedPushService._internal();
 
   // ── Dependencies ──────────────────────────────────────────
-  final Dio _dio = Dio(BaseOptions(
-    baseUrl: SupabaseConfig.url,
-    connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 10),
-  ));
   final SupabaseClient _supabase = Supabase.instance.client;
+  late final Dio _dio = _createDio();
+
+  Dio _createDio() {
+    final dio = Dio(BaseOptions(
+      baseUrl: SupabaseConfig.url,
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 10),
+    ));
+    installSupabaseAuthInterceptor(dio, _supabase);
+    return dio;
+  }
 
   // ── State ─────────────────────────────────────────────────
   io.Socket? _socket;
@@ -60,7 +68,8 @@ class SelfHostedPushService {
       await _configureUser(_supabase.auth.currentUser?.id);
 
       _isInitialized = true;
-      debugPrint('[SelfHostedPush] Initialized (device: $_deviceId, user: $_userId)');
+      debugPrint(
+          '[SelfHostedPush] Initialized (device: $_deviceId, user: $_userId)');
     } catch (e) {
       debugPrint('[SelfHostedPush] Init error: $e');
     }
@@ -96,7 +105,8 @@ class SelfHostedPushService {
 
     if (_deviceId == null) {
       // Generate a UUID-like device id
-      _deviceId = 'dev_${DateTime.now().millisecondsSinceEpoch}_${_randomString(12)}';
+      _deviceId =
+          'dev_${DateTime.now().millisecondsSinceEpoch}_${_randomString(12)}';
       await prefs.setString('push_device_id', _deviceId!);
     }
 
@@ -254,7 +264,8 @@ class SelfHostedPushService {
       );
 
       // Update local state
-      final idx = _localNotifications.indexWhere((n) => n['id'] == notificationId);
+      final idx =
+          _localNotifications.indexWhere((n) => n['id'] == notificationId);
       if (idx != -1) {
         _localNotifications[idx]['is_read'] = true;
       }

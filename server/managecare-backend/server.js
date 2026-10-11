@@ -48,7 +48,7 @@ const pushRoutes = require('./routes/push');
 const administrativeRoutes = require('./routes/administrative');
 
 // ── Middleware imports ──────────────────────────────────────
-const { authMiddleware, requireAuth, requireBusinessMembership } = require('./middleware/auth');
+const { authMiddleware, requireAuth, requireBusinessMembership, verifyAccessToken, verifyHmacSignature } = require('./middleware/auth');
 const { bindPoolToRequestUser, getRequestUserId, runWithUser } = require('./middleware/db_request_context');
 const { errorHandler } = require('./middleware/validation');
 const crypto = require('crypto');
@@ -325,13 +325,10 @@ app.get('/api/public-files', async (req, res) => {
 
   if (key.split('/')[1] === 'administrative') {
     const expires = Number(req.query.expires);
-    const signature = Buffer.from(req.query.signature?.toString() || '', 'hex');
-    const expected = crypto.createHmac('sha256', process.env.JWT_SECRET)
-      .update(`${bucket}\n${key}\n${expires}`)
-      .digest();
+    const signature = req.query.signature?.toString() || '';
     const now = Math.floor(Date.now() / 1000);
     if (!Number.isSafeInteger(expires) || expires <= now || expires > now + 600 ||
-        signature.length !== expected.length || !crypto.timingSafeEqual(signature, expected)) {
+        !verifyHmacSignature(`${bucket}\n${key}\n${expires}`, signature)) {
       return res.status(403).send('File link is invalid or expired');
     }
   }
@@ -420,12 +417,12 @@ const quoteIdentifier = (value) => {
   return `"${value}"`;
 };
 
-function getBearerUser(req) {
+async function getBearerUser(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   try {
     const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = await verifyAccessToken(token);
     return {
       id: decoded.sub || decoded.id,
       email: decoded.email,
@@ -651,7 +648,7 @@ app.get('/auth/v1/user', async (req, res) => {
   }
   try {
     const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = await verifyAccessToken(token);
     const userId = decoded.sub || decoded.id;
     const result = await pool.query(
       'SELECT id, email, full_name, phone_number, created_at, updated_at FROM profiles WHERE id = $1',
@@ -680,7 +677,7 @@ app.put('/auth/v1/user', async (req, res) => {
   }
   try {
     const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = await verifyAccessToken(token);
     const userId = decoded.sub || decoded.id;
     const { email, password, data } = req.body;
     const updates = {};
@@ -935,7 +932,7 @@ async function isBusinessOwner(userId, businessId) {
 // Requires auth on every /rest/v1/:table request, then enforces per-table
 // tenant isolation before the request reaches the generic query builder.
 async function restAuthorize(req, res, next) {
-  const bearerUser = getBearerUser(req);
+  const bearerUser = await getBearerUser(req);
   if (!bearerUser) {
     return res.status(401).json({ error: 'Authentication required' });
   }
@@ -1071,7 +1068,7 @@ async function restAuthorize(req, res, next) {
 }
 
 app.post('/rest/v1/rpc/create_business_with_owner', authMiddleware, requireAuth, async (req, res) => {
-  const bearerUser = getBearerUser(req);
+  const bearerUser = await getBearerUser(req);
   if (!bearerUser) {
     return res.status(401).json({ error: 'Authentication required' });
   }
@@ -1170,7 +1167,7 @@ app.post('/rest/v1/rpc/create_business_with_owner', authMiddleware, requireAuth,
 });
 
 app.post('/rest/v1/rpc/get_daily_sales_summary', authMiddleware, requireAuth, async (req, res) => {
-  const bearerUser = getBearerUser(req);
+  const bearerUser = await getBearerUser(req);
   if (!bearerUser) {
     return res.status(401).json({ error: 'Authentication required' });
   }

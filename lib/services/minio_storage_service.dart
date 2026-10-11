@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide MultipartFile;
 import '../core/config/supabase_config.dart';
+import 'supabase_auth_interceptor.dart';
 
 /// MinIO-backed storage service using the self-hosted Express API upload
 /// endpoint at backend.managecare.info/api/upload/:businessId.
@@ -27,7 +28,9 @@ class MinioStorageService {
           receiveTimeout: const Duration(seconds: 30),
           sendTimeout: const Duration(seconds: 60),
         )),
-        _supabase = Supabase.instance.client;
+        _supabase = Supabase.instance.client {
+    installSupabaseAuthInterceptor(_http, _supabase);
+  }
 
   String? get _accessToken => _supabase.auth.currentSession?.accessToken;
   Map<String, dynamic> get _headers => {

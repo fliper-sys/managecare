@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/repositories/business_repository.dart';
 import '../../core/config/supabase_config.dart';
+import '../../services/supabase_auth_interceptor.dart';
 
 /// Supabase/Postgres-backed implementation of BusinessRepository.
 ///
@@ -20,7 +21,9 @@ class BusinessRepositorySupabase implements BusinessRepository {
               connectTimeout: const Duration(seconds: 10),
               receiveTimeout: const Duration(seconds: 15),
             )),
-        _supabase = supabase ?? Supabase.instance.client;
+        _supabase = supabase ?? Supabase.instance.client {
+    installSupabaseAuthInterceptor(_http, _supabase);
+  }
 
   String? get _accessToken => _supabase.auth.currentSession?.accessToken;
   Map<String, dynamic> get _headers => {
@@ -40,17 +43,13 @@ class BusinessRepositorySupabase implements BusinessRepository {
   @override
   Future<dynamic> getBusiness(String businessId) async {
     try {
-      final response = await _supabase
-          .from('businesses')
-          .select('''
+      final response = await _supabase.from('businesses').select('''
             id, name, business_type, owner_id, address, phone, email,
             currency, logo_url, store_ids, is_active,
             subscription_tier, subscription_start_date, subscription_end_date,
             is_subscription_active, subscription_plan,
             created_at, updated_at
-          ''')
-          .eq('id', businessId)
-          .maybeSingle();
+          ''').eq('id', businessId).maybeSingle();
       return response;
     } catch (e) {
       // Fallback to API route
@@ -83,8 +82,7 @@ class BusinessRepositorySupabase implements BusinessRepository {
           if (businessId != null) 'id': businessId,
           'name': businessData['name'] ?? 'My Business',
           'business_type': businessData['businessType'] ?? 'retail',
-          'owner_id':
-              businessData['ownerId'] ?? _supabase.auth.currentUser?.id,
+          'owner_id': businessData['ownerId'] ?? _supabase.auth.currentUser?.id,
           'address': businessData['address'],
           'phone': businessData['phone'],
           'email': businessData['email'],
@@ -107,10 +105,8 @@ class BusinessRepositorySupabase implements BusinessRepository {
           'business_type': businessData['businessType'],
         if (businessData.containsKey('address'))
           'address': businessData['address'],
-        if (businessData.containsKey('phone'))
-          'phone': businessData['phone'],
-        if (businessData.containsKey('email'))
-          'email': businessData['email'],
+        if (businessData.containsKey('phone')) 'phone': businessData['phone'],
+        if (businessData.containsKey('email')) 'email': businessData['email'],
         if (businessData.containsKey('currency'))
           'currency': businessData['currency'],
         if (businessData.containsKey('logoUrl') ||
@@ -118,8 +114,7 @@ class BusinessRepositorySupabase implements BusinessRepository {
           'logo_url': businessData['logoUrl'] ?? businessData['logo_url'],
         if (businessData.containsKey('isActive') ||
             businessData.containsKey('is_active'))
-          'is_active':
-              businessData['isActive'] ?? businessData['is_active'],
+          'is_active': businessData['isActive'] ?? businessData['is_active'],
         if (businessData.containsKey('businessType'))
           'business_type': businessData['businessType'],
         'updated_at': DateTime.now().toIso8601String(),
@@ -133,10 +128,10 @@ class BusinessRepositorySupabase implements BusinessRepository {
   Future<void> deleteBusiness(String businessId) async {
     try {
       // Soft delete
-      await _supabase
-          .from('businesses')
-          .update({'is_active': false, 'updated_at': DateTime.now().toIso8601String()})
-          .eq('id', businessId);
+      await _supabase.from('businesses').update({
+        'is_active': false,
+        'updated_at': DateTime.now().toIso8601String()
+      }).eq('id', businessId);
     } catch (e) {
       throw Exception('Failed to delete business: $e');
     }
@@ -176,4 +171,3 @@ class BusinessRepositorySupabase implements BusinessRepository {
     }
   }
 }
-

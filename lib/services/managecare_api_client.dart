@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/config/supabase_config.dart';
+import 'supabase_auth_interceptor.dart';
 
 /// Thrown when the backend returns a non-2xx response.
 class ManagecareApiException implements Exception {
@@ -27,13 +28,31 @@ class ManagecareApiClient {
 
   static const String _baseUrl = SupabaseConfig.url;
 
-  String? get _accessToken =>
-      Supabase.instance.client.auth.currentSession?.accessToken;
+  final SupabaseSessionTokens _tokens =
+      SupabaseSessionTokens(Supabase.instance.client);
 
-  Map<String, String> get _headers => {
+  Map<String, String> _headers(String? token) => {
         'Content-Type': 'application/json',
-        if (_accessToken != null) 'Authorization': 'Bearer $_accessToken',
+        if (token != null) 'Authorization': 'Bearer $token',
       };
+
+  Future<http.Response> _send(
+    Future<http.Response> Function(String? token) request,
+  ) async {
+    final token = await _tokens.accessToken();
+    final response = await request(token);
+    if (response.statusCode != 401) return response;
+    String? refreshed;
+    try {
+      refreshed = await _tokens.accessToken(forceRefresh: true);
+    } catch (_) {
+      return response;
+    }
+    if (refreshed == null || refreshed.isEmpty || refreshed == token) {
+      return response;
+    }
+    return request(refreshed);
+  }
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {
     final cleanQuery = query?.map(
@@ -62,39 +81,49 @@ class ManagecareApiClient {
   }
 
   Future<dynamic> get(String path, {Map<String, dynamic>? query}) async {
-    final response = await http.get(_uri(path, query), headers: _headers);
+    final response = await _send(
+      (token) => http.get(_uri(path, query), headers: _headers(token)),
+    );
     return _decode(response);
   }
 
   Future<dynamic> post(String path, {Object? body}) async {
-    final response = await http.post(
-      _uri(path),
-      headers: _headers,
-      body: body != null ? jsonEncode(body) : null,
+    final response = await _send(
+      (token) => http.post(
+        _uri(path),
+        headers: _headers(token),
+        body: body != null ? jsonEncode(body) : null,
+      ),
     );
     return _decode(response);
   }
 
   Future<dynamic> put(String path, {Object? body}) async {
-    final response = await http.put(
-      _uri(path),
-      headers: _headers,
-      body: body != null ? jsonEncode(body) : null,
+    final response = await _send(
+      (token) => http.put(
+        _uri(path),
+        headers: _headers(token),
+        body: body != null ? jsonEncode(body) : null,
+      ),
     );
     return _decode(response);
   }
 
   Future<dynamic> patch(String path, {Object? body}) async {
-    final response = await http.patch(
-      _uri(path),
-      headers: _headers,
-      body: body != null ? jsonEncode(body) : null,
+    final response = await _send(
+      (token) => http.patch(
+        _uri(path),
+        headers: _headers(token),
+        body: body != null ? jsonEncode(body) : null,
+      ),
     );
     return _decode(response);
   }
 
   Future<dynamic> delete(String path) async {
-    final response = await http.delete(_uri(path), headers: _headers);
+    final response = await _send(
+      (token) => http.delete(_uri(path), headers: _headers(token)),
+    );
     return _decode(response);
   }
 }

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/repositories/customer_repository.dart';
 import '../../data/local/database_helper.dart';
 import '../../core/config/supabase_config.dart';
+import '../../services/supabase_auth_interceptor.dart';
 
 /// Supabase/Postgres-backed implementation of CustomerRepository.
 ///
@@ -23,7 +24,9 @@ class CustomerRepositorySupabase implements CustomerRepository {
               receiveTimeout: const Duration(seconds: 15),
             )),
         _supabase = supabase ?? Supabase.instance.client,
-        _dbHelper = dbHelper ?? DatabaseHelper.instance;
+        _dbHelper = dbHelper ?? DatabaseHelper.instance {
+    installSupabaseAuthInterceptor(_http, _supabase);
+  }
 
   String? get _accessToken => _supabase.auth.currentSession?.accessToken;
   Map<String, dynamic> get _headers => {
@@ -226,4 +229,3 @@ class CustomerRepositorySupabase implements CustomerRepository {
     };
   }
 }
-

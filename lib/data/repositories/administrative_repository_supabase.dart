@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide MultipartFile;
 
 import '../../core/config/supabase_config.dart';
+import '../../services/supabase_auth_interceptor.dart';
 
 class AdministrativeRepositorySupabase {
   AdministrativeRepositorySupabase({Dio? http, SupabaseClient? supabase})
@@ -13,7 +14,9 @@ class AdministrativeRepositorySupabase {
               connectTimeout: const Duration(seconds: 10),
               receiveTimeout: const Duration(seconds: 15),
             )),
-        _supabase = supabase ?? Supabase.instance.client;
+        _supabase = supabase ?? Supabase.instance.client {
+    installSupabaseAuthInterceptor(_http, _supabase);
+  }
 
   final Dio _http;
   final SupabaseClient _supabase;
@@ -27,7 +30,8 @@ class AdministrativeRepositorySupabase {
   Future<Options> _freshAuthOptions({bool json = true}) async {
     var session = _supabase.auth.currentSession;
     if (session == null) {
-      throw StateError('Your sign-in session is missing. Please sign in again.');
+      throw StateError(
+          'Your sign-in session is missing. Please sign in again.');
     }
     if (session.isExpired) {
       session = (await _supabase.auth.refreshSession()).session;
@@ -55,7 +59,9 @@ class AdministrativeRepositorySupabase {
       if (data is Map && data['data'] is Map) {
         return Map<String, dynamic>.from(data['data'] as Map);
       }
-      return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+      return data is Map
+          ? Map<String, dynamic>.from(data)
+          : <String, dynamic>{};
     } on DioException catch (error) {
       throw StateError(_responseError(error, 'Dashboard could not load'));
     }
@@ -65,7 +71,8 @@ class AdministrativeRepositorySupabase {
     String businessId,
     String clientId,
   ) =>
-      _getList('/administrative/$businessId/tasks', query: {'clientId': clientId});
+      _getList('/administrative/$businessId/tasks',
+          query: {'clientId': clientId});
 
   Future<List<Map<String, dynamic>>> getFolders(
     String businessId,
@@ -110,7 +117,8 @@ class AdministrativeRepositorySupabase {
   }) async {
     final data = FormData.fromMap({
       'folder': 'administrative',
-      'file': MultipartFile.fromBytes(bytes, filename: fileName, contentType: DioMediaType.parse(mimeType)),
+      'file': MultipartFile.fromBytes(bytes,
+          filename: fileName, contentType: DioMediaType.parse(mimeType)),
     });
     try {
       final response = await _http.post(
@@ -137,7 +145,8 @@ class AdministrativeRepositorySupabase {
       );
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (error) {
-      throw StateError(_responseError(error, 'Document record creation failed'));
+      throw StateError(
+          _responseError(error, 'Document record creation failed'));
     }
   }
 
@@ -222,8 +231,7 @@ class AdministrativeRepositorySupabase {
         options: _options,
       );
 
-  Future<void> restoreClient(String businessId, String clientId) =>
-      _http.post(
+  Future<void> restoreClient(String businessId, String clientId) => _http.post(
         '/administrative/$businessId/clients/$clientId/restore',
         options: _options,
       );
@@ -254,7 +262,8 @@ class AdministrativeRepositorySupabase {
     return Map<String, dynamic>.from(response.data['data'] as Map);
   }
 
-  Future<String> rotateClientPasscode(String businessId, String clientId) async {
+  Future<String> rotateClientPasscode(
+      String businessId, String clientId) async {
     final response = await _http.put(
       '/administrative/$businessId/clients/$clientId/security/passcode',
       options: _options,
@@ -318,7 +327,8 @@ class AdministrativeRepositorySupabase {
     String businessId,
     String clientId,
     String workerId,
-  ) => _http.put(
+  ) =>
+      _http.put(
         '/administrative/$businessId/clients/$clientId/workers/$workerId',
         options: _options,
       );
@@ -327,7 +337,8 @@ class AdministrativeRepositorySupabase {
     String businessId,
     String clientId,
     String workerId,
-  ) => _http.delete(
+  ) =>
+      _http.delete(
         '/administrative/$businessId/clients/$clientId/workers/$workerId',
         options: _options,
       );
@@ -421,10 +432,12 @@ class AdministrativeRepositorySupabase {
   }
 
   Future<void> sendInvoice(String businessId, String invoiceId) =>
-      _http.post('/administrative/$businessId/invoices/$invoiceId/send', options: _options);
+      _http.post('/administrative/$businessId/invoices/$invoiceId/send',
+          options: _options);
 
   Future<void> voidInvoice(String businessId, String invoiceId) =>
-      _http.post('/administrative/$businessId/invoices/$invoiceId/void', options: _options);
+      _http.post('/administrative/$businessId/invoices/$invoiceId/void',
+          options: _options);
 
   Future<void> recordInvoicePayment(
     String businessId,
@@ -575,10 +588,8 @@ class AdministrativeRepositorySupabase {
       );
 
   Future<Map<String, dynamic>> completeObligation(
-    String businessId,
-    String obligationId,
-    {DateTime? expectedDueAt}
-  ) async {
+      String businessId, String obligationId,
+      {DateTime? expectedDueAt}) async {
     final response = await _http.post(
       '/administrative/$businessId/obligations/$obligationId/complete',
       data: {

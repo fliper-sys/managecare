@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/config/supabase_config.dart';
+import 'supabase_auth_interceptor.dart';
 import '../data/local/database_helper.dart';
 import '../data/repositories/inventory_repository_supabase.dart';
 import '../data/repositories/customer_repository_supabase.dart';
@@ -47,7 +48,9 @@ class SyncService {
             )),
         _supabase = supabase ?? Supabase.instance.client,
         _inventoryRepository = inventoryRepository,
-        _customerRepository = customerRepository;
+        _customerRepository = customerRepository {
+    installSupabaseAuthInterceptor(_http, _supabase);
+  }
 
   String? get _accessToken => _supabase.auth.currentSession?.accessToken;
   Map<String, dynamic> get _headers => {
@@ -214,7 +217,8 @@ class SyncService {
     // sync day.
     dynamic paymentBreakdown;
     final rawPaymentBreakdown = saleData['paymentBreakdown'];
-    if (rawPaymentBreakdown is String && rawPaymentBreakdown.trim().isNotEmpty) {
+    if (rawPaymentBreakdown is String &&
+        rawPaymentBreakdown.trim().isNotEmpty) {
       try {
         paymentBreakdown = jsonDecode(rawPaymentBreakdown);
       } catch (_) {
@@ -241,8 +245,8 @@ class SyncService {
       'created_by': saleData['createdBy'],
       'sale_type': saleData['saleType'] ?? 'retail',
       'created_at': saleData['createdAt'],
-      'updated_at': saleData['updated_at'] ??
-          DateTime.now().toUtc().toIso8601String(),
+      'updated_at':
+          saleData['updated_at'] ?? DateTime.now().toUtc().toIso8601String(),
       'items': localItems
           .map((item) => {
                 'product_id': item['productId'],
@@ -315,13 +319,15 @@ class SyncService {
             return localData;
           } else {
             // Server is newer or equal — accept server version
-            debugPrint('[SyncService] Server version is newer for $entityType/$entityId');
+            debugPrint(
+                '[SyncService] Server version is newer for $entityType/$entityId');
             return serverData;
           }
         }
       }
     } catch (e) {
-      debugPrint('[SyncService] Conflict resolution error for $entityType/$entityId: $e');
+      debugPrint(
+          '[SyncService] Conflict resolution error for $entityType/$entityId: $e');
     }
     // Fallback: return null so caller proceeds with local data
     return null;
@@ -354,8 +360,7 @@ class SyncService {
       {
         'syncStatus': status,
         'syncAttempts': attempts,
-        'lastSyncError':
-            error.length > 300 ? error.substring(0, 300) : error,
+        'lastSyncError': error.length > 300 ? error.substring(0, 300) : error,
         'lastSyncAttemptAt': DateTime.now().toIso8601String(),
       },
       where: 'id = ?',
@@ -367,7 +372,8 @@ class SyncService {
   Future<void> syncInventory() async {
     try {
       if (_inventoryRepository == null) {
-        debugPrint('[SyncService] Inventory repository not configured, skipping');
+        debugPrint(
+            '[SyncService] Inventory repository not configured, skipping');
         return;
       }
 
@@ -421,7 +427,8 @@ class SyncService {
   Future<void> syncCustomers() async {
     try {
       if (_customerRepository == null) {
-        debugPrint('[SyncService] Customer repository not configured, skipping');
+        debugPrint(
+            '[SyncService] Customer repository not configured, skipping');
         return;
       }
 

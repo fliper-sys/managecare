@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/config/supabase_config.dart';
+import '../../../services/supabase_auth_interceptor.dart';
 import '../../models/industry_specific/pharmacy/drug_model.dart';
 import '../../models/industry_specific/pharmacy/prescription_model.dart';
 import '../../models/industry_specific/pharmacy/patient_model.dart';
@@ -28,7 +29,9 @@ class PharmacyRepositoryImpl {
               connectTimeout: const Duration(seconds: 10),
               receiveTimeout: const Duration(seconds: 15),
             )),
-        _supabase = supabase ?? Supabase.instance.client;
+        _supabase = supabase ?? Supabase.instance.client {
+    installSupabaseAuthInterceptor(_http, _supabase);
+  }
 
   String? get _accessToken => _supabase.auth.currentSession?.accessToken;
   Map<String, dynamic> get _headers => {
@@ -65,11 +68,14 @@ class PharmacyRepositoryImpl {
     };
   }
 
-  Map<String, dynamic> _buildDrugPayload(DrugModel drug, {Map<String, dynamic>? extraData}) {
-    final resolvedCost = extraData?['cost'] ?? extraData?['costPrice'] ?? drug.costPrice;
+  Map<String, dynamic> _buildDrugPayload(DrugModel drug,
+      {Map<String, dynamic>? extraData}) {
+    final resolvedCost =
+        extraData?['cost'] ?? extraData?['costPrice'] ?? drug.costPrice;
     final resolvedPrice = extraData?['price'] ?? drug.price;
     final resolvedQuantity = extraData?['quantity'] ?? drug.quantity;
-    final resolvedPrescriptions = extraData?['prescriptions'] ?? drug.prescriptions;
+    final resolvedPrescriptions =
+        extraData?['prescriptions'] ?? drug.prescriptions;
     return {
       if (drug.id.isNotEmpty) 'id': drug.id,
       'name': drug.name,
@@ -94,7 +100,8 @@ class PharmacyRepositoryImpl {
     try {
       final rows = await _fetchAllInventoryPages(businessId);
       return rows
-          .map((r) => DrugModel.fromJson(_drugJsonFromRow(Map<String, dynamic>.from(r as Map))))
+          .map((r) => DrugModel.fromJson(
+              _drugJsonFromRow(Map<String, dynamic>.from(r as Map))))
           .toList();
     } on DioException catch (e) {
       throw Exception('Failed to fetch drugs: ${_extractError(e)}');
@@ -119,8 +126,11 @@ class PharmacyRepositoryImpl {
       // dozens of simultaneous requests can exhaust the backend's DB
       // connection pool and stall unrelated requests app-wide.
       const batchSize = 5;
-      for (var batchStart = 2; batchStart <= totalPages; batchStart += batchSize) {
-        final batchEnd = (batchStart + batchSize - 1).clamp(batchStart, totalPages);
+      for (var batchStart = 2;
+          batchStart <= totalPages;
+          batchStart += batchSize) {
+        final batchEnd =
+            (batchStart + batchSize - 1).clamp(batchStart, totalPages);
         final batch = await Future.wait([
           for (var page = batchStart; page <= batchEnd; page++)
             _http.get(
@@ -137,12 +147,16 @@ class PharmacyRepositoryImpl {
     return items;
   }
 
-  Future<List<DrugModel>> searchDrugs({String? businessId, required String query}) async {
-    if (businessId == null || businessId.isEmpty || query.trim().isEmpty) return [];
+  Future<List<DrugModel>> searchDrugs(
+      {String? businessId, required String query}) async {
+    if (businessId == null || businessId.isEmpty || query.trim().isEmpty)
+      return [];
     try {
-      final rows = await _fetchAllInventoryPages(businessId, extraParams: {'search': query});
+      final rows = await _fetchAllInventoryPages(businessId,
+          extraParams: {'search': query});
       return rows
-          .map((r) => DrugModel.fromJson(_drugJsonFromRow(Map<String, dynamic>.from(r as Map))))
+          .map((r) => DrugModel.fromJson(
+              _drugJsonFromRow(Map<String, dynamic>.from(r as Map))))
           .toList();
     } on DioException catch (e) {
       throw Exception('Failed to search drugs: ${_extractError(e)}');
@@ -151,7 +165,8 @@ class PharmacyRepositoryImpl {
 
   /// Create-or-update a drug. The inventory create route upserts on the
   /// client-supplied id, so one POST covers both cases.
-  Future<void> syncDrug(DrugModel drug, {String? businessId, Map<String, dynamic>? extraData}) async {
+  Future<void> syncDrug(DrugModel drug,
+      {String? businessId, Map<String, dynamic>? extraData}) async {
     if (businessId == null || businessId.isEmpty) return;
     try {
       await _http.post(
@@ -164,17 +179,20 @@ class PharmacyRepositoryImpl {
     }
   }
 
-  Future<List<DrugModel>> getExpiringDrugs(String businessId, DateTime before) async {
+  Future<List<DrugModel>> getExpiringDrugs(
+      String businessId, DateTime before) async {
     final drugs = await fetchDrugs(businessId: businessId);
     return drugs.where((d) => d.expiryDate.isBefore(before)).toList();
   }
 
-  Future<List<DrugModel>> getLowStockDrugs(String businessId, {int threshold = 10}) async {
+  Future<List<DrugModel>> getLowStockDrugs(String businessId,
+      {int threshold = 10}) async {
     final drugs = await fetchDrugs(businessId: businessId);
     return drugs.where((d) => d.quantity < threshold).toList();
   }
 
-  Future<void> deleteDrug({required String businessId, required String drugId}) async {
+  Future<void> deleteDrug(
+      {required String businessId, required String drugId}) async {
     if (businessId.isEmpty || drugId.isEmpty) return;
     try {
       await _http.delete(
@@ -211,14 +229,16 @@ class PharmacyRepositoryImpl {
       );
       final rows = (response.data['data'] as List?) ?? [];
       return rows
-          .map((r) => PatientModel.fromJson(_patientJsonFromRow(Map<String, dynamic>.from(r as Map))))
+          .map((r) => PatientModel.fromJson(
+              _patientJsonFromRow(Map<String, dynamic>.from(r as Map))))
           .toList();
     } on DioException catch (e) {
       throw Exception('Failed to fetch patients: ${_extractError(e)}');
     }
   }
 
-  Future<void> addPatient(Map<String, dynamic> patient, {String? businessId}) async {
+  Future<void> addPatient(Map<String, dynamic> patient,
+      {String? businessId}) async {
     if (businessId == null || businessId.isEmpty) return;
     try {
       await _http.post(
@@ -243,7 +263,8 @@ class PharmacyRepositoryImpl {
 
   /// businessId travels inside [updates] (as `updates['businessId']`) to
   /// match PharmacyProvider's existing call shape.
-  Future<void> updatePatient(String patientId, Map<String, dynamic> updates) async {
+  Future<void> updatePatient(
+      String patientId, Map<String, dynamic> updates) async {
     if (patientId.isEmpty) return;
     final businessId = updates['businessId']?.toString();
     if (businessId == null || businessId.isEmpty) return;
@@ -255,10 +276,14 @@ class PharmacyRepositoryImpl {
           if (updates.containsKey('phone')) 'phone': updates['phone'],
           if (updates.containsKey('email')) 'email': updates['email'],
           if (updates.containsKey('address')) 'address': updates['address'],
-          if (updates.containsKey('dateOfBirth')) 'date_of_birth': updates['dateOfBirth'],
-          if (updates.containsKey('allergies')) 'allergies': updates['allergies'],
-          if (updates.containsKey('bloodType')) 'blood_type': updates['bloodType'],
-          if (updates.containsKey('additionalNotes')) 'additional_notes': updates['additionalNotes'],
+          if (updates.containsKey('dateOfBirth'))
+            'date_of_birth': updates['dateOfBirth'],
+          if (updates.containsKey('allergies'))
+            'allergies': updates['allergies'],
+          if (updates.containsKey('bloodType'))
+            'blood_type': updates['bloodType'],
+          if (updates.containsKey('additionalNotes'))
+            'additional_notes': updates['additionalNotes'],
         },
         options: Options(headers: _headers),
       );
@@ -286,7 +311,8 @@ class PharmacyRepositoryImpl {
     };
   }
 
-  Future<List<PrescriptionModel>> fetchPrescriptions({String? businessId}) async {
+  Future<List<PrescriptionModel>> fetchPrescriptions(
+      {String? businessId}) async {
     if (businessId == null || businessId.isEmpty) return [];
     try {
       final response = await _http.get(
@@ -296,7 +322,8 @@ class PharmacyRepositoryImpl {
       final rows = (response.data['data'] as List?) ?? [];
       lastPrescriptionsFetchUsedFallback = false;
       return rows
-          .map((r) => PrescriptionModel.fromJson(_prescriptionJsonFromRow(Map<String, dynamic>.from(r as Map))))
+          .map((r) => PrescriptionModel.fromJson(
+              _prescriptionJsonFromRow(Map<String, dynamic>.from(r as Map))))
           .toList();
     } on DioException catch (e) {
       throw Exception('Failed to fetch prescriptions: ${_extractError(e)}');
@@ -316,9 +343,8 @@ class PharmacyRepositoryImpl {
         '/pharmacy/$businessId/prescriptions',
         data: {
           'id': data['id'],
-            'patient_id': data['patientId'] == 'WALKIN'
-              ? null
-              : data['patientId'],
+          'patient_id':
+              data['patientId'] == 'WALKIN' ? null : data['patientId'],
           'patient_name': data['patientName'],
           'items': data['items'],
           'status': data['status'],
@@ -346,13 +372,16 @@ class PharmacyRepositoryImpl {
     Map<String, dynamic> updates, {
     String? businessId,
   }) async {
-    if (prescriptionId.isEmpty || businessId == null || businessId.isEmpty) return;
+    if (prescriptionId.isEmpty || businessId == null || businessId.isEmpty)
+      return;
     try {
       await _http.put(
         '/pharmacy/$businessId/prescriptions/$prescriptionId',
         data: {
-          if (updates.containsKey('patientId')) 'patient_id': updates['patientId'],
-          if (updates.containsKey('patientName')) 'patient_name': updates['patientName'],
+          if (updates.containsKey('patientId'))
+            'patient_id': updates['patientId'],
+          if (updates.containsKey('patientName'))
+            'patient_name': updates['patientName'],
           if (updates.containsKey('items')) 'items': updates['items'],
           if (updates.containsKey('status')) 'status': updates['status'],
           if (updates.containsKey('notes')) 'notes': updates['notes'],
@@ -382,7 +411,8 @@ class PharmacyRepositoryImpl {
     };
   }
 
-  Future<List<Map<String, dynamic>>> fetchTreatments({String? businessId}) async {
+  Future<List<Map<String, dynamic>>> fetchTreatments(
+      {String? businessId}) async {
     if (businessId == null || businessId.isEmpty) return [];
     try {
       final response = await _http.get(
@@ -390,13 +420,17 @@ class PharmacyRepositoryImpl {
         options: Options(headers: _headers),
       );
       final rows = (response.data['data'] as List?) ?? [];
-      return rows.map((r) => _treatmentJsonFromRow(Map<String, dynamic>.from(r as Map))).toList();
+      return rows
+          .map(
+              (r) => _treatmentJsonFromRow(Map<String, dynamic>.from(r as Map)))
+          .toList();
     } on DioException catch (e) {
       throw Exception('Failed to fetch treatments: ${_extractError(e)}');
     }
   }
 
-  Future<void> addTreatment(Map<String, dynamic> treatment, {String? businessId}) async {
+  Future<void> addTreatment(Map<String, dynamic> treatment,
+      {String? businessId}) async {
     if (businessId == null || businessId.isEmpty) return;
     try {
       await _http.post(
@@ -431,16 +465,21 @@ class PharmacyRepositoryImpl {
       await _http.put(
         '/pharmacy/$businessId/treatments/$treatmentId',
         data: {
-          if (updates.containsKey('patientId')) 'patient_id': updates['patientId'],
+          if (updates.containsKey('patientId'))
+            'patient_id': updates['patientId'],
           if (updates.containsKey('name')) 'name': updates['name'],
           if (updates.containsKey('drugName')) 'drug_name': updates['drugName'],
           if (updates.containsKey('dosage')) 'dosage': updates['dosage'],
-          if (updates.containsKey('frequencyPerDay')) 'frequency_per_day': updates['frequencyPerDay'],
-          if (updates.containsKey('durationDays')) 'duration_days': updates['durationDays'],
-          if (updates.containsKey('startDate')) 'start_date': updates['startDate'],
+          if (updates.containsKey('frequencyPerDay'))
+            'frequency_per_day': updates['frequencyPerDay'],
+          if (updates.containsKey('durationDays'))
+            'duration_days': updates['durationDays'],
+          if (updates.containsKey('startDate'))
+            'start_date': updates['startDate'],
           if (updates.containsKey('endDate')) 'end_date': updates['endDate'],
           if (updates.containsKey('isActive')) 'is_active': updates['isActive'],
-          if (updates.containsKey('administeredLog')) 'administered_log': updates['administeredLog'],
+          if (updates.containsKey('administeredLog'))
+            'administered_log': updates['administeredLog'],
         },
         options: Options(headers: _headers),
       );
@@ -457,7 +496,8 @@ class PharmacyRepositoryImpl {
     final businessId = auditData['businessId']?.toString();
     if (businessId == null || businessId.isEmpty) return;
     try {
-      final payload = Map<String, dynamic>.from(auditData)..remove('businessId');
+      final payload = Map<String, dynamic>.from(auditData)
+        ..remove('businessId');
       final actorId = payload.remove('userId');
       payload['actor_id'] = actorId;
       await _http.post(

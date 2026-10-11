@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/repositories/worker_repository.dart';
 import '../../core/config/supabase_config.dart';
+import '../../services/supabase_auth_interceptor.dart';
 
 /// Supabase/Postgres-backed implementation of WorkerRepository.
 ///
@@ -19,7 +20,9 @@ class WorkerRepositorySupabase implements WorkerRepository {
               connectTimeout: const Duration(seconds: 10),
               receiveTimeout: const Duration(seconds: 15),
             )),
-        _supabase = supabase ?? Supabase.instance.client;
+        _supabase = supabase ?? Supabase.instance.client {
+    installSupabaseAuthInterceptor(_http, _supabase);
+  }
 
   String? get _accessToken => _supabase.auth.currentSession?.accessToken;
   Map<String, dynamic> get _headers => {
@@ -30,7 +33,8 @@ class WorkerRepositorySupabase implements WorkerRepository {
   Future<Options> _authOptions({bool forceRefresh = false}) async {
     var session = _supabase.auth.currentSession;
     if (session == null) {
-      throw StateError('Your sign-in session is missing. Please sign in again.');
+      throw StateError(
+          'Your sign-in session is missing. Please sign in again.');
     }
     if (forceRefresh || session.isExpired) {
       session = (await _supabase.auth.refreshSession()).session;
@@ -46,12 +50,7 @@ class WorkerRepositorySupabase implements WorkerRepository {
   }
 
   Future<Response<dynamic>> _getWithAuthRetry(String path) async {
-    try {
-      return await _http.get(path, options: await _authOptions());
-    } on DioException catch (error) {
-      if (error.response?.statusCode != 401) rethrow;
-      return _http.get(path, options: await _authOptions(forceRefresh: true));
-    }
+    return _http.get(path, options: await _authOptions());
   }
 
   String _extractError(DioException e) {
@@ -144,7 +143,8 @@ class WorkerRepositorySupabase implements WorkerRepository {
             options: Options(headers: _headers),
           );
           if (response.statusCode == 200) {
-            return _normalizeWorker(Map<String, dynamic>.from(response.data as Map));
+            return _normalizeWorker(
+                Map<String, dynamic>.from(response.data as Map));
           }
         } catch (_) {
           continue;
@@ -163,7 +163,8 @@ class WorkerRepositorySupabase implements WorkerRepository {
       await _supabase.from('attendance').insert({
         'worker_id': workerId,
         'business_id': attendanceData['businessId'],
-        'timestamp': attendanceData['timestamp'] ?? DateTime.now().toIso8601String(),
+        'timestamp':
+            attendanceData['timestamp'] ?? DateTime.now().toIso8601String(),
         'status': attendanceData['status'],
         'verify_mode': attendanceData['verifyMode'],
       });
@@ -197,24 +198,29 @@ class WorkerRepositorySupabase implements WorkerRepository {
   // silently downgraded their role and wiped their access. Now a field is
   // only sent when the caller actually included it.
   Map<String, dynamic> _buildPayload(Map<String, dynamic> data) {
-    final hasPermissions =
-        data.containsKey('permissions') || data.containsKey('customPermissions');
+    final hasPermissions = data.containsKey('permissions') ||
+        data.containsKey('customPermissions');
     final password = data['password']?.toString().trim();
     return {
       if (data.containsKey('email')) 'email': data['email'],
-      if (data.containsKey('fullName') || data.containsKey('full_name') || data.containsKey('name'))
+      if (data.containsKey('fullName') ||
+          data.containsKey('full_name') ||
+          data.containsKey('name'))
         'full_name': data['fullName'] ?? data['full_name'] ?? data['name'],
       if (data.containsKey('phone') || data.containsKey('phoneNumber'))
         'phone': data['phone'] ?? data['phoneNumber'],
       if (data.containsKey('role')) 'role': data['role'],
       if (data.containsKey('storeId') || data.containsKey('store_id'))
         'store_id': data['storeId'] ?? data['store_id'],
-      if (hasPermissions) 'permissions': data['permissions'] ?? data['customPermissions'],
+      if (hasPermissions)
+        'permissions': data['permissions'] ?? data['customPermissions'],
       if (data.containsKey('pin')) 'pin': data['pin'],
       if (data.containsKey('isActive') || data.containsKey('is_active'))
         'is_active': data['isActive'] ?? data['is_active'],
-      if (data.containsKey('commissionPercentage') || data.containsKey('commission_percentage'))
-        'commission_percentage': data['commissionPercentage'] ?? data['commission_percentage'],
+      if (data.containsKey('commissionPercentage') ||
+          data.containsKey('commission_percentage'))
+        'commission_percentage':
+            data['commissionPercentage'] ?? data['commission_percentage'],
       if (password != null && password.isNotEmpty) 'password': password,
     };
   }
@@ -250,4 +256,3 @@ class WorkerRepositorySupabase implements WorkerRepository {
     return worker;
   }
 }
-
