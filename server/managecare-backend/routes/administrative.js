@@ -948,9 +948,21 @@ module.exports = function administrativeRoutes(
     await loadClient(prisma, req, clientId, { allowArchived: true });
     const rows = await prisma.administrativeDocumentFolder.findMany({
       where: { businessId, clientId }, orderBy: { name: 'asc' }, take: FOLDER_LIST_CAP + 1,
-      select: { id: true, clientId: true, name: true, createdAt: true },
+      select: {
+        id: true,
+        clientId: true,
+        name: true,
+        createdAt: true,
+        _count: { select: { documents: true } },
+      },
     });
-    res.json({ data: rows.slice(0, FOLDER_LIST_CAP), hasMore: rows.length > FOLDER_LIST_CAP });
+    res.json({
+      data: rows.slice(0, FOLDER_LIST_CAP).map(({ _count, ...folder }) => ({
+        ...folder,
+        document_count: _count.documents,
+      })),
+      hasMore: rows.length > FOLDER_LIST_CAP,
+    });
   }));
 
   router.post('/:businessId/clients/:clientId/folders', requireManager, asyncHandler(async (req, res) => {

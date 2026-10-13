@@ -827,9 +827,14 @@ class AdministrativeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> startTask(String taskId) async {
+  Future<void> startTask(String taskId, {String? workerId}) async {
     final task = taskById(taskId);
-    if (task == null || task.status != AdministrativeTaskStatus.assigned) return;
+    if (task == null ||
+        workerId == null ||
+        task.assignedWorkerId != workerId ||
+        task.status != AdministrativeTaskStatus.assigned) {
+      return;
+    }
     await _persistTaskStatus(task, 'in_progress');
     task.status = AdministrativeTaskStatus.inProgress;
     notifyListeners();

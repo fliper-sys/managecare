@@ -5,10 +5,10 @@
 const express = require('express');
 const router = express.Router();
 const { requireFields, requireBusinessId, pagination, asyncHandler } = require('../middleware/validation');
-const { requireBusinessMembership } = require('../middleware/auth');
+const { requireBusinessReadAccess } = require('../middleware/auth');
 
 module.exports = function(pool) {
-  router.use('/:businessId', requireBusinessMembership(pool));
+  router.use('/:businessId', requireBusinessReadAccess(pool));
 
   // GET /api/inventory/:businessId - List inventory items
   router.get('/:businessId', pagination, asyncHandler(async (req, res) => {

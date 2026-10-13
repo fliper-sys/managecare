@@ -204,9 +204,9 @@ module.exports = function(pool) {
     const ownerId = businessResult.rows[0]?.owner_id;
     if (!ownerId) return res.status(404).json({ error: 'Business not found' });
 
-    const [salesResult, itemsResult, prevResult] = await runWithUser(ownerId, () => Promise.all([
+    const [salesResult, itemsResult, pumpsResult, pumpUploadsResult, petroleumInventoryResult, prevResult] = await runWithUser(ownerId, () => Promise.all([
       pool.query(`
-        SELECT id, worker_name, payment_method, final_amount, created_at
+        SELECT id, worker_name, payment_method, final_amount, created_at, sale_type
         FROM sales
         WHERE business_id = $1
           AND created_at >= ($2::date::timestamp AT TIME ZONE 'Africa/Lagos')
@@ -223,6 +223,34 @@ module.exports = function(pool) {
           AND s.created_at >= ($2::date::timestamp AT TIME ZONE 'Africa/Lagos')
           AND s.created_at < (($2::date + 1)::timestamp AT TIME ZONE 'Africa/Lagos')
       `, [businessId, dateKey]),
+      pool.query(`
+        SELECT p.id, p.pump_number, p.product_id, i.name AS product_name
+        FROM pumps p
+        LEFT JOIN inventory i ON i.id = p.product_id AND i.business_id = p.business_id
+        WHERE p.business_id = $1 AND p.is_active = true
+        ORDER BY p.pump_number
+      `, [businessId]),
+      pool.query(`
+        SELECT pump_id, pump_number, product_id, product_name, worker_id, worker_name,
+               sold_volume, expected_amount, status, uploaded_at
+        FROM pump_daily_uploads
+        WHERE business_id = $1
+          AND uploaded_at >= ($2::date::timestamp AT TIME ZONE 'Africa/Lagos')
+          AND uploaded_at < (($2::date + 1)::timestamp AT TIME ZONE 'Africa/Lagos')
+        ORDER BY uploaded_at DESC
+        LIMIT 500
+      `, [businessId, dateKey]),
+      pool.query(`
+        SELECT i.id, i.name, i.category, i.unit, i.quantity
+        FROM inventory i
+        WHERE i.business_id = $1 AND COALESCE(i.is_active, true) = true
+          AND (
+            LOWER(COALESCE(i.category, '')) ~ '(fuel|petrol|diesel|kerosene|petroleum|gas)'
+            OR LOWER(COALESCE(i.name, '')) ~ '(fuel|petrol|diesel|kerosene|petroleum|pms|ago|dpk|gas)'
+            OR i.id IN (SELECT p.product_id FROM pumps p WHERE p.business_id = $1 AND p.product_id IS NOT NULL)
+          )
+        ORDER BY i.name
+      `, [businessId]),
       pool.query(`
         SELECT COALESCE(SUM(final_amount), 0)::DECIMAL(12,2) AS total
         FROM sales
@@ -259,6 +287,7 @@ module.exports = function(pool) {
         total: amount,
         paymentMethod: method,
         createdAt: row.created_at,
+        saleType: row.sale_type || 'retail',
         items: itemsBySaleId[row.id] || [],
       };
     });
@@ -289,6 +318,9 @@ module.exports = function(pool) {
       cashierTotals,
       paymentMethodTotals,
       transactions,
+      pumps: pumpsResult.rows,
+      pumpUploads: pumpUploadsResult.rows,
+      petroleumInventory: petroleumInventoryResult.rows,
       previousDayTotal: Number(prevResult.rows[0].total) || 0,
     });
   }));

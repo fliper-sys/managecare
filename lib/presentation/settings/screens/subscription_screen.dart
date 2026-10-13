@@ -196,7 +196,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     required String? tierId,
     required String currentPlanId,
   }) {
-    return SubscriptionService.getPlansForBusinessType(businessType, tierId: tierId)
+    final currentTier = SubscriptionService.normalizeStoredPlanLevel(
+      subscriptionTier: tierId,
+    );
+    return SubscriptionService.getPlansForBusinessType(businessType)
+        .where((plan) => SubscriptionService.getTierRank(plan.tierId) >=
+            SubscriptionService.getTierRank(currentTier))
         .map((plan) => Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: _PlanCard(

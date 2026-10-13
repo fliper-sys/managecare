@@ -60,10 +60,14 @@ module.exports = function(pool) {
          name = EXCLUDED.name, phone = EXCLUDED.phone, email = EXCLUDED.email, address = EXCLUDED.address,
          date_of_birth = EXCLUDED.date_of_birth, allergies = EXCLUDED.allergies, blood_type = EXCLUDED.blood_type,
          additional_notes = EXCLUDED.additional_notes, updated_at = NOW()
+       WHERE pharmacy_patients.business_id = EXCLUDED.business_id
        RETURNING *`,
       [id || null, businessId, name, phone || null, email || null, address || null,
        date_of_birth || null, allergies || null, blood_type || null, additional_notes || null]
     );
+    if (result.rows.length === 0) {
+      return res.status(409).json({ error: 'Patient id belongs to another business' });
+    }
     res.status(201).json(result.rows[0]);
   }));
 
@@ -130,11 +134,15 @@ module.exports = function(pool) {
          notes = EXCLUDED.notes, attachment_reference = EXCLUDED.attachment_reference,
          attachment_required = EXCLUDED.attachment_required, patient_date_of_birth = EXCLUDED.patient_date_of_birth,
          updated_at = NOW()
+       WHERE pharmacy_prescriptions.business_id = EXCLUDED.business_id
        RETURNING *`,
       [id || null, businessId, patient_id || null, patient_name || null, JSON.stringify(items || []),
        status || 'pending', prescriber_id || null, prescriber_name || null, notes || null,
        attachment_reference || null, attachment_required === true, patient_date_of_birth || null, issued_at || null]
     );
+    if (result.rows.length === 0) {
+      return res.status(409).json({ error: 'Prescription id belongs to another business' });
+    }
     res.status(201).json(result.rows[0]);
   }));
 
@@ -202,11 +210,15 @@ module.exports = function(pool) {
          dosage = EXCLUDED.dosage, frequency_per_day = EXCLUDED.frequency_per_day,
          duration_days = EXCLUDED.duration_days, start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date,
          is_active = EXCLUDED.is_active, administered_log = EXCLUDED.administered_log, updated_at = NOW()
+       WHERE pharmacy_treatments.business_id = EXCLUDED.business_id
        RETURNING *`,
       [id || null, businessId, patient_id || null, name, drug_name || null, dosage || null,
        frequency_per_day || 1, duration_days || 1, start_date || null, end_date || null,
        is_active !== false, JSON.stringify(administered_log || [])]
     );
+    if (result.rows.length === 0) {
+      return res.status(409).json({ error: 'Treatment id belongs to another business' });
+    }
     res.status(201).json(result.rows[0]);
   }));
 

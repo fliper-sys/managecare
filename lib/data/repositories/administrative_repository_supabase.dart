@@ -398,12 +398,16 @@ class AdministrativeRepositorySupabase {
     String businessId,
     Map<String, dynamic> payload,
   ) async {
-    final response = await _http.post(
-      '/administrative/$businessId/clients',
-      data: payload,
-      options: _options,
-    );
-    return Map<String, dynamic>.from(response.data as Map);
+    try {
+      final response = await _http.post(
+        '/administrative/$businessId/clients',
+        data: payload,
+        options: await _freshAuthOptions(),
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw StateError(_responseError(error, 'Client could not be created'));
+    }
   }
 
   Future<Map<String, dynamic>> updateClient(

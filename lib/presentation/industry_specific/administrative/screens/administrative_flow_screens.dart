@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -83,7 +84,9 @@ class _AdministrativeClientProfileScreenState
         contactAddress: (client['contactAddress'] ?? client['contact_address'])?.toString() ?? '',
       ),
     ));
-    if (changed == true && mounted) setState(() => _details = _loadDetails());
+    if (changed == true && mounted) {
+      setState(() { _details = _loadDetails(); });
+    }
   }
 
   Future<void> _manageAssignments(Map<String, dynamic> client) async {
@@ -145,7 +148,7 @@ class _AdministrativeClientProfileScreenState
           ),
         ),
       );
-      if (mounted) setState(() => _details = _loadDetails());
+      if (mounted) setState(() { _details = _loadDetails(); });
     } catch (error) {
       if (mounted) _message(context, 'Unable to load staff assignments: $error');
     }
@@ -204,7 +207,7 @@ class _AdministrativeClientProfileScreenState
                       );
                     }
                     if (snapshot.hasError) {
-                      return _LoadError(onRetry: () => setState(() => _details = _loadDetails()));
+                      return _LoadError(onRetry: () => setState(() { _details = _loadDetails(); }));
                     }
                     final client = snapshot.data ?? const <String, dynamic>{};
                     final name = client['name']?.toString() ?? widget.clientName;
@@ -224,21 +227,64 @@ class _AdministrativeClientProfileScreenState
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(children: [
-                          CircleAvatar(radius: 28, child: Text(name.isEmpty ? '?' : name.substring(0, 1))),
-                          const SizedBox(width: 12),
-                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(name, style: Theme.of(context).textTheme.titleLarge),
-                            Text([company, location].where((value) => value.isNotEmpty).join(' | ')),
-                            const SizedBox(height: 4),
-                            Text(active ? 'Active' : 'Archived', style: TextStyle(color: active ? Colors.green : Colors.grey)),
-                          ])),
-                        ]),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.border),
+                          ),
+                          child: Row(children: [
+                            CircleAvatar(
+                              radius: 25,
+                              backgroundColor: AppColors.primary.withOpacity(.1),
+                              child: Text(name.isEmpty ? '?' : name.substring(0, 1),
+                                  style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(name, style: Theme.of(context).textTheme.titleLarge),
+                              const SizedBox(height: 3),
+                              Text([company, location].where((value) => value.isNotEmpty).join(' | '),
+                                  style: Theme.of(context).textTheme.bodySmall),
+                              const SizedBox(height: 7),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: (active ? AppColors.secondary : Colors.grey).withOpacity(.12),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(active ? 'Active' : 'Archived',
+                                    style: TextStyle(color: active ? AppColors.secondaryDark : Colors.grey, fontSize: 11, fontWeight: FontWeight.w700)),
+                              ),
+                            ])),
+                          ]),
+                        ).animate().fadeIn(duration: 260.ms).slideY(begin: .04, end: 0),
                         const SizedBox(height: 24),
                         const _SectionTitle('Client Information'),
                         if (company.isNotEmpty) _InfoRow('Company', company),
                         if (location.isNotEmpty) _InfoRow('Location', location),
                         if (address.isNotEmpty) _InfoRow('Contact address', address),
+                        if (widget.clientId != null && canManageClient) ...[
+                          const SizedBox(height: 16),
+                          Wrap(spacing: 8, runSpacing: 8, children: [
+                            FilledButton.icon(
+                              onPressed: () => DefaultTabController.of(context).animateTo(3),
+                              icon: const Icon(Icons.add_task),
+                              label: const Text('Create Task'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () => DefaultTabController.of(context).animateTo(5),
+                              icon: const Icon(Icons.trending_up),
+                              label: const Text('Record Revenue'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () => DefaultTabController.of(context).animateTo(4),
+                              icon: const Icon(Icons.trending_down),
+                              label: const Text('Record Expense'),
+                            ),
+                          ]),
+                        ],
                         const SizedBox(height: 18),
                         const _SectionTitle('Portal Access'),
                         const ListTile(
@@ -295,10 +341,10 @@ class _AdministrativeClientProfileScreenState
               canManageDocuments: canManageClient,
             ),
             AdministrativeObligationsScreen(clientName: widget.clientName),
-            _ClientRecordsTab(clientId: widget.clientId, title: 'Tasks', type: _ClientRecordType.tasks),
-            _ClientRecordsTab(clientId: widget.clientId, title: 'Expenses', type: _ClientRecordType.expenses),
-            _ClientRecordsTab(clientId: widget.clientId, title: 'Revenue', type: _ClientRecordType.revenue),
-            _ClientRecordsTab(clientId: widget.clientId, title: 'Activity', type: _ClientRecordType.activity),
+            _ClientRecordsTab(clientId: widget.clientId, clientName: widget.clientName, canManage: canManageClient, title: 'Tasks', type: _ClientRecordType.tasks),
+            _ClientRecordsTab(clientId: widget.clientId, clientName: widget.clientName, canManage: canManageClient, title: 'Expenses', type: _ClientRecordType.expenses),
+            _ClientRecordsTab(clientId: widget.clientId, clientName: widget.clientName, canManage: canManageClient, title: 'Revenue', type: _ClientRecordType.revenue),
+            _ClientRecordsTab(clientId: widget.clientId, clientName: widget.clientName, canManage: canManageClient, title: 'Activity', type: _ClientRecordType.activity),
           ],
         ),
       ),
@@ -408,8 +454,28 @@ class _AdministrativeDocumentsScreenState
               if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
               if (snapshot.hasError) return _LoadError(onRetry: () => setState(_reload));
               final documents = snapshot.data ?? const <Map<String, dynamic>>[];
-              if (documents.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No documents in this view.')));
-              return Column(children: documents.map((document) => _LiveDocumentTile(document: document, canAssign: widget.canManageDocuments, clientId: widget.clientId!)).toList());
+              if (documents.isEmpty) return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(color: AppColors.primary.withOpacity(.08), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.folder_open_outlined, color: AppColors.primary),
+                  ),
+                  const SizedBox(height: 12),
+                  Text('No documents in this view.', style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 4),
+                  Text('Uploaded files for this client will appear here.', textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall),
+                ]),
+              );
+              return Column(children: documents.asMap().entries.map((entry) =>
+                _LiveDocumentTile(document: entry.value, canAssign: widget.canManageDocuments, clientId: widget.clientId!)
+                    .animate(delay: (entry.key * 35).ms)
+                    .fadeIn(duration: 220.ms)
+                    .slideY(begin: .025, end: 0),
+              ).toList());
             },
           ),
         ],
@@ -645,7 +711,14 @@ class _AdministrativeTaskCompletionScreenState
   @override
   void initState() {
     super.initState();
-    context.read<AdministrativeProvider>().startTask(widget.taskId).catchError(
+    final user = context.read<AuthProvider>().currentUser;
+    final role = user?.role.trim().toLowerCase();
+    final isManager = user?.isOwner == true ||
+        const {'owner', 'admin', 'manager', 'sub_admin'}.contains(role);
+    context.read<AdministrativeProvider>().startTask(
+      widget.taskId,
+      workerId: isManager ? null : user?.id,
+    ).catchError(
       (Object error) {
         if (mounted) _message(context, 'Unable to start task: $error');
       },
@@ -655,6 +728,13 @@ class _AdministrativeTaskCompletionScreenState
   @override
   Widget build(BuildContext context) {
     final task = context.watch<AdministrativeProvider>().taskById(widget.taskId);
+    final user = context.watch<AuthProvider>().currentUser;
+    final role = user?.role.trim().toLowerCase();
+    final isManager = user?.isOwner == true ||
+        const {'owner', 'admin', 'manager', 'sub_admin'}.contains(role);
+    final canSubmitTask = !isManager &&
+        user?.id != null &&
+        task?.assignedWorkerId == user?.id;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -680,6 +760,21 @@ class _AdministrativeTaskCompletionScreenState
           ),
           const Divider(),
           const SizedBox(height: 12),
+          if (task != null && !canSubmitTask)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(.07),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.primary.withOpacity(.18)),
+              ),
+              child: const Row(children: [
+                Icon(Icons.info_outline, color: AppColors.primary, size: 19),
+                SizedBox(width: 8),
+                Expanded(child: Text('Only the assigned worker can submit this task.')),
+              ]),
+            ),
           Text(task?.documentId == null
               ? 'Add a completion note or attach supporting work.'
               : 'Attach the completed document for review.'),
@@ -713,7 +808,7 @@ class _AdministrativeTaskCompletionScreenState
             ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: _isSubmitting
+            onPressed: _isSubmitting || !canSubmitTask
                 ? null
                 : () async {
                     final file = await _pickAdministrativeFile(context);
@@ -728,6 +823,7 @@ class _AdministrativeTaskCompletionScreenState
           const Spacer(),
           FilledButton(
             onPressed: _isSubmitting ||
+                    !canSubmitTask ||
                     (task?.documentId != null && _selectedFile == null)
                 ? null
                 : () async {
@@ -796,7 +892,7 @@ class _AdministrativeTaskCommentsScreenState
     body: Column(children: [
       Expanded(child: FutureBuilder<List<Map<String, dynamic>>>(future: _comments, builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) return _LoadError(onRetry: () => setState(() => _comments = _load()));
+        if (snapshot.hasError) return _LoadError(onRetry: () => setState(() { _comments = _load(); }));
         final comments = snapshot.data ?? const <Map<String, dynamic>>[];
         if (comments.isEmpty) return const Center(child: Text('No comments yet.'));
         return ListView.separated(padding: const EdgeInsets.all(16), itemCount: comments.length, separatorBuilder: (_, __) => const Divider(), itemBuilder: (context, index) { final item = comments[index]; return ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.comment_outlined), title: Text(item['body']?.toString() ?? ''), subtitle: Text(item['author_name']?.toString() ?? 'User')); });
@@ -811,7 +907,7 @@ class _AdministrativeTaskCommentsScreenState
     try {
       await context.read<AdministrativeProvider>().addTaskComment(widget.taskId, body);
       _controller.clear();
-      if (mounted) setState(() => _comments = _load());
+      if (mounted) setState(() { _comments = _load(); });
     } catch (error) { if (mounted) _message(context, 'Unable to add comment: $error'); }
   }
 }
@@ -1259,6 +1355,7 @@ class _AdministrativeSecurityScreenState
     extends State<AdministrativeSecurityScreen> {
   late Future<Map<String, dynamic>> _security;
   List<Map<String, dynamic>> _revealedCredentials = const [];
+  bool _savingCredential = false;
 
   @override
   void initState() {
@@ -1267,23 +1364,43 @@ class _AdministrativeSecurityScreenState
         .loadClientSecurity(widget.clientId);
   }
 
+  void _reloadSecurity() {
+    setState(() {
+      _security = context.read<AdministrativeProvider>()
+          .loadClientSecurity(widget.clientId);
+    });
+  }
+
   Future<String?> _promptPasscode() async {
     final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
     final passcode = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Verify client passcode'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          obscureText: true,
-          maxLength: 6,
-          decoration: const InputDecoration(labelText: '6-digit passcode'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            obscureText: true,
+            maxLength: 6,
+            decoration: const InputDecoration(labelText: '6-digit passcode'),
+            validator: (value) => RegExp(r'^\d{6}$').hasMatch(value?.trim() ?? '')
+                ? null
+                : 'Enter the 6-digit passcode',
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Verify')),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() != true) return;
+              Navigator.pop(dialogContext, controller.text.trim());
+            },
+            child: const Text('Verify'),
+          ),
         ],
       ),
     );
@@ -1297,9 +1414,7 @@ class _AdministrativeSecurityScreenState
           .read<AdministrativeProvider>()
           .rotateClientPasscode(widget.clientId);
       if (!mounted) return;
-      setState(() => _security = context
-          .read<AdministrativeProvider>()
-          .loadClientSecurity(widget.clientId));
+      _reloadSecurity();
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -1341,23 +1456,54 @@ class _AdministrativeSecurityScreenState
     final username = TextEditingController();
     final password = TextEditingController();
     final notes = TextEditingController();
+    final formKey = GlobalKey<FormState>();
     final credential = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Add portal credential'),
-        content: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: portal, decoration: const InputDecoration(labelText: 'Portal name')),
-            TextField(controller: username, decoration: const InputDecoration(labelText: 'Username / email')),
-            TextField(controller: password, obscureText: true, decoration: const InputDecoration(labelText: 'Password')),
-            TextField(controller: notes, decoration: const InputDecoration(labelText: 'Notes (optional)')),
-          ]),
+        content: Form(
+          key: formKey,
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextFormField(
+                controller: portal,
+                maxLength: 120,
+                decoration: const InputDecoration(labelText: 'Portal name'),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Enter a portal name'
+                    : null,
+              ),
+              TextFormField(
+                controller: username,
+                maxLength: 254,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(labelText: 'Username / email'),
+                validator: (value) => value == null || value.trim().isEmpty
+                    ? 'Enter the username or email'
+                    : null,
+              ),
+              TextFormField(
+                controller: password,
+                maxLength: 1000,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: 'Password'),
+                validator: (value) => value == null || value.isEmpty
+                    ? 'Enter the password'
+                    : null,
+              ),
+              TextFormField(
+                controller: notes,
+                maxLength: 1000,
+                decoration: const InputDecoration(labelText: 'Notes (optional)'),
+              ),
+            ]),
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
-              if (portal.text.trim().isEmpty || username.text.trim().isEmpty || password.text.isEmpty) return;
+              if (formKey.currentState?.validate() != true) return;
               Navigator.pop(dialogContext, {
                 'portal': portal.text.trim(),
                 'username': username.text.trim(),
@@ -1375,15 +1521,24 @@ class _AdministrativeSecurityScreenState
     password.dispose();
     notes.dispose();
     if (credential == null || !mounted) return;
+    setState(() => _savingCredential = true);
     try {
       await context.read<AdministrativeProvider>().saveClientCredentials(
             widget.clientId,
             [...existing, credential],
           );
-      setState(() => _revealedCredentials = [...existing, credential]);
+      if (!mounted) return;
+      setState(() {
+        _revealedCredentials = [...existing, credential];
+        _savingCredential = false;
+      });
+      _reloadSecurity();
       _message(context, 'Credential saved encrypted.');
     } catch (error) {
-      if (mounted) _message(context, 'Unable to save credential: $error');
+      if (mounted) {
+        setState(() => _savingCredential = false);
+        _message(context, 'Unable to save credential: $error');
+      }
     }
   }
 
@@ -1408,9 +1563,7 @@ class _AdministrativeSecurityScreenState
               return const LinearProgressIndicator();
             }
             if (snapshot.hasError) {
-              return _LoadError(onRetry: () => setState(() => _security = context
-                  .read<AdministrativeProvider>()
-                  .loadClientSecurity(widget.clientId)));
+              return _LoadError(onRetry: _reloadSecurity);
             }
             final hasPasscode = snapshot.data?['hasPasscode'] == true;
             final hasCredentials = snapshot.data?['hasCredentials'] == true;
@@ -1444,9 +1597,18 @@ class _AdministrativeSecurityScreenState
                   ),
                   const SizedBox(height: 8),
                   FilledButton.icon(
-                    onPressed: hasPasscode ? _addCredential : null,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add Portal Credential'),
+                    onPressed: hasPasscode && !_savingCredential
+                        ? _addCredential
+                        : null,
+                    icon: _savingCredential
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.add),
+                    label: Text(_savingCredential
+                        ? 'Saving securely...'
+                        : 'Add Portal Credential'),
                   ),
                 ],
                 ..._revealedCredentials.map((credential) => Card(
@@ -1577,23 +1739,42 @@ class _LiveDocumentTileState extends State<_LiveDocumentTile> {
 
 enum _ClientRecordType { tasks, expenses, revenue, activity }
 
-class _ClientRecordsTab extends StatelessWidget {
-  const _ClientRecordsTab({required this.clientId, required this.title, required this.type});
+class _ClientRecordsTab extends StatefulWidget {
+  const _ClientRecordsTab({required this.clientId, required this.clientName, required this.canManage, required this.title, required this.type});
   final String? clientId;
+  final String clientName;
+  final bool canManage;
   final String title;
   final _ClientRecordType type;
 
   @override
-  Widget build(BuildContext context) {
-    if (clientId == null) return const Center(child: Text('This view requires a saved client record.'));
+  State<_ClientRecordsTab> createState() => _ClientRecordsTabState();
+}
+
+class _ClientRecordsTabState extends State<_ClientRecordsTab> {
+  late Future<List<Map<String, dynamic>>> _records;
+
+  @override
+  void initState() {
+    super.initState();
+    _records = _loadRecords();
+  }
+
+  Future<List<Map<String, dynamic>>> _loadRecords() {
+    if (widget.clientId == null) return Future.value(const []);
     final provider = context.read<AdministrativeProvider>();
-    final Future<List<Map<String, dynamic>>> future = switch (type) {
-      _ClientRecordType.tasks => provider.loadTasksForClient(clientId!),
-      _ClientRecordType.expenses => provider.loadFinancialEntries(type: 'expense', clientId: clientId),
-      _ClientRecordType.revenue => provider.loadFinancialEntries(type: 'revenue', clientId: clientId),
+    return switch (widget.type) {
+      _ClientRecordType.tasks => provider.loadTasksForClient(widget.clientId!),
+      _ClientRecordType.expenses => provider.loadFinancialEntries(type: 'expense', clientId: widget.clientId),
+      _ClientRecordType.revenue => provider.loadFinancialEntries(type: 'revenue', clientId: widget.clientId),
       _ClientRecordType.activity => provider.loadActivity(),
     };
-    return FutureBuilder<List<Map<String, dynamic>>>(future: future, builder: (context, snapshot) {
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.clientId == null) return const Center(child: Text('This view requires a saved client record.'));
+    return FutureBuilder<List<Map<String, dynamic>>>(future: _records, builder: (context, snapshot) {
       if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
       if (snapshot.hasError) {
         return Center(
@@ -1609,21 +1790,128 @@ class _ClientRecordsTab extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
+                TextButton.icon(
+                  onPressed: () => setState(() { _records = _loadRecords(); }),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
               ],
             ),
           ),
         );
       }
       var records = snapshot.data ?? const <Map<String, dynamic>>[];
-      if (type == _ClientRecordType.activity) records = records.where((item) => item['client_id']?.toString() == clientId).toList();
-      if (records.isEmpty) return Center(child: Text('No $title records yet.'));
-      return ListView.builder(padding: const EdgeInsets.all(16), itemCount: records.length, itemBuilder: (context, index) {
-        final item = records[index];
-        final recordTitle = type == _ClientRecordType.tasks ? item['title'] : type == _ClientRecordType.activity ? item['action']?.toString().replaceAll('_', ' ') : item['description'];
-        final subtitle = type == _ClientRecordType.tasks ? '${item['priority'] ?? 'normal'} priority | ${item['status'] ?? 'assigned'}' : type == _ClientRecordType.activity ? item['actor_name'] ?? 'System' : _currency(_asAmount(item['amount']));
-        return ListTile(title: Text(recordTitle?.toString() ?? title), subtitle: Text(subtitle.toString()));
-      });
+      if (widget.type == _ClientRecordType.activity) records = records.where((item) => item['client_id']?.toString() == widget.clientId).toList();
+      return ListView(padding: const EdgeInsets.all(16), children: [
+        if (widget.canManage && (widget.type == _ClientRecordType.tasks || widget.type == _ClientRecordType.expenses || widget.type == _ClientRecordType.revenue))
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              onPressed: widget.type == _ClientRecordType.tasks
+                  ? _createTask
+                  : () => _createFinancialEntry(widget.type == _ClientRecordType.revenue ? 'revenue' : 'expense'),
+              icon: Icon(widget.type == _ClientRecordType.tasks ? Icons.add_task : Icons.add),
+              label: Text(widget.type == _ClientRecordType.tasks ? 'Create Task' : 'Record ${widget.type == _ClientRecordType.revenue ? 'Revenue' : 'Expense'}'),
+            ),
+          ),
+        if (widget.canManage && widget.type == _ClientRecordType.activity)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _createTask,
+              icon: const Icon(Icons.add_task),
+              label: const Text('Create Task'),
+            ),
+          ),
+        if (records.isEmpty)
+          Padding(padding: const EdgeInsets.symmetric(vertical: 24), child: Center(child: Text('No ${widget.title.toLowerCase()} records yet.'))),
+        ...records.map((item) {
+          final recordTitle = widget.type == _ClientRecordType.tasks ? item['title'] : widget.type == _ClientRecordType.activity ? item['action']?.toString().replaceAll('_', ' ') : item['description'];
+          final subtitle = widget.type == _ClientRecordType.tasks ? '${item['priority'] ?? 'normal'} priority | ${item['status'] ?? 'assigned'}' : widget.type == _ClientRecordType.activity ? item['actor_name'] ?? 'System' : _currency(_asAmount(item['amount']));
+          return ListTile(title: Text(recordTitle?.toString() ?? widget.title), subtitle: Text(subtitle.toString()));
+        }),
+      ]);
     });
+  }
+
+  Future<void> _createTask() async {
+    final title = TextEditingController();
+    final remark = TextEditingController();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Create Task'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: title, autofocus: true, decoration: const InputDecoration(labelText: 'Task title *')),
+          const SizedBox(height: 12),
+          TextField(controller: remark, maxLines: 3, decoration: const InputDecoration(labelText: 'Instructions (optional)')),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () async {
+            if (title.text.trim().isEmpty) return;
+            try {
+              await context.read<AdministrativeProvider>().createLiveTask(
+                title: title.text,
+                clientId: widget.clientId,
+                remark: remark.text,
+                dueAt: DateTime.now().add(const Duration(days: 1)),
+              );
+              if (dialogContext.mounted) Navigator.pop(dialogContext, true);
+            } catch (error) {
+              if (dialogContext.mounted) _message(dialogContext, 'Unable to create task: $error');
+            }
+          }, child: const Text('Create')),
+        ],
+      ),
+    );
+    title.dispose();
+    remark.dispose();
+    if (saved == true && mounted) {
+      setState(() { _records = _loadRecords(); });
+      _message(context, 'Task created for ${widget.clientName}');
+    }
+  }
+
+  Future<void> _createFinancialEntry(String entryType) async {
+    final amount = TextEditingController();
+    final description = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(16, 20, 16, MediaQuery.viewInsetsOf(sheetContext).bottom + 24),
+        child: Form(key: formKey, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Record ${entryType == 'revenue' ? 'Revenue' : 'Expense'}', style: Theme.of(sheetContext).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          TextFormField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Amount', prefixText: 'NGN '), validator: (value) { final parsed = double.tryParse(value?.trim() ?? ''); return parsed == null || parsed <= 0 ? 'Enter an amount above zero' : null; }),
+          const SizedBox(height: 12),
+          TextFormField(controller: description, decoration: const InputDecoration(labelText: 'Description'), validator: (value) => value == null || value.trim().isEmpty ? 'Enter a description' : null),
+          const SizedBox(height: 16),
+          FilledButton.icon(onPressed: () async {
+            if (!formKey.currentState!.validate()) return;
+            try {
+              await context.read<AdministrativeProvider>().createFinancialEntry(
+                entryType: entryType,
+                amount: double.parse(amount.text.trim()),
+                description: description.text.trim(),
+                clientId: widget.clientId,
+              );
+              if (sheetContext.mounted) Navigator.pop(sheetContext, true);
+            } catch (error) {
+              if (sheetContext.mounted) _message(sheetContext, 'Unable to save entry: $error');
+            }
+          }, icon: const Icon(Icons.save_outlined), label: const Text('Save Entry')),
+        ])),
+      ),
+    );
+    amount.dispose();
+    description.dispose();
+    if (saved == true && mounted) {
+      setState(() { _records = _loadRecords(); });
+      _message(context, '${entryType == 'revenue' ? 'Revenue' : 'Expense'} recorded');
+    }
   }
 }
 
@@ -1917,6 +2205,9 @@ class _AdministrativeEditClientScreenState
                 textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(
                   labelText: 'Client name',
+                  prefixIcon: Icon(Icons.person_outline),
+                  filled: true,
+                  fillColor: AppColors.surface,
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) => value == null || value.trim().isEmpty
@@ -1929,6 +2220,9 @@ class _AdministrativeEditClientScreenState
                 textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(
                   labelText: 'Company name',
+                  prefixIcon: Icon(Icons.business_outlined),
+                  filled: true,
+                  fillColor: AppColors.surface,
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -1938,6 +2232,9 @@ class _AdministrativeEditClientScreenState
                 textCapitalization: TextCapitalization.words,
                 decoration: const InputDecoration(
                   labelText: 'Location',
+                  prefixIcon: Icon(Icons.location_on_outlined),
+                  filled: true,
+                  fillColor: AppColors.surface,
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -1947,10 +2244,13 @@ class _AdministrativeEditClientScreenState
                 maxLines: 2,
                 decoration: const InputDecoration(
                   labelText: 'Contact address',
+                  prefixIcon: Icon(Icons.alternate_email_outlined),
+                  filled: true,
+                  fillColor: AppColors.surface,
                   border: OutlineInputBorder(),
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               FilledButton.icon(
                 onPressed: _saving ? null : _save,
                 icon: _saving
@@ -2017,6 +2317,36 @@ class _AdministrativeCreateClientScreenState
             contactAddress: _address.text,
             businessId: businessId,
           );
+      if (!mounted) return;
+      final configureAccess = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Set up client access?'),
+          content: const Text(
+            'Create a passcode and securely store this client’s portal credentials now, or do it later from Client Profile.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Later'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.shield_outlined),
+              label: const Text('Set up access'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      if (configureAccess == true) {
+        await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => AdministrativeSecurityScreen(
+            clientId: client.id,
+            clientName: client.name,
+          ),
+        ));
+      }
       if (!mounted) return;
       Navigator.of(context).pop(client);
     } catch (error) {
@@ -2090,6 +2420,10 @@ class _AdministrativeCreateClientScreenState
                       )
                     : const Icon(Icons.person_add_alt_1_outlined),
                 label: Text(_saving ? 'Creating...' : 'Create Client'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
               ),
             ],
           ),
@@ -2221,7 +2555,7 @@ class _AdministrativeCalendarScreenState
     );
     title.dispose();
     description.dispose();
-    if (saved == true && mounted) setState(() => _events = _load());
+    if (saved == true && mounted) setState(() { _events = _load(); });
   }
 
   @override
@@ -2244,7 +2578,7 @@ class _AdministrativeCalendarScreenState
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
-              return _LoadError(onRetry: () => setState(() => _events = _load()));
+              return _LoadError(onRetry: () => setState(() { _events = _load(); }));
             }
             final events = snapshot.data ?? const <Map<String, dynamic>>[];
             final selectedEvents = events.where((event) {
@@ -2254,7 +2588,11 @@ class _AdministrativeCalendarScreenState
               return startsAt != null && DateUtils.isSameDay(startsAt, _selectedDate);
             }).toList();
             return RefreshIndicator(
-              onRefresh: () async => setState(() => _events = _load()),
+              onRefresh: () async {
+                final eventsFuture = _load();
+                setState(() { _events = eventsFuture; });
+                await eventsFuture;
+              },
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
@@ -2456,23 +2794,31 @@ class _AdministrativeStaffingScreenState
           future: _staff,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-            if (snapshot.hasError) return _LoadError(onRetry: () => setState(() => _staff = context.read<AdministrativeProvider>().loadStaffing()));
+            if (snapshot.hasError) return _LoadError(onRetry: () => setState(() { _staff = context.read<AdministrativeProvider>().loadStaffing(); }));
             final staff = snapshot.data ?? const [];
             return ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: staff.isEmpty ? 1 : staff.length,
               itemBuilder: (context, index) {
                 if (staff.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 48),
-                    child: Center(child: Text('No staff records found.')),
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 48),
+                    child: Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.groups_2_outlined, size: 40, color: AppColors.primary.withOpacity(.7)),
+                      const SizedBox(height: 10),
+                      Text('No staff records found.', style: Theme.of(context).textTheme.bodyMedium),
+                    ])),
                   );
                 }
                 final worker = staff[index];
                 final name = worker['full_name']?.toString() ?? 'Unnamed worker';
-                return ListTile(
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  color: AppColors.surface,
+                  child: ListTile(
                   onTap: () => _manageAssignments(worker),
-                  leading: CircleAvatar(child: Text(name.substring(0, 1).toUpperCase())),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  leading: CircleAvatar(backgroundColor: AppColors.primary.withOpacity(.1), foregroundColor: AppColors.primary, child: Text(name.substring(0, 1).toUpperCase())),
                   title: Text(name),
                   subtitle: Text(
                     '${worker['role'] ?? 'Staff'} | ${worker['assigned_client_count'] ?? 0} clients | ${worker['is_active'] == false ? 'Inactive' : 'Active'}',
@@ -2488,7 +2834,8 @@ class _AdministrativeStaffingScreenState
                       PopupMenuItem(value: 'clients', child: Text('Client access')),
                     ],
                   ) : Text('${worker['open_task_count'] ?? 0} open tasks'),
-                );
+                  ),
+                ).animate(delay: (index * 35).ms).fadeIn(duration: 220.ms).slideX(begin: .02, end: 0);
               },
             );
           },
@@ -2506,7 +2853,7 @@ class _AdministrativeStaffingScreenState
       MaterialPageRoute(builder: (_) => const AddWorkerScreen(returnToCaller: true)),
     );
     if (created == true && mounted) {
-      setState(() => _staff = context.read<AdministrativeProvider>().loadStaffing());
+      setState(() { _staff = context.read<AdministrativeProvider>().loadStaffing(); });
     }
   }
 
@@ -2580,7 +2927,7 @@ class _AdministrativeStaffingScreenState
       await context.read<AdministrativeProvider>().updateStaffWorker(workerId: workerId, updates: updates);
       if (!mounted) return;
       _message(context, 'Worker details updated.');
-      setState(() => _staff = context.read<AdministrativeProvider>().loadStaffing());
+      setState(() { _staff = context.read<AdministrativeProvider>().loadStaffing(); });
     } catch (error) {
       if (mounted) _message(context, 'Unable to update worker: $error');
     } finally {
@@ -2699,7 +3046,7 @@ class _AdministrativeActivityScreenState
           future: _activity,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-            if (snapshot.hasError) return _LoadError(onRetry: () => setState(() => _activity = context.read<AdministrativeProvider>().loadActivity()));
+            if (snapshot.hasError) return _LoadError(onRetry: () => setState(() { _activity = context.read<AdministrativeProvider>().loadActivity(); }));
             final activity = snapshot.data ?? const <Map<String, dynamic>>[];
             if (activity.isEmpty) return const Center(child: Text('No recorded activity yet.'));
             final actions = <String>{
@@ -2811,13 +3158,17 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return _LoadError(onRetry: () => setState(() => _entries = context.read<AdministrativeProvider>().loadFinancialEntries()));
+            return _LoadError(onRetry: () => setState(() { _entries = context.read<AdministrativeProvider>().loadFinancialEntries(); }));
           }
           final entries = snapshot.data ?? const <Map<String, dynamic>>[];
           final revenue = entries.where((item) => item['entry_type'] == 'revenue').fold<double>(0, (sum, item) => sum + _asAmount(item['amount']));
           final expenses = entries.where((item) => item['entry_type'] == 'expense').fold<double>(0, (sum, item) => sum + _asAmount(item['amount']));
           return RefreshIndicator(
-            onRefresh: () async => setState(() => _entries = context.read<AdministrativeProvider>().loadFinancialEntries()),
+            onRefresh: () async {
+              final entriesFuture = _loadEntries();
+              setState(() { _entries = entriesFuture; });
+              await entriesFuture;
+            },
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
@@ -2838,15 +3189,19 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer, borderRadius: BorderRadius.circular(8)),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(8),
+                    border: const Border(left: BorderSide(color: AppColors.secondary, width: 4)),
+                  ),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('Net balance'),
+                    Text('Net balance', style: TextStyle(color: Colors.white.withOpacity(.8))),
                     const SizedBox(height: 6),
-                    Text(_currency(revenue - expenses), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+                    Text(_currency(revenue - expenses), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white)),
                     const SizedBox(height: 14),
                     Row(children: [
-                      Expanded(child: _AmountSummary(label: 'Revenue', value: _currency(revenue), color: Colors.green)),
-                      Expanded(child: _AmountSummary(label: 'Expenses', value: _currency(expenses), color: Colors.red)),
+                      Expanded(child: _AmountSummary(label: 'Revenue', value: _currency(revenue), color: const Color(0xFFB9F6D2))),
+                      Expanded(child: _AmountSummary(label: 'Expenses', value: _currency(expenses), color: const Color(0xFFFFC7C7))),
                     ]),
                   ]),
                 ),
@@ -2897,9 +3252,12 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
                   const Padding(padding: EdgeInsets.symmetric(vertical: 28), child: Center(child: Text('No financial entries yet.'))),
                 ...entries.take(20).map((entry) {
                   final revenueEntry = entry['entry_type'] == 'revenue';
-                  return ListTile(
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 6),
+                    color: AppColors.surface,
+                    child: ListTile(
                     onTap: () => _editEntry(entry),
-                    contentPadding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     leading: CircleAvatar(
                       backgroundColor: (revenueEntry ? Colors.green : Colors.red).withOpacity(.12),
                       child: Icon(revenueEntry ? Icons.trending_up : Icons.trending_down, color: revenueEntry ? Colors.green : Colors.red),
@@ -2907,6 +3265,7 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
                     title: Text(entry['description']?.toString() ?? 'Financial entry'),
                     subtitle: Text(entry['client_name']?.toString() ?? 'Business'),
                     trailing: Text('${revenueEntry ? '+' : '-'}${_currency(_asAmount(entry['amount']))}', style: TextStyle(color: revenueEntry ? Colors.green : Colors.red, fontWeight: FontWeight.w700)),
+                    ),
                   );
                 }),
               ],
@@ -3038,9 +3397,7 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
     amount.dispose();
     description.dispose();
     if (saved == true && mounted) {
-      setState(
-        () => _entries = context.read<AdministrativeProvider>().loadFinancialEntries(),
-      );
+      setState(() { _entries = _loadEntries(); });
       _message(context, 'Financial entry saved');
     }
   }
@@ -3124,7 +3481,7 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
     );
     amount.dispose();
     description.dispose();
-    if (saved == true && mounted) setState(() => _entries = _loadEntries());
+    if (saved == true && mounted) setState(() { _entries = _loadEntries(); });
   }
 
 }
@@ -3165,7 +3522,7 @@ class _AdministrativeInvoicesScreenState
           future: _invoices,
           builder: (context, snapshot) {
             if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-            if (snapshot.hasError) return _LoadError(onRetry: () => setState(() => _invoices = context.read<AdministrativeProvider>().loadInvoices()));
+            if (snapshot.hasError) return _LoadError(onRetry: () => setState(() { _invoices = context.read<AdministrativeProvider>().loadInvoices(); }));
             final all = snapshot.data ?? const <Map<String, dynamic>>[];
             final invoices = _filter == 'All' ? all : all.where((invoice) => invoice['status']?.toString() == _filter.toLowerCase()).toList();
             return ListView(
@@ -3214,7 +3571,7 @@ class _AdministrativeInvoicesScreenState
       MaterialPageRoute(builder: (_) => const AdministrativeCreateInvoiceScreen()),
     );
     if (created == true && mounted) {
-      setState(() => _invoices = context.read<AdministrativeProvider>().loadInvoices());
+      setState(() { _invoices = context.read<AdministrativeProvider>().loadInvoices(); });
     }
   }
 
@@ -3257,7 +3614,7 @@ class _AdministrativeInvoicesScreenState
         await provider.recordInvoicePayment(invoice['id'].toString(), amount);
       }
       if (!mounted) return;
-      setState(() => _invoices = provider.loadInvoices());
+      setState(() { _invoices = provider.loadInvoices(); });
       _message(context, 'Invoice updated');
     } catch (error) {
       if (mounted) _message(context, 'Unable to update invoice: $error');
@@ -3380,9 +3737,11 @@ class _AdministrativeInvoiceDetailScreenState
     try {
       await context.read<AdministrativeProvider>().emailInvoice(widget.invoiceId, email);
       if (mounted) {
-        setState(() => _invoice = context
-            .read<AdministrativeProvider>()
-            .loadInvoice(widget.invoiceId));
+        setState(() {
+          _invoice = context
+              .read<AdministrativeProvider>()
+              .loadInvoice(widget.invoiceId);
+        });
         _message(context, 'Invoice emailed');
       }
     } catch (error) {
@@ -3402,9 +3761,11 @@ class _AdministrativeInvoiceDetailScreenState
             }
             if (snapshot.hasError || !snapshot.hasData) {
               return _LoadError(
-                  onRetry: () => setState(() => _invoice = context
-                      .read<AdministrativeProvider>()
-                      .loadInvoice(widget.invoiceId)));
+                  onRetry: () => setState(() {
+                    _invoice = context
+                        .read<AdministrativeProvider>()
+                        .loadInvoice(widget.invoiceId);
+                  }));
             }
             final invoice = snapshot.data!;
             final items = (invoice['items'] as List? ?? const [])

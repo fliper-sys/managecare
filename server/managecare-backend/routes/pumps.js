@@ -6,10 +6,10 @@
 const express = require('express');
 const router = express.Router();
 const { requireFields, asyncHandler } = require('../middleware/validation');
-const { requireBusinessMembership, requireBusinessOwner } = require('../middleware/auth');
+const { requireBusinessReadAccess, requireBusinessOwner } = require('../middleware/auth');
 
 module.exports = function(pool) {
-  router.use('/:businessId', requireBusinessMembership(pool));
+  router.use('/:businessId', requireBusinessReadAccess(pool));
 
   // ---------- Pumps (configuration) ----------
 
@@ -366,14 +366,9 @@ module.exports = function(pool) {
         ]
       );
 
-      const inventoryResult = await client.query(
-        'UPDATE inventory SET quantity = GREATEST(0, quantity - $1), updated_at = NOW() WHERE id = $2 AND business_id = $3',
-        [soldVolume, merged.product_id, businessId]
-      );
-      if (inventoryResult.rowCount === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'Fuel product was not found in this business inventory' });
-      }
+      // The sale_items insert above invokes the stock deduction trigger,
+      // which also protects legacy direct REST inserts and prevents replay
+      // from applying the same sale item twice.
 
       await client.query(
         `INSERT INTO petroleum_cash_entries (

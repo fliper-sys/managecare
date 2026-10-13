@@ -983,6 +983,8 @@ class SubscriptionService {
       case 'guest inn':
       case 'guesthouse':
       case 'lodge':
+      case 'hospitality':
+      case 'hospitality business':
         return 'hotel';
       default:
         return value;

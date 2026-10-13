@@ -111,6 +111,10 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final authProvider = context.watch<AuthProvider>();
+    final currentBusiness = context.watch<BusinessProvider>().currentBusiness;
+    final isAdministrativeOwner = authProvider.currentUser?.isOwner == true &&
+        BusinessTypes.getById(currentBusiness?.businessType ?? '')?.id ==
+            'administrative';
     final backgroundGradient = LinearGradient(
       colors: isDark
           ? const [
@@ -178,6 +182,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
             ),
           ),
           bottomNavigationBar: _buildBottomNavBar(context),
+          floatingActionButton: isAdministrativeOwner
+              ? FloatingActionButton(
+                  tooltip: 'Go to administrative work',
+                  onPressed: () => Navigator.of(context)
+                      .pushReplacementNamed(Routes.administrativeDashboard),
+                  child: const Icon(Icons.assignment_outlined),
+                )
+              : null,
         ));
   }
 
@@ -586,6 +598,21 @@ class _HomeTabState extends State<_HomeTab> {
   }
 
   Future<void> _loadSalesMetrics() async {
+    final currentBusiness = context.read<BusinessProvider>().currentBusiness;
+    if (BusinessTypes.getById(currentBusiness?.businessType ?? '')?.id ==
+        'administrative') {
+      if (mounted) {
+        setState(() {
+          _todaySales = 0;
+          _todayTransactions = 0;
+          _todayRevenue = 0;
+          _loadingSalesMetrics = false;
+          _customersCount = 0;
+          _loadingCounts = false;
+        });
+      }
+      return;
+    }
     // 🔥 OPTIMIZATION: Prevent simultaneous metric loads
     if (_isLoadingMetrics) {
       print('[Dashboard] Metrics load already in progress, skipping');
@@ -594,8 +621,7 @@ class _HomeTabState extends State<_HomeTab> {
 
     try {
       _isLoadingMetrics = true;
-      final businessId = context.read<BusinessProvider>().currentBusiness?.id;
-      final currentBusiness = context.read<BusinessProvider>().currentBusiness;
+      final businessId = currentBusiness?.id;
       final businessType = currentBusiness?.businessType?.toLowerCase() ?? 'retail';
 
       if (businessId == null) {
@@ -860,6 +886,9 @@ Future<void> _loadRetailMetrics(String businessId) async {
     final liveWorkersCount = context.watch<WorkersProvider>().workers.length;
     final user = authProvider.currentUser;
     final business = businessProvider.currentBusiness;
+    final isAdministrativeBusiness =
+        BusinessTypes.getById(business?.businessType ?? '')?.id ==
+            'administrative';
     final userBusinesses = businessProvider.userBusinesses;
     final isSwitchingBusiness = businessProvider.isSwitchingBusiness;
 
@@ -917,8 +946,14 @@ Future<void> _loadRetailMetrics(String businessId) async {
                     .scale(begin: const Offset(0.5, 0.5)),
                 const SizedBox(height: 20),
 
+                if (isAdministrativeBusiness)
+                  _buildAdministrativeWorkPrompt(isDark)
+                      .animate()
+                      .fadeIn(duration: 450.ms, delay: 250.ms)
+                      .slideY(begin: .04, end: 0),
+
                 // Date Range Selector
-                DateRangeSelector(
+                if (!isAdministrativeBusiness) DateRangeSelector(
                   onRangeChanged: (newRange) {
                     setState(() {
                       _selectedDateRange = newRange;
@@ -930,10 +965,10 @@ Future<void> _loadRetailMetrics(String businessId) async {
                   initialRange: _selectedDateRange,
                   backgroundColor: const Color.fromARGB(255, 31, 54, 104),
                 ).animate().fadeIn(duration: 500.ms, delay: 250.ms),
-                const SizedBox(height: 20),
+                if (!isAdministrativeBusiness) const SizedBox(height: 20),
 
                 // Quick Metrics
-                _buildQuickMetrics(
+                if (!isAdministrativeBusiness) _buildQuickMetrics(
                   isDark,
                   businessType: business.businessType,
                   sales: _todaySales,
@@ -2243,6 +2278,55 @@ Future<void> _loadRetailMetrics(String businessId) async {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Failed to open website')),
+    );
+  }
+
+  Widget _buildAdministrativeWorkPrompt(bool isDark) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: AppColors.secondary.withOpacity(isDark ? .18 : .12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.assignment_outlined,
+                color: AppColors.secondaryDark),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Administrative work',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        )),
+                const SizedBox(height: 3),
+                Text('Clients, tasks, documents and finances',
+                    style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton.filledTonal(
+            tooltip: 'Open administrative workspace',
+            onPressed: () => Navigator.of(context)
+                .pushReplacementNamed(Routes.administrativeDashboard),
+            icon: const Icon(Icons.arrow_forward),
+          ),
+        ],
+      ),
     );
   }
 

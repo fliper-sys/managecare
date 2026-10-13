@@ -83,7 +83,6 @@ class _SubscriptionPaymentScreenState extends State<SubscriptionPaymentScreen> {
   List<SubscriptionPlan> _availablePlans(BusinessProvider businessProvider) {
     return SubscriptionService.getPlansForBusinessType(
       _resolveBusinessType(businessProvider),
-      tierId: widget.businessTier ?? widget.businessClass,
     );
   }
 

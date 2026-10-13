@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/routes.dart';
+import '../../../core/constants/business_types.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../providers/auth_provider.dart';
@@ -258,7 +259,11 @@ class _LoginScreenState extends State<LoginScreen>
             },
           );
         } else {
-          Navigator.of(context).pushReplacementNamed(Routes.ownerDashboard);
+          final route = BusinessTypes.getById(user.businessType ?? '')?.id ==
+                  'administrative'
+              ? Routes.administrativeDashboard
+              : Routes.ownerDashboard;
+          Navigator.of(context).pushReplacementNamed(route);
         }
       } else {
         final businessProvider = context.read<BusinessProvider>();

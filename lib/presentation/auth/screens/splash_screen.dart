@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../widgets/loading_indicator.dart';
 import '../../../core/constants/routes.dart';
+import '../../../core/constants/business_types.dart';
 import '../../../core/utils/connectivity_helper.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
@@ -120,7 +121,11 @@ class _SplashScreenState extends State<SplashScreen>
           if (user.email.toLowerCase() == 'mcadmin@mc.c') {
             Navigator.of(context).pushReplacementNamed(Routes.adminDashboard);
           } else if (user.isOwner) {
-            Navigator.of(context).pushReplacementNamed(Routes.ownerDashboard);
+            final route = BusinessTypes.getById(user.businessType ?? '')?.id ==
+                    'administrative'
+                ? Routes.administrativeDashboard
+                : Routes.ownerDashboard;
+            Navigator.of(context).pushReplacementNamed(route);
           } else {
             await _navigateWorkerToDashboard(user);
           }
@@ -229,7 +234,11 @@ class _SplashScreenState extends State<SplashScreen>
               );
             }
           } else {
-            Navigator.of(context).pushReplacementNamed(Routes.ownerDashboard);
+            final route = BusinessTypes.getById(user.businessType ?? '')?.id ==
+                    'administrative'
+                ? Routes.administrativeDashboard
+                : Routes.ownerDashboard;
+            Navigator.of(context).pushReplacementNamed(route);
           }
         } else {
           await _navigateWorkerToDashboard(user);

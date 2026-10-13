@@ -27,8 +27,14 @@ class WhatsAppService {
       final response =
           await ManagecareApiClient.instance.get('/api/businesses/$businessId');
       return Map<String, dynamic>.from(response as Map);
-    } catch (e) {
-      return null;
+    } catch (_) {
+      try {
+        final response = await ManagecareApiClient.instance
+            .get('/api/admin/businesses/$businessId');
+        return Map<String, dynamic>.from(response as Map);
+      } catch (_) {
+        return null;
+      }
     }
   }
 
@@ -153,39 +159,58 @@ class WhatsAppService {
     final start = DateTime(date.year, date.month, date.day);
     final end = DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
 
-    final pumpsResponse = await ManagecareApiClient.instance
-        .get('/api/pumps/$businessId/pumps', query: {'isActive': 'true'});
-    final pumpConfigRows =
-        ((pumpsResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+    List<Map<String, dynamic>> asRows(dynamic value) => value is List
+        ? value.whereType<Map>().map((row) => Map<String, dynamic>.from(row)).toList()
+        : <Map<String, dynamic>>[];
 
-    final uploadsResponse = await ManagecareApiClient.instance.get(
-      '/api/pumps/$businessId/uploads',
-      query: {
-        'from': start.toIso8601String(),
-        'to': end.toIso8601String(),
-        'limit': '500',
-      },
-    );
-    final uploadRows =
-        ((uploadsResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
-
-    final salesResponse = await ManagecareApiClient.instance.get(
-      '/api/sales/$businessId',
-      query: {
-        'startDate': start.toIso8601String(),
-        'endDate': end.toIso8601String(),
-        'limit': '500',
-      },
-    );
-    final saleRows =
-        ((salesResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
-
-    final inventoryResponse = await ManagecareApiClient.instance.get(
-      '/api/inventory/$businessId',
-      query: {'limit': '100'},
-    );
-    final inventoryRows =
-        ((inventoryResponse['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+    List<Map<String, dynamic>> pumpConfigRows;
+    List<Map<String, dynamic>> uploadRows;
+    List<Map<String, dynamic>> saleRows;
+    List<Map<String, dynamic>> inventoryRows;
+    try {
+      final adminResponse = await ManagecareApiClient.instance.get(
+        '/api/admin/businesses/$businessId/daily-sales',
+        query: {'date': DateFormat('yyyy-MM-dd').format(date)},
+      );
+      pumpConfigRows = asRows(adminResponse['pumps']);
+      uploadRows = asRows(adminResponse['pumpUploads']);
+      inventoryRows = asRows(adminResponse['petroleumInventory']);
+      saleRows = asRows(adminResponse['transactions']).map((row) => {
+            ...row,
+            'final_amount': row['total'],
+            'worker_name': row['cashier'],
+            'payment_method': row['paymentMethod'],
+            'created_at': row['createdAt'],
+            'sale_type': row['saleType'],
+          }).toList();
+    } catch (_) {
+      final pumpsResponse = await ManagecareApiClient.instance
+          .get('/api/pumps/$businessId/pumps', query: {'isActive': 'true'});
+      pumpConfigRows = asRows(pumpsResponse['data']);
+      final uploadsResponse = await ManagecareApiClient.instance.get(
+        '/api/pumps/$businessId/uploads',
+        query: {
+          'from': start.toIso8601String(),
+          'to': end.toIso8601String(),
+          'limit': '500',
+        },
+      );
+      uploadRows = asRows(uploadsResponse['data']);
+      final salesResponse = await ManagecareApiClient.instance.get(
+        '/api/sales/$businessId',
+        query: {
+          'startDate': start.toIso8601String(),
+          'endDate': end.toIso8601String(),
+          'limit': '500',
+        },
+      );
+      saleRows = asRows(salesResponse['data']);
+      final inventoryResponse = await ManagecareApiClient.instance.get(
+        '/api/inventory/$businessId',
+        query: {'limit': '100'},
+      );
+      inventoryRows = asRows(inventoryResponse['data']);
+    }
     final pumpProductIds = pumpConfigRows
         .map((pump) => (pump['product_id'] ?? pump['productId'] ?? '')
             .toString()
@@ -220,10 +245,9 @@ class WhatsAppService {
       });
     }
 
-    // The `sales` table has no fuel/category or pump linkage - a POS retail
-    // sale can't be attributed to a specific pump. Pump revenue is captured
-    // entirely by pump_daily_uploads (above); this stays empty rather than
-    // guessing, so the section honestly reads "no pump sales recorded".
+    // The sales API records direct pump/POS fuel sales, but does not persist
+    // a pump id yet. Report them separately instead of silently treating
+    // them as mini-mart sales or inventing a pump assignment.
     final fuelSalesByPumpKey = <String, List<Map<String, dynamic>>>{};
 
     final normalizedSales = saleRows
@@ -235,8 +259,34 @@ class WhatsAppService {
               'workerId': data['worker_id'],
               'items': data['items'],
               'createdAt': data['created_at'],
+              'saleType': (data['sale_type'] ?? data['saleType'] ?? '')
+                  .toString()
+                  .toLowerCase(),
             })
         .toList();
+    final directFuelSales = normalizedSales.where((sale) {
+      final type = sale['saleType']?.toString() ?? '';
+      final itemNames = ((sale['items'] as List?) ?? [])
+          .whereType<Map>()
+          .map((item) => (item['productName'] ??
+                  item['product_name'] ??
+                  item['name'] ??
+                  '')
+              .toString())
+          .join(' ');
+      return type.contains('fuel') ||
+          type.contains('petrol') ||
+          type.contains('petroleum') ||
+          type.contains('pump') ||
+          type.contains('diesel') ||
+          type.contains('kerosene') ||
+          type.contains('pms') ||
+          type.contains('ago') ||
+          type.contains('dpk') ||
+          type == 'gas' ||
+          RegExp(r'fuel|petrol|petroleum|diesel|kerosene|pms|ago|dpk')
+              .hasMatch(itemNames.toLowerCase());
+    }).toList();
 
     final sortedPumpEntries = List<Map<String, dynamic>>.from(pumpEntries)
       ..sort((a, b) {
@@ -366,8 +416,44 @@ class WhatsAppService {
     buffer.writeln('');
     buffer.writeln('PUMP SALES');
 
+    if (directFuelSales.isNotEmpty) {
+      final directFuelTotal = directFuelSales.fold<double>(0, (sum, sale) {
+        final total = _readDouble(sale['totalAmount']);
+        return sum + (total > 0 ? total : _readDouble(sale['finalAmount']));
+      });
+      buffer.writeln(
+        '- Direct pump transactions (pump not tagged): ${directFuelSales.length} sales, ${formatCurrency(directFuelTotal)}',
+      );
+      for (final sale in directFuelSales.take(10)) {
+        final saleTotal = _readDouble(sale['totalAmount']) > 0
+            ? _readDouble(sale['totalAmount'])
+            : _readDouble(sale['finalAmount']);
+        final worker = (sale['workerName'] ?? sale['workerId'] ?? 'Unknown')
+            .toString();
+        final items = (sale['items'] as List<dynamic>? ?? [])
+            .whereType<Map>()
+            .map((item) {
+              final name = (item['product_name'] ??
+                      item['productName'] ??
+                      item['name'] ??
+                      'Fuel')
+                  .toString();
+              final quantity = _readDouble(item['quantity']);
+              return '$name x${quantity.toStringAsFixed(quantity % 1 == 0 ? 0 : 3)}';
+            })
+            .take(3)
+            .join(', ');
+        final time = parseTimestamp(sale['createdAt']).toLocal();
+        buffer.writeln(
+          '  - ${DateFormat.jm().format(time)}: ${formatCurrency(saleTotal)} • $worker${items.isNotEmpty ? ' • $items' : ''}',
+        );
+      }
+    }
+
     if (sortedPumpEntries.isEmpty && fuelSalesByPumpKey.isEmpty) {
-      buffer.writeln('- No pump sales recorded for today.');
+      if (directFuelSales.isEmpty) {
+        buffer.writeln('- No direct pump transactions recorded for today.');
+      }
     } else {
       final seenPumpKeys = <String>{};
       for (final pump in sortedPumpEntries) {
@@ -452,10 +538,9 @@ class WhatsAppService {
     buffer.writeln('');
     buffer.writeln('MINI MART SALES');
 
-    // The `sales` table has no fuel/category distinction, and fuel revenue
-    // is tracked separately via pump_daily_uploads (above) - so every POS
-    // sale for the day is a mini-mart sale here.
-    final miniMartSales = normalizedSales;
+    final miniMartSales = normalizedSales
+        .where((sale) => !directFuelSales.contains(sale))
+        .toList();
 
     double miniMartTotal = 0.0;
     for (final sale in miniMartSales) {
@@ -844,23 +929,51 @@ class WhatsAppService {
       } catch (_) {}
 
       if (txs.isEmpty) {
-        final txRows = await Supabase.instance.client
-            .from('payment_transactions')
-            .select()
-            .eq('business_id', businessId)
-            .order('created_at', ascending: false)
-            .limit(limit);
+        try {
+          final dateKey = DateFormat('yyyy-MM-dd').format(DateTime.now());
+          final adminDaily = await ManagecareApiClient.instance.get(
+            '/api/admin/businesses/$businessId/daily-sales',
+            query: {'date': dateKey},
+          );
+          final transactions = adminDaily['transactions'];
+          if (transactions is List) {
+            for (final row in transactions.whereType<Map>()) {
+              txs.add({
+                'transactionId': row['id'],
+                'amount': (row['total'] ?? 0).toString(),
+                'status': 'completed',
+                'createdAt': parseTimestamp(row['createdAt']).toIso8601String(),
+                'cashier': row['cashier'] ?? '',
+                'paymentMethod': row['paymentMethod'] ?? '',
+                'items': row['items'] ?? const <Map<String, dynamic>>[],
+              });
+            }
+          }
+        } catch (_) {}
+      }
 
-        for (final td in txRows) {
-          final created = parseTimestamp(td['created_at']);
-          txs.add({
-            'transactionId': td['transaction_id'] ?? td['id'],
-            'amount': (td['amount'] ?? 0).toString(),
-            'status': td['status'] ?? '',
-            'createdAt': created.toIso8601String(),
-            'email': td['email'] ?? '',
-            'items': const <Map<String, dynamic>>[],
-          });
+      if (txs.isEmpty) {
+        try {
+          final txRows = await Supabase.instance.client
+              .from('payment_transactions')
+              .select()
+              .eq('business_id', businessId)
+              .order('created_at', ascending: false)
+              .limit(limit);
+
+          for (final td in txRows) {
+            final created = parseTimestamp(td['created_at']);
+            txs.add({
+              'transactionId': td['transaction_id'] ?? td['id'],
+              'amount': (td['amount'] ?? 0).toString(),
+              'status': td['status'] ?? '',
+              'createdAt': created.toIso8601String(),
+              'email': td['email'] ?? '',
+              'items': const <Map<String, dynamic>>[],
+            });
+          }
+        } catch (_) {
+          // A failed optional legacy source must not prevent WhatsApp reports.
         }
       }
 

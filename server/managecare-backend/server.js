@@ -48,7 +48,7 @@ const pushRoutes = require('./routes/push');
 const administrativeRoutes = require('./routes/administrative');
 
 // ── Middleware imports ──────────────────────────────────────
-const { authMiddleware, requireAuth, requireBusinessMembership, verifyAccessToken, verifyHmacSignature } = require('./middleware/auth');
+const { authMiddleware, requireAuth, requireBusinessMembership, requireBusinessReadAccess, verifyAccessToken, verifyHmacSignature } = require('./middleware/auth');
 const { bindPoolToRequestUser, getRequestUserId, runWithUser } = require('./middleware/db_request_context');
 const { errorHandler } = require('./middleware/validation');
 const crypto = require('crypto');
@@ -2401,7 +2401,7 @@ app.get('/api/businesses', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/businesses/:businessId', authMiddleware, requireBusinessMembership(pool), async (req, res) => {
+app.get('/api/businesses/:businessId', authMiddleware, requireBusinessReadAccess(pool), async (req, res) => {
   try {
     const result = await pool.query(
       'SELECT * FROM businesses WHERE id = $1 AND is_active = true',

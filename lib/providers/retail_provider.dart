@@ -2215,6 +2215,7 @@ class RetailProvider extends ChangeNotifier {
       'status': 'completed',
       'created_by': createdBy,
       'sale_type': 'fuel',
+      'created_at': saleData['createdAt'],
       'items': apiItems,
     });
   }
@@ -2354,9 +2355,12 @@ class RetailProvider extends ChangeNotifier {
     }
 
     final cleanIdempotencyKey = idempotencyKey?.trim() ?? '';
-    final orderId = cleanIdempotencyKey.isEmpty
-        ? 'SALE-${DateTime.now().millisecondsSinceEpoch}'
-        : _stableUuidFromKey('fuel-sale:$_businessId:$cleanIdempotencyKey');
+    final localSaleKey = cleanIdempotencyKey.isEmpty
+        ? DateTime.now().microsecondsSinceEpoch.toString()
+        : cleanIdempotencyKey;
+    // Persist a server-compatible id so offline retries remain idempotent.
+    final orderId =
+        _stableUuidFromKey('fuel-sale:$_businessId:$localSaleKey');
     saleData['id'] = orderId;
     saleData['orderId'] = orderId;
     saleData['status'] = 'completed';

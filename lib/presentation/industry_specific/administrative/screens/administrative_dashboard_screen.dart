@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/constants/routes.dart';
+import '../../../../core/constants/business_types.dart';
+import '../../../../core/theme/colors.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/notification_provider.dart';
+import '../../../../widgets/animated_lottie.dart';
 import '../providers/administrative_provider.dart';
 import 'administrative_flow_screens.dart';
 
@@ -26,6 +30,10 @@ class _AdministrativeDashboardScreenState
   @override
   Widget build(BuildContext context) {
     final business = context.watch<BusinessProvider>().currentBusiness;
+    final isAdministrativeOwner =
+        context.watch<AuthProvider>().currentUser?.isOwner == true &&
+            BusinessTypes.getById(business?.businessType ?? '')?.id ==
+                'administrative';
     final title = business?.name.isNotEmpty == true
         ? business!.name
         : 'Administrative Services';
@@ -88,6 +96,14 @@ class _AdministrativeDashboardScreenState
         index: _page,
         children: [_home(), _tasks(), _clientsPage(), _finance(), _more()],
       ),
+      floatingActionButton: isAdministrativeOwner
+          ? FloatingActionButton(
+              tooltip: 'Go to app home',
+              onPressed: () => Navigator.of(context)
+                  .pushReplacementNamed(Routes.ownerDashboard),
+              child: const Icon(Icons.home_outlined),
+            )
+          : null,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _page,
         onDestinationSelected: (value) => setState(() => _page = value),
@@ -117,22 +133,39 @@ class _AdministrativeDashboardScreenState
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
-              Text('Admin Dashboard', style: theme.textTheme.headlineSmall),
-              const SizedBox(height: 4),
-              Text('Insights and work that need your attention.',
-                  style: theme.textTheme.bodyMedium),
-              const SizedBox(height: 16),
+              _WelcomeBand(businessName: context
+                  .watch<BusinessProvider>()
+                  .currentBusiness
+                  ?.name),
+              const SizedBox(height: 18),
               if (provider.loadError != null)
-                ListTile(
-                  leading: const Icon(Icons.error_outline),
-                  title: Text(provider.loadError!),
-                  trailing: IconButton(
-                    tooltip: 'Retry loading workspace',
-                    onPressed: provider.refreshWorkspace,
-                    icon: const Icon(Icons.refresh),
+                Card(
+                  margin: const EdgeInsets.only(bottom: 14),
+                  child: ListTile(
+                    leading: Icon(Icons.cloud_off_outlined,
+                        color: theme.colorScheme.error),
+                    title: const Text('Workspace data unavailable'),
+                    subtitle: Text(provider.loadError!),
+                    trailing: IconButton(
+                      tooltip: 'Retry loading workspace',
+                      onPressed: provider.refreshWorkspace,
+                      icon: const Icon(Icons.refresh),
+                    ),
                   ),
                 ),
-              if (provider.isLoading) const LinearProgressIndicator(),
+              if (provider.isLoading)
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    AnimatedLottie(
+                      asset: 'assets/lottie/loop.json',
+                      width: 36,
+                      height: 36,
+                    ),
+                    SizedBox(width: 8),
+                    Text('Updating workspace...'),
+                  ],
+                ),
               GridView.count(
                 crossAxisCount: 2,
                 shrinkWrap: true,
@@ -141,12 +174,12 @@ class _AdministrativeDashboardScreenState
                 crossAxisSpacing: 10,
                 childAspectRatio: 1.7,
                 children: [
-                  _Metric('Revenue', _adminCurrency(metrics['revenue']), 'Total', Icons.trending_up, Colors.green),
-                  _Metric('Expenses', _adminCurrency(metrics['expenses']), 'Total', Icons.trending_down, Colors.red),
-                  _Metric('Clients', '${metrics['clients'] ?? 0}', 'Active', Icons.people_outline, Colors.teal),
-                  _Metric('Total Staff', '${metrics['staff'] ?? 0}', 'Active', Icons.badge_outlined, Colors.indigo),
+                  _Metric('Revenue', _adminCurrency(metrics['revenue']), 'Total', Icons.trending_up, AppColors.secondary, onTap: () => setState(() => _page = 3)),
+                  _Metric('Expenses', _adminCurrency(metrics['expenses']), 'Total', Icons.trending_down, AppColors.error, onTap: () => setState(() => _page = 3)),
+                  _Metric('Clients', '${metrics['clients'] ?? 0}', 'Active', Icons.people_outline, AppColors.primary, onTap: () => setState(() => _page = 2)),
+                  _Metric('Total Staff', '${metrics['staff'] ?? 0}', 'Active', Icons.badge_outlined, AppColors.accentDark, onTap: _staffing),
                 ],
-              ),
+              ).animate().fadeIn(duration: 350.ms).slideY(begin: .04, end: 0),
               const SizedBox(height: 18),
               _Title('Tasks needing attention', trailing: 'View all', onTap: () => setState(() => _page = 1)),
               if (tasksNeedingAttention.isEmpty)
@@ -155,12 +188,14 @@ class _AdministrativeDashboardScreenState
                   child: Text('No open or submitted tasks.'),
                 ),
               ...tasksNeedingAttention.map((task) => ListTile(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    tileColor: theme.colorScheme.surface,
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(task.needsReview ? Icons.rate_review_outlined : Icons.task_alt_outlined),
                     title: Text(task.title),
                     subtitle: Text('${task.clientName} · ${task.status.name}'),
                     onTap: () => setState(() => _page = 1),
-                  )),
+                  ).animate().fadeIn(duration: 260.ms).slideX(begin: .025, end: 0)),
               const SizedBox(height: 18),
               const _Title('Quick Actions'),
               const SizedBox(height: 8),
@@ -172,6 +207,8 @@ class _AdministrativeDashboardScreenState
                   _action('Assign Document', Icons.assignment_outlined, _assignDocument),
                   _action('Create Task', Icons.add_task_outlined, () => setState(() => _page = 1)),
                   _action('Review Work', Icons.rate_review_outlined, _reviewWork),
+                  _action('Record Revenue', Icons.trending_up, () => setState(() => _page = 3)),
+                  _action('Record Expense', Icons.trending_down, () => setState(() => _page = 3)),
                 ],
               ),
             ],
@@ -234,10 +271,17 @@ class _AdministrativeDashboardScreenState
             padding: EdgeInsets.symmetric(vertical: 32),
             child: Center(child: Text('No clients match this search.')),
           ),
-        ...clients.map((client) => ListTile(
+        ...clients.map((client) => Card(
+              margin: const EdgeInsets.only(bottom: 7),
+              color: AppColors.surface,
+              child: ListTile(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               onTap: () => _clientProfile(client),
-              contentPadding: const EdgeInsets.symmetric(vertical: 5),
-              leading: CircleAvatar(child: Text(client.name.substring(0, 1))),
+              leading: CircleAvatar(
+                backgroundColor: AppColors.primary.withOpacity(.1),
+                foregroundColor: AppColors.primary,
+                child: Text(client.name.isEmpty ? '?' : client.name.substring(0, 1).toUpperCase()),
+              ),
               title: Text(client.name),
               subtitle: Text('${client.company} | ${client.location}'),
               trailing: PopupMenuButton<_ClientAction>(
@@ -255,6 +299,7 @@ class _AdministrativeDashboardScreenState
                     child: Text(client.active ? 'Archive client' : 'Restore client'),
                   ),
                 ],
+              ),
               ),
             )),
       ],
@@ -277,9 +322,16 @@ class _AdministrativeDashboardScreenState
                 padding: EdgeInsets.symmetric(vertical: 20),
                 child: Text('No tasks have been created for this business.'),
               ),
-            ...provider.tasks.map((task) => ListTile(
+            ...provider.tasks.map((task) => Card(
+                margin: const EdgeInsets.only(bottom: 7),
+                color: AppColors.surface,
+                child: ListTile(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.task_alt_outlined),
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFE8F0FF),
+                    child: Icon(Icons.task_alt_outlined, color: AppColors.primary),
+                  ),
                   title: Text(task.title),
                   subtitle: Text(
                     '${task.clientName} · ${MaterialLocalizations.of(context).formatMediumDate(task.dueAt)}',
@@ -298,7 +350,8 @@ class _AdministrativeDashboardScreenState
                               taskName: task.title,
                             ),
                           )),
-                )),
+                ),
+              ).animate().fadeIn(duration: 220.ms).slideX(begin: .02, end: 0)),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: provider.isLoading ? null : _createTask,
@@ -534,16 +587,37 @@ class _AdministrativeDashboardScreenState
 
   Widget _action(String label, IconData icon, VoidCallback onTap) => SizedBox(
         width: 175,
-        child: OutlinedButton.icon(onPressed: onTap, icon: Icon(icon, size: 18), label: Text(label)),
+        child: FilledButton.tonalIcon(
+          onPressed: onTap,
+          icon: Icon(icon, size: 18),
+          label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(46),
+            alignment: Alignment.centerLeft,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        ),
       );
 
-  Widget _moreTile(IconData icon, String title, String subtitle, VoidCallback onTap, {bool destructive = false}) => ListTile(
-        onTap: onTap,
-        contentPadding: const EdgeInsets.symmetric(vertical: 5),
-        leading: Icon(icon, color: destructive ? Theme.of(context).colorScheme.error : null),
-        title: Text(title, style: TextStyle(color: destructive ? Theme.of(context).colorScheme.error : null)),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right),
+  Widget _moreTile(IconData icon, String title, String subtitle, VoidCallback onTap, {bool destructive = false}) => Card(
+        margin: const EdgeInsets.only(bottom: 7),
+        color: Theme.of(context).colorScheme.surface,
+        child: ListTile(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          onTap: onTap,
+          leading: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: (destructive ? Theme.of(context).colorScheme.error : AppColors.primary).withOpacity(.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: destructive ? Theme.of(context).colorScheme.error : AppColors.primary, size: 19),
+          ),
+          title: Text(title, style: TextStyle(color: destructive ? Theme.of(context).colorScheme.error : null)),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.chevron_right),
+        ),
       );
 
   Future<void> _confirmLogout() async {
@@ -765,25 +839,94 @@ class _Client {
 enum _ClientAction { edit, archive, restore }
 
 class _Metric extends StatelessWidget {
-  const _Metric(this.label, this.value, this.change, this.icon, this.color);
+  const _Metric(this.label, this.value, this.change, this.icon, this.color,
+      {this.onTap});
   final String label;
   final String value;
   final String change;
   final IconData icon;
   final Color color;
+  final VoidCallback? onTap;
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(8)),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(icon, color: color, size: 18),
+  Widget build(BuildContext context) => Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: color.withOpacity(.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: color.withOpacity(.18)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(color: color.withOpacity(.14), borderRadius: BorderRadius.circular(8)),
+                child: Icon(icon, color: color, size: 18),
+              ),
+              const Spacer(),
+              if (onTap != null)
+                Icon(Icons.arrow_outward, color: color.withOpacity(.7), size: 15),
+            ]),
             const Spacer(),
-            Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
-            Row(children: [Expanded(child: Text(label, style: Theme.of(context).textTheme.labelSmall)), Text(change, style: TextStyle(fontSize: 10, color: color))]),
-          ]),
+            Text(value, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3),
+            Row(children: [Expanded(child: Text(label, style: Theme.of(context).textTheme.labelSmall)), Text(change, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600))]),
+              ]),
+            ),
+          ),
         ),
       );
+}
+
+class _WelcomeBand extends StatelessWidget {
+  const _WelcomeBand({this.businessName});
+  final String? businessName;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = businessName?.trim();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 18, 14, 18),
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(8),
+        border: const Border(left: BorderSide(color: AppColors.secondary, width: 4)),
+      ),
+      child: Row(children: [
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('ADMINISTRATIVE WORKSPACE',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Colors.white.withOpacity(.78),
+                    fontWeight: FontWeight.w700,
+                  )),
+          const SizedBox(height: 5),
+          Text(name?.isNotEmpty == true ? name! : 'Good to see you',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  )),
+          const SizedBox(height: 3),
+          Text('Insights and work that need your attention.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.white.withOpacity(.9),
+                  )),
+        ])),
+        const SizedBox(width: 12),
+        const Icon(Icons.space_dashboard_outlined, color: Colors.white, size: 30),
+      ]),
+    ).animate().fadeIn(duration: 300.ms).slideY(begin: .06, end: 0);
+  }
 }
 
 class _Title extends StatelessWidget {

@@ -6,6 +6,15 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { getRequestUserId, runWithUser } = require('./db_request_context');
 
+function isPlatformAdmin(user) {
+  const configured = process.env.PLATFORM_ADMIN_EMAILS || process.env.PLATFORM_ADMIN_EMAIL;
+  const allowed = (configured || 'MCadmin@mc.c')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  return allowed.includes(String(user?.email || '').trim().toLowerCase());
+}
+
 const DEFAULT_JWKS_URL = 'http://127.0.0.1:8000/auth/v1/.well-known/jwks.json';
 const JWKS_MAX_AGE_MS = 10 * 60 * 1000;
 let jwksCache;
@@ -190,17 +199,40 @@ function requireBusinessMembership(pool) {
         [req.user.id, businessId]
       );
 
-      if (result.rows.length === 0) {
-        const ownerResult = await pool.query(
-          `SELECT id, 'owner'::text AS role, true AS is_owner, '{}'::jsonb AS permissions
-           FROM businesses
-           WHERE id = $1 AND owner_id = $2 AND is_active = true`,
-          [businessId, req.user.id]
-        );
-        if (ownerResult.rows.length > 0) {
-          req.businessMembership = ownerResult.rows[0];
-          return next();
+      const membership = result.rows[0];
+      if (membership) {
+        const role = String(membership.role || '').trim().toLowerCase();
+        if (!membership.is_owner && role !== 'owner') {
+          // The canonical business owner must not inherit a stale or reduced
+          // role from an old business_members row (for example after a DB restore).
+          const ownerResult = await pool.query(
+            `SELECT id FROM businesses
+             WHERE id = $1 AND owner_id = $2 AND is_active = true`,
+            [businessId, req.user.id]
+          );
+          if (ownerResult.rows.length > 0) {
+            req.businessMembership = {
+              ...membership,
+              role: 'owner',
+              is_owner: true,
+            };
+            return next();
+          }
         }
+        req.businessMembership = membership;
+        return next();
+      }
+
+      const ownerResult = await pool.query(
+        `SELECT id, 'owner'::text AS role, true AS is_owner, '{}'::jsonb AS permissions
+         FROM businesses
+         WHERE id = $1 AND owner_id = $2 AND is_active = true`,
+        [businessId, req.user.id]
+      );
+      if (ownerResult.rows.length > 0) {
+        req.businessMembership = ownerResult.rows[0];
+        return next();
+      }
 
         // Imported workers may predate business_members; their active worker
         // row is still scoped to exactly one business and carries their grants.
@@ -215,14 +247,42 @@ function requireBusinessMembership(pool) {
           ...workerResult.rows[0],
           is_owner: false,
         };
-      } else {
-        req.businessMembership = result.rows[0];
-      }
-
       next();
     } catch (err) {
       console.error('[AuthMiddleware] Error checking membership:', err);
       return res.status(500).json({ error: 'Failed to verify business membership' });
+    }
+  };
+}
+
+// Backward-compatible read access for platform admins used by older clients
+// that still call business-scoped sales, inventory, pump and business GETs.
+// Writes always go through normal business membership checks.
+function requireBusinessReadAccess(pool) {
+  const requireMembership = requireBusinessMembership(pool);
+  return async (req, res, next) => {
+    if (req.method !== 'GET' || !isPlatformAdmin(req.user)) {
+      return requireMembership(req, res, next);
+    }
+    if (req.user?.isAnon) {
+      return res.status(401).json({ error: 'Authentication required for business access' });
+    }
+
+    const businessId = req.params.businessId || req.query.businessId;
+    if (!businessId) return res.status(400).json({ error: 'businessId is required' });
+
+    try {
+      const result = await pool.query(
+        'SELECT owner_id FROM businesses WHERE id = $1 AND is_active = true',
+        [businessId]
+      );
+      const ownerId = result.rows[0]?.owner_id;
+      if (!ownerId) return res.status(404).json({ error: 'Business not found' });
+      req.businessMembership = { role: 'platform_admin', is_owner: false, permissions: {} };
+      return runWithUser(ownerId, next);
+    } catch (error) {
+      console.error('[AuthMiddleware] Platform-admin business read failed:', error);
+      return res.status(500).json({ error: 'Failed to authorize business read' });
     }
   };
 }
@@ -275,6 +335,7 @@ module.exports = {
   requireAuth,
   requireRole,
   requireBusinessMembership,
+  requireBusinessReadAccess,
   requireBusinessPermission,
   requireBusinessOwner,
 };

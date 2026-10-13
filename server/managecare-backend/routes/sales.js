@@ -2,12 +2,13 @@
  * Sales API routes for ManageCare.
  */
 const express = require('express');
-const router = express.Router();
+const crypto = require('crypto');
 const { requireFields, pagination, asyncHandler } = require('../middleware/validation');
-const { requireBusinessMembership } = require('../middleware/auth');
+const { requireBusinessReadAccess } = require('../middleware/auth');
 
 module.exports = function(pool) {
-  router.use('/:businessId', requireBusinessMembership(pool));
+  const router = express.Router();
+  router.use('/:businessId', requireBusinessReadAccess(pool));
 
   // GET /api/sales/:businessId - List sales with filters
   router.get('/:businessId', pagination, asyncHandler(async (req, res) => {
@@ -184,6 +185,36 @@ module.exports = function(pool) {
     next();
   }, requireFields('final_amount', 'payment_method'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
+    const body = req.body || {};
+    const aliases = {
+      customer_id: 'customerId', store_id: 'storeId', worker_id: 'workerId',
+      worker_name: 'workerName', total_amount: 'totalAmount',
+      discount_amount: 'discountAmount', tax_amount: 'taxAmount',
+      final_amount: 'finalAmount', payment_method: 'paymentMethod',
+      payment_breakdown: 'paymentBreakdown', created_by: 'createdBy',
+      created_at: 'createdAt', sale_type: 'saleType',
+    };
+    for (const [snake, camel] of Object.entries(aliases)) {
+      body[snake] ??= body[camel];
+    }
+    if (Array.isArray(body.items)) {
+      body.items = body.items.map((raw) => {
+        const item = raw && typeof raw === 'object' ? raw : {};
+        return {
+          ...item,
+          product_id: item.product_id ?? item.productId ?? item.product_id,
+          product_name: item.product_name ?? item.productName ?? item.name,
+          unit_price: item.unit_price ?? item.unitPrice ?? item.price,
+          sale_unit_multiplier: item.sale_unit_multiplier ?? item.saleUnitMultiplier ?? 1,
+          pricing_mode: item.pricing_mode ?? item.pricingMode,
+          inventory_unit: item.inventory_unit ?? item.inventoryUnit ?? item.unit,
+          sale_unit: item.sale_unit ?? item.saleUnit ?? item.unit,
+        };
+      });
+    }
+    if (!body.sale_type && /fuel|petrol|diesel|kerosene|gas/i.test(body.category || '')) {
+      body.sale_type = 'fuel';
+    }
     const {
       id: rawId, customer_id, store_id, worker_id, worker_name,
       total_amount, discount_amount, tax_amount, final_amount,
@@ -191,21 +222,32 @@ module.exports = function(pool) {
       created_at, payment_breakdown,
     } = req.body;
 
-    // Offline-queued sales (and some older client code paths) generate a
-    // human-readable local id like "SALE-<timestamp>" for local bookkeeping,
-    // not a real UUID. Sending that straight into a uuid column crashes the
-    // insert - treat a non-UUID id as absent so the row still gets a real
-    // primary key instead of failing the whole sale.
+    // Older offline clients use human-readable IDs such as SALE-<timestamp>.
+    // Map those deterministically to UUIDs so retries remain idempotent.
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const id = rawId && UUID_RE.test(rawId) ? rawId : null;
+    const id = rawId
+      ? UUID_RE.test(rawId)
+        ? rawId
+        : deterministicLegacySaleId(businessId, rawId)
+      : null;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
     if (id) {
-      const existing = await pool.query(
-        'SELECT * FROM sales WHERE id = $1 AND business_id = $2',
+      const existing = await client.query(
+        'SELECT * FROM sales WHERE id = $1 AND business_id = $2 FOR UPDATE',
         [id, businessId]
       );
       if (existing.rows.length > 0) {
-        return res.status(200).json({ ...existing.rows[0], items: items || [], alreadyExisted: true });
+        const existingItems = await client.query(
+          'SELECT * FROM sale_items WHERE sale_id = $1', [id]
+        );
+        await client.query('COMMIT');
+        return res.status(200).json({
+          ...existing.rows[0], items: existingItems.rows, alreadyExisted: true,
+        });
       }
     }
 
@@ -218,16 +260,56 @@ module.exports = function(pool) {
 
     const firstItem = Array.isArray(items) && items.length > 0 ? items[0] : null;
     const saleType = sale_type || 'retail';
+    const fuelPattern = /(fuel|petrol|diesel|kerosene|petroleum|pump|pms|ago|dpk|gas)/i;
+    const productIds = [...new Set((items || [])
+      .map((item) => item.product_id)
+      .filter((productId) => productId && UUID_RE.test(productId)))];
+    const productsResult = productIds.length > 0
+      ? await client.query(
+        `SELECT id, category, name, unit FROM inventory
+         WHERE business_id = $1 AND id = ANY($2::uuid[]) FOR UPDATE`,
+        [businessId, productIds]
+      )
+      : { rows: [] };
+    const fuelProductIds = new Set(productsResult.rows
+      .filter((product) => fuelPattern.test(
+        `${product.category || ''} ${product.name || ''} ${product.unit || ''}`
+      ))
+      .map((product) => product.id));
+    const isFuelSale = fuelPattern.test(saleType) || fuelProductIds.size > 0;
+
+    if (isFuelSale && !firstItem) {
+      const error = new Error('Fuel sale must include at least one inventory item');
+      error.statusCode = 400;
+      error.expose = true;
+      throw error;
+    }
     const finalAmountNumber = Number.parseFloat(final_amount) || 0;
-    if (saleType === 'fuel' && firstItem && finalAmountNumber > 0) {
+    if (isFuelSale && firstItem && finalAmountNumber > 0) {
       const productId = firstItem.product_id || null;
       const quantity = Number.parseFloat(firstItem.quantity) || 0;
-      const duplicate = await pool.query(
+      if (!productId || !UUID_RE.test(productId)) {
+        const error = new Error('Fuel sale item must reference a valid inventory product');
+        error.statusCode = 400;
+        error.expose = true;
+        throw error;
+      }
+      const productResult = await client.query(
+        'SELECT id FROM inventory WHERE id = $1 AND business_id = $2 FOR UPDATE',
+        [productId, businessId]
+      );
+      if (productResult.rows.length === 0) {
+        const error = new Error('Fuel product was not found in this business inventory');
+        error.statusCode = 400;
+        error.expose = true;
+        throw error;
+      }
+      const duplicate = await client.query(
         `SELECT s.*, COALESCE(json_agg(si.*) FILTER (WHERE si.id IS NOT NULL), '[]') as items
          FROM sales s
          LEFT JOIN sale_items si ON si.sale_id = s.id
          WHERE s.business_id = $1
-           AND s.sale_type = 'fuel'
+           AND LOWER(COALESCE(s.sale_type, '')) ~ '(fuel|petrol|diesel|kerosene|petroleum|pump|pms|ago|dpk|gas)'
            AND ABS(COALESCE(s.final_amount, 0) - $2) < 0.01
            AND COALESCE(s.worker_id::text, '') = COALESCE($3::text, '')
            AND s.created_at BETWEEN COALESCE($4::timestamptz, NOW()) - INTERVAL '2 minutes'
@@ -252,6 +334,7 @@ module.exports = function(pool) {
         ]
       );
       if (duplicate.rows.length > 0) {
+        await client.query('COMMIT');
         return res.status(200).json({
           ...duplicate.rows[0],
           items: duplicate.rows[0].items || [],
@@ -262,19 +345,37 @@ module.exports = function(pool) {
     }
 
     // Create sale
-    const saleResult = await pool.query(
+    const saleResult = await client.query(
       `INSERT INTO sales (id, business_id, customer_id, store_id, worker_id, worker_name,
         total_amount, discount_amount, tax_amount, final_amount,
         payment_method, payment_breakdown, status, notes, created_by, sale_type, created_at)
        VALUES (COALESCE($1, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::jsonb, '[]'::jsonb), $13, $14, $15, $16, COALESCE($17, NOW()))
+       ON CONFLICT (id) DO NOTHING
        RETURNING *`,
       [id || null, businessId, customer_id || null, store_id || null, worker_id || null, worker_name || null,
        total_amount || final_amount, discount_amount || 0, tax_amount || 0, final_amount,
        payment_method,
         normalizePaymentBreakdownParam(payment_breakdown),
-        status || 'completed', notes || null, created_by || worker_id || null, saleType,
+       status || 'completed', notes || null, created_by || worker_id || req.user.id, saleType,
        validCreatedAt]
     );
+    if (saleResult.rows.length === 0 && id) {
+      const existing = await client.query(
+        'SELECT * FROM sales WHERE id = $1 AND business_id = $2',
+        [id, businessId]
+      );
+      if (existing.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Sale id is already used by another business' });
+      }
+      const existingItems = await client.query(
+        'SELECT * FROM sale_items WHERE sale_id = $1', [id]
+      );
+      await client.query('COMMIT');
+      return res.status(200).json({
+        ...existing.rows[0], items: existingItems.rows, alreadyExisted: true,
+      });
+    }
     const sale = saleResult.rows[0];
 
     // Insert sale items
@@ -283,7 +384,22 @@ module.exports = function(pool) {
         const productId = item.product_id && UUID_RE.test(item.product_id)
           ? item.product_id
           : null;
-        await pool.query(
+        const quantity = Number(item.quantity);
+        const multiplier = Number(item.sale_unit_multiplier ?? 1);
+        if (!Number.isFinite(quantity) || quantity <= 0 ||
+            !Number.isFinite(multiplier) || multiplier <= 0) {
+          const error = new Error('Sale item quantity must be greater than zero');
+          error.statusCode = 400;
+          error.expose = true;
+          throw error;
+        }
+        if (isFuelSale && (!productId || !fuelProductIds.has(productId)) && !fuelPattern.test(saleType)) {
+          const error = new Error('Fuel sale item must reference a valid inventory product');
+          error.statusCode = 400;
+          error.expose = true;
+          throw error;
+        }
+        await client.query(
           `INSERT INTO sale_items (sale_id, product_id, product_name, quantity, unit_price, discount, total,
             pricing_mode, inventory_unit, sale_unit, sale_unit_multiplier)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
@@ -293,10 +409,11 @@ module.exports = function(pool) {
            item.sale_unit || null, item.sale_unit_multiplier || 1]
         );
 
-        // Deduct from inventory
-        if (productId) {
-          const qty = (item.quantity || 0) * (item.sale_unit_multiplier || 1);
-          await pool.query(
+        // Fuel stock is deducted by the database trigger so the same rule
+        // also covers legacy clients writing sale_items through /rest/v1.
+        if (productId && !fuelProductIds.has(productId) && !fuelPattern.test(saleType)) {
+          const qty = quantity * multiplier;
+          await client.query(
             'UPDATE inventory SET quantity = GREATEST(0, quantity - $1), updated_at = NOW() WHERE id = $2 AND business_id = $3',
             [qty, productId, businessId]
           );
@@ -306,13 +423,20 @@ module.exports = function(pool) {
 
     // Update customer total purchases
     if (customer_id) {
-      await pool.query(
-        'UPDATE customers SET total_purchases = total_purchases + $1, total_spent = total_spent + $1, updated_at = NOW() WHERE id = $2',
-        [final_amount, customer_id]
+      await client.query(
+        'UPDATE customers SET total_purchases = total_purchases + $1, total_spent = total_spent + $1, updated_at = NOW() WHERE id = $2 AND business_id = $3',
+        [final_amount, customer_id, businessId]
       );
     }
 
+    await client.query('COMMIT');
     res.status(201).json({ ...sale, items: items || [] });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }));
 
   // PUT /api/sales/:businessId/:id - Update sale metadata (not items/inventory)
@@ -434,6 +558,17 @@ function formatSale(row) {
     ...row,
     items: typeof row.items === 'string' ? JSON.parse(row.items) : row.items,
   };
+}
+
+function deterministicLegacySaleId(businessId, rawId) {
+  const digest = crypto.createHash('sha1')
+    .update(`managecare-sale:${businessId}:${String(rawId)}`)
+    .digest();
+  const bytes = Buffer.from(digest.subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
 function normalizePaymentBreakdownParam(value) {
