@@ -801,7 +801,7 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
     try {
       final response = await ManagecareApiClient.instance.get(
         '/api/pumps/$businessId/uploads',
-        query: {'pumpId': pumpId, 'limit': '50'},
+        query: {'pumpId': pumpId, 'limit': '50', 'summary': 'true'},
       );
       final rows =
           ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
@@ -895,11 +895,23 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       pos: pos,
     );
 
-    if (await _hasDuplicateUpload(
-      businessId: businessId,
-      fingerprint: uploadFingerprint,
-      pumpId: _selectedPumpId!,
-    )) {
+    final isOnline = await ConnectivityHelper.hasInternetConnection();
+    var isDuplicate = false;
+    var price = (pump['productPrice'] as num?)?.toDouble() ?? 0.0;
+    if (isOnline) {
+      final checks = await Future.wait<dynamic>([
+        _hasDuplicateUpload(
+          businessId: businessId,
+          fingerprint: uploadFingerprint,
+          pumpId: _selectedPumpId!,
+        ),
+        _resolveCurrentProductInfo(businessId, productId, pump),
+      ]);
+      isDuplicate = checks[0] as bool;
+      price = (checks[1] as Map<String, double>)['price'] ?? price;
+    }
+
+    if (isDuplicate) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -910,11 +922,6 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       return;
     }
 
-    final retail = context.read<RetailProvider>();
-    await retail.loadProducts(forceRefresh: true);
-    final productInfo =
-        await _resolveCurrentProductInfo(businessId, productId, pump);
-    final price = productInfo['price'] ?? 0.0;
     if (price <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -950,8 +957,6 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
 
     // Pump uploads now enter manager review first. Stock deduction and sales
     // registration happen only after a manager approves the upload.
-    final isOnline = await ConnectivityHelper.hasInternetConnection();
-
     String? shiftOpeningCashPhotoUrl;
     String? shiftCloseCashPhotoUrl;
     String? openingPhotoUrl;
@@ -964,30 +969,36 @@ class _PumpDailyUploadScreenState extends State<PumpDailyUploadScreen> {
       if (businessId == null || businessId.isEmpty) {
         queueBecausePhotoUploadFailed = true;
       } else {
-        shiftOpeningCashPhotoUrl = await _ensurePhotoUrl(
-          label: 'shift opening cash',
-          businessId: businessId,
-          url: _shiftOpeningCashPhotoUrl,
-          path: _shiftOpeningCashPhotoPath,
-        );
-        shiftCloseCashPhotoUrl = await _ensurePhotoUrl(
-          label: 'shift close cash',
-          businessId: businessId,
-          url: _shiftCloseCashPhotoUrl,
-          path: _shiftCloseCashPhotoPath,
-        );
-        openingPhotoUrl = await _ensurePhotoUrl(
-          label: 'opening pump volume',
-          businessId: businessId,
-          url: _openingPhotoUrl,
-          path: _openingPhotoPath,
-        );
-        closingPhotoUrl = await _ensurePhotoUrl(
-          label: 'closing pump volume',
-          businessId: businessId,
-          url: _closingPhotoUrl,
-          path: _closingPhotoPath,
-        );
+        final photoUrls = await Future.wait<String?>([
+          _ensurePhotoUrl(
+            label: 'shift opening cash',
+            businessId: businessId,
+            url: _shiftOpeningCashPhotoUrl,
+            path: _shiftOpeningCashPhotoPath,
+          ),
+          _ensurePhotoUrl(
+            label: 'shift close cash',
+            businessId: businessId,
+            url: _shiftCloseCashPhotoUrl,
+            path: _shiftCloseCashPhotoPath,
+          ),
+          _ensurePhotoUrl(
+            label: 'opening pump volume',
+            businessId: businessId,
+            url: _openingPhotoUrl,
+            path: _openingPhotoPath,
+          ),
+          _ensurePhotoUrl(
+            label: 'closing pump volume',
+            businessId: businessId,
+            url: _closingPhotoUrl,
+            path: _closingPhotoPath,
+          ),
+        ]);
+        shiftOpeningCashPhotoUrl = photoUrls[0];
+        shiftCloseCashPhotoUrl = photoUrls[1];
+        openingPhotoUrl = photoUrls[2];
+        closingPhotoUrl = photoUrls[3];
       }
 
       // Verify all images were successfully uploaded

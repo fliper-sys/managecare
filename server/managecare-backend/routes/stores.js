@@ -5,6 +5,7 @@ const express = require('express');
 const router = express.Router();
 const { requireFields, asyncHandler } = require('../middleware/validation');
 const { requireBusinessMembership, requireBusinessOwner } = require('../middleware/auth');
+const { getHospitalityQuota, sendQuotaLimit } = require('../middleware/hospitality_limits');
 
 module.exports = function(pool) {
   router.use('/:businessId', requireBusinessMembership(pool));
@@ -34,6 +35,10 @@ module.exports = function(pool) {
   router.post('/:businessId', requireBusinessOwner, requireFields('name'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { name, location, address, phone } = req.body;
+    const hospitalityQuota = await getHospitalityQuota(pool, businessId, 'branches');
+    if (hospitalityQuota && hospitalityQuota.limit != null && hospitalityQuota.usage >= hospitalityQuota.limit) {
+      return sendQuotaLimit(res, 'branches', hospitalityQuota);
+    }
     const quota = await administrativeBranchLimit(businessId);
     if (quota && quota.usage >= quota.limit) {
       return res.status(409).json({ error: 'Subscription branch limit reached', limit_type: 'branches', limit: quota.limit, current_usage: quota.usage });

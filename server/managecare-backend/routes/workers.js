@@ -6,6 +6,7 @@ const router = express.Router();
 const bcrypt = require('bcrypt');
 const { requireFields, pagination, asyncHandler } = require('../middleware/validation');
 const { requireBusinessMembership, requireBusinessOwner } = require('../middleware/auth');
+const { getHospitalityQuota, sendQuotaLimit } = require('../middleware/hospitality_limits');
 
 module.exports = function(pool) {
   router.use('/:businessId', requireBusinessMembership(pool));
@@ -78,11 +79,15 @@ module.exports = function(pool) {
     const { businessId } = req.params;
     const { email, full_name, phone, role, store_id, permissions, pin, password } = req.body;
     const permissionsJson = JSON.stringify(permissions || {});
-    const passwordHash = await bcrypt.hash(password, 10);
     const quota = await administrativeWorkerLimit(businessId);
     if (quota && quota.usage >= quota.limit) {
       return res.status(409).json({ error: 'Subscription staff limit reached', limit_type: 'workers', limit: quota.limit, current_usage: quota.usage });
     }
+    const hospitalityQuota = await getHospitalityQuota(pool, businessId, 'workers');
+    if (hospitalityQuota && hospitalityQuota.limit != null && hospitalityQuota.usage >= hospitalityQuota.limit) {
+      return sendQuotaLimit(res, 'workers', hospitalityQuota);
+    }
+    const passwordHash = await bcrypt.hash(password, 10);
 
     const result = await pool.query(
       `INSERT INTO workers (email, full_name, phone, role, business_id, store_id, permissions, pin, password_hash)

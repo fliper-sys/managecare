@@ -82,15 +82,30 @@ module.exports = function(pool) {
 
   router.get('/:businessId/uploads', asyncHandler(async (req, res) => {
     const { businessId } = req.params;
-    const { pumpId, from, to, isDisputed, status, workerId, limit } = req.query;
+    const { pumpId, from, to, isDisputed, status, workerId, limit, summary } = req.query;
 
-    let query = `SELECT p.*,
-                        EXISTS (
-                          SELECT 1 FROM pump_upload_adjustments a
-                          WHERE a.upload_id = p.id
-                            AND (a.action = 'adjusted' OR a.changes <> '[]'::jsonb)
-                        ) AS has_edits
-                 FROM pump_daily_uploads p WHERE p.business_id = $1`;
+    const uploadColumns = summary === 'true'
+      ? `to_jsonb(p) - ARRAY[
+          'shift_opening_cash_photo_url', 'shift_close_cash_photo_url',
+          'opening_photo_url', 'closing_photo_url'
+        ]`
+      : 'to_jsonb(p)';
+    let query = summary === 'true'
+      ? `SELECT (${uploadColumns}) || jsonb_build_object(
+                   'has_edits', EXISTS (
+                     SELECT 1 FROM pump_upload_adjustments a
+                     WHERE a.upload_id = p.id
+                       AND (a.action = 'adjusted' OR a.changes <> '[]'::jsonb)
+                   )
+                 ) AS upload
+          FROM pump_daily_uploads p WHERE p.business_id = $1`
+      : `SELECT p.*,
+                 EXISTS (
+                   SELECT 1 FROM pump_upload_adjustments a
+                   WHERE a.upload_id = p.id
+                     AND (a.action = 'adjusted' OR a.changes <> '[]'::jsonb)
+                 ) AS has_edits
+          FROM pump_daily_uploads p WHERE p.business_id = $1`;
     const params = [businessId];
     let paramIndex = 2;
     if (pumpId) { query += ` AND pump_id = $${paramIndex++}`; params.push(pumpId); }
@@ -104,7 +119,7 @@ module.exports = function(pool) {
     params.push(Math.min(500, parseInt(limit) || 200));
 
     const result = await pool.query(query, params);
-    res.json({ data: result.rows });
+    res.json({ data: summary === 'true' ? result.rows.map((row) => row.upload) : result.rows });
   }));
 
   router.get('/:businessId/uploads/counts', asyncHandler(async (req, res) => {
@@ -146,6 +161,22 @@ module.exports = function(pool) {
       [businessId, pumpId]
     );
     res.json(result.rows[0] || null);
+  }));
+
+  router.get('/:businessId/uploads/:id', asyncHandler(async (req, res) => {
+    const result = await pool.query(
+      `SELECT p.*,
+              EXISTS (
+                SELECT 1 FROM pump_upload_adjustments a
+                WHERE a.upload_id = p.id
+                  AND (a.action = 'adjusted' OR a.changes <> '[]'::jsonb)
+              ) AS has_edits
+       FROM pump_daily_uploads p
+       WHERE p.id = $1 AND p.business_id = $2`,
+      [req.params.id, req.params.businessId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Upload not found' });
+    res.json(result.rows[0]);
   }));
 
   // Client bookkeeping ids like "SALE-<timestamp>" (used for an offline
@@ -938,6 +969,10 @@ module.exports = function(pool) {
   router.post('/:businessId/admin-cash-submissions', requireFields('receiver_name', 'amount'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const b = req.body;
+    const amount = Number(b.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'amount must be a positive number' });
+    }
     const result = await pool.query(
       `INSERT INTO petroleum_admin_cash_submissions (
          business_id, submitted_by, submitted_by_name, receiver_name, amount,
@@ -948,7 +983,7 @@ module.exports = function(pool) {
            - COALESCE((SELECT SUM(amount) FROM petroleum_bank_deposits WHERE business_id = $1), 0)
            - COALESCE((SELECT SUM(amount) FROM petroleum_admin_cash_submissions WHERE business_id = $1), 0)
            - $5,
-         COALESCE($7::date, CURRENT_DATE), COALESCE($8::time, CURRENT_TIME), $9
+         COALESCE($6::date, CURRENT_DATE), COALESCE($7::time, CURRENT_TIME), $8
        )
        RETURNING *`,
       [
@@ -956,8 +991,7 @@ module.exports = function(pool) {
         asUuidOrNull(b.submitted_by),
         b.submitted_by_name || null,
         b.receiver_name,
-        b.amount || 0,
-        b.balance_cash_at_hand || 0,
+        amount,
         b.submission_date || null,
         b.submission_time || null,
         b.note || null,

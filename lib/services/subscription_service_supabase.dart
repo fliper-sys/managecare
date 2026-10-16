@@ -193,13 +193,13 @@ class SubscriptionServiceSupabase {
       ('lounge', 'unlimited', 'monthly', 37000.0, 30, ['Unlimited access', 'Unlimited tables', 'Unlimited inventory'],
           {'tables': null, 'workers': null, 'inventory_products': null, 'locations': null, 'branches': null}),
       // Hospitality
-      ('hospitality', 'tier1', 'monthly', 14650.0, 30, ['15 rooms', '10 restaurant tables', '15 bar tables'],
+      ('hospitality', 'tier1', 'monthly', 14650.0, 30, ['Up to 15 rooms; suites not included', '10 restaurant tables and 15 bar tables', 'Up to 7 staff', '1 location; no additional branches', 'Hall and pool bookings not included'],
           {'rooms': 15, 'suites': 0, 'workers': 7, 'restaurant_tables': 10, 'bar_tables': 15, 'locations': 1, 'branches': 0}),
-      ('hospitality', 'tier2', 'monthly', 23350.0, 30, ['25 rooms + 5 suites', 'Hall access', '1 branch'],
+      ('hospitality', 'tier2', 'monthly', 23350.0, 30, ['Up to 25 rooms plus 5 suites', '20 restaurant tables and 25 bar tables', 'Up to 15 staff', '2 locations total; 1 additional branch', 'Hall booking access'],
           {'rooms': 25, 'suites': 5, 'workers': 15, 'restaurant_tables': 20, 'bar_tables': 25, 'locations': 2, 'branches': 1}),
-      ('hospitality', 'tier3', 'monthly', 35750.0, 30, ['40 rooms + 10 suites', 'Pool access', '2 branches'],
+      ('hospitality', 'tier3', 'monthly', 35750.0, 30, ['Up to 40 rooms plus 10 suites', '30 restaurant tables and 35 bar tables', 'Up to 25 staff', '3 locations total; 2 additional branches', 'Hall and pool booking access'],
           {'rooms': 40, 'suites': 10, 'workers': 25, 'restaurant_tables': 30, 'bar_tables': 35, 'locations': 3, 'branches': 2}),
-      ('hospitality', 'unlimited', 'monthly', 45000.0, 30, ['Unlimited rooms', 'Unlimited workers', 'Unlimited features'],
+      ('hospitality', 'unlimited', 'monthly', 45000.0, 30, ['Unlimited rooms and suites', 'Unlimited restaurant and bar tables', 'Unlimited staff and locations', 'Hall and pool booking access'],
           {'rooms': null, 'suites': null, 'workers': null, 'restaurant_tables': null, 'bar_tables': null, 'locations': null, 'branches': null}),
     ];
 

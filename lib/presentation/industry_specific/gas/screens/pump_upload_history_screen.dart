@@ -30,6 +30,14 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
   DateTime? _endDate;
   bool _showMismatchBadge = true;
   List<Map<String, dynamic>> _cachedPumps = [];
+  String? _pumpsBusinessId;
+  Stream<List<Map<String, dynamic>>>? _pumpsCache;
+  String? _uploadsCacheKey;
+  Stream<List<Map<String, dynamic>>>? _uploadsCache;
+  String? _pendingCountBusinessId;
+  Stream<int>? _pendingCountCache;
+  final Map<String, Map<String, dynamic>> _uploadDetails = {};
+  final Set<String> _loadingUploadDetails = {};
 
   static const _pollInterval = Duration(seconds: 15);
 
@@ -39,16 +47,23 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadCachedPumps());
   }
 
-  Stream<int> _pendingUploadCountStream(String businessId) async* {
-    while (true) {
-      try {
-        await PumpUploadOfflineQueue.sync(businessId);
-      } catch (_) {
-        // Swallow transient errors between polls so the stream stays alive.
-      }
-      yield await PumpUploadOfflineQueue.pendingCount(businessId);
-      await Future.delayed(_pollInterval);
+  Stream<int> _pendingUploadCountStream(String businessId) {
+    if (_pendingCountBusinessId == businessId && _pendingCountCache != null) {
+      return _pendingCountCache!;
     }
+    _pendingCountBusinessId = businessId;
+    _pendingCountCache = (() async* {
+      while (true) {
+        try {
+          await PumpUploadOfflineQueue.sync(businessId);
+        } catch (_) {
+          // Keep the pending count visible through transient network errors.
+        }
+        yield await PumpUploadOfflineQueue.pendingCount(businessId);
+        await Future.delayed(_pollInterval);
+      }
+    })().asBroadcastStream();
+    return _pendingCountCache!;
   }
 
   Future<void> _loadCachedPumps() async {
@@ -162,36 +177,74 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
     });
   }
 
-  Stream<List<Map<String, dynamic>>> _pumpsStream(String businessId) async* {
-    while (true) {
-      try {
-        final response = await ManagecareApiClient.instance
-            .get('/api/pumps/$businessId/pumps', query: {'isActive': 'true'});
-        final rows =
-            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
-        yield rows.map(pumpRowToJson).toList();
-      } catch (_) {
-        // Swallow transient errors between polls so the stream stays alive.
-      }
-      await Future.delayed(_pollInterval);
+  Stream<List<Map<String, dynamic>>> _pumpsStream(String businessId) {
+    if (_pumpsBusinessId == businessId && _pumpsCache != null) {
+      return _pumpsCache!;
     }
+    _pumpsBusinessId = businessId;
+    _pumpsCache = (() async* {
+      while (true) {
+        try {
+          final response = await ManagecareApiClient.instance
+              .get('/api/pumps/$businessId/pumps', query: {'isActive': 'true'});
+          final rows =
+              ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+          yield rows.map(pumpRowToJson).toList();
+        } catch (_) {
+          // Retain cached pump configuration while the API is unavailable.
+        }
+        await Future.delayed(_pollInterval);
+      }
+    })().asBroadcastStream();
+    return _pumpsCache!;
   }
 
-  Stream<List<Map<String, dynamic>>> _uploadsStream(String businessId) async* {
-    while (true) {
-      try {
-        final query = <String, dynamic>{'limit': '200', 'isDisputed': 'false'};
-        if (_startDate != null) query['from'] = _startDate!.toIso8601String();
-        if (_endDate != null) query['to'] = _endDate!.toIso8601String();
-        final response = await ManagecareApiClient.instance
-            .get('/api/pumps/$businessId/uploads', query: query);
-        final rows =
-            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
-        yield rows.map(pumpUploadRowToJson).toList();
-      } catch (_) {
-        // Swallow transient errors between polls so the stream stays alive.
+  Stream<List<Map<String, dynamic>>> _uploadsStream(String businessId) {
+    final key = '$businessId|${_startDate?.toIso8601String()}|${_endDate?.toIso8601String()}';
+    if (_uploadsCacheKey == key && _uploadsCache != null) return _uploadsCache!;
+    _uploadsCacheKey = key;
+    _uploadsCache = (() async* {
+      while (true) {
+        try {
+          final query = <String, dynamic>{
+            'limit': '200',
+            'isDisputed': 'false',
+            'summary': 'true',
+          };
+          if (_startDate != null) query['from'] = _startDate!.toIso8601String();
+          if (_endDate != null) query['to'] = _endDate!.toIso8601String();
+          final response = await ManagecareApiClient.instance
+              .get('/api/pumps/$businessId/uploads', query: query);
+          final rows =
+              ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+          yield rows.map(pumpUploadRowToJson).toList();
+        } catch (_) {
+          // Keep the latest successful rows during transient failures.
+        }
+        await Future.delayed(_pollInterval);
       }
-      await Future.delayed(_pollInterval);
+    })().asBroadcastStream();
+    return _uploadsCache!;
+  }
+
+  Future<void> _loadUploadDetails(String businessId, String uploadId) async {
+    if (_uploadDetails.containsKey(uploadId) ||
+        !_loadingUploadDetails.add(uploadId)) {
+      return;
+    }
+    try {
+      final response = await ManagecareApiClient.instance
+          .get('/api/pumps/$businessId/uploads/$uploadId');
+      if (response is Map && mounted) {
+        setState(() {
+          _uploadDetails[uploadId] =
+              pumpUploadRowToJson(Map<String, dynamic>.from(response));
+        });
+      }
+    } catch (_) {
+      // Keep the row usable if evidence cannot be fetched right now.
+    } finally {
+      _loadingUploadDetails.remove(uploadId);
     }
   }
 
@@ -990,17 +1043,19 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                 const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final data = rows[index];
+                              final uploadId = data['id']?.toString() ?? '';
+                              final detail = _uploadDetails[uploadId] ?? data;
                               final status =
                                   data['status']?.toString() ?? 'approved';
                               final uploadedAt = _readDate(data['uploadedAt']);
                               final openingUrl =
-                                  data['openingPhotoUrl'] as String?;
+                                  detail['openingPhotoUrl'] as String?;
                               final closingUrl =
-                                  data['closingPhotoUrl'] as String?;
+                                  detail['closingPhotoUrl'] as String?;
                               final shiftOpeningCashUrl =
-                                  data['shiftOpeningCashPhotoUrl'] as String?;
+                                  detail['shiftOpeningCashPhotoUrl'] as String?;
                               final shiftCloseCashUrl =
-                                  data['shiftCloseCashPhotoUrl'] as String?;
+                                  detail['shiftCloseCashPhotoUrl'] as String?;
                               final shiftOpeningCash = data['shiftOpeningCash'];
                               final shiftCloseCash = data['shiftCloseCash'];
                               final digitalOpeningVolume =
@@ -1048,6 +1103,11 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                       discrepancyNotes.isNotEmpty);
                               return Card(
                                 child: ExpansionTile(
+                                  onExpansionChanged: (expanded) {
+                                    if (expanded && uploadId.isNotEmpty) {
+                                      _loadUploadDetails(businessId, uploadId);
+                                    }
+                                  },
                                   leading: const CircleAvatar(
                                     child: Icon(Icons.upload_file_rounded),
                                   ),
@@ -1160,6 +1220,9 @@ class _PumpUploadHistoryScreenState extends State<PumpUploadHistoryScreen> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
+                                          if (_loadingUploadDetails
+                                              .contains(uploadId))
+                                            const LinearProgressIndicator(),
                                           Text(
                                             'Digital opening volume: ${formatAmount(digitalOpeningVolume, decimalDigits: 3)}',
                                           ),

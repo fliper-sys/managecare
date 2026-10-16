@@ -111,16 +111,19 @@ class _GasDashboardScreenState extends State<GasDashboardScreen>
     final end = DateTime(
         _selectedDate.year, _selectedDate.month, _selectedDate.day, 23, 59, 59);
 
-    final metrics = await retail.getFuelMetrics(start: start, end: end);
-    final history =
-        await retail.getFuelSalesHistory(start: start, end: end, limit: 5);
-    await _loadUploadCounts(
-      businessId: business?.id,
-      workerId: WorkerPermissions.normalizeRole(user?.role ?? '') ==
-          'pump_operator'
-          ? user?.id
-          : null,
-    );
+    final results = await Future.wait<dynamic>([
+      retail.getFuelMetrics(start: start, end: end),
+      retail.getFuelSalesHistory(start: start, end: end, limit: 5),
+      _loadUploadCounts(
+        businessId: business?.id,
+        workerId: WorkerPermissions.normalizeRole(user?.role ?? '') ==
+            'pump_operator'
+            ? user?.id
+            : null,
+      ),
+    ]);
+    final metrics = results[0] as Map<String, dynamic>;
+    final history = results[1] as List<Map<String, dynamic>>;
 
     final fuelProducts = retail.products.where((p) {
       final cat = p.category.toLowerCase();

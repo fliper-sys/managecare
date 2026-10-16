@@ -464,14 +464,12 @@ class _PlanCard extends StatelessWidget {
                 ),
                 if (plan.features.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  ...plan.features.take(2).map(
+                  ...plan.features.map(
                         (feature) => Text(
                           '• $feature',
                           style: AppTextStyles.caption.copyWith(
                             color: scheme.onSurface.withOpacity(0.78),
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                 ],

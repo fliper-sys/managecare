@@ -279,15 +279,20 @@ bindPoolToRequestUser(pool);
 // ── MinIO client (optional - for file storage) ──────────────
 let minioClient = null;
 let minioPublicClient = null;
-if (process.env.MINIO_ENDPOINT) {
+const minioConfig = {
+  endpoint: process.env.MINIO_ENDPOINT,
+  accessKey: process.env.MINIO_ACCESS_KEY,
+  secretKey: process.env.MINIO_SECRET_KEY,
+};
+if (minioConfig.endpoint && minioConfig.accessKey && minioConfig.secretKey) {
   minioClient = new Minio.Client({
-    endPoint: process.env.MINIO_ENDPOINT,
+    endPoint: minioConfig.endpoint,
     port: parseInt(process.env.MINIO_PORT) || 9000,
     useSSL: process.env.MINIO_USE_SSL === 'true',
-    accessKey: process.env.MINIO_ACCESS_KEY || 'minioadmin',
-    secretKey: process.env.MINIO_SECRET_KEY || 'minioadmin',
+    accessKey: minioConfig.accessKey,
+    secretKey: minioConfig.secretKey,
   });
-  console.log('[MinIO] Client initialized for', process.env.MINIO_ENDPOINT);
+  console.log('[MinIO] Client initialized for', minioConfig.endpoint);
 
   // Keep server-side storage access separate from the endpoint embedded in
   // presigned URLs. The internal endpoint may be localhost or a Docker name.
@@ -296,11 +301,13 @@ if (process.env.MINIO_ENDPOINT) {
       endPoint: process.env.MINIO_PUBLIC_ENDPOINT,
       port: parseInt(process.env.MINIO_PUBLIC_PORT) || parseInt(process.env.MINIO_PORT) || 9000,
       useSSL: process.env.MINIO_PUBLIC_USE_SSL === 'true',
-      accessKey: process.env.MINIO_ACCESS_KEY || 'minioadmin',
-      secretKey: process.env.MINIO_SECRET_KEY || 'minioadmin',
+      accessKey: minioConfig.accessKey,
+      secretKey: minioConfig.secretKey,
     });
     console.log('[MinIO] Public URL client initialized for', process.env.MINIO_PUBLIC_ENDPOINT);
   }
+} else if (minioConfig.endpoint || minioConfig.accessKey || minioConfig.secretKey) {
+  console.warn('[MinIO] Storage is not configured: MINIO_ENDPOINT, MINIO_ACCESS_KEY, and MINIO_SECRET_KEY are all required.');
 }
 
 // ── Middleware ──────────────────────────────────────────────

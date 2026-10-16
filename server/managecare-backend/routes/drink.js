@@ -9,6 +9,7 @@ const express = require('express');
 const router = express.Router();
 const { requireFields, asyncHandler } = require('../middleware/validation');
 const { requireBusinessMembership, requireBusinessPermission } = require('../middleware/auth');
+const { getHospitalityQuota, sendQuotaLimit } = require('../middleware/hospitality_limits');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const nullableUuid = (value) => value && UUID_RE.test(value) ? value : null;
@@ -29,6 +30,16 @@ module.exports = function(pool) {
   router.post('/:businessId/bar-tables', requireBusinessPermission('table_management'), requireFields('label'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { label } = req.body;
+    const existingTable = await pool.query(
+      'SELECT label FROM bar_tables WHERE business_id = $1 AND label = $2',
+      [businessId, label],
+    );
+    if (existingTable.rows.length === 0) {
+      const quota = await getHospitalityQuota(pool, businessId, 'bar_tables');
+      if (quota && quota.limit != null && quota.usage >= quota.limit) {
+        return sendQuotaLimit(res, 'bar_tables', quota);
+      }
+    }
     const result = await pool.query(
       `INSERT INTO bar_tables (business_id, label)
        VALUES ($1, $2)

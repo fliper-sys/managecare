@@ -46,7 +46,7 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
       try {
         final response = await ManagecareApiClient.instance.get(
           '/api/pumps/$businessId/uploads',
-          query: {'limit': '100'},
+          query: {'limit': '100', 'summary': 'true'},
         );
         final rows =
             ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
@@ -97,9 +97,12 @@ class _GasSalesHistoryScreenState extends State<GasSalesHistoryScreen> {
   }) async {
     setState(() => _loading = true);
     final retail = context.read<RetailProvider>();
-    final metrics = await retail.getFuelMetrics(start: start, end: end);
-    final history =
-        await retail.getFuelSalesHistory(start: start, end: end, limit: limit);
+    final results = await Future.wait<dynamic>([
+      retail.getFuelMetrics(start: start, end: end),
+      retail.getFuelSalesHistory(start: start, end: end, limit: limit),
+    ]);
+    final metrics = results[0] as Map<String, dynamic>;
+    final history = results[1] as List<Map<String, dynamic>>;
 
     setState(() {
       _totalAmount = metrics['totalAmount'] ?? 0.0;

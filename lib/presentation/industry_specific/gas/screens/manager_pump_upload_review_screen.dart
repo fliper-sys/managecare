@@ -22,20 +22,33 @@ class _ManagerPumpUploadReviewScreenState
     extends State<ManagerPumpUploadReviewScreen> {
   static const _pollInterval = Duration(seconds: 15);
   String? _openedUploadId;
+  String? _pendingBusinessId;
+  Stream<List<Map<String, dynamic>>>? _pendingStream;
 
-  Stream<List<Map<String, dynamic>>> _pendingUploads(String businessId) async* {
-    while (true) {
-      try {
-        final response = await ManagecareApiClient.instance.get(
-          '/api/pumps/$businessId/uploads',
-          query: {'status': 'pending_review', 'limit': '200'},
-        );
-        final rows =
-            ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
-        yield rows.map(pumpUploadRowToJson).toList();
-      } catch (_) {}
-      await Future.delayed(_pollInterval);
+  Stream<List<Map<String, dynamic>>> _pendingUploads(String businessId) {
+    if (_pendingBusinessId == businessId && _pendingStream != null) {
+      return _pendingStream!;
     }
+    _pendingBusinessId = businessId;
+    _pendingStream = (() async* {
+      while (true) {
+        try {
+          final response = await ManagecareApiClient.instance.get(
+            '/api/pumps/$businessId/uploads',
+            query: {
+              'status': 'pending_review',
+              'limit': '200',
+              'summary': 'true',
+            },
+          );
+          final rows =
+              ((response['data'] as List?) ?? []).cast<Map<String, dynamic>>();
+          yield rows.map(pumpUploadRowToJson).toList();
+        } catch (_) {}
+        await Future.delayed(_pollInterval);
+      }
+    })().asBroadcastStream();
+    return _pendingStream!;
   }
 
   double _readDouble(dynamic value) {
@@ -134,6 +147,16 @@ class _ManagerPumpUploadReviewScreenState
   }
 
   Future<void> _openReview(String businessId, Map<String, dynamic> upload) async {
+    try {
+      final detail = await ManagecareApiClient.instance.get(
+        '/api/pumps/$businessId/uploads/${upload['id']}',
+      );
+      if (detail is Map) {
+        upload = pumpUploadRowToJson(Map<String, dynamic>.from(detail));
+      }
+    } catch (_) {
+      // Older servers return the complete row in the list response.
+    }
     final fields = <String, String>{
       'opening_volume': 'Opening volume',
       'closing_volume': 'Closing volume',

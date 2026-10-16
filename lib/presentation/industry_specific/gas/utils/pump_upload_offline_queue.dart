@@ -132,22 +132,22 @@ class PumpUploadOfflineQueue {
           entry['photoPaths'] as Map? ?? const {},
         );
 
-        var allPhotosResolved = true;
-        for (final field in _photoFields) {
-          final resolved = await _resolvePhotoUrl(
-            existingUrl: body[field]?.toString(),
-            localPath: photoPaths[field]?.toString(),
-          );
-          if (resolved == null) {
-            allPhotosResolved = false;
-            break;
-          }
-          body[field] = resolved;
-        }
+        final resolvedPhotos = await Future.wait<String?>(
+          _photoFields.map(
+            (field) => _resolvePhotoUrl(
+              existingUrl: body[field]?.toString(),
+              localPath: photoPaths[field]?.toString(),
+            ),
+          ),
+        );
+        final allPhotosResolved = resolvedPhotos.every((url) => url != null);
 
         if (!allPhotosResolved) {
           remaining.add(entry);
           continue;
+        }
+        for (var index = 0; index < _photoFields.length; index++) {
+          body[_photoFields[index]] = resolvedPhotos[index];
         }
 
         try {

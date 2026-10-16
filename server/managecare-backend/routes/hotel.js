@@ -7,6 +7,7 @@ const express = require('express');
 const router = express.Router();
 const { requireFields, asyncHandler } = require('../middleware/validation');
 const { requireBusinessMembership } = require('../middleware/auth');
+const { getHospitalityQuota, sendQuotaLimit } = require('../middleware/hospitality_limits');
 
 module.exports = function(pool) {
   router.use('/:businessId', requireBusinessMembership(pool));
@@ -27,6 +28,23 @@ module.exports = function(pool) {
       id, number, type, capacity, price_per_night, half_day_price, status, emoji, amenities, images,
       price_intervals, floor, rating, size, bed_size, extra_details, half_day_hours, full_day_checkout_time,
     } = req.body;
+
+    const existingRoom = id
+      ? await pool.query('SELECT id FROM hotel_rooms WHERE id = $1::uuid AND business_id = $2', [id, businessId])
+      : { rows: [] };
+    if (existingRoom.rows.length === 0) {
+      if (String(type || '').trim().toLowerCase() === 'suite') {
+        const suiteQuota = await getHospitalityQuota(pool, businessId, 'suites');
+        if (suiteQuota && suiteQuota.limit != null && suiteQuota.usage >= suiteQuota.limit) {
+          return sendQuotaLimit(res, 'suites', suiteQuota);
+        }
+      } else {
+        const roomQuota = await getHospitalityQuota(pool, businessId, 'rooms');
+        if (roomQuota && roomQuota.limit != null && roomQuota.usage >= roomQuota.limit) {
+          return sendQuotaLimit(res, 'rooms', roomQuota);
+        }
+      }
+    }
 
     const result = await pool.query(
       `INSERT INTO hotel_rooms (
@@ -61,6 +79,24 @@ module.exports = function(pool) {
       number, type, capacity, price_per_night, half_day_price, status, emoji, amenities, images,
       price_intervals, floor, rating, size, bed_size, extra_details, half_day_hours, full_day_checkout_time,
     } = req.body;
+
+    if (type !== undefined) {
+      const currentRoom = await pool.query(
+        'SELECT type FROM hotel_rooms WHERE id = $1 AND business_id = $2',
+        [id, businessId],
+      );
+      if (currentRoom.rows.length > 0) {
+        const wasSuite = String(currentRoom.rows[0].type || '').trim().toLowerCase() === 'suite';
+        const becomesSuite = String(type || '').trim().toLowerCase() === 'suite';
+        if (wasSuite !== becomesSuite) {
+          const resource = becomesSuite ? 'suites' : 'rooms';
+          const quota = await getHospitalityQuota(pool, businessId, resource);
+          if (quota && quota.limit != null && quota.usage >= quota.limit) {
+            return sendQuotaLimit(res, resource, quota);
+          }
+        }
+      }
+    }
 
     const fields = [];
     const params = [];

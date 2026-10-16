@@ -116,15 +116,6 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
       return false;
     }
 
-    final roomCount = hotelProvider.rooms.length;
-    if (!businessProvider.isWithinLimit('rooms', roomCount)) {
-      await _showBlockedDialog(
-        title: 'Room limit reached',
-        message: businessProvider.getLimitReachedMessage('rooms'),
-      );
-      return false;
-    }
-
     if (_selectedType == 'suite') {
       final suiteCount = hotelProvider.rooms
           .where((room) => room.type.toLowerCase() == 'suite')
@@ -133,6 +124,17 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
         await _showBlockedDialog(
           title: 'Suite limit reached',
           message: businessProvider.getLimitReachedMessage('suites'),
+        );
+        return false;
+      }
+    } else {
+      final roomCount = hotelProvider.rooms
+          .where((room) => room.type.toLowerCase() != 'suite')
+          .length;
+      if (!businessProvider.isWithinLimit('rooms', roomCount)) {
+        await _showBlockedDialog(
+          title: 'Room limit reached',
+          message: businessProvider.getLimitReachedMessage('rooms'),
         );
         return false;
       }

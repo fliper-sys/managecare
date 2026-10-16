@@ -879,6 +879,7 @@ class RetailProvider extends ChangeNotifier {
     try {
       final query = <String, String>{
         'limit': limit.clamp(1, 500).toString(),
+        'summary': 'true',
         if (start != null) 'from': start.toIso8601String(),
         if (end != null) 'to': end.toIso8601String(),
       };
@@ -901,12 +902,7 @@ class RetailProvider extends ChangeNotifier {
     double totalAmount = 0.0;
     double totalVolume = 0.0;
     for (final upload in uploads) {
-      totalAmount += _readDouble(
-        upload['expected_amount'] ??
-            upload['expectedAmount'] ??
-            upload['total_paid'] ??
-            upload['totalPaid'],
-      );
+      totalAmount += _pumpUploadCollectedAmount(upload);
       totalVolume += _readDouble(
         upload['sold_volume'] ??
             upload['soldVolume'] ??
@@ -921,6 +917,21 @@ class RetailProvider extends ChangeNotifier {
     };
   }
 
+  double _pumpUploadCollectedAmount(Map<String, dynamic> upload) {
+    final totalPaid = _readDouble(upload['total_paid'] ?? upload['totalPaid']);
+    if (totalPaid > 0) return totalPaid;
+
+    final cash = _readDouble(upload['cash_amount'] ?? upload['cashAmount'] ??
+        upload['today_pump_cash'] ?? upload['todayPumpCash']);
+    final pos = _readDouble(upload['pos_amount'] ?? upload['posAmount']);
+    final recordedPayments = cash + pos;
+    if (recordedPayments > 0) return recordedPayments;
+
+    return _readDouble(
+      upload['expected_amount'] ?? upload['expectedAmount'],
+    );
+  }
+
   List<Map<String, dynamic>> _pumpUploadsToFuelHistory(
     List<Map<String, dynamic>> uploads,
   ) {
@@ -928,12 +939,7 @@ class RetailProvider extends ChangeNotifier {
       final createdAt = _readTimestamp(
         upload['uploaded_at'] ?? upload['uploadedAt'] ?? upload['created_at'],
       );
-      final amount = _readDouble(
-        upload['expected_amount'] ??
-            upload['expectedAmount'] ??
-            upload['total_paid'] ??
-            upload['totalPaid'],
-      );
+      final amount = _pumpUploadCollectedAmount(upload);
       final volume = _readDouble(
         upload['sold_volume'] ??
             upload['soldVolume'] ??

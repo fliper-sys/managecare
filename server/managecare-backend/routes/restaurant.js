@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const { requireFields, asyncHandler } = require('../middleware/validation');
 const { requireBusinessMembership, requireBusinessPermission } = require('../middleware/auth');
+const { getHospitalityQuota, sendQuotaLimit } = require('../middleware/hospitality_limits');
 
 module.exports = function(pool) {
   router.use('/:businessId', requireBusinessMembership(pool));
@@ -109,6 +110,16 @@ module.exports = function(pool) {
   router.post('/:businessId/tables', requireBusinessPermission('table_management'), requireFields('table_number'), asyncHandler(async (req, res) => {
     const { businessId } = req.params;
     const { id, table_number, capacity, status, assigned_waiter_id, assigned_waiter_name, reserved_until } = req.body;
+
+    const existingTable = id
+      ? await pool.query('SELECT id FROM restaurant_tables WHERE id = $1::uuid AND business_id = $2', [id, businessId])
+      : { rows: [] };
+    if (existingTable.rows.length === 0) {
+      const quota = await getHospitalityQuota(pool, businessId, 'restaurant_tables');
+      if (quota && quota.limit != null && quota.usage >= quota.limit) {
+        return sendQuotaLimit(res, 'restaurant_tables', quota);
+      }
+    }
 
     const result = await pool.query(
       `INSERT INTO restaurant_tables (id, business_id, table_number, capacity, status, assigned_waiter_id, assigned_waiter_name, reserved_until)

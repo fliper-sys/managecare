@@ -582,9 +582,11 @@ class SubscriptionService {
         price: 14650.0,
         days: 30,
         features: [
-          '15 rooms',
-          '10 restaurant tables',
-          '15 bar tables'
+          'Up to 15 rooms; suites not included',
+          '10 restaurant tables and 15 bar tables',
+          'Up to 7 staff',
+          '1 location; no additional branches',
+          'Hall and pool bookings not included',
         ],
         limits: {
           'rooms': 15,
@@ -602,9 +604,11 @@ class SubscriptionService {
         price: 23350.0,
         days: 30,
         features: [
-          '25 rooms + 5 suites',
-          'Hall access',
-          '1 branch'
+          'Up to 25 rooms plus 5 suites',
+          '20 restaurant tables and 25 bar tables',
+          'Up to 15 staff',
+          '2 locations total; 1 additional branch',
+          'Hall booking access',
         ],
         limits: {
           'rooms': 25,
@@ -622,9 +626,11 @@ class SubscriptionService {
         price: 35750.0,
         days: 30,
         features: [
-          '40 rooms + 10 suites',
-          'Pool access',
-          '2 branches'
+          'Up to 40 rooms plus 10 suites',
+          '30 restaurant tables and 35 bar tables',
+          'Up to 25 staff',
+          '3 locations total; 2 additional branches',
+          'Hall and pool booking access',
         ],
         limits: {
           'rooms': 40,
@@ -642,9 +648,10 @@ class SubscriptionService {
         price: 45000.0,
         days: 30,
         features: [
-          'Unlimited rooms',
-          'Unlimited workers',
-          'Unlimited features'
+          'Unlimited rooms and suites',
+          'Unlimited restaurant and bar tables',
+          'Unlimited staff and locations',
+          'Hall and pool booking access',
         ],
         limits: {
           'rooms': null,
