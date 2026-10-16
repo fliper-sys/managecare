@@ -8,7 +8,7 @@ import '../../../../core/theme/colors.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
 import '../../../../providers/notification_provider.dart';
-import '../../../../widgets/animated_lottie.dart';
+import '../../../../providers/theme_provider.dart';
 import '../providers/administrative_provider.dart';
 import 'administrative_flow_screens.dart';
 
@@ -54,6 +54,7 @@ class _AdministrativeDashboardScreenState
     return Scaffold(
       appBar: AppBar(
         title: Text(title),
+        surfaceTintColor: Colors.transparent,
         actions: [
           Consumer<NotificationProvider>(
             builder: (context, notifications, _) => IconButton(
@@ -83,6 +84,23 @@ class _AdministrativeDashboardScreenState
                 ],
               ),
               onPressed: () => Navigator.of(context).pushNamed(Routes.notifications),
+            ),
+          ),
+          Consumer<ThemeProvider>(
+            builder: (context, themeProvider, _) => Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Tooltip(
+                message: themeProvider.isDarkMode ? 'Switch to light theme' : 'Switch to dark theme',
+                child: Material(
+                  color: Theme.of(context).colorScheme.primary.withOpacity(.1),
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed: themeProvider.toggleTheme,
+                    icon: Icon(themeProvider.isDarkMode ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
+                  ),
+                ),
+              ),
             ),
           ),
           IconButton(
@@ -123,6 +141,7 @@ class _AdministrativeDashboardScreenState
     return Consumer<AdministrativeProvider>(
       builder: (context, provider, _) {
         final metrics = provider.dashboard['metrics'] as Map? ?? const {};
+        final hasDashboardMetrics = metrics.isNotEmpty;
         final tasksNeedingAttention = provider.tasks
             .where((task) => task.isOpen || task.needsReview)
             .take(3)
@@ -136,16 +155,18 @@ class _AdministrativeDashboardScreenState
               _WelcomeBand(businessName: context
                   .watch<BusinessProvider>()
                   .currentBusiness
-                  ?.name),
-              const SizedBox(height: 18),
+                  ?.name,
+                onRefresh: provider.refreshWorkspace,
+              ),
+              const SizedBox(height: 16),
               if (provider.loadError != null)
                 Card(
                   margin: const EdgeInsets.only(bottom: 14),
                   child: ListTile(
                     leading: Icon(Icons.cloud_off_outlined,
                         color: theme.colorScheme.error),
-                    title: const Text('Workspace data unavailable'),
-                    subtitle: Text(provider.loadError!),
+                    title: const Text('Some workspace data did not load'),
+                    subtitle: const Text('Check your connection and try again.'),
                     trailing: IconButton(
                       tooltip: 'Retry loading workspace',
                       onPressed: provider.refreshWorkspace,
@@ -153,31 +174,20 @@ class _AdministrativeDashboardScreenState
                     ),
                   ),
                 ),
-              if (provider.isLoading)
-                const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    AnimatedLottie(
-                      asset: 'assets/lottie/loop.json',
-                      width: 36,
-                      height: 36,
-                    ),
-                    SizedBox(width: 8),
-                    Text('Updating workspace...'),
-                  ],
-                ),
+              if (provider.isLoading && !hasDashboardMetrics)
+                const LinearProgressIndicator(minHeight: 2),
               GridView.count(
                 crossAxisCount: 2,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 mainAxisSpacing: 10,
                 crossAxisSpacing: 10,
-                childAspectRatio: 1.7,
+                childAspectRatio: 1.75,
                 children: [
-                  _Metric('Revenue', _adminCurrency(metrics['revenue']), 'Total', Icons.trending_up, AppColors.secondary, onTap: () => setState(() => _page = 3)),
-                  _Metric('Expenses', _adminCurrency(metrics['expenses']), 'Total', Icons.trending_down, AppColors.error, onTap: () => setState(() => _page = 3)),
-                  _Metric('Clients', '${metrics['clients'] ?? 0}', 'Active', Icons.people_outline, AppColors.primary, onTap: () => setState(() => _page = 2)),
-                  _Metric('Total Staff', '${metrics['staff'] ?? 0}', 'Active', Icons.badge_outlined, AppColors.accentDark, onTap: _staffing),
+                  _Metric('Revenue', hasDashboardMetrics ? _adminCurrency(metrics['revenue']) : '—', 'Finance', Icons.trending_up, AppColors.secondary, onTap: () => setState(() => _page = 3)),
+                  _Metric('Expenses', hasDashboardMetrics ? _adminCurrency(metrics['expenses']) : '—', 'Finance', Icons.trending_down, AppColors.error, onTap: () => setState(() => _page = 3)),
+                  _Metric('Clients', '${metrics['clients'] ?? provider.clients.length}', 'Directory', Icons.people_outline, AppColors.primary, onTap: () => setState(() => _page = 2)),
+                  _Metric('Total Staff', metrics['staff'] == null ? '—' : '${metrics['staff']}', 'Staffing', Icons.badge_outlined, AppColors.accentDark, onTap: _staffing),
                 ],
               ).animate().fadeIn(duration: 350.ms).slideY(begin: .04, end: 0),
               const SizedBox(height: 18),
@@ -185,9 +195,9 @@ class _AdministrativeDashboardScreenState
               if (tasksNeedingAttention.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 18),
-                  child: Text('No open or submitted tasks.'),
+                  child: Text('No tasks need attention.'),
                 ),
-              ...tasksNeedingAttention.map((task) => ListTile(
+              ...tasksNeedingAttention.map((task) => Card(child: ListTile(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     tileColor: theme.colorScheme.surface,
                     contentPadding: EdgeInsets.zero,
@@ -195,21 +205,25 @@ class _AdministrativeDashboardScreenState
                     title: Text(task.title),
                     subtitle: Text('${task.clientName} · ${task.status.name}'),
                     onTap: () => setState(() => _page = 1),
-                  ).animate().fadeIn(duration: 260.ms).slideX(begin: .025, end: 0)),
+                  )).animate().fadeIn(duration: 260.ms).slideX(begin: .025, end: 0)),
               const SizedBox(height: 18),
-              const _Title('Quick Actions'),
+              const _Title('Quick actions'),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  _action('Add Client', Icons.person_add_alt_1_outlined, _addClient),
-                  _action('Assign Document', Icons.assignment_outlined, _assignDocument),
-                  _action('Create Task', Icons.add_task_outlined, () => setState(() => _page = 1)),
-                  _action('Review Work', Icons.rate_review_outlined, _reviewWork),
-                  _action('Record Revenue', Icons.trending_up, () => setState(() => _page = 3)),
-                  _action('Record Expense', Icons.trending_down, () => setState(() => _page = 3)),
-                ],
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(children: [
+                  _action('Add client', Icons.person_add_alt_1_outlined, _addClient),
+                  const SizedBox(width: 10),
+                  _action('Assign document', Icons.assignment_outlined, _assignDocument),
+                  const SizedBox(width: 10),
+                  _action('Create task', Icons.add_task_outlined, () => setState(() => _page = 1)),
+                  const SizedBox(width: 10),
+                  _action('Review work', Icons.rate_review_outlined, _reviewWork),
+                  const SizedBox(width: 10),
+                  _action('Record revenue', Icons.trending_up, () => setState(() => _page = 3)),
+                  const SizedBox(width: 10),
+                  _action('Record expense', Icons.trending_down, () => setState(() => _page = 3)),
+                ]),
               ),
             ],
           ),
@@ -219,8 +233,9 @@ class _AdministrativeDashboardScreenState
   }
 
   String _adminCurrency(Object? value) {
-    final amount = value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
-    return 'NGN ${amount.toStringAsFixed(2)}';
+    final amount = value is num ? value.toDouble() : double.tryParse('$value');
+    if (amount == null) return '—';
+    return '₦${amount.toStringAsFixed(2)}';
   }
 
   Widget _clientsPage() {
@@ -234,30 +249,38 @@ class _AdministrativeDashboardScreenState
             .toLowerCase()
             .contains(_query.toLowerCase());
       }).toList();
-      return ListView(
-      padding: const EdgeInsets.all(16),
+      return RefreshIndicator(
+        onRefresh: provider.refreshWorkspace,
+        child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(_showArchivedClients ? 'Archived Clients' : 'Clients',
-                style: Theme.of(context).textTheme.titleLarge),
-            TextButton.icon(
+            Expanded(
+              child: Text(_showArchivedClients ? 'Archived clients' : 'Clients',
+                  style: Theme.of(context).textTheme.titleLarge),
+            ),
+            IconButton(
+              tooltip: _showArchivedClients ? 'Show active clients' : 'Show archived clients',
               onPressed: provider.isLoading ? null : _toggleArchivedClients,
-              icon: Icon(_showArchivedClients
-                  ? Icons.people_outline
-                  : Icons.inventory_2_outlined),
-              label: Text(_showArchivedClients ? 'Active' : 'Archived'),
+              icon: Icon(_showArchivedClients ? Icons.people_outline : Icons.inventory_2_outlined),
+            ),
+            IconButton(
+              tooltip: 'Add client',
+              onPressed: provider.isLoading ? null : _addClient,
+              icon: const Icon(Icons.person_add_alt_1_outlined),
             ),
           ],
         ),
         const SizedBox(height: 12),
         TextField(
           onChanged: (value) => setState(() => _query = value.trim()),
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.search),
+          decoration: InputDecoration(
+            prefixIcon: const Icon(Icons.search),
             hintText: 'Search clients',
-            border: OutlineInputBorder(),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           ),
         ),
         const SizedBox(height: 12),
@@ -267,15 +290,12 @@ class _AdministrativeDashboardScreenState
             child: LinearProgressIndicator(),
           ),
         if (clients.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 32),
-            child: Center(child: Text('No clients match this search.')),
-          ),
+          _InlineEmpty(icon: Icons.people_outline, message: provider.isLoading ? 'Loading clients...' : _query.isEmpty ? 'No clients yet.' : 'No clients match this search.'),
         ...clients.map((client) => Card(
-              margin: const EdgeInsets.only(bottom: 7),
-              color: AppColors.surface,
+              margin: const EdgeInsets.only(bottom: 8),
+              color: Theme.of(context).cardColor,
               child: ListTile(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               onTap: () => _clientProfile(client),
               leading: CircleAvatar(
                 backgroundColor: AppColors.primary.withOpacity(.1),
@@ -283,7 +303,7 @@ class _AdministrativeDashboardScreenState
                 child: Text(client.name.isEmpty ? '?' : client.name.substring(0, 1).toUpperCase()),
               ),
               title: Text(client.name),
-              subtitle: Text('${client.company} | ${client.location}'),
+              subtitle: Text([client.company, client.location].where((value) => value.trim().isNotEmpty).join(' · ')),
               trailing: PopupMenuButton<_ClientAction>(
                 tooltip: 'Client actions',
                 onSelected: (action) => _handleClientAction(client, action),
@@ -303,7 +323,7 @@ class _AdministrativeDashboardScreenState
               ),
             )),
       ],
-    );
+    ));
     });
   }
 
@@ -314,29 +334,23 @@ class _AdministrativeDashboardScreenState
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(16),
             children: [
-            _Title('Task Management', trailing: 'Calendar', onTap: _calendar),
+            _Title('Tasks', trailing: 'Calendar', onTap: _calendar),
             const SizedBox(height: 12),
             if (provider.isLoading) const LinearProgressIndicator(),
             if (provider.tasks.isEmpty && !provider.isLoading)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: Text('No tasks have been created for this business.'),
-              ),
+              const _InlineEmpty(icon: Icons.task_alt_outlined, message: 'No tasks have been created yet.'),
             ...provider.tasks.map((task) => Card(
-                margin: const EdgeInsets.only(bottom: 7),
-                color: AppColors.surface,
+                margin: const EdgeInsets.only(bottom: 8),
+                color: Theme.of(context).cardColor,
                 child: ListTile(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  contentPadding: EdgeInsets.zero,
-                  leading: const CircleAvatar(
-                    backgroundColor: Color(0xFFE8F0FF),
-                    child: Icon(Icons.task_alt_outlined, color: AppColors.primary),
-                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  leading: CircleAvatar(backgroundColor: AppColors.primary.withOpacity(.1), child: const Icon(Icons.task_alt_outlined, color: AppColors.primary)),
                   title: Text(task.title),
                   subtitle: Text(
                     '${task.clientName} · ${MaterialLocalizations.of(context).formatMediumDate(task.dueAt)}',
                   ),
-                  trailing: Text(task.status.name),
+                  trailing: _TaskStatus(task: task),
                   onTap: task.needsReview
                       ? () => Navigator.of(context).push(MaterialPageRoute(
                             builder: (_) => AdministrativeDocumentReviewScreen(
@@ -576,25 +590,38 @@ class _AdministrativeDashboardScreenState
         padding: const EdgeInsets.all(16),
         children: [
           const _Title('More'),
-          _moreTile(Icons.folder_outlined, 'Documents', 'Client folders and review', _documents),
+          _moreTile(Icons.folder_outlined, 'Documents', 'Client files, folders, and review', _documents),
           _moreTile(Icons.badge_outlined, 'Staffing', 'Workers and client assignments', _staffing),
-          _moreTile(Icons.event_repeat_outlined, 'Obligations', 'Recurring compliance deadlines', _obligations),
-          _moreTile(Icons.shield_outlined, 'Client Access & Security', 'Passcodes and portal access', _security),
-          _moreTile(Icons.history_outlined, 'Activity Log', 'Client and document audit history', _activity),
+          _moreTile(Icons.event_repeat_outlined, 'Obligations', 'Upcoming and completed deadlines', _obligations),
+          _moreTile(Icons.receipt_long_outlined, 'Invoices', 'Create and manage client invoices', () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AdministrativeInvoicesScreen()))),
+          _moreTile(Icons.shield_outlined, 'Client Access', 'Passcodes and portal credentials', _security),
+          _moreTile(Icons.history_outlined, 'Activity Log', 'Workspace audit history', _activity),
+          _moreTile(Icons.calendar_month_outlined, 'Calendar', 'Tasks, events, and due dates', _calendar),
           _moreTile(Icons.logout, 'Log out', 'End this session', _confirmLogout, destructive: true),
         ],
       );
 
   Widget _action(String label, IconData icon, VoidCallback onTap) => SizedBox(
-        width: 175,
-        child: FilledButton.tonalIcon(
-          onPressed: onTap,
-          icon: Icon(icon, size: 18),
-          label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(46),
-            alignment: Alignment.centerLeft,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        width: 142,
+        height: 78,
+        child: Material(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(14),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _IconTile(icon: icon, color: AppColors.primary, size: 32),
+                  Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelMedium),
+                ],
+              ),
+            ),
           ),
         ),
       );
@@ -603,14 +630,14 @@ class _AdministrativeDashboardScreenState
         margin: const EdgeInsets.only(bottom: 7),
         color: Theme.of(context).colorScheme.surface,
         child: ListTile(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           onTap: onTap,
           leading: Container(
             width: 36,
             height: 36,
             decoration: BoxDecoration(
               color: (destructive ? Theme.of(context).colorScheme.error : AppColors.primary).withOpacity(.1),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: destructive ? Theme.of(context).colorScheme.error : AppColors.primary, size: 19),
           ),
@@ -857,7 +884,7 @@ class _Metric extends StatelessWidget {
           child: Ink(
             decoration: BoxDecoration(
               color: color.withOpacity(.08),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(color: color.withOpacity(.18)),
             ),
             child: Padding(
@@ -887,19 +914,20 @@ class _Metric extends StatelessWidget {
 }
 
 class _WelcomeBand extends StatelessWidget {
-  const _WelcomeBand({this.businessName});
+  const _WelcomeBand({this.businessName, this.onRefresh});
   final String? businessName;
+  final VoidCallback? onRefresh;
 
   @override
   Widget build(BuildContext context) {
     final name = businessName?.trim();
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 18, 14, 18),
+      padding: const EdgeInsets.fromLTRB(18, 20, 14, 20),
       decoration: BoxDecoration(
-        color: AppColors.primary,
-        borderRadius: BorderRadius.circular(8),
-        border: const Border(left: BorderSide(color: AppColors.secondary, width: 4)),
+        color: const Color(0xFF102747),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFF1D3A60)),
       ),
       child: Row(children: [
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -923,7 +951,11 @@ class _WelcomeBand extends StatelessWidget {
                   )),
         ])),
         const SizedBox(width: 12),
-        const Icon(Icons.space_dashboard_outlined, color: Colors.white, size: 30),
+        IconButton(
+          tooltip: 'Refresh workspace',
+          onPressed: onRefresh,
+          icon: const Icon(Icons.refresh, color: Colors.white),
+        ),
       ]),
     ).animate().fadeIn(duration: 300.ms).slideY(begin: .06, end: 0);
   }
@@ -936,82 +968,69 @@ class _Title extends StatelessWidget {
   final VoidCallback? onTap;
   @override
   Widget build(BuildContext context) => Row(children: [
-        Expanded(child: Text(text, style: Theme.of(context).textTheme.titleMedium)),
-        if (trailing != null) TextButton(onPressed: onTap ?? () {}, child: Text(trailing!)),
+        Expanded(child: Text(text, style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.onSurface))),
+        if (trailing != null) TextButton(onPressed: onTap, child: Text(trailing!)),
       ]);
 }
 
-class _Chart extends StatelessWidget {
-  const _Chart();
-  @override
-  Widget build(BuildContext context) => Container(
-        height: 158,
-        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(8)),
-        padding: const EdgeInsets.all(16),
-        child: CustomPaint(painter: _ChartPainter(Theme.of(context).colorScheme.primary, Theme.of(context).colorScheme.error), child: const SizedBox.expand()),
-      );
-}
-
-class _ChartPainter extends CustomPainter {
-  const _ChartPainter(this.income, this.expense);
-  final Color income;
-  final Color expense;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final grid = Paint()..color = Colors.grey.withOpacity(.2);
-    for (var i = 0; i < 4; i++) canvas.drawLine(Offset(0, size.height * i / 3), Offset(size.width, size.height * i / 3), grid);
-    _line(canvas, size, const [.72, .65, .67, .48, .54, .31, .2], income);
-    _line(canvas, size, const [.84, .78, .7, .72, .63, .54, .4], expense);
-  }
-  void _line(Canvas canvas, Size size, List<double> values, Color color) {
-    final path = Path();
-    for (var i = 0; i < values.length; i++) {
-      final point = Offset(size.width * i / (values.length - 1), size.height * values[i]);
-      if (i == 0) path.moveTo(point.dx, point.dy); else path.lineTo(point.dx, point.dy);
-    }
-    canvas.drawPath(path, Paint()..color = color..style = PaintingStyle.stroke..strokeWidth = 2.5);
-  }
-  @override
-  bool shouldRepaint(covariant _ChartPainter oldDelegate) => false;
-}
-
-class _Activity extends StatelessWidget {
-  const _Activity(this.icon, this.title, this.detail, this.time, this.color);
+class _InlineEmpty extends StatelessWidget {
+  const _InlineEmpty({required this.icon, required this.message});
   final IconData icon;
-  final String title;
-  final String detail;
-  final String time;
-  final Color color;
+  final String message;
+
   @override
-  Widget build(BuildContext context) => ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: CircleAvatar(backgroundColor: color.withOpacity(.12), child: Icon(icon, color: color, size: 18)),
-        title: Text(title), subtitle: Text(detail), trailing: Text(time, style: Theme.of(context).textTheme.labelSmall),
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        child: Row(
+          children: [
+            Icon(icon, color: Theme.of(context).colorScheme.onSurfaceVariant, size: 20),
+            const SizedBox(width: 10),
+            Expanded(child: Text(message, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant))),
+          ],
+        ),
       );
 }
 
-class _Task extends StatelessWidget {
-  const _Task(this.title, this.client, this.due, this.color, {this.onTap});
-  final String title;
-  final String client;
-  final String due;
+class _IconTile extends StatelessWidget {
+  const _IconTile({required this.icon, required this.color, this.size = 40});
+  final IconData icon;
   final Color color;
-  final VoidCallback? onTap;
+  final double size;
+
   @override
-  Widget build(BuildContext context) => ListTile(
-        onTap: onTap,
-        contentPadding: const EdgeInsets.symmetric(vertical: 4),
-        leading: CircleAvatar(backgroundColor: color.withOpacity(.12), child: Icon(Icons.description_outlined, color: color, size: 18)),
-        title: Text(title), subtitle: Text(client), trailing: Text(due, style: TextStyle(color: color, fontSize: 11)),
+  Widget build(BuildContext context) => SizedBox.square(
+        dimension: size,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: color.withOpacity(.12),
+            borderRadius: BorderRadius.circular(11),
+          ),
+          child: Icon(icon, color: color, size: size * .52),
+        ),
       );
 }
 
-class _Finance extends StatelessWidget {
-  const _Finance(this.title, this.detail, this.amount, this.color);
-  final String title;
-  final String detail;
-  final String amount;
-  final Color color;
+class _TaskStatus extends StatelessWidget {
+  const _TaskStatus({required this.task});
+  final AdministrativeTask task;
+
   @override
-  Widget build(BuildContext context) => ListTile(contentPadding: EdgeInsets.zero, title: Text(title), subtitle: Text(detail), trailing: Text(amount, style: TextStyle(color: color, fontWeight: FontWeight.w700)));
+  Widget build(BuildContext context) {
+    final color = task.needsReview
+        ? const Color(0xFFE9A23B)
+        : task.isOpen
+            ? const Color(0xFF2563EB)
+            : const Color(0xFF16A36A);
+    final label = task.needsReview
+        ? 'Review'
+        : task.status.name == 'inProgress'
+            ? 'In progress'
+            : task.status.name[0].toUpperCase() + task.status.name.substring(1);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 30),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(color: color.withOpacity(.1), borderRadius: BorderRadius.circular(9)),
+      child: Text(label, style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+    );
+  }
 }

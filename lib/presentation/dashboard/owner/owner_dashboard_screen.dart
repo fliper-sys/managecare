@@ -12,6 +12,7 @@ import '../../../core/constants/business_types.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
 import '../../../providers/settings_provider.dart';
+import '../../../providers/theme_provider.dart';
 import '../../../widgets/profile_avatar.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
@@ -929,6 +930,13 @@ Future<void> _loadRetailMetrics(String businessId) async {
               // Header with User Info
               const SizedBox(height: 4),
               _buildUserHeader(user, isDark),
+              if (isAdministrativeBusiness) ...[
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _buildAppearanceToggle(),
+                ),
+              ],
               const SizedBox(height: 24),
 
               // Search Bar
@@ -1714,6 +1722,35 @@ Future<void> _loadRetailMetrics(String businessId) async {
       ],
     );
   }
+
+  Widget _buildAppearanceToggle() => Consumer<ThemeProvider>(
+        builder: (context, themeProvider, _) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Theme.of(context).dividerColor),
+          ),
+          padding: const EdgeInsets.only(left: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                themeProvider.isDarkMode
+                    ? Icons.dark_mode_outlined
+                    : Icons.light_mode_outlined,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 6),
+              Text('Dark mode', style: Theme.of(context).textTheme.labelMedium),
+              Switch.adaptive(
+                value: themeProvider.isDarkMode,
+                onChanged: themeProvider.setDarkMode,
+              ),
+            ],
+          ),
+        ),
+      );
 
   Future<String?> _showBusinessTypeChooser(BuildContext ctx) async {
     return showDialog<String>(

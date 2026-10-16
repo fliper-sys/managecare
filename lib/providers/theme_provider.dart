@@ -9,6 +9,7 @@ class ThemeProvider extends ChangeNotifier {
       WidgetsBinding.instance.platformDispatcher.platformBrightness ==
           Brightness.dark;
   bool _isLoaded = false;
+  bool _userChangedBeforeLoad = false;
 
   ThemeProvider() {
     _loadThemePreference();
@@ -24,6 +25,7 @@ class ThemeProvider extends ChangeNotifier {
   void setDarkMode(bool value) {
     if (_isLoaded && _isDarkMode == value) return;
 
+    if (!_isLoaded) _userChangedBeforeLoad = true;
     _isDarkMode = value;
     notifyListeners();
     _persistThemePreference();
@@ -34,7 +36,9 @@ class ThemeProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final storedValue = prefs.getBool(_themePreferenceKey);
 
-      if (storedValue != null && storedValue != _isDarkMode) {
+      if (!_userChangedBeforeLoad &&
+          storedValue != null &&
+          storedValue != _isDarkMode) {
         _isDarkMode = storedValue;
       }
     } catch (_) {

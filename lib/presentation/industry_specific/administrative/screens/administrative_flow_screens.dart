@@ -14,6 +14,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/business_provider.dart';
+import '../../../../providers/theme_provider.dart';
 import '../../../../core/utils/worker_permissions.dart';
 import '../../../../services/web_download.dart' as web_download;
 import '../../../workers/screens/add_worker_screen.dart';
@@ -161,9 +162,9 @@ class _AdministrativeClientProfileScreenState
     return DefaultTabController(
       length: 7,
       child: Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
-          backgroundColor: AppColors.surface,
+          backgroundColor: Theme.of(context).cardColor,
           surfaceTintColor: Colors.transparent,
           title: const Text('Client Profile'),
           actions: [
@@ -230,9 +231,9 @@ class _AdministrativeClientProfileScreenState
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: AppColors.surface,
+                            color: Theme.of(context).cardColor,
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppColors.border),
+                            border: Border.all(color: Theme.of(context).dividerColor),
                           ),
                           child: Row(children: [
                             CircleAvatar(
@@ -399,9 +400,9 @@ class _AdministrativeDocumentsScreenState
       return const Center(child: Text('Client documents require a saved client record.'));
     }
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: AppColors.surface,
+        backgroundColor: Theme.of(context).cardColor,
         surfaceTintColor: Colors.transparent,
         title: Text('${widget.clientName} Documents'),
         actions: [
@@ -541,7 +542,7 @@ class _AdministrativeAssignDocumentScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(title: const Text('Assign Document to Worker')),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _staff,
@@ -637,8 +638,25 @@ class AdministrativeWorkerDashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().currentUser;
     return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Worker Dashboard')),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      appBar: AppBar(
+        title: const Text('Worker Dashboard'),
+        actions: [
+          Consumer<ThemeProvider>(
+            builder: (context, themeProvider, _) => IconButton(
+              tooltip: themeProvider.isDarkMode
+                  ? 'Switch to light theme'
+                  : 'Switch to dark theme',
+              onPressed: themeProvider.toggleTheme,
+              icon: Icon(
+                themeProvider.isDarkMode
+                    ? Icons.light_mode_outlined
+                    : Icons.dark_mode_outlined,
+              ),
+            ),
+          ),
+        ],
+      ),
       body: Consumer<AdministrativeProvider>(
         builder: (context, provider, _) {
           final workerId = user?.id;
@@ -650,52 +668,81 @@ class AdministrativeWorkerDashboardScreen extends StatelessWidget {
               : provider.obligations
                   .where((item) => item.assignedWorkerId == workerId)
                   .toList();
-          return ListView(padding: const EdgeInsets.all(16), children: [
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: CircleAvatar(radius: 24, child: Text(user?.initials ?? 'U')),
-          title: Text(user?.fullName ?? 'Worker'),
-          subtitle: Text(user?.jobTitle ?? user?.role ?? 'Worker'),
-        ),
-        const _SectionTitle('Current Tasks'),
-        if (tasks.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 20),
-            child: Text('No tasks are assigned to you.'),
-          ),
-        ...tasks.map((task) => ListTile(
-              onTap: task.isOpen
-                  ? () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => AdministrativeTaskCompletionScreen(
-                          taskId: task.id,
-                          taskName: task.title,
+          return RefreshIndicator(
+            onRefresh: provider.refreshWorkspace,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+              children: [
+                Card(
+                  color: Theme.of(context).cardColor,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    leading: CircleAvatar(
+                      radius: 25,
+                      backgroundColor: AppColors.primary.withOpacity(.12),
+                      foregroundColor: AppColors.primary,
+                      child: Text(user?.initials ?? 'U'),
+                    ),
+                    title: Text(user?.fullName ?? 'Worker', maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(user?.jobTitle ?? user?.role ?? 'Worker'),
+                    trailing: const Icon(Icons.verified_user_outlined, color: AppColors.primary),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                _SectionTitle('Current tasks (${tasks.length})'),
+                const SizedBox(height: 8),
+                if (provider.isLoading)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 10),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  ),
+                if (tasks.isEmpty && !provider.isLoading)
+                  const _WorkerEmpty(icon: Icons.task_alt_outlined, label: 'No tasks are assigned to you.'),
+                ...tasks.map((task) => Card(
+                      color: Theme.of(context).cardColor,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        onTap: task.isOpen
+                            ? () => Navigator.of(context).push(MaterialPageRoute(
+                                  builder: (_) => AdministrativeTaskCompletionScreen(
+                                    taskId: task.id,
+                                    taskName: task.title,
+                                  ),
+                                ))
+                            : null,
+                        leading: CircleAvatar(
+                          backgroundColor: AppColors.primary.withOpacity(.1),
+                          foregroundColor: AppColors.primary,
+                          child: const Icon(Icons.assignment_outlined),
                         ),
-                      ))
-                  : null,
-              leading: const CircleAvatar(child: Icon(Icons.description_outlined)),
-              title: Text(task.title),
-              subtitle: Text('${task.clientName} | ${_dueText(task.dueAt)}'),
-              trailing: _StatusPill(status: task.status),
-            )),
-        const SizedBox(height: 20),
-        const _SectionTitle('My Obligations'),
-        if (obligations.isEmpty)
-          const ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.event_available_outlined),
-            title: Text('No active obligations'),
-          )
-        else
-          ListTile(
-            leading: const CircleAvatar(child: Icon(Icons.event_note_outlined)),
-            title: Text(obligations.first.title),
-            subtitle: Text(obligations.first.clientName),
-            trailing: Text(
-              _dueText(obligations.first.dueAt),
-              style: const TextStyle(color: Colors.green),
+                        title: Text(task.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        subtitle: Text('${task.clientName} · ${_dueText(task.dueAt)}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                        trailing: _StatusPill(status: task.status),
+                      ),
+                    )),
+                const SizedBox(height: 18),
+                _SectionTitle('My obligations (${obligations.length})'),
+                const SizedBox(height: 8),
+                if (obligations.isEmpty && !provider.isLoading)
+                  const _WorkerEmpty(icon: Icons.event_available_outlined, label: 'No active obligations.'),
+                ...obligations.map((obligation) => Card(
+                      color: Theme.of(context).cardColor,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: AppColors.secondary.withOpacity(.12),
+                          foregroundColor: AppColors.secondaryDark,
+                          child: const Icon(Icons.event_note_outlined),
+                        ),
+                        title: Text(obligation.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(obligation.clientName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        trailing: Text(_dueText(obligation.dueAt), style: const TextStyle(color: AppColors.secondaryDark, fontWeight: FontWeight.w700)),
+                      ),
+                    )),
+              ],
             ),
-          ),
-      ]);
+          );
         },
       ),
     );
@@ -736,7 +783,7 @@ class _AdministrativeTaskCompletionScreenState
         user?.id != null &&
         task?.assignedWorkerId == user?.id;
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text('Task Completion'),
         actions: [
@@ -749,9 +796,9 @@ class _AdministrativeTaskCompletionScreenState
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const CircleAvatar(child: Icon(Icons.picture_as_pdf_outlined)),
@@ -820,7 +867,7 @@ class _AdministrativeTaskCompletionScreenState
                 : Icons.check_circle),
             label: Text(_selectedFile?.name ?? 'Choose completed file'),
           ),
-          const Spacer(),
+          const SizedBox(height: 20),
           FilledButton(
             onPressed: _isSubmitting ||
                     !canSubmitTask ||
@@ -857,7 +904,7 @@ class _AdministrativeTaskCompletionScreenState
                   )
                 : const Text('Submit for Review'),
           ),
-        ]),
+        ],
       ),
     );
   }
@@ -947,11 +994,11 @@ class _AdministrativeDocumentReviewScreenState
   Widget build(BuildContext context) {
     final task = context.watch<AdministrativeProvider>().taskById(widget.taskId);
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(title: const Text('Admin Document Review')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const CircleAvatar(child: Icon(Icons.picture_as_pdf_outlined)),
@@ -1013,7 +1060,7 @@ class _AdministrativeDocumentReviewScreenState
               );
             },
           ),
-          const Spacer(),
+          const SizedBox(height: 20),
           Row(children: [
             Expanded(
               child: OutlinedButton(
@@ -1034,7 +1081,7 @@ class _AdministrativeDocumentReviewScreenState
               ),
             ),
           ]),
-        ]),
+        ],
       ),
     );
   }
@@ -1143,9 +1190,9 @@ class _AdministrativeObligationsScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: AppColors.surface,
+        backgroundColor: Theme.of(context).cardColor,
         surfaceTintColor: Colors.transparent,
         title: const Text('Obligations Dashboard'),
         actions: [
@@ -1547,7 +1594,7 @@ class _AdministrativeSecurityScreenState
     final role = context.watch<AuthProvider>().currentUser?.role.toLowerCase();
     final canManageAccess = ['owner', 'admin', 'sub_admin'].contains(role);
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(title: const Text('Client Access & Security')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         ListTile(
@@ -2111,6 +2158,30 @@ class _SectionTitle extends StatelessWidget {
       );
 }
 
+class _WorkerEmpty extends StatelessWidget {
+  const _WorkerEmpty({required this.icon, required this.label});
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Theme.of(context).dividerColor),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 12),
+            Expanded(child: Text(label, style: Theme.of(context).textTheme.bodyMedium)),
+          ],
+        ),
+      );
+}
+
 class _InfoRow extends StatelessWidget {
   const _InfoRow(this.label, this.value);
   final String label;
@@ -2192,7 +2263,7 @@ class _AdministrativeEditClientScreenState
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(title: const Text('Edit Client')),
         body: Form(
           key: _formKey,
@@ -2203,12 +2274,12 @@ class _AdministrativeEditClientScreenState
                 controller: _name,
                 autofocus: true,
                 textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Client name',
-                  prefixIcon: Icon(Icons.person_outline),
+                  prefixIcon: const Icon(Icons.person_outline),
                   filled: true,
-                  fillColor: AppColors.surface,
-                  border: OutlineInputBorder(),
+                  fillColor: Theme.of(context).cardColor,
+                  border: const OutlineInputBorder(),
                 ),
                 validator: (value) => value == null || value.trim().isEmpty
                     ? 'Enter the client name'
@@ -2218,36 +2289,36 @@ class _AdministrativeEditClientScreenState
               TextFormField(
                 controller: _company,
                 textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Company name',
-                  prefixIcon: Icon(Icons.business_outlined),
+                  prefixIcon: const Icon(Icons.business_outlined),
                   filled: true,
-                  fillColor: AppColors.surface,
-                  border: OutlineInputBorder(),
+                  fillColor: Theme.of(context).cardColor,
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 14),
               TextFormField(
                 controller: _location,
                 textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Location',
-                  prefixIcon: Icon(Icons.location_on_outlined),
+                  prefixIcon: const Icon(Icons.location_on_outlined),
                   filled: true,
-                  fillColor: AppColors.surface,
-                  border: OutlineInputBorder(),
+                  fillColor: Theme.of(context).cardColor,
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 14),
               TextFormField(
                 controller: _address,
                 maxLines: 2,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Contact address',
-                  prefixIcon: Icon(Icons.alternate_email_outlined),
+                  prefixIcon: const Icon(Icons.alternate_email_outlined),
                   filled: true,
-                  fillColor: AppColors.surface,
-                  border: OutlineInputBorder(),
+                  fillColor: Theme.of(context).cardColor,
+                  border: const OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 20),
@@ -2358,7 +2429,7 @@ class _AdministrativeCreateClientScreenState
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(title: const Text('Add Client')),
         body: Form(
           key: _formKey,
@@ -2560,7 +2631,7 @@ class _AdministrativeCalendarScreenState
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
           title: const Text('Calendar'),
           actions: [
@@ -2779,7 +2850,7 @@ class _AdministrativeStaffingScreenState
   Widget build(BuildContext context) {
     final canManageWorkers = context.watch<AuthProvider>().currentUser?.isOwner == true;
     return Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
           title: const Text('Staffing'),
           actions: canManageWorkers ? [
@@ -2814,7 +2885,7 @@ class _AdministrativeStaffingScreenState
                 final name = worker['full_name']?.toString() ?? 'Unnamed worker';
                 return Card(
                   margin: const EdgeInsets.only(bottom: 8),
-                  color: AppColors.surface,
+                  color: Theme.of(context).cardColor,
                   child: ListTile(
                   onTap: () => _manageAssignments(worker),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -3031,7 +3102,7 @@ class _AdministrativeActivityScreenState
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
           title: const Text('Activity Log'),
           actions: [
@@ -3254,7 +3325,7 @@ class _AdministrativeFinancePanelState extends State<AdministrativeFinancePanel>
                   final revenueEntry = entry['entry_type'] == 'revenue';
                   return Card(
                     margin: const EdgeInsets.only(bottom: 6),
-                    color: AppColors.surface,
+                    color: Theme.of(context).cardColor,
                     child: ListTile(
                     onTap: () => _editEntry(entry),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -3507,7 +3578,7 @@ class _AdministrativeInvoicesScreenState
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
           title: const Text('Invoices'),
           actions: [
@@ -3751,7 +3822,7 @@ class _AdministrativeInvoiceDetailScreenState
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(title: const Text('Invoice Details')),
         body: FutureBuilder<Map<String, dynamic>>(
           future: _invoice,
@@ -3902,7 +3973,7 @@ class _AdministrativeCreateInvoiceScreenState
   Widget build(BuildContext context) {
     final clients = context.watch<AdministrativeProvider>().clients;
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(title: const Text('Create Invoice')),
       body: Form(
         key: _formKey,
