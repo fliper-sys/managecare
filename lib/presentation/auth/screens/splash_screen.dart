@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../widgets/loading_indicator.dart';
 import '../../../core/constants/routes.dart';
 import '../../../core/constants/business_types.dart';
@@ -295,32 +294,13 @@ class _SplashScreenState extends State<SplashScreen>
     return (hasActiveFlag || statusLooksActive) && isWithinDuration;
   }
 
-  /// Fetch the latest subscription status from the backend (Postgres) -
-  /// businesses no longer live in Firestore, and admin subscription grants
-  /// only ever write to Postgres, so reading Firestore here always found
-  /// stale/missing data and bounced owners back to the subscription screen.
+  /// Fetch subscription status from the backend, which is the source of
+  /// truth and applies the same access rules as subscription validation.
   Future<Map<String, dynamic>?> _fetchBusinessSubscriptionStatus(
       String businessId) async {
     try {
       if (businessId.trim().isEmpty) return null;
-      final data = await Supabase.instance.client
-          .from('businesses')
-          .select()
-          .eq('id', businessId)
-          .maybeSingle();
-
-      if (data != null) {
-        return {
-          'subscriptionStatus': data['subscription_status'],
-          'subscriptionReviewStatus': data['subscription_review_status'],
-          'subscriptionPlan': data['subscription_plan'],
-          'subscriptionAmount': data['subscription_amount'],
-          'hasActiveSubscription': data['is_subscription_active'],
-          'isSubscriptionActive': data['is_subscription_active'],
-          'subscriptionEndDate': data['subscription_end_date'],
-        };
-      }
-      return null;
+      return await SubscriptionService().getBusinessSubscription(businessId);
     } catch (e) {
       print('[SplashScreen] Error fetching subscription status: $e');
       return null;

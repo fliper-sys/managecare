@@ -99,6 +99,7 @@ class BusinessRepository {
   }
 
   Future<BusinessModel?> getBusinessById(String id) async {
+    Object? databaseError;
     try {
       final data = await _supabase
           .from('businesses')
@@ -106,12 +107,32 @@ class BusinessRepository {
           .eq('id', id)
           .eq('is_active', true)
           .maybeSingle();
-      if (data == null) return null;
-      return _fromPostgres(Map<String, dynamic>.from(data));
+      if (data != null) {
+        return _fromPostgres(Map<String, dynamic>.from(data));
+      }
     } catch (e) {
       debugPrint('[BusinessRepository] getBusinessById failed: $e');
-      throw Exception('Failed to get business: $e');
+      databaseError = e;
     }
+
+    // Some worker sessions are authorized through a backend-verified legacy
+    // identity link. In that case PostgREST can return no row under its RLS
+    // context even though the authenticated backend can verify membership.
+    try {
+      final response = await ManagecareApiClient.instance.get(
+        '/api/businesses/${Uri.encodeComponent(id)}',
+      );
+      if (response is Map) {
+        final business = _fromPostgres(Map<String, dynamic>.from(response));
+        if (business.id.isNotEmpty && business.isActive) return business;
+      }
+    } catch (e) {
+      debugPrint('[BusinessRepository] API getBusinessById failed: $e');
+      if (databaseError != null) {
+        throw Exception('Failed to get business: $e');
+      }
+    }
+    return null;
   }
 
   Future<List<BusinessModel>> getUserBusinesses(String userId) async {
@@ -134,33 +155,41 @@ class BusinessRepository {
         debugPrint('[BusinessRepository] API business lookup failed: $e');
       }
 
-      final owned = await _supabase
-          .from('businesses')
-          .select()
-          .eq('owner_id', userId)
-          .eq('is_active', true);
-
       final byId = <String, BusinessModel>{};
-      for (final row in owned) {
-        final business = _fromPostgres(Map<String, dynamic>.from(row));
-        if (business.id.isNotEmpty) byId[business.id] = business;
-      }
+      try {
+        final memberships = await _supabase
+            .from('business_members')
+            .select('businesses(*)')
+            .eq('user_id', userId)
+            .eq('is_active', true);
 
-      final memberships = await _supabase
-          .from('business_members')
-          .select('businesses(*)')
-          .eq('user_id', userId)
-          .eq('is_active', true);
-
-      for (final row in memberships) {
-        final businessData = row['businesses'];
-        if (businessData is Map) {
-          final business =
-              _fromPostgres(Map<String, dynamic>.from(businessData));
-          if (business.id.isNotEmpty && business.isActive) {
-            byId[business.id] = business;
+        for (final row in memberships) {
+          final businessData = row['businesses'];
+          if (businessData is Map) {
+            final business =
+                _fromPostgres(Map<String, dynamic>.from(businessData));
+            if (business.id.isNotEmpty && business.isActive) {
+              byId[business.id] = business;
+            }
           }
         }
+      } catch (e) {
+        debugPrint('[BusinessRepository] Membership lookup failed: $e');
+      }
+
+      try {
+        final owned = await _supabase
+            .from('businesses')
+            .select()
+            .eq('owner_id', userId)
+            .eq('is_active', true);
+
+        for (final row in owned) {
+          final business = _fromPostgres(Map<String, dynamic>.from(row));
+          if (business.id.isNotEmpty) byId[business.id] = business;
+        }
+      } catch (e) {
+        debugPrint('[BusinessRepository] Owned business lookup failed: $e');
       }
 
       debugPrint(

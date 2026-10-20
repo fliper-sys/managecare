@@ -80,7 +80,7 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<void> resetPassword(String email) async {
+  Future<void> resetPassword(String email, {String accountType = 'owner'}) async {
     try {
       await _auth.resetPasswordForEmail(email);
     } catch (e) {

@@ -58,7 +58,11 @@ class _RoomListScreenState extends State<RoomListScreen> {
       return false;
     }
 
-    final roomCount = context.read<HotelProvider>().rooms.length;
+    final roomCount = context
+        .read<HotelProvider>()
+        .rooms
+        .where((room) => room.type.toLowerCase() != 'suite')
+        .length;
     if (!businessProvider.isWithinLimit('rooms', roomCount)) {
       await _showBlockedDialog(
         title: 'Room limit reached',

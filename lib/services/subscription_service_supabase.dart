@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/models/user_model.dart';
 import 'email_service.dart';
+import 'managecare_api_client.dart';
 
 /// SubscriptionPlan definition (same as the Firestore version but without
 /// the Firestore import).
@@ -361,6 +362,9 @@ class SubscriptionServiceSupabase {
   static int? getLimitForBusinessType({required String? businessType, required String tierId, required String limitType}) {
     final family = getPlanFamilyForBusinessType(businessType);
     final rawTier = tierId.trim().toLowerCase();
+    // Hospitality's enterprise label is the user-facing name for its
+    // unlimited plan. Other business families keep their own tier rules.
+    if (family == familyHospitality && rawTier == 'enterprise') return null;
     if (limitType == 'workers' && rawTier == 'enterprise') return null;
     final normalizedTier = normalizeStoredPlanLevel(subscriptionTier: tierId);
     SubscriptionPlan? selected;
@@ -590,41 +594,18 @@ class SubscriptionServiceSupabase {
   }) async {
     try {
       if (businessId.trim().isEmpty) return false;
-      final business = await getBusinessSubscription(businessId);
-      if (business == null) return false;
-
-      final now = DateTime.now();
-      final isActive = business['isSubscriptionActive'] as bool? ?? false;
-      final status = (business['subscriptionStatus'] ?? '').toString().toLowerCase();
-      final endRaw = business['subscriptionEndDate'] as String?;
-      final endDate = endRaw != null ? DateTime.tryParse(endRaw) : null;
-      final isTrial = status == 'trial';
-
-      final isValid = isActive &&
-          (endDate == null ||
-              (isTrial
-                  ? !normalizeToDate(now).isAfter(normalizeToDate(endDate))
-                  : isWithinSubscriptionAccessWindow(endDate, now: now)));
-
-      if (isActive && endDate != null && !isValid) {
-        await _supabase.from('businesses').update({
-          'is_subscription_active': false,
-          'subscription_status': 'expired',
-          'subscription_review_status': 'expired',
-          'updated_at': now.toIso8601String(),
-        }).eq('id', businessId);
-      }
-
-      if (userId != null && userId.isNotEmpty) {
-        await syncUserSubscriptionSummaryFromBusiness(
-          userId: userId,
-          businessId: businessId,
-          overrideIsActive: isValid,
-          overrideStatus: isValid ? (isTrial ? 'trial' : 'approved') : 'expired',
-        );
-      }
-
-      return isValid;
+      // The backend owns subscription validation and enforces the same
+      // membership and grace-period rules for every client. Reading or
+      // updating this directly through Supabase can fail under RLS and
+      // incorrectly route an entitled owner to payment.
+      final response = await ManagecareApiClient.instance.post(
+        '/api/subscriptions/validate',
+        body: {
+          'businessId': businessId.trim(),
+          if (userId != null && userId.isNotEmpty) 'userId': userId,
+        },
+      );
+      return response is Map && response['valid'] == true;
     } catch (e) {
       print('[SubscriptionServiceSupabase] Error validating business subscription: $e');
       return false;

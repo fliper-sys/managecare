@@ -111,39 +111,6 @@
   <script src="flutter_bootstrap.js" async></script>
   <script type="module" src="js/web_usb_printer.js"></script>
 
-  <script type="module">
-    async function initFirebaseAnalytics() {
-      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        console.log('Firebase analytics disabled for local development');
-        return;
-      }
-
-      try {
-        const [{ initializeApp }, { getAnalytics }] = await Promise.all([
-          import('https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js'),
-          import('https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics.js'),
-        ]);
-
-        const firebaseConfig = {
-          apiKey: 'AIzaSyBR-KdYr8jtTjatQgrdNNtGRcGIAQYgaXA',
-          authDomain: 'manage-care-1e96b.firebaseapp.com',
-          databaseURL: 'https://manage-care-1e96b-default-rtdb.firebaseio.com',
-          projectId: 'manage-care-1e96b',
-          storageBucket: 'manage-care-1e96b.firebasestorage.app',
-          messagingSenderId: '481744910720',
-          appId: '1:481744910720:web:8ee6d70263346747b92965',
-          measurementId: 'G-DZ3CE9LWYT',
-        };
-
-        const app = initializeApp(firebaseConfig);
-        getAnalytics(app);
-      } catch (error) {
-        console.warn('Firebase analytics load failed:', error);
-      }
-    }
-
-    initFirebaseAnalytics();
-  </script>
   <script>
     window.addEventListener('load', function() {
       // Hide loading screen after Flutter initializes (10 seconds max)

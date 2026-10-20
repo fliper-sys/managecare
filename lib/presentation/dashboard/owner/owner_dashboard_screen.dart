@@ -539,7 +539,9 @@ class _HomeTabState extends State<_HomeTab> {
     try {
       final switched = await authProvider.switchBusiness(business.id);
       if (!switched) {
-        throw Exception('Unable to switch business context');
+        throw Exception(
+          authProvider.errorMessage ?? 'Unable to switch business context',
+        );
       }
 
       businessProvider.markUserSelection(userId);

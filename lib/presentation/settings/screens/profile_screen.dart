@@ -67,19 +67,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadProfileSettings() async {
+    final user = context.read<AuthProvider>().currentUser;
     final ids = _getSettingsContextOrNotify(showSnackBar: false);
-    if (ids == null) return;
-
-    final settingsProvider = context.read<SettingsProvider>();
-    await settingsProvider.loadSettings(ids['businessId']!, ids['userId']!);
-    if (!mounted || _isEditing) return;
-
+    if (ids != null) {
+      await context
+          .read<SettingsProvider>()
+          .loadSettings(ids['businessId']!, ids['userId']!);
+    }
+    if (!mounted || _isEditing || user == null) return;
+    final settings = context.read<SettingsProvider>();
     setState(() {
-      _jobTitleController.text =
-          settingsProvider.jobTitle ?? _jobTitleController.text;
-      _addressController.text =
-          settingsProvider.address ?? _addressController.text;
+      _nameController.text = user.fullName;
+      _emailController.text = user.email;
+      _phoneController.text = _profileValue(user.phoneNumber, settings.phoneNumber);
+      _jobTitleController.text = _profileValue(user.jobTitle, settings.jobTitle);
+      _addressController.text = _profileValue(user.address, settings.address);
     });
+  }
+
+  String _profileValue(String? primary, String? legacy) {
+    if (primary != null && primary.trim().isNotEmpty) return primary;
+    return legacy ?? '';
   }
 
   @override
@@ -87,6 +95,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final authProvider = context.watch<AuthProvider>();
     final settingsProvider = context.watch<SettingsProvider>();
     final user = authProvider.currentUser;
+    final phone = _profileValue(user?.phoneNumber, settingsProvider.phoneNumber);
+    final jobTitle = _profileValue(user?.jobTitle, settingsProvider.jobTitle);
+    final address = _profileValue(user?.address, settingsProvider.address);
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final mutedText =
@@ -209,25 +220,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           label: 'ACTIVE',
                           tint: AppColors.success,
                         ),
-                        if ((settingsProvider.jobTitle ?? _jobTitleController.text)
-                            .trim()
-                            .isNotEmpty)
+                        if (jobTitle.trim().isNotEmpty)
                           _ProfilePill(
                             icon: Icons.work_outline_rounded,
-                            label: (settingsProvider.jobTitle ??
-                                    _jobTitleController.text)
-                                .trim(),
+                            label: jobTitle.trim(),
                             tint: scheme.tertiary,
                           ),
-                        if (user?.phoneNumber?.isNotEmpty == true)
+                        if (phone.isNotEmpty)
                           _ProfilePill(
                             icon: Icons.phone_rounded,
-                            label: user!.phoneNumber!,
+                            label: phone,
                             tint: scheme.secondary,
                           ),
                       ],
                     ),
-                    if (user?.phoneNumber?.isNotEmpty == true) ...[
+                    if (phone.isNotEmpty) ...[
                       const SizedBox(height: 14),
                       Text(
                         'Keep these details current so receipts, reminders, and notifications reach you quickly.',
@@ -332,10 +339,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           _nameController.text = user?.fullName ?? '';
                           _emailController.text = user?.email ?? '';
                           _phoneController.text = user?.phoneNumber ?? '';
-                          _jobTitleController.text =
-                              settingsProvider.jobTitle ?? user?.jobTitle ?? '';
-                          _addressController.text =
-                              settingsProvider.address ?? user?.address ?? '';
+                          _phoneController.text = phone;
+                          _jobTitleController.text = jobTitle;
+                          _addressController.text = address;
                           setState(() => _isEditing = false);
                         },
                         style: OutlinedButton.styleFrom(
@@ -396,29 +402,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       icon: Icons.email_outlined,
                     ),
                     _InfoTile(
+                      label: 'Full Name',
+                      value: user?.fullName.trim().isNotEmpty == true
+                          ? user!.fullName
+                          : 'N/A',
+                      icon: Icons.person_outline_rounded,
+                    ),
+                    _InfoTile(
                       label: 'Phone',
-                      value: user?.phoneNumber?.isNotEmpty == true
-                          ? user!.phoneNumber!
+                      value: phone.isNotEmpty
+                          ? phone
                           : 'N/A',
                       icon: Icons.phone_outlined,
                     ),
                     _InfoTile(
                       label: 'Job Title',
-                      value: (settingsProvider.jobTitle ?? user?.jobTitle ?? '')
-                              .trim()
-                              .isNotEmpty
-                          ? (settingsProvider.jobTitle ??
-                              user?.jobTitle ??
-                              '')
+                      value: jobTitle.trim().isNotEmpty
+                          ? jobTitle
                           : 'N/A',
                       icon: Icons.work_outline_rounded,
                     ),
                     _InfoTile(
                       label: 'Address',
-                      value: (settingsProvider.address ?? user?.address ?? '')
-                              .trim()
-                              .isNotEmpty
-                          ? (settingsProvider.address ?? user?.address ?? '')
+                      value: address.trim().isNotEmpty
+                          ? address
                           : 'N/A',
                       icon: Icons.location_on_outlined,
                     ),

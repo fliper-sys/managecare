@@ -64,15 +64,23 @@ class UserModel {
   })  : createdAt = createdAt ?? DateTime.fromMicrosecondsSinceEpoch(0),
         updatedAt = updatedAt ?? DateTime.fromMicrosecondsSinceEpoch(0);
 
-  // Get user initials from full name
+  /// Name shown in the app when older profiles have no saved full name.
+  String get displayName {
+    final name = fullName.trim();
+    if (name.isNotEmpty) return name;
+    final emailName = email.split('@').first.trim();
+    return emailName.isNotEmpty ? emailName : 'User';
+  }
+
+  // Get user initials from the best available display name.
   String get initials {
-    return fullName.isNotEmpty
-        ? fullName
-            .split(' ')
-            .take(2)
-            .map((part) => part[0].toUpperCase())
-            .join('')
-        : 'U';
+    final name = displayName;
+    return name
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .take(2)
+        .map((part) => part[0].toUpperCase())
+        .join();
   }
 
   /// Primary business id for backward compatibility

@@ -66,7 +66,45 @@ module.exports = function(pool) {
     // endpoint slow to the point of timing out as history grew.
     const pageParams = [...params, limit, offset];
     const salesResult = await pool.query(
-      `SELECT s.* FROM sales s ${where} ORDER BY s.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+      `SELECT s.*,
+              CASE
+                WHEN LOWER(BTRIM(COALESCE(s.worker_name, ''))) IN ('', 'unknown', 'worker', 'you')
+                  THEN worker_identity.full_name
+                ELSE s.worker_name
+              END AS resolved_worker_name
+       FROM sales s
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(
+           (SELECT NULLIF(BTRIM(w.full_name), '')
+            FROM workers w
+            WHERE w.id = COALESCE(s.worker_id, s.created_by)
+              AND w.business_id = s.business_id
+            LIMIT 1),
+           (SELECT NULLIF(BTRIM(p.full_name), '')
+            FROM profiles p
+            WHERE p.id = COALESCE(s.worker_id, s.created_by)
+            LIMIT 1),
+           (SELECT NULLIF(BTRIM(w.full_name), '')
+            FROM legacy_auth_identity_links l
+            JOIN workers w ON w.id = l.legacy_user_id
+            WHERE l.auth_user_id = COALESCE(s.worker_id, s.created_by)
+              AND w.business_id = s.business_id
+            LIMIT 1),
+           (SELECT NULLIF(BTRIM(p.full_name), '')
+            FROM legacy_auth_identity_links l
+            JOIN profiles p ON p.id = l.auth_user_id
+            WHERE l.legacy_user_id = COALESCE(s.worker_id, s.created_by)
+               OR l.auth_user_id = COALESCE(s.worker_id, s.created_by)
+            LIMIT 1),
+           (SELECT NULLIF(BTRIM(p.full_name), '')
+            FROM legacy_auth_identity_links l
+            JOIN profiles p ON p.id = l.legacy_user_id
+            WHERE l.auth_user_id = COALESCE(s.worker_id, s.created_by)
+            LIMIT 1)
+         ) AS full_name
+       ) worker_identity ON TRUE
+       ${where}
+       ORDER BY s.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
       pageParams
     );
 
@@ -84,7 +122,11 @@ module.exports = function(pool) {
     }
 
     const data = salesResult.rows.map((row) =>
-      formatSale({ ...row, items: itemsBySaleId[row.id] || [] })
+      formatSale({
+        ...row,
+        worker_name: row.resolved_worker_name || row.worker_name,
+        items: itemsBySaleId[row.id] || [],
+      })
     );
 
     res.json({
@@ -160,8 +202,45 @@ module.exports = function(pool) {
   router.get('/:businessId/:id', asyncHandler(async (req, res) => {
     const { businessId, id } = req.params;
     const result = await pool.query(
-      `SELECT s.*, COALESCE(json_agg(si.*) FILTER (WHERE si.id IS NOT NULL), '[]') as items
-       FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id
+      `SELECT s.*,
+              CASE
+                WHEN LOWER(BTRIM(COALESCE(s.worker_name, ''))) IN ('', 'unknown', 'worker', 'you')
+                  THEN worker_identity.full_name
+                ELSE s.worker_name
+              END AS resolved_worker_name,
+              COALESCE(json_agg(si.*) FILTER (WHERE si.id IS NOT NULL), '[]') as items
+       FROM sales s
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(
+           (SELECT NULLIF(BTRIM(w.full_name), '')
+            FROM workers w
+            WHERE w.id = COALESCE(s.worker_id, s.created_by)
+              AND w.business_id = s.business_id
+            LIMIT 1),
+           (SELECT NULLIF(BTRIM(p.full_name), '')
+            FROM profiles p
+            WHERE p.id = COALESCE(s.worker_id, s.created_by)
+            LIMIT 1),
+           (SELECT NULLIF(BTRIM(w.full_name), '')
+            FROM legacy_auth_identity_links l
+            JOIN workers w ON w.id = l.legacy_user_id
+            WHERE l.auth_user_id = COALESCE(s.worker_id, s.created_by)
+              AND w.business_id = s.business_id
+            LIMIT 1),
+           (SELECT NULLIF(BTRIM(p.full_name), '')
+            FROM legacy_auth_identity_links l
+            JOIN profiles p ON p.id = l.auth_user_id
+            WHERE l.legacy_user_id = COALESCE(s.worker_id, s.created_by)
+               OR l.auth_user_id = COALESCE(s.worker_id, s.created_by)
+            LIMIT 1),
+           (SELECT NULLIF(BTRIM(p.full_name), '')
+            FROM legacy_auth_identity_links l
+            JOIN profiles p ON p.id = l.legacy_user_id
+            WHERE l.auth_user_id = COALESCE(s.worker_id, s.created_by)
+            LIMIT 1)
+         ) AS full_name
+       ) worker_identity ON TRUE
+       LEFT JOIN sale_items si ON si.sale_id = s.id
        WHERE s.id = $1 AND s.business_id = $2
        GROUP BY s.id`,
       [id, businessId]
@@ -169,7 +248,10 @@ module.exports = function(pool) {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Sale not found' });
     }
-    res.json(formatSale(result.rows[0]));
+    res.json(formatSale({
+      ...result.rows[0],
+      worker_name: result.rows[0].resolved_worker_name || result.rows[0].worker_name,
+    }));
   }));
 
   // POST /api/sales/:businessId - Create sale with items.
@@ -352,7 +434,8 @@ module.exports = function(pool) {
        VALUES (COALESCE($1, uuid_generate_v4()), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12::jsonb, '[]'::jsonb), $13, $14, $15, $16, COALESCE($17, NOW()))
        ON CONFLICT (id) DO NOTHING
        RETURNING *`,
-      [id || null, businessId, customer_id || null, store_id || null, worker_id || null, worker_name || null,
+      [id || null, businessId, customer_id || null, store_id || null, worker_id || null,
+       (await resolveWorkerName(client, businessId, worker_id, req.user.id)) || usableWorkerName(worker_name),
        total_amount || final_amount, discount_amount || 0, tax_amount || 0, final_amount,
        payment_method,
         normalizePaymentBreakdownParam(payment_breakdown),
@@ -558,6 +641,44 @@ function formatSale(row) {
     ...row,
     items: typeof row.items === 'string' ? JSON.parse(row.items) : row.items,
   };
+}
+
+function usableWorkerName(value) {
+  const name = typeof value === 'string' ? value.trim() : '';
+  if (!name || /^(unknown|worker|you)$/i.test(name)) return null;
+  return name;
+}
+
+async function resolveWorkerName(db, businessId, workerId, actorId) {
+  const identityId = workerId || actorId;
+  if (!identityId) return null;
+  const result = await db.query(
+    `SELECT COALESCE(
+       (SELECT NULLIF(BTRIM(w.full_name), '')
+        FROM workers w
+        WHERE w.id = $1::uuid AND w.business_id = $2::uuid
+        LIMIT 1),
+       (SELECT NULLIF(BTRIM(p.full_name), '')
+        FROM profiles p WHERE p.id = $1::uuid LIMIT 1),
+       (SELECT NULLIF(BTRIM(w.full_name), '')
+        FROM legacy_auth_identity_links l
+        JOIN workers w ON w.id = l.legacy_user_id
+        WHERE l.auth_user_id = $1::uuid AND w.business_id = $2::uuid
+        LIMIT 1),
+       (SELECT NULLIF(BTRIM(p.full_name), '')
+        FROM legacy_auth_identity_links l
+        JOIN profiles p ON p.id = l.auth_user_id
+        WHERE l.legacy_user_id = $1::uuid OR l.auth_user_id = $1::uuid
+        LIMIT 1),
+       (SELECT NULLIF(BTRIM(p.full_name), '')
+        FROM legacy_auth_identity_links l
+        JOIN profiles p ON p.id = l.legacy_user_id
+        WHERE l.auth_user_id = $1::uuid
+        LIMIT 1)
+     ) AS full_name`,
+    [identityId, businessId]
+  );
+  return usableWorkerName(result.rows[0]?.full_name);
 }
 
 function deterministicLegacySaleId(businessId, rawId) {

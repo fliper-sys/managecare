@@ -1,5 +1,10 @@
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+const dotenv = require('dotenv');
+dotenv.config({ path: path.join(__dirname, '.env') });
+// Production deploys may keep database credentials in .env.production while
+// the legacy .env contains app secrets. Backfill only missing variables so
+// existing process/.env values remain authoritative.
+dotenv.config({ path: path.join(__dirname, '.env.production') });
 if (!process.env.JWT_SECRET) {
   throw new Error(`JWT_SECRET is missing from ${path.join(__dirname, '.env')} and the process environment`);
 }
@@ -50,12 +55,15 @@ const administrativeRoutes = require('./routes/administrative');
 // ── Middleware imports ──────────────────────────────────────
 const { authMiddleware, requireAuth, requireBusinessMembership, requireBusinessReadAccess, verifyAccessToken, verifyHmacSignature } = require('./middleware/auth');
 const { bindPoolToRequestUser, getRequestUserId, runWithUser } = require('./middleware/db_request_context');
+const legacyAuthCompatRoutes = require('./routes/legacy_auth_compat');
+const { LegacyAuthMigration } = require('./legacy_auth_migration');
 const { errorHandler } = require('./middleware/validation');
 const crypto = require('crypto');
 const os = require('os');
 const nodemailer = require('nodemailer');
 
 const PUBLIC_URL = process.env.PUBLIC_URL || 'https://backend.managecare.info';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.ANON_KEY || '';
 
 let mailTransporter = null;
 if (process.env.SMTP_HOST) {
@@ -106,7 +114,7 @@ function renderResetEmailHtml({ name, resetUrl }) {
               <div style="width:56px; height:56px; background-color:#eef2ff; border-radius:14px; text-align:center; line-height:56px; font-size:26px; margin-bottom:20px;">&#128274;</div>
               <h1 style="margin:0 0 16px; font-size:21px; line-height:1.3; color:#10223f; font-weight:700;">Reset your password</h1>
               <p style="margin:0 0 12px; font-size:15px; line-height:1.6; color:#4a5568;">${greeting}</p>
-              <p style="margin:0 0 24px; font-size:15px; line-height:1.6; color:#4a5568;">We received a request to reset your ManageCare password. Click the button below to choose a new one. This link expires in <strong>1 hour</strong> and can only be used once.</p>
+              <p style="margin:0 0 24px; font-size:15px; line-height:1.6; color:#4a5568;">We received a request to reset your ManageCare password. Click the button below to choose a new one. This link expires in <strong>4 hours</strong> and can only be used once.</p>
               <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
                 <tr>
                   <td style="background-color:#1a56db; border-radius:10px;">
@@ -135,7 +143,7 @@ function escapeHtml(str) {
   }[c]));
 }
 
-function renderResetPasswordPage({ token, error, success }) {
+function renderResetPasswordPage({ token, tokenHash, tokenHashFromFragment, error, success }) {
   const body = success
     ? `
       <h1>Password updated</h1>
@@ -144,14 +152,15 @@ function renderResetPasswordPage({ token, error, success }) {
     : `
       <h1>Reset your password</h1>
       ${error ? `<p class="error">${escapeHtml(error)}</p>` : ''}
-      ${token
+      ${token || tokenHash || tokenHashFromFragment
         ? `
           <form method="POST" action="/reset-password">
-            <input type="hidden" name="token" value="${escapeHtml(token)}" />
+            <input type="hidden" name="${tokenHash || tokenHashFromFragment ? 'token_hash' : 'token'}" value="${escapeHtml(tokenHash || token)}" />
             <label>New password<input type="password" name="password" minlength="8" required autofocus /></label>
             <label>Confirm new password<input type="password" name="confirm_password" minlength="8" required /></label>
             <button type="submit">Set new password</button>
           </form>
+          ${tokenHashFromFragment ? '<p id="link-status" class="error" hidden></p>' : ''}
         `
         : '<p>Request a new reset link from the ManageCare app.</p>'}
     `;
@@ -176,8 +185,55 @@ function renderResetPasswordPage({ token, error, success }) {
 </head>
 <body>
   <div class="card">${body}</div>
+${tokenHashFromFragment ? `<script>
+  (function () {
+    const values = new URLSearchParams(window.location.hash.slice(1));
+    const tokenHash = values.get('token_hash');
+    const type = values.get('type');
+    history.replaceState(null, '', window.location.pathname);
+    const form = document.querySelector('form[action="/reset-password"]');
+    const status = document.getElementById('link-status');
+    if (type !== 'recovery' || !tokenHash || !form) {
+      status.textContent = 'This reset link is invalid or expired. Request a new reset email.';
+      status.hidden = false;
+      if (form) form.remove();
+      return;
+    }
+    form.querySelector('input[name="token_hash"]').value = tokenHash;
+  })();
+</script>` : ''}
 </body>
 </html>`;
+}
+
+function renderPasswordResetRequestPage({ success, error } = {}) {
+  const body = success
+    ? '<h1>Check your email</h1><p>If an active account matches, we sent a one time reset link. The link expires in four hours.</p>'
+    : `
+      <h1>Forgot your password?</h1>
+      ${error ? `<p class="error">${escapeHtml(error)}</p>` : ''}
+      <p>Select the account type and enter the email address on the account. If it matches an active account, we will send a reset link.</p>
+      <form method="POST" action="/password-reset/request">
+        <label>Account type<select name="account_type" required><option value="owner">Owner</option><option value="worker">Worker</option></select></label>
+        <label>Email address<input type="email" name="email" autocomplete="email" required /></label>
+        <button type="submit">Send reset link</button>
+      </form>
+    `;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>ManageCare password recovery</title>
+<style>body{font-family:Arial,sans-serif;background:#0d1b2a;color:#10223f;margin:0;min-height:100vh;display:grid;place-items:center}.card{background:#fff;border-radius:16px;padding:32px;max-width:420px;width:calc(100% - 48px);box-shadow:0 20px 60px #0004}h1{font-size:22px}p{line-height:1.5;color:#4a5568}label{display:block;margin:16px 0 6px;font-weight:600}input,select{width:100%;box-sizing:border-box;padding:11px;border:1px solid #d0d7de;border-radius:8px;font-size:15px}button{margin-top:20px;width:100%;padding:12px;background:#1a56db;color:#fff;border:0;border-radius:8px;font-size:15px;font-weight:600}.error{color:#c0392b}</style></head><body><main class="card">${body}</main></body></html>`;
+}
+
+function renderRecoveryConsolePage() {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex,nofollow" /><title>ManageCare recovery links</title>
+<style>body{font-family:Arial,sans-serif;background:#0d1b2a;color:#10223f;margin:0;min-height:100vh;display:grid;place-items:center}.card{background:#fff;border-radius:16px;padding:32px;max-width:460px;width:calc(100% - 48px);box-shadow:0 20px 60px #0004}h1{font-size:22px}p{line-height:1.5;color:#4a5568}label{display:block;margin:16px 0 6px;font-weight:600}input,select{width:100%;box-sizing:border-box;padding:11px;border:1px solid #d0d7de;border-radius:8px;font-size:15px}button{margin-top:20px;width:100%;padding:12px;background:#1a56db;color:#fff;border:0;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}.error{color:#c0392b}.result{overflow-wrap:anywhere;background:#edf7f2;padding:12px;border-radius:8px}.hidden{display:none}</style></head>
+<body><main class="card"><h1>Issue a recovery link</h1><p>Confirm the requester’s identity before issuing a link. Each link expires in four hours and works once.</p>
+<form id="recovery-form"><label for="operator-secret">Operator secret</label><input id="operator-secret" type="password" autocomplete="off" required />
+<label for="account-type">Account type</label><select id="account-type"><option value="owner">Owner</option><option value="worker">Worker</option></select>
+<label for="account-email">Account email</label><input id="account-email" type="email" autocomplete="off" required />
+<button id="submit-button" type="submit">Generate one-time link</button></form><p id="message" role="status" aria-live="polite"></p>
+<section id="result" class="result hidden"><label>Share this link with the verified account holder</label><input id="reset-url" readonly /><p id="expires"></p><button id="copy-button" type="button">Copy link</button></section>
+<script>(function(){const form=document.getElementById('recovery-form'),message=document.getElementById('message'),result=document.getElementById('result'),secret=document.getElementById('operator-secret');form.addEventListener('submit',async function(event){event.preventDefault();message.textContent='';message.className='';result.classList.add('hidden');const button=document.getElementById('submit-button');button.disabled=true;button.textContent='Generating...';try{const response=await fetch('/api/auth/password-reset/operator-link',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+secret.value},body:JSON.stringify({account_type:document.getElementById('account-type').value,email:document.getElementById('account-email').value.trim()})});const data=await response.json().catch(function(){return {}});if(!response.ok)throw new Error(data.error||'Could not generate a recovery link.');document.getElementById('reset-url').value=data.reset_url;document.getElementById('expires').textContent='Expires: '+new Date(data.expires_at).toLocaleString();result.classList.remove('hidden');secret.value='';message.textContent='Link created. Copy it now; it will not be shown again.';}catch(error){message.className='error';message.textContent=error.message||'Could not generate a recovery link.';}finally{button.disabled=false;button.textContent='Generate one-time link';}});document.getElementById('copy-button').addEventListener('click',async function(){try{await navigator.clipboard.writeText(document.getElementById('reset-url').value);message.textContent='Link copied.';}catch(_){document.getElementById('reset-url').select();message.textContent='Select and copy the link.';}});})();</script>
+</main></body></html>`;
 }
 
 // ── Worker self-service password change ──────────────────────
@@ -721,64 +777,546 @@ app.post('/auth/v1/logout', async (req, res) => {
 });
 
 // ── Password recovery ───────────────────────────────────────
-// AuthService.sendPasswordResetEmail (gotrue-dart's resetPasswordForEmail)
-// POSTs to /auth/v1/recover with an email + PKCE fields we don't need to
-// validate for this simplified flow. The user completes the reset on a
-// plain web page (the Flutter app has no deep-link handling for this -
-// forgot_password_screen.dart just tells the user to check their email),
-// so there's no need to replicate GoTrue's PKCE code-exchange flow.
-app.post('/auth/v1/recover', async (req, res) => {
-  try {
-    const email = normalizeEmail(req.body?.email);
-    if (!email) {
-      return res.status(400).json({ error: 'email is required' });
+const PASSWORD_RESET_RESPONSE = { message: 'If an active account matches, a reset link will be sent.' };
+const passwordResetAttempts = new Map();
+
+function allowPasswordResetRequest(key) {
+  const now = Date.now();
+  const windowMs = 15 * 60_000;
+  const previous = (passwordResetAttempts.get(key) || []).filter((at) => now - at < windowMs);
+  if (previous.length >= 5) {
+    passwordResetAttempts.set(key, previous);
+    return false;
+  }
+  previous.push(now);
+  passwordResetAttempts.set(key, previous);
+  if (passwordResetAttempts.size > 5000) {
+    for (const [candidate, times] of passwordResetAttempts) {
+      if (times.every((at) => now - at >= windowMs)) passwordResetAttempts.delete(candidate);
     }
+  }
+  return true;
+}
 
-    const result = await pool.query(
-      'SELECT id, full_name FROM profiles WHERE lower(email) = $1',
-      [email]
-    );
+async function lookupPasswordResetCandidates(email, accountType) {
+  if (accountType === 'owner') {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT p.id, p.full_name, lower(trim(p.email)) AS email
+       FROM profiles p JOIN businesses b ON b.owner_id = p.id
+       WHERE lower(trim(p.email)) = $1
+         AND b.is_active = true AND COALESCE(b.is_deleted, false) = false
+         AND COALESCE(p.is_active, true) = true AND COALESCE(p.is_deleted, false) = false`,
+      [email]);
+    return rows.map((row) => ({ ...row, accountType: 'owner' }));
+  }
+  if (accountType === 'worker') {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT w.id, w.full_name, lower(trim(w.email)) AS email
+       FROM workers w JOIN businesses b ON b.id = w.business_id
+       WHERE lower(trim(w.email)) = $1 AND COALESCE(w.is_active, true) = true
+         AND b.is_active = true AND COALESCE(b.is_deleted, false) = false`,
+      [email]);
+    const byId = new Map(rows.map((row) => [row.id, row]));
 
-    // Always respond success regardless of whether the account exists,
-    // to avoid leaking which emails are registered.
-    if (result.rows.length > 0) {
-      const user = result.rows[0];
-      const token = crypto.randomBytes(32).toString('hex');
-      await pool.query(
-        `INSERT INTO password_reset_tokens (token, user_id, expires_at)
-         VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
-        [token, user.id]
-      );
-
-      const resetUrl = `${PUBLIC_URL}/reset-password?token=${token}`;
-      try {
-        await sendMail({
-          to: email,
-          subject: 'Reset your ManageCare password',
-          html: renderResetEmailHtml({ name: user.full_name, resetUrl }),
-        });
-      } catch (mailErr) {
-        console.error('[recover] Failed to send reset email:', mailErr.message);
+    // Some migrated workers are represented by profiles + business_members,
+    // not a row in workers. Check memberships under that profile's RLS context
+    // and only accept active, non-owner memberships in active businesses.
+    const profiles = await pool.query(
+      `SELECT id, full_name, lower(trim(email)) AS email
+       FROM profiles
+       WHERE lower(trim(email)) = $1
+         AND COALESCE(is_active, true) = true
+         AND COALESCE(is_deleted, false) = false`, [email]);
+    for (const profile of profiles.rows) {
+      const membership = await runWithUser(profile.id, () => pool.query(
+        `SELECT bm.business_id
+         FROM business_members bm
+         JOIN businesses b ON b.id = bm.business_id
+         WHERE bm.user_id = $1 AND bm.is_active = true
+           AND COALESCE(bm.is_owner, false) = false
+           AND lower(COALESCE(bm.role, '')) <> 'owner'
+           AND b.is_active = true AND COALESCE(b.is_deleted, false) = false
+         LIMIT 1`, [profile.id]));
+      if (membership.rows.length > 0 && !byId.has(profile.id)) {
+        byId.set(profile.id, profile);
       }
     }
+    return [...byId.values()].map((row) => ({ ...row, accountType: 'worker' }));
+  }
+  return [];
+}
 
-    res.json({});
-  } catch (err) {
-    res.status(400).json({ error: err.message });
+async function issuePasswordResetLink(email, accountType) {
+  const candidates = accountType
+    ? await lookupPasswordResetCandidates(email, accountType)
+    : [
+      ...await lookupPasswordResetCandidates(email, 'owner'),
+      ...await lookupPasswordResetCandidates(email, 'worker'),
+    ];
+  // Never guess which record a shared email belongs to. The app asks the user
+  // to select owner or worker; the legacy GoTrue route auto-resolves only a
+  // globally unique active identity.
+  if (candidates.length !== 1) return;
+
+  const candidate = candidates[0];
+  const token = crypto.randomBytes(32).toString('base64url');
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  await pool.query(
+    `UPDATE account_password_reset_tokens SET used_at = NOW()
+     WHERE account_type = $1 AND legacy_user_id = $2 AND used_at IS NULL`,
+    [candidate.accountType, candidate.id]);
+  await pool.query(
+    `INSERT INTO account_password_reset_tokens (token_hash, account_type, legacy_user_id, expires_at)
+     VALUES ($1, $2, $3, NOW() + INTERVAL '4 hours')`,
+    [tokenHash, candidate.accountType, candidate.id]);
+
+  const resetUrl = `${PUBLIC_URL}/reset-password?token=${encodeURIComponent(token)}`;
+  try {
+    await sendMail({
+      to: email,
+      subject: 'Reset your ManageCare password',
+      html: renderResetEmailHtml({ name: candidate.full_name, resetUrl }),
+    });
+  } catch (mailErr) {
+    await pool.query(
+      'UPDATE account_password_reset_tokens SET used_at = NOW() WHERE token_hash = $1',
+      [tokenHash]);
+    console.error('[password-reset] Failed to send reset email:', mailErr.message);
+  }
+}
+
+// Authenticated owners/platform admins can create a link for manual delivery
+// when the account's email address cannot receive mail. The URL is returned
+// only to the authorized caller and remains single-use with the normal reset flow.
+app.post('/api/auth/password-reset/link', authMiddleware, requireAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const { account_type: accountType, legacy_user_id: legacyUserId, business_id: businessId } = req.body || {};
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!['owner', 'worker'].includes(accountType) || !uuidPattern.test(String(legacyUserId || '')) || !uuidPattern.test(String(businessId || ''))) {
+    return res.status(400).json({ error: 'account_type, legacy_user_id, and business_id are required.' });
+  }
+  try {
+    const adminEmails = (process.env.PLATFORM_ADMIN_EMAILS || process.env.PLATFORM_ADMIN_EMAIL || 'MCadmin@mc.c')
+      .split(',').map((email) => email.trim().toLowerCase()).filter(Boolean);
+    const isAdmin = adminEmails.includes(String(req.user?.email || '').trim().toLowerCase());
+    const linkedActor = await pool.query(
+      'SELECT legacy_user_id FROM legacy_auth_identity_links WHERE auth_user_id = $1 LIMIT 1',
+      [req.user.id]);
+    const actorLegacyId = linkedActor.rows[0]?.legacy_user_id || req.user.id;
+    let target;
+    let authorized = isAdmin;
+
+    if (accountType === 'worker') {
+      const result = await pool.query(
+        `SELECT w.id, w.full_name, lower(trim(w.email)) AS email, w.business_id
+         FROM workers w JOIN businesses b ON b.id = w.business_id
+         WHERE w.id = $1 AND w.business_id = $2 AND COALESCE(w.is_active, true) = true
+           AND b.is_active = true AND COALESCE(b.is_deleted, false) = false`,
+        [legacyUserId, businessId]);
+      target = result.rows[0];
+      if (target && !authorized) {
+        const ownerResult = await pool.query(
+          `SELECT 1 FROM businesses b
+           WHERE b.id = $1 AND b.owner_id = $2
+           UNION ALL
+           SELECT 1 FROM business_members bm
+           WHERE bm.business_id = $1 AND bm.user_id = $3
+             AND bm.is_active = true AND bm.is_owner = true LIMIT 1`,
+          [businessId, actorLegacyId, req.user.id]);
+        authorized = ownerResult.rows.length > 0;
+      }
+    } else {
+      const result = await pool.query(
+        `SELECT p.id, p.full_name, lower(trim(p.email)) AS email
+         FROM profiles p JOIN businesses b ON b.owner_id = p.id
+         WHERE p.id = $1 AND b.id = $2 AND b.is_active = true
+           AND COALESCE(b.is_deleted, false) = false
+           AND COALESCE(p.is_active, true) = true AND COALESCE(p.is_deleted, false) = false`,
+        [legacyUserId, businessId]);
+      target = result.rows[0];
+      authorized = authorized || Boolean(target && String(actorLegacyId) === String(target.id));
+    }
+
+    if (!target) return res.status(404).json({ error: 'Active account not found.' });
+    if (!authorized) return res.status(403).json({ error: 'You are not authorized to create this reset link.' });
+    const attemptKey = `${req.ip}:${req.user.id}:${accountType}:${legacyUserId}`;
+    if (!allowPasswordResetRequest(attemptKey)) {
+      return res.status(429).json({ error: 'Too many reset links for this account. Try again later.' });
+    }
+
+    const token = crypto.randomBytes(32).toString('base64url');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    await pool.query(
+      `UPDATE account_password_reset_tokens SET used_at = NOW()
+       WHERE account_type = $1 AND legacy_user_id = $2 AND used_at IS NULL`,
+      [accountType, legacyUserId]);
+    const inserted = await pool.query(
+      `INSERT INTO account_password_reset_tokens (token_hash, account_type, legacy_user_id, expires_at)
+       VALUES ($1, $2, $3, NOW() + INTERVAL '4 hours') RETURNING expires_at`,
+      [tokenHash, accountType, legacyUserId]);
+    return res.json({
+      reset_url: `${PUBLIC_URL}/resetinfo?token=${encodeURIComponent(token)}`,
+      expires_at: inserted.rows[0].expires_at,
+      single_use: true,
+    });
+  } catch (error) {
+    console.error('[password-reset] Manual link creation failed:', error.message);
+    return res.status(503).json({ error: 'Unable to create a password reset link right now.' });
   }
 });
 
+app.get('/recovery-console', (_req, res) => {
+  res.set({
+    'Cache-Control': 'no-store',
+    'Referrer-Policy': 'no-referrer',
+    'X-Robots-Tag': 'noindex, nofollow',
+    'Content-Type': 'text/html; charset=utf-8',
+  });
+  res.send(renderRecoveryConsolePage());
+});
+
+app.post('/api/auth/password-reset/operator-link', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const expected = process.env.MANUAL_RECOVERY_OPERATOR_SECRET || '';
+  const authorization = req.get('Authorization') || '';
+  const supplied = authorization.match(/^Bearer\s+(.+)$/i)?.[1] || '';
+  const expectedBytes = Buffer.from(expected);
+  const suppliedBytes = Buffer.from(supplied);
+  const validSecret = expectedBytes.length >= 32 &&
+    suppliedBytes.length === expectedBytes.length &&
+    crypto.timingSafeEqual(suppliedBytes, expectedBytes);
+  if (!validSecret) {
+    if (!allowPasswordResetRequest(`${req.ip}:recovery-console-auth`)) {
+      return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+    }
+    return res.status(expected ? 401 : 503).json({ error: 'Recovery console is unavailable or unauthorized.' });
+  }
+
+  const accountType = req.body?.account_type;
+  const email = normalizeEmail(req.body?.email);
+  if (!['owner', 'worker'].includes(accountType) || !email || email.length > 320) {
+    return res.status(400).json({ error: 'Select an account type and enter its account email.' });
+  }
+  if (!allowPasswordResetRequest(`${req.ip}:${accountType}:${email}:operator`)) {
+    return res.status(429).json({ error: 'Too many links for this account. Try again later.' });
+  }
+
+  try {
+    const candidates = await lookupPasswordResetCandidates(email, accountType);
+    if (candidates.length === 0) {
+      return res.status(404).json({ error: 'No active account matches that type and email.' });
+    }
+    if (candidates.length !== 1) {
+      return res.status(409).json({ error: 'Multiple active accounts match. Resolve the duplicate before recovery.' });
+    }
+    const candidate = candidates[0];
+    const token = crypto.randomBytes(32).toString('base64url');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    await pool.query(
+      `UPDATE account_password_reset_tokens SET used_at = NOW()
+       WHERE account_type = $1 AND legacy_user_id = $2 AND used_at IS NULL`,
+      [accountType, candidate.id]);
+    const inserted = await pool.query(
+      `INSERT INTO account_password_reset_tokens (token_hash, account_type, legacy_user_id, expires_at)
+       VALUES ($1, $2, $3, NOW() + INTERVAL '4 hours') RETURNING expires_at`,
+      [tokenHash, accountType, candidate.id]);
+
+    console.info('[password-reset] Operator issued a one-time link', {
+      accountType,
+      sourceIp: req.ip,
+    });
+    return res.json({
+      reset_url: `${PUBLIC_URL}/resetinfo?token=${encodeURIComponent(token)}`,
+      expires_at: inserted.rows[0].expires_at,
+      single_use: true,
+    });
+  } catch (error) {
+    console.error('[password-reset] Operator link generation failed:', error.message);
+    return res.status(503).json({ error: 'Could not generate a recovery link right now.' });
+  }
+});
+
+async function handlePasswordResetRequest(req, res, { inferAccountType = false, html = false } = {}) {
+  res.set('Cache-Control', 'no-store');
+  const reply = (status, body, success = false) => html
+    ? res.status(status).send(renderPasswordResetRequestPage({ success, error: body.error }))
+    : res.status(status).json(body);
+  const rawEmail = req.body?.email;
+  if (typeof rawEmail !== 'string') {
+    return reply(400, { error: 'Enter an email and select owner or worker.' });
+  }
+  const email = normalizeEmail(rawEmail);
+  const accountType = inferAccountType ? null : req.body?.account_type;
+  if (!email || (!inferAccountType && !['owner', 'worker'].includes(accountType))) {
+    return reply(400, { error: 'Enter an email and select owner or worker.' });
+  }
+  if (!allowPasswordResetRequest(`${req.ip}:${email}:${accountType || 'unique'}`)) {
+    return reply(429, { error: 'Too many reset requests. Please try again later.' });
+  }
+  if (!mailTransporter) {
+    return reply(503, { error: 'Password recovery is temporarily unavailable.' });
+  }
+  try {
+    await issuePasswordResetLink(email, accountType);
+    return reply(200, PASSWORD_RESET_RESPONSE, true);
+  } catch (error) {
+    console.error('[password-reset] Request failed:', error.message);
+    return reply(503, { error: 'Password recovery is temporarily unavailable.' });
+  }
+}
+
+app.post('/api/auth/password-reset/request', (req, res) =>
+  handlePasswordResetRequest(req, res));
+
+// Compatibility for older clients that call GoTrue's resetPasswordForEmail.
+// Without an account type, send a link only when exactly one active owner or
+// worker record matches the email.
+app.post('/auth/v1/recover', (req, res) =>
+  handlePasswordResetRequest(req, res, { inferAccountType: true }));
+
+app.get('/forgot-password', (_req, res) => {
+  res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.send(renderPasswordResetRequestPage());
+});
+
+app.post('/password-reset/request', express.urlencoded({ extended: true }), async (req, res) => {
+  res.set({ 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  return handlePasswordResetRequest(req, res, { html: true });
+});
+
+app.get('/email-templates/recovery', (_req, res) => {
+  res.set({
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.send(`<!doctype html>
+<html><body style="margin:0;background:#0d1b2a;font-family:Arial,sans-serif;color:#10223f">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px;background:#0d1b2a">
+    <tr><td align="center"><table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#fff;border-radius:14px">
+      <tr><td style="padding:26px 30px;background:#1a56db;color:#fff;font-size:20px;font-weight:bold">ManageCare</td></tr>
+      <tr><td style="padding:30px">
+        <h1 style="font-size:22px;margin:0 0 14px">Reset your password</h1>
+        <p style="font-size:15px;line-height:1.6;color:#4a5568">We received a request to reset your ManageCare password. This secure link can only be used once.</p>
+        <p style="margin:24px 0"><a href="https://backend.managecare.info/reset-password#token_hash={{ .TokenHash }}&amp;type=recovery" style="display:inline-block;padding:13px 22px;border-radius:8px;background:#1a56db;color:white;text-decoration:none;font-weight:bold">Choose a new password</a></p>
+        <p style="font-size:12px;line-height:1.5;color:#718096">If you did not request this, ignore this email. Your password will not change.</p>
+      </td></tr>
+    </table></td></tr>
+  </table>
+</body></html>`);
+});
+
 // ── GET /reset-password?token=... - serves a minimal, self-contained form.
-app.get('/reset-password', async (req, res) => {
+app.get(['/reset-password', '/resetinfo'], async (req, res) => {
   const token = typeof req.query.token === 'string' ? req.query.token : '';
+  const tokenHash = typeof req.query.token_hash === 'string' ? req.query.token_hash : '';
+  const recoveryType = req.query.type === 'recovery' ? 'recovery' : '';
+  res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
   res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(renderResetPasswordPage({ token }));
+  res.send(renderResetPasswordPage({
+    token,
+    tokenHash: recoveryType ? tokenHash : '',
+    tokenHashFromFragment: !token && !recoveryType,
+  }));
 });
 
 // ── POST /reset-password - processes the form submission.
+async function completeAccountPasswordReset(token, password) {
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const tokenResult = await client.query(
+      `SELECT account_type, legacy_user_id FROM account_password_reset_tokens
+       WHERE token_hash = $1 AND used_at IS NULL AND expires_at > NOW()
+       FOR UPDATE`, [tokenHash]);
+    if (tokenResult.rows.length !== 1) {
+      await client.query('ROLLBACK');
+      return false;
+    }
+
+    const { account_type: accountType, legacy_user_id: legacyId } = tokenResult.rows[0];
+    let targetResult;
+    if (accountType === 'owner') {
+      targetResult = await client.query(
+        `SELECT p.id, p.email, p.full_name FROM profiles p
+         WHERE p.id = $1 AND COALESCE(p.is_active, true) = true
+           AND COALESCE(p.is_deleted, false) = false
+           AND EXISTS (SELECT 1 FROM businesses b WHERE b.owner_id = p.id
+             AND b.is_active = true AND COALESCE(b.is_deleted, false) = false)`, [legacyId]);
+    } else if (accountType === 'worker') {
+      targetResult = await client.query(
+        `SELECT w.id, w.email, w.full_name FROM workers w
+         JOIN businesses b ON b.id = w.business_id
+         WHERE w.id = $1 AND COALESCE(w.is_active, true) = true
+           AND b.is_active = true AND COALESCE(b.is_deleted, false) = false`, [legacyId]);
+      if (targetResult.rows.length === 0) {
+        targetResult = await runWithUser(legacyId, () => client.query(
+          `SELECT p.id, p.email, p.full_name FROM profiles p
+           WHERE p.id = $1 AND COALESCE(p.is_active, true) = true
+             AND COALESCE(p.is_deleted, false) = false
+             AND EXISTS (
+               SELECT 1 FROM business_members bm
+               JOIN businesses b ON b.id = bm.business_id
+               WHERE bm.user_id = p.id AND bm.is_active = true
+                 AND COALESCE(bm.is_owner, false) = false
+                 AND lower(COALESCE(bm.role, '')) <> 'owner'
+                 AND b.is_active = true AND COALESCE(b.is_deleted, false) = false
+             )`, [legacyId]));
+      }
+    } else {
+      throw new Error('Invalid password reset account type');
+    }
+    const target = targetResult.rows[0];
+    if (!target?.email) throw new Error('Password reset target is no longer active');
+
+    const migration = new LegacyAuthMigration({
+      pool,
+      runWithUser,
+      supabaseUrl: process.env.SUPABASE_URL,
+      serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    });
+    // The backend DB role is subject to workers-table RLS. A direct lookup can
+    // therefore look like a profile-only worker even when a legacy worker row
+    // exists. Use the security-definer session resolver under the legacy UUID
+    // to distinguish that case before choosing the reconciliation path.
+    const hasLegacyWorkerRow = accountType === 'worker' &&
+      (await runWithUser(legacyId, () => client.query(
+        'SELECT 1 FROM auth_worker_session() LIMIT 1'))).rows.length > 0;
+    const profileBackedWorker = accountType === 'worker' && !hasLegacyWorkerRow;
+    const reconciled = profileBackedWorker
+      ? await migration.reconcileProfileWorkerPassword({
+        email: normalizeEmail(target.email),
+        password,
+        legacyId,
+      })
+      : await migration.reconcileVerifiedPassword({
+        email: normalizeEmail(target.email),
+        password,
+        fullName: target.full_name,
+        legacyId,
+      });
+
+    const hash = await bcrypt.hash(password, 10);
+    const table = accountType === 'owner' || profileBackedWorker ? 'profiles' : 'workers';
+    const updateTarget = () => client.query(
+      `UPDATE ${table} SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
+      [hash, legacyId]);
+    const updated = accountType === 'worker'
+      ? await runWithUser(reconciled.authId, updateTarget)
+      : await updateTarget();
+    if (updated.rowCount !== 1) throw new Error('Password reset target changed during reset');
+
+    const profileIds = [...new Set([legacyId, reconciled.authId])];
+    const updateProfiles = () => client.query(
+      `UPDATE profiles SET password_hash = $1, updated_at = NOW()
+       WHERE id = ANY($2::uuid[])`, [hash, profileIds]);
+    if (accountType === 'worker') {
+      await runWithUser(reconciled.authId, updateProfiles);
+    } else {
+      await updateProfiles();
+    }
+    await client.query(
+      'DELETE FROM refresh_tokens WHERE user_id = ANY($1::uuid[])', [profileIds]);
+    await client.query(
+      'UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = ANY($1::uuid[]) AND used_at IS NULL',
+      [profileIds]);
+    await client.query(
+      'UPDATE account_password_reset_tokens SET used_at = NOW() WHERE token_hash = $1',
+      [tokenHash]);
+    await client.query('COMMIT');
+    return true;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 app.post('/reset-password', express.urlencoded({ extended: true }), async (req, res) => {
-  const { token, password, confirm_password } = req.body || {};
+  const { token, token_hash: tokenHash, password, confirm_password: confirmPassword } = req.body || {};
   res.set('Content-Type', 'text/html; charset=utf-8');
+
+  if (token && /^[A-Za-z0-9_-]{43}$/.test(token)) {
+    res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+    if (!password || password.length < 8) {
+      return res.status(400).send(renderResetPasswordPage({ token, error: 'Password must be at least 8 characters.' }));
+    }
+    if (password !== confirmPassword) {
+      return res.status(400).send(renderResetPasswordPage({ token, error: 'Passwords do not match.' }));
+    }
+    try {
+      if (await completeAccountPasswordReset(token, password)) {
+        return res.send(renderResetPasswordPage({ success: true }));
+      }
+      return res.status(400).send(renderResetPasswordPage({ token: '', error: 'This reset link is invalid or expired. Request a new one.' }));
+    } catch (error) {
+      console.error('[reset-password] Owner/worker reset failed:', error.message);
+      return res.status(503).send(renderResetPasswordPage({ token: '', error: 'Password recovery is temporarily unavailable. Request a new reset link or contact support.' }));
+    }
+  }
+
+  if (tokenHash) {
+    res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+    if (!password || password.length < 8) {
+      return res.status(400).send(renderResetPasswordPage({ tokenHash, error: 'Password must be at least 8 characters.' }));
+    }
+    if (password !== confirmPassword) {
+      return res.status(400).send(renderResetPasswordPage({ tokenHash, error: 'Passwords do not match.' }));
+    }
+    if (!SUPABASE_ANON_KEY) {
+      return res.status(503).send(renderResetPasswordPage({ tokenHash, error: 'Password reset is temporarily unavailable. Please contact support.' }));
+    }
+    try {
+      const authApiUrl = process.env.SUPABASE_AUTH_URL || 'http://127.0.0.1:8000/auth/v1';
+      const verifyResponse = await fetch(`${authApiUrl}/verify`, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token_hash: tokenHash, type: 'recovery' }),
+      });
+      const session = verifyResponse.ok ? await verifyResponse.json() : null;
+      if (!session?.access_token) {
+        return res.status(400).send(renderResetPasswordPage({ tokenHash: '', error: 'This reset link is invalid or expired. Request a new one from the app.' }));
+      }
+      const updateResponse = await fetch(`${authApiUrl}/user`, {
+        method: 'PUT',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ password }),
+      });
+      if (!updateResponse.ok) {
+        return res.status(400).send(renderResetPasswordPage({ tokenHash: '', error: 'The password could not be updated. Request a new reset link and try again.' }));
+      }
+      const authUserId = session.user?.id;
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(authUserId || '')) {
+        try {
+          const legacyHash = await bcrypt.hash(password, 10);
+          const client = await pool.connect();
+          try {
+            await client.query('BEGIN');
+            await client.query('UPDATE profiles SET password_hash = $1, updated_at = NOW() WHERE id = $2', [legacyHash, authUserId]);
+            await client.query('UPDATE workers SET password_hash = $1, updated_at = NOW() WHERE id = $2', [legacyHash, authUserId]);
+            await client.query('DELETE FROM refresh_tokens WHERE user_id = $1', [authUserId]);
+            await client.query('COMMIT');
+          } catch (dbError) {
+            await client.query('ROLLBACK');
+            throw dbError;
+          } finally {
+            client.release();
+          }
+        } catch (syncError) {
+          console.error('[reset-password] Legacy credential sync failed:', syncError.message);
+        }
+      }
+      return res.send(renderResetPasswordPage({ success: true }));
+    } catch (err) {
+      console.error('[reset-password] Supabase recovery failed:', err.message);
+      return res.status(503).send(renderResetPasswordPage({ tokenHash: '', error: 'Password reset is temporarily unavailable. Please try again later.' }));
+    }
+  }
 
   if (!token) {
     return res.status(400).send(renderResetPasswordPage({ token: '', error: 'Missing reset token.' }));
@@ -786,7 +1324,7 @@ app.post('/reset-password', express.urlencoded({ extended: true }), async (req, 
   if (!password || password.length < 8) {
     return res.status(400).send(renderResetPasswordPage({ token, error: 'Password must be at least 8 characters.' }));
   }
-  if (password !== confirm_password) {
+  if (password !== confirmPassword) {
     return res.status(400).send(renderResetPasswordPage({ token, error: 'Passwords do not match.' }));
   }
 
@@ -825,58 +1363,14 @@ app.post('/reset-password', express.urlencoded({ extended: true }), async (req, 
   }
 });
 
-app.get('/change-password', (req, res) => {
-  res.set('Content-Type', 'text/html; charset=utf-8');
-  res.send(renderChangePasswordPage({}));
-});
+app.get('/change-password', (_req, res) => res.redirect(302, '/forgot-password'));
 
-app.post('/change-password', express.urlencoded({ extended: true }), async (req, res) => {
-  const { email, account_type, new_password, confirm_password } = req.body || {};
-  res.set('Content-Type', 'text/html; charset=utf-8');
-
-  const normalizedEmail = normalizeEmail(email);
-  const table = ACCOUNT_TYPE_TABLES[account_type];
-  if (!table) {
-    return res.status(400).send(renderChangePasswordPage({ email, error: 'Select an account type.' }));
-  }
-  if (!normalizedEmail) {
-    return res.status(400).send(renderChangePasswordPage({ email, accountType: account_type, error: 'Email is required.' }));
-  }
-  if (!new_password || new_password.length < 8) {
-    return res.status(400).send(renderChangePasswordPage({ email, accountType: account_type, error: 'New password must be at least 8 characters.' }));
-  }
-  if (new_password !== confirm_password) {
-    return res.status(400).send(renderChangePasswordPage({ email, accountType: account_type, error: 'New passwords do not match.' }));
-  }
-
-  try {
-    // Scoped to exactly the selected table - the same email can be a
-    // completely separate account in profiles vs. workers (different id,
-    // different password_hash). Searching all three in priority order (the
-    // way /auth/v1/token itself resolves a login) meant this endpoint could
-    // silently change the wrong one - e.g. a worker's email that also
-    // happens to match a profiles/owner account got the *owner's* password
-    // changed, and logging in with it then authenticated as the owner.
-    const result = await pool.query(
-      `SELECT * FROM ${table} WHERE lower(email) = $1 AND COALESCE(is_active, true) = true`,
-      [normalizedEmail]
-    );
-    const user = result.rows[0];
-
-    if (!user) {
-      // Deliberately generic - don't reveal whether the email exists.
-      return res.status(400).send(renderChangePasswordPage({ email, accountType: account_type, error: 'No matching account found for that email and account type.' }));
-    }
-
-    const hash = await bcrypt.hash(new_password, 10);
-    await pool.query(`UPDATE ${table} SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [hash, user.id]);
-    // A leaked old refresh token shouldn't survive a password change.
-    await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [user.id]);
-
-    res.send(renderChangePasswordPage({ success: true }));
-  } catch (err) {
-    res.status(500).send(renderChangePasswordPage({ email, accountType: account_type, error: 'Something went wrong. Please try again.' }));
-  }
+// The former email-only form changed passwords without proving mailbox access.
+// Keep the path for old bookmarks, but require a one-time emailed reset link.
+app.post('/change-password', (_req, res) => {
+  res.status(410).send(renderPasswordResetRequestPage({
+    error: 'For your security, request a reset link and change your password from that link.',
+  }));
 });
 
 // ── Minimal PostgREST-compatible API for supabase_flutter ───
@@ -1529,6 +2023,7 @@ function renderStatusLockScreen(errorMsg) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>ManageCare Backend — Locked</title>
 <style>
   :root { color-scheme: dark; }
@@ -1580,6 +2075,9 @@ function renderStatusLockScreen(errorMsg) {
   button:hover { opacity: 0.92; transform: translateY(-1px); }
   button:disabled { opacity: 0.6; cursor: default; transform: none; }
   .error { color: #f87171; font-size: 13px; margin-top: 14px; min-height: 16px; }
+  .recovery { display: none; text-align: left; }
+  .recovery p { color: #aeb8ca; font-size: 13px; line-height: 1.5; margin: 0 0 20px; }
+  .recovery h1 { text-align: center; margin-bottom: 10px; }
 </style>
 </head>
 <body>
@@ -1598,8 +2096,81 @@ function renderStatusLockScreen(errorMsg) {
       <div class="error" id="lock-error">${errorMsg ? errorMsg : ''}</div>
     </form>
   </div>
+  <div class="card recovery" id="recovery-card">
+    <div class="lock-icon">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#05070d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="11" width="16" height="10" rx="2"></rect>
+        <path d="M8 11V7a4 4 0 0 1 8 0v4"></path>
+      </svg>
+    </div>
+    <h1>Set your ManageCare password</h1>
+    <p>Choose a new password for your account. Use at least 8 characters.</p>
+    <form id="recovery-form">
+      <input type="password" id="new-password" placeholder="New password" autocomplete="new-password" minlength="8" required />
+      <input type="password" id="confirm-password" placeholder="Confirm password" autocomplete="new-password" minlength="8" required />
+      <button type="submit">Save password</button>
+      <div class="error" id="recovery-error" role="status" aria-live="polite"></div>
+    </form>
+  </div>
   <script>
     (function () {
+      const query = new URLSearchParams(window.location.search);
+      if (query.has('code')) {
+        window.history.replaceState(null, '', window.location.pathname);
+        const message = document.getElementById('lock-error');
+        message.textContent = 'This reset link was sent to an older app flow and cannot be completed on this status page. Update ManageCare and request a new reset link.';
+        document.getElementById('lock-password').disabled = true;
+        document.querySelector('#lock-form button').disabled = true;
+        return;
+      }
+      const hash = new URLSearchParams(window.location.hash.slice(1));
+      const accessToken = hash.get('access_token');
+      const recoveryType = hash.get('type');
+      if (accessToken && ['invite', 'recovery'].includes(recoveryType)) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        document.getElementById('lock-card').style.display = 'none';
+        document.getElementById('recovery-card').style.display = 'block';
+        const form = document.getElementById('recovery-form');
+        const errorEl = document.getElementById('recovery-error');
+        form.addEventListener('submit', async function (e) {
+          e.preventDefault();
+          errorEl.textContent = '';
+          const password = document.getElementById('new-password').value;
+          const confirmation = document.getElementById('confirm-password').value;
+          const button = form.querySelector('button');
+          if (password.length < 8) {
+            errorEl.textContent = 'Use at least 8 characters.';
+            return;
+          }
+          if (password !== confirmation) {
+            errorEl.textContent = 'The passwords do not match.';
+            return;
+          }
+          button.disabled = true;
+          button.textContent = 'Saving...';
+          try {
+            const response = await fetch('/auth/v1/user', {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzg0NzgzMjk1LCJleHAiOjE5NDI0NjMyOTV9.HHWZ2RDWtJNuyoRgiJwMzPf7CbKtQFbsykkdLZNPO-w',
+                'Authorization': 'Bearer ' + accessToken,
+              },
+              body: JSON.stringify({ password }),
+            });
+            if (!response.ok) {
+              const result = await response.json().catch(function () { return {}; });
+              throw new Error(result.msg || result.message || 'This link is invalid or expired. Request a new password link.');
+            }
+            form.innerHTML = '<p>Your password is set. You can now sign in to ManageCare.</p>';
+          } catch (error) {
+            errorEl.textContent = error.message || 'Unable to set password. Request a new link and try again.';
+            button.disabled = false;
+            button.textContent = 'Save password';
+          }
+        });
+        return;
+      }
       const form = document.getElementById('lock-form');
       const input = document.getElementById('lock-password');
       const card = document.getElementById('lock-card');
@@ -2021,6 +2592,8 @@ function renderStatusDashboard(data) {
 
 // ── Landing / status dashboard (password-gated) ──────────────
 app.get('/', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.set('Referrer-Policy', 'no-referrer');
   if (!hasStatusAccess(req)) {
     return res.set('Content-Type', 'text/html; charset=utf-8').send(renderStatusLockScreen());
   }
@@ -2127,6 +2700,8 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ── Auth routes (no auth required) ──────────────────────────
+app.use('/api/auth', legacyAuthCompatRoutes(pool, runWithUser));
+
 app.post('/api/auth/register', async (req, res) => {
   const email = normalizeEmail(req.body.email);
   const { password, role, data } = req.body;
@@ -2335,17 +2910,30 @@ app.use('/api/notifications', authMiddleware, notificationRouter);
 app.get('/api/session/worker-membership', authMiddleware, requireAuth, async (req, res) => {
   try {
     const ownerResult = await pool.query(
-      `SELECT b.id AS business_id, 'owner'::text AS role, '{}'::jsonb AS permissions,
-              NULL::uuid AS store_id, true AS is_active, true AS is_owner,
+      `SELECT b.id AS business_id, 'owner'::text AS role,
+              COALESCE(bm.permissions, '{}'::jsonb) AS permissions,
+              bm.store_id, true AS is_active, true AS is_owner,
               to_jsonb(b) AS business
        FROM businesses b
-       WHERE b.owner_id = $1 AND b.is_active = true
+       LEFT JOIN business_members bm ON bm.business_id = b.id
+         AND bm.user_id = $1 AND bm.is_active = true AND bm.is_owner = true
+       WHERE (bm.user_id = $1 OR b.owner_id = $1) AND b.is_active = true
+         AND COALESCE(b.is_deleted, false) = false
        ORDER BY b.created_at DESC
        LIMIT 1`,
       [req.user.id]
     );
     if (ownerResult.rows.length > 0) {
       const row = ownerResult.rows[0];
+      // Older/imported owner accounts may have a profile and businesses row
+      // but no business_members link. Repair only a missing row; do not
+      // reactivate an existing membership that an administrator disabled.
+      await pool.query(
+        `INSERT INTO business_members (user_id, business_id, role, is_owner, is_active, permissions)
+         VALUES ($1, $2, 'owner', true, true, '{}'::jsonb)
+         ON CONFLICT (user_id, business_id) DO NOTHING`,
+        [req.user.id, row.business_id]
+      );
       return res.json({
         membership: {
           business_id: row.business_id,

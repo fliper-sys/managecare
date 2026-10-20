@@ -98,9 +98,12 @@ class AuthRepositorySupabase implements AuthRepository {
   }
 
   @override
-  Future<void> resetPassword(String email) async {
+  Future<void> resetPassword(String email, {String accountType = 'owner'}) async {
     try {
-      await Supabase.instance.client.auth.resetPasswordForEmail(email);
+      await _authService.requestPasswordReset(
+        email: email,
+        accountType: accountType,
+      );
     } catch (e) {
       throw Exception('Password reset failed: $e');
     }
@@ -118,7 +121,7 @@ class AuthRepositorySupabase implements AuthRepository {
       // Fetch profile and memberships
       final profile = await Supabase.instance.client
           .from('profiles')
-          .select('id, email, full_name, phone_number, photo_url, pin, current_business_id, created_at')
+          .select('id, email, full_name, phone_number, address, job_title, photo_url, pin, current_business_id, created_at')
           .eq('id', user.id)
           .maybeSingle();
 
@@ -135,6 +138,8 @@ class AuthRepositorySupabase implements AuthRepository {
         'email': profile['email'],
         'fullName': profile['full_name'],
         'phoneNumber': profile['phone_number'],
+        'address': profile['address'],
+        'jobTitle': profile['job_title'],
         'photoUrl': profile['photo_url'],
         'pin': profile['pin'],
         'currentBusinessId': profile['current_business_id'],
@@ -155,6 +160,8 @@ class AuthRepositorySupabase implements AuthRepository {
         'email': user.email,
         'full_name': user.fullName,
         'phone_number': user.phoneNumber,
+        'address': user.address,
+        'job_title': user.jobTitle,
         'photo_url': user.photoUrl,
         'pin': user.pin,
         'current_business_id': user.currentBusinessId,
@@ -172,8 +179,9 @@ class AuthRepositorySupabase implements AuthRepository {
       await _supabase.from('profiles').update({
         if (user.email.isNotEmpty) 'email': user.email,
         if (user.fullName.isNotEmpty) 'full_name': user.fullName,
-        if (user.phoneNumber != null && user.phoneNumber!.isNotEmpty)
-          'phone_number': user.phoneNumber,
+        'phone_number': user.phoneNumber,
+        'address': user.address,
+        'job_title': user.jobTitle,
         'photo_url': user.photoUrl,
         'pin': user.pin,
         'current_business_id': user.currentBusinessId,
@@ -181,6 +189,17 @@ class AuthRepositorySupabase implements AuthRepository {
       }).eq('id', user.id);
     } catch (e) {
       throw Exception('Failed to update user: $e');
+    }
+  }
+
+  Future<void> setCurrentBusiness(String businessId) async {
+    try {
+      await _supabase.rpc(
+        'set_current_business',
+        params: {'p_business_id': businessId},
+      );
+    } catch (e) {
+      throw Exception('Failed to switch business: $e');
     }
   }
 }

@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../core/config/supabase_config.dart';
 import '../core/utils/worker_permissions.dart';
 import '../data/models/user_model.dart';
+import 'managecare_api_client.dart';
 
 /// Result of resolving whether a signed-in user is allowed access.
 ///
@@ -37,6 +38,58 @@ class AuthenticationService {
   final GoTrueClient _auth = Supabase.instance.client.auth;
   final SupabaseClient _db = Supabase.instance.client;
 
+  Future<void> requestPasswordReset({
+    required String email,
+    required String accountType,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('${SupabaseConfig.url}/api/auth/password-reset/request'),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'email': email.trim(),
+            'account_type': accountType,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Password recovery is temporarily unavailable. Please try again.');
+    }
+  }
+
+  Future<bool> _migrateLegacyAccount(String email, String password) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('${SupabaseConfig.url}/api/auth/legacy-migrate'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'email': email.trim(), 'password': password}),
+          )
+          .timeout(const Duration(seconds: 20));
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<AuthResponse> _signInWithCompatibility({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      return await _auth.signInWithPassword(email: email.trim(), password: password);
+    } on AuthException catch (error) {
+      if (!error.message.toLowerCase().contains('invalid login credentials')) rethrow;
+      if (await _migrateLegacyAccount(email, password)) {
+        return await _auth.signInWithPassword(
+          email: email.trim(),
+          password: password,
+        );
+      }
+      throw error;
+    }
+  }
+
   /// Authenticate user with email and password.
   /// Returns UserModel on success, throws exception on failure.
   Future<UserModel> authenticateUser({
@@ -44,19 +97,23 @@ class AuthenticationService {
     required String password,
   }) async {
     try {
-      final response = await _auth.signInWithPassword(
-        email: email.trim(),
-        password: password,
-      );
+      final response = await _signInWithCompatibility(email: email, password: password);
 
       if (response.user == null) {
         throw Exception('Authentication failed: No user returned');
       }
 
-      final userModel = await _getAccessibleUser(
+      var userModel = await _getAccessibleUser(
         response.user!.id,
         allowSelfRecovery: true,
       );
+
+      if (userModel == null && await _migrateLegacyAccount(email, password)) {
+        userModel = await _getAccessibleUser(
+          response.user!.id,
+          allowSelfRecovery: true,
+        );
+      }
 
       if (userModel == null) {
         throw Exception('User profile not found in database');
@@ -81,30 +138,35 @@ class AuthenticationService {
     bool allowSelfRecovery = false,
   }) async {
     try {
-      var profile =
-          await _db.from('profiles').select().eq('id', userId).maybeSingle();
+      Map<String, dynamic>? profile;
+      try {
+        final resolvedProfile = await _db.rpc('current_user_profile');
+        if (resolvedProfile is Map) {
+          profile = Map<String, dynamic>.from(resolvedProfile);
+        }
+      } catch (_) {
+        // Older deployments may not have the merged-profile RPC yet.
+      }
+      profile ??= await _db
+          .from('profiles')
+          .select()
+          .eq('id', userId)
+          .maybeSingle();
 
       if (profile == null) {
         // Older staff accounts can exist only in `workers`. Their authenticated
         // session is valid, and this endpoint safely creates the missing profile
         // plus business_members row after verifying that worker record.
-        final token = _auth.currentSession?.accessToken;
-        if (token != null && token.isNotEmpty) {
-          try {
-            final response = await http.get(
-              Uri.parse('${SupabaseConfig.url}/api/session/worker-membership'),
-              headers: {'Authorization': 'Bearer $token'},
-            );
-            if (response.statusCode == 200) {
-              profile = await _db
-                  .from('profiles')
-                  .select()
-                  .eq('id', userId)
-                  .maybeSingle();
-            }
-          } catch (_) {
-            // Fall through to the normal unavailable-account response.
-          }
+        try {
+          await ManagecareApiClient.instance
+              .get('/api/session/worker-membership');
+          profile = await _db
+              .from('profiles')
+              .select()
+              .eq('id', userId)
+              .maybeSingle();
+        } catch (_) {
+          // Fall through to the normal unavailable-account response.
         }
         if (profile == null) {
           return const ResolvedUserAccess(
@@ -130,6 +192,11 @@ class AuthenticationService {
                 'This account was deleted. Sign in again to restore it, or contact support.',
           );
         }
+        final recoveryProfileIds = <String>{userId};
+        final legacyProfileId = profile['legacy_user_id']?.toString();
+        if (legacyProfileId != null && legacyProfileId.isNotEmpty) {
+          recoveryProfileIds.add(legacyProfileId);
+        }
         await _db.from('profiles').update({
           'is_deleted': false,
           'is_active': true,
@@ -137,8 +204,11 @@ class AuthenticationService {
           'recovery_deadline_at': null,
           'deleted_by_id': null,
           'deletion_reason': null,
-        }).eq('id', userId);
-        profile = await _db.from('profiles').select().eq('id', userId).single();
+        }).inFilter('id', recoveryProfileIds.toList());
+        final refreshedProfile = await _db.rpc('current_user_profile');
+        profile = refreshedProfile is Map
+            ? Map<String, dynamic>.from(refreshedProfile)
+            : await _db.from('profiles').select().eq('id', userId).single();
         recoveredAccount = true;
       }
 
@@ -146,31 +216,27 @@ class AuthenticationService {
           .from('business_members')
           .select(
               'business_id, role, is_owner, permissions, store_id, is_active')
-          .eq('user_id', userId));
+          .eq('user_id', userId)
+          .eq('is_active', true));
 
       Map<String, dynamic>? legacyBusiness;
       if (memberships.isEmpty) {
-        final token = _auth.currentSession?.accessToken;
-        if (token != null && token.isNotEmpty) {
-          try {
-            final response = await http.get(
-              Uri.parse('${SupabaseConfig.url}/api/session/worker-membership'),
-              headers: {'Authorization': 'Bearer $token'},
-            );
-            if (response.statusCode == 200) {
-              final payload = jsonDecode(response.body) as Map<String, dynamic>;
-              final membership = payload['membership'];
-              if (membership is Map) {
-                memberships = [Map<String, dynamic>.from(membership)];
-              }
-              final business = payload['business'];
-              if (business is Map) {
-                legacyBusiness = Map<String, dynamic>.from(business);
-              }
+        try {
+          final response = await ManagecareApiClient.instance
+              .get('/api/session/worker-membership');
+          if (response is Map) {
+            final payload = Map<String, dynamic>.from(response);
+            final membership = payload['membership'];
+            if (membership is Map) {
+              memberships = [Map<String, dynamic>.from(membership)];
             }
-          } catch (_) {
-            // Keep normal sign-in behavior if legacy-worker lookup is unavailable.
+            final business = payload['business'];
+            if (business is Map) {
+              legacyBusiness = Map<String, dynamic>.from(business);
+            }
           }
+        } catch (_) {
+          // Keep normal sign-in behavior if backend membership recovery is unavailable.
         }
       }
 
@@ -180,10 +246,35 @@ class AuthenticationService {
 
       final businessesById = <String, Map<String, dynamic>>{};
       if (businessIds.isNotEmpty) {
-        final rows =
-            await _db.from('businesses').select().inFilter('id', businessIds);
-        for (final row in rows) {
-          businessesById[row['id'] as String] = row;
+        try {
+          final rows =
+              await _db.from('businesses').select().inFilter('id', businessIds);
+          for (final row in rows) {
+            businessesById[row['id'] as String] = row;
+          }
+        } catch (_) {
+          // Business RLS or a temporary PostgREST failure must not discard a
+          // worker's valid membership. The authenticated backend endpoint
+          // applies its own membership check and can provide the business row.
+        }
+
+        for (final businessId in businessIds) {
+          if (businessesById.containsKey(businessId)) continue;
+          try {
+            final response = await ManagecareApiClient.instance.get(
+              '/api/businesses/${Uri.encodeComponent(businessId)}',
+            );
+            if (response is Map) {
+              final business = Map<String, dynamic>.from(response);
+              final responseId = business['id']?.toString();
+              if (responseId == businessId) {
+                businessesById[businessId] = business;
+              }
+            }
+          } catch (_) {
+            // Keep the membership and business ID even if details are
+            // temporarily unavailable; downstream loading can retry them.
+          }
         }
       }
       if (legacyBusiness != null) {
@@ -338,12 +429,38 @@ class AuthenticationService {
                 .toList()
             : const <String>[];
 
+    final profileId = profile['id'] as String;
+    final authUser = _auth.currentUser;
+    final authMetadata = authUser?.id == profileId
+        ? authUser?.userMetadata
+        : null;
+    final profileEmail = (profile['email'] as String?)?.trim() ?? '';
+    final email = profileEmail.isNotEmpty
+        ? profileEmail
+        : (authUser?.id == profileId ? authUser?.email?.trim() : null) ?? '';
+    final storedName = (profile['full_name'] as String?)?.trim() ?? '';
+    final metadataName = [
+      authMetadata?['full_name'],
+      authMetadata?['name'],
+      authMetadata?['display_name'],
+    ].map((value) => value?.toString().trim() ?? '').firstWhere(
+          (value) => value.isNotEmpty,
+          orElse: () => '',
+        );
+    final fullName = storedName.isNotEmpty
+        ? storedName
+        : metadataName.isNotEmpty
+            ? metadataName
+            : email.split('@').first.trim();
+
     return UserModel(
-      id: profile['id'] as String,
-      email: (profile['email'] as String?) ?? '',
-      fullName: (profile['full_name'] as String?) ?? '',
+      id: profileId,
+      email: email,
+      fullName: fullName,
       photoUrl: profile['photo_url'] as String?,
       phoneNumber: profile['phone_number'] as String?,
+      address: profile['address'] as String?,
+      jobTitle: profile['job_title'] as String?,
       role: (currentMembership?['role'] as String?) ?? 'owner',
       permissions: permissions,
       businessId: currentBusinessId ?? '',
@@ -459,10 +576,7 @@ class AuthenticationService {
     required String password,
   }) async {
     try {
-      final response = await _auth.signInWithPassword(
-        email: email.trim(),
-        password: password,
-      );
+      final response = await _signInWithCompatibility(email: email, password: password);
       return response.user != null;
     } catch (e) {
       return false;
@@ -501,19 +615,22 @@ class AuthenticationService {
     required String password,
   }) async {
     try {
-      final response = await _auth.signInWithPassword(
-        email: workerId.trim(),
-        password: password,
-      );
+      final response = await _signInWithCompatibility(email: workerId, password: password);
 
       if (response.user == null) {
         throw Exception('Authentication failed');
       }
 
-      final resolvedUser = await _getAccessibleUser(
+      var resolvedUser = await _getAccessibleUser(
         response.user!.id,
         allowSelfRecovery: true,
       );
+      if (resolvedUser == null && await _migrateLegacyAccount(workerId, password)) {
+        resolvedUser = await _getAccessibleUser(
+          response.user!.id,
+          allowSelfRecovery: true,
+        );
+      }
       if (resolvedUser == null) {
         throw Exception('Worker profile not found in database');
       }

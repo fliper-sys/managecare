@@ -19,6 +19,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _emailController = TextEditingController();
   bool _isLoading = false;
   bool _emailSent = false;
+  String _accountType = 'owner';
 
   @override
   void dispose() {
@@ -34,6 +35,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     final authProvider = context.read<AuthProvider>();
     final success = await authProvider.resetPassword(
       _emailController.text.trim(),
+      accountType: _accountType,
     );
 
     setState(() {
@@ -220,6 +222,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           ),
           const SizedBox(height: 28),
           if (!_emailSent) ...[
+            DropdownButtonFormField<String>(
+              value: _accountType,
+              decoration: const InputDecoration(labelText: 'Account type'),
+              items: const [
+                DropdownMenuItem(value: 'owner', child: Text('Business owner')),
+                DropdownMenuItem(value: 'worker', child: Text('Worker')),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => _accountType = value);
+              },
+            ),
+            const SizedBox(height: 16),
             CustomTextField(
               controller: _emailController,
               label: 'Email Address',

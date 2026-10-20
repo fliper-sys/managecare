@@ -48,7 +48,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
               children: [
                 Text('Welcome back', style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurface.withValues(alpha: 0.6))),
                 Text(
-                  user?.fullName ?? 'User',
+                  user?.displayName ?? 'User',
                   style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

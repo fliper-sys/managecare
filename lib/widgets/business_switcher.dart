@@ -353,7 +353,9 @@ class _BusinessSwitcherState extends State<BusinessSwitcher> {
       debugPrint('[BusinessSwitcher] Pre-switch Auth.currentBusinessId: $oldAuthBiz; selected.id: ${selected.id}');
       final authSwitchOk = await auth.switchBusiness(selected.id);
       if (!authSwitchOk) {
-        throw Exception('Unable to switch auth business context');
+        throw Exception(
+          auth.errorMessage ?? 'Unable to switch auth business context',
+        );
       }
       final tAuthEnd = DateTime.now();
       debugPrint('[BusinessSwitcher] auth.switchBusiness: ${tAuthEnd.difference(tAuthStart).inMilliseconds}ms');

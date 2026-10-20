@@ -678,7 +678,7 @@ class _AddWorkerScreenState extends State<AddWorkerScreen> {
 
             // Send a password reset email to the existing account's email
             try {
-              await repo.resetPassword(normalizedEmail);
+              await repo.resetPassword(normalizedEmail, accountType: 'worker');
             } catch (resetErr) {
               print('[AddWorker] Failed to send password reset email: $resetErr');
             }

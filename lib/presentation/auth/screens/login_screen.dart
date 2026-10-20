@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/routes.dart';
 import '../../../core/constants/business_types.dart';
@@ -9,6 +8,7 @@ import '../../../core/theme/text_styles.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/business_provider.dart';
 import '../../../services/business_restriction_service.dart';
+import '../../../services/subscription_service.dart';
 import '../../../widgets/custom_button.dart';
 import '../../../widgets/custom_text_field.dart';
 import '../../../widgets/loading_indicator.dart';
@@ -83,30 +83,13 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
-  // Businesses live in Postgres, not Firestore - admin subscription grants
-  // only ever write to Postgres, so reading Firestore here always found
-  // stale/missing data and could bounce owners back to the subscription
-  // screen even right after an admin granted them a subscription.
+  // Read through the backend so login and startup use the same subscription
+  // source of truth and access rules.
   Future<Map<String, dynamic>?> _fetchBusinessSubscriptionStatus(
       String businessId) async {
     try {
       if (businessId.trim().isEmpty) return null;
-      final data = await Supabase.instance.client
-          .from('businesses')
-          .select()
-          .eq('id', businessId)
-          .maybeSingle();
-      if (data == null) return null;
-
-      return {
-        'subscriptionStatus': data['subscription_status'],
-        'subscriptionReviewStatus': data['subscription_review_status'],
-        'subscriptionPlan': data['subscription_plan'],
-        'subscriptionAmount': data['subscription_amount'],
-        'hasActiveSubscription': data['is_subscription_active'],
-        'isSubscriptionActive': data['is_subscription_active'],
-        'subscriptionEndDate': data['subscription_end_date'],
-      };
+      return await SubscriptionService().getBusinessSubscription(businessId);
     } catch (_) {
       return null;
     }
@@ -138,8 +121,8 @@ class _LoginScreenState extends State<LoginScreen>
         status == 'approved' ||
         status == 'active';
     final endDate = _parseSubscriptionDate(subscriptionData['subscriptionEndDate']);
-    final isWithinDuration =
-        endDate == null || !DateTime.now().isAfter(endDate);
+    final isWithinDuration = endDate == null ||
+        SubscriptionService.isWithinSubscriptionAccessWindow(endDate);
 
     return (hasActiveFlag || statusLooksActive) && isWithinDuration;
   }

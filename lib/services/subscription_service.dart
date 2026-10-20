@@ -1194,6 +1194,11 @@ class SubscriptionService {
   }) {
     final family = getPlanFamilyForBusinessType(businessType);
     final rawTier = tierId.trim().toLowerCase();
+    // Hospitality's enterprise label is the user-facing name for its
+    // unlimited plan. Other business families keep their own tier rules.
+    if (family == familyHospitality && rawTier == 'enterprise') {
+      return null;
+    }
     if (limitType == 'workers' && rawTier == 'enterprise') {
       return null;
     }

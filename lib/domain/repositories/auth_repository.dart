@@ -9,7 +9,7 @@ abstract class AuthRepository {
     required String businessType,
   });
   Future<void> logout();
-  Future<void> resetPassword(String email);
+  Future<void> resetPassword(String email, {String accountType = 'owner'});
   Future<dynamic> getCurrentUser();
 }
 

@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'presentation/auth/screens/password_recovery_screen.dart';
 
 import 'core/constants/routes.dart';
 import 'core/theme/app_theme.dart';
@@ -470,7 +471,8 @@ class _AppState extends State<App> {
       return;
     }
 
-    final valid = await SubscriptionService().validateAndUpdateBusinessSubscriptionStatus(
+    final valid =
+        await SubscriptionService().validateAndUpdateBusinessSubscriptionStatus(
       businessId,
       userId: userId,
     );
@@ -607,7 +609,13 @@ class _AppState extends State<App> {
           scaffoldMessengerKey: scaffoldMessengerKey,
           builder: (context, child) {
             if (child == null) return const SizedBox.shrink();
-            return _ConnectivityBanner(child: child);
+            return Consumer<AuthProvider>(
+              builder: (context, auth, _) => _ConnectivityBanner(
+                child: auth.passwordRecoveryPending
+                    ? const PasswordRecoveryScreen()
+                    : child,
+              ),
+            );
           },
         );
       },
@@ -622,7 +630,6 @@ class _ConnectivityBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-
     return Consumer2<ConnectivityProvider, SyncProvider>(
       builder: (context, connectivity, sync, _) {
         // Priority: no connection > actively syncing pending sales > sales
@@ -654,7 +661,8 @@ class _ConnectivityBanner extends StatelessWidget {
           // Distinct from the generic "waiting to sync" state — these have
           // already failed to sync repeatedly and need attention (bad data,
           // a deleted product, etc.), not just a moment to catch up.
-          message = '${sync.erroredItems} sale${sync.erroredItems == 1 ? '' : 's'} '
+          message =
+              '${sync.erroredItems} sale${sync.erroredItems == 1 ? '' : 's'} '
               'repeatedly failed to sync - tap to retry';
           icon = Icons.error_outline;
           tappableToSync = true;
@@ -695,14 +703,16 @@ class _ConnectivityBanner extends StatelessWidget {
                             // page-transition) - showSnackBar asserts in
                             // that case rather than failing gracefully.
                             try {
-                              messenger.showSnackBar(SnackBar(content: Text(result)));
+                              messenger.showSnackBar(
+                                  SnackBar(content: Text(result)));
                             } catch (_) {}
                           }
                         }
                       : null,
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 10, horizontal: 12),
                     decoration: BoxDecoration(
                       color: backgroundColor,
                       border: Border(
@@ -724,7 +734,10 @@ class _ConnectivityBanner extends StatelessWidget {
                               child: Text(
                                 message,
                                 textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
                                       color: foregroundColor,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -736,7 +749,10 @@ class _ConnectivityBanner extends StatelessWidget {
                           Text(
                             'Last synced ${_relativeSyncTime(sync.lastSyncTime!)}',
                             textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelSmall
+                                ?.copyWith(
                                   color: foregroundColor.withOpacity(0.75),
                                 ),
                           ),

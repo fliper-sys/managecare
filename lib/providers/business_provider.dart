@@ -84,10 +84,27 @@ class BusinessProvider with ChangeNotifier {
       return;
     }
 
-    // Throttle: Don't reload if we loaded recently
+    // Throttle only when the cached list already covers the memberships and
+    // selection requested by the current auth profile. A newly reconciled
+    // membership must bypass this guard even if older businesses are cached.
+    final cachedBusinessIds = _userBusinesses.map((b) => b.id).toSet();
+    final requestedBusinessIds = userBusinessIds
+            ?.where((id) => id.trim().isNotEmpty)
+            .toSet() ??
+        const <String>{};
+    final missingRequestedBusiness =
+        requestedBusinessIds.difference(cachedBusinessIds).isNotEmpty;
+    final preferredBusinessMissing = preferredBusinessId != null &&
+        preferredBusinessId.isNotEmpty &&
+        !cachedBusinessIds.contains(preferredBusinessId);
+
+    // Throttle: Don't reload if we loaded recently and have every requested
+    // business. Otherwise refresh so newly linked businesses become visible.
     if (_loadedForUserId == userId &&
         _userBusinesses.isNotEmpty &&
-        !_shouldRefreshData()) {
+        !_shouldRefreshData() &&
+        !missingRequestedBusiness &&
+        !preferredBusinessMissing) {
       print(
           '[BusinessProvider] ⏭️ Skipping reload - data refreshed ${DateTime.now().difference(_lastLoadTime!).inSeconds}s ago');
       // Still restore current business from cache if needed
@@ -1163,13 +1180,12 @@ class BusinessProvider with ChangeNotifier {
             'enterprise') {
       return null;
     }
-    final storedPlan = _currentBusiness!.subscriptionPlan?.trim();
-    final storedTier = storedPlan != null && storedPlan.isNotEmpty
-        ? storedPlan
-        : _currentBusiness!.subscriptionTier;
     return SubscriptionService.getLimitForBusinessType(
       businessType: _currentBusiness!.businessType,
-      tierId: storedTier,
+      // Resolve the tier from the plan ID, stored tier, and business class
+      // together. Passing subscriptionPlan directly can turn IDs such as
+      // `tier3_30d` into the tier1 fallback when the ID is not in the catalog.
+      tierId: normalizedSubscriptionTier,
       limitType: limitType,
     );
   }
@@ -1205,13 +1221,12 @@ class BusinessProvider with ChangeNotifier {
     final limit = getLimitFor(limitType);
     final noun = getLimitDisplayName(limitType);
     final tier = normalizedSubscriptionTier.toUpperCase();
-    final businessClassLabel = normalizedBusinessClass.toUpperCase();
 
     if (limit == null) {
-      return 'Your $businessClassLabel $tier plan has no fixed $noun limit.';
+      return 'Your $tier plan has no fixed $noun limit.';
     }
 
-    return 'Your $businessClassLabel $tier plan allows up to $limit $noun. Upgrade before adding more.';
+    return 'Your $tier plan allows up to $limit $noun. Upgrade before adding more.';
   }
 
   String getSubscriptionBlockedMessage({String? feature}) {

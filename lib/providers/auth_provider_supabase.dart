@@ -63,6 +63,7 @@ class AuthProvider with ChangeNotifier {
   UserModel? _currentUser;
   String? _errorMessage;
   bool _subscriptionValidated = false;
+  bool _passwordRecoveryPending = false;
   bool _isInitializingLocalStorage = true;
   final Completer<void> _initializationCompleter = Completer<void>();
   final Completer<void> _authRestoreCompleter = Completer<void>();
@@ -88,6 +89,7 @@ class AuthProvider with ChangeNotifier {
   String? get errorMessage => _errorMessage;
   bool get isAuthenticated => _status == AuthStatus.authenticated;
   bool get subscriptionValidated => _subscriptionValidated;
+  bool get passwordRecoveryPending => _passwordRecoveryPending;
 
   bool get isAdminUser =>
       _currentUser != null && _currentUser!.role.toLowerCase() == 'admin';
@@ -131,6 +133,10 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> _handleAuthStateChange(AuthState event) async {
     try {
+      if (event.event == AuthChangeEvent.passwordRecovery) {
+        _passwordRecoveryPending = true;
+        notifyListeners();
+      }
       final sessionUser = event.session?.user;
       if (sessionUser != null) {
         await _loadCurrentUser(
@@ -143,7 +149,8 @@ class AuthProvider with ChangeNotifier {
       if (_isInitializingLocalStorage) return;
 
       final cachedUser = _localStorage?.getCachedUser();
-      final hasPersistedSession = isPersistentLoginEnabled && cachedUser != null;
+      final hasPersistedSession =
+          isPersistentLoginEnabled && cachedUser != null;
 
       if (_currentUser != null && hasPersistedSession) {
         _hasNetwork().then((online) {
@@ -208,7 +215,8 @@ class AuthProvider with ChangeNotifier {
   // ────────────────────────── Local storage init ──────────────────────────
 
   Future<void> _restoreCachedUserForOfflineStartup(UserModel cachedUser) async {
-    debugPrint('[AuthProvider] Offline auto-login: restoring ${cachedUser.email}');
+    debugPrint(
+        '[AuthProvider] Offline auto-login: restoring ${cachedUser.email}');
     _currentUser = cachedUser;
     _status = AuthStatus.authenticated;
     _errorMessage = null;
@@ -226,32 +234,37 @@ class AuthProvider with ChangeNotifier {
 
       final autoLogin = _localStorage!.isAutoLoginEnabled();
       final cached = _localStorage!.getCachedUser();
-      debugPrint('[AuthProvider] Local storage ready. autoLogin=$autoLogin cached=${cached != null}');
+      debugPrint(
+          '[AuthProvider] Local storage ready. autoLogin=$autoLogin cached=${cached != null}');
 
       if (autoLogin && cached != null) {
-        final supaUser = _supabase.auth.currentUser;
+        var supaUser = _supabase.auth.currentUser;
         final online = await _hasNetwork();
-        debugPrint('[AuthProvider] Startup: supaUser=${supaUser?.id}, online=$online');
+        debugPrint(
+            '[AuthProvider] Startup: supaUser=${supaUser?.id}, online=$online');
 
         if (supaUser == null) {
-          // supabase_flutter restores its persisted session from disk
-          // asynchronously on startup - Supabase.initialize() completing
-          // doesn't guarantee auth.currentUser is populated yet by the time
-          // this runs. Treating a still-null session as "logged out" here
-          // was a real startup race: a device with a perfectly valid cached
-          // session and autoLogin=true would get hard-logged-out (clearing
-          // cached business/user state) purely because this check lost the
-          // race, sometimes multiple times in a row before finally
-          // catching the session once it settled. Restore the cached user
-          // optimistically instead - if the session has genuinely expired
-          // or been revoked, _refreshFromBackend below (or the next one
-          // that runs once online) already has its own deliberate
-          // _forceLogoutBecauseAccessChanged path for that, so nothing
-          // genuinely invalid stays silently logged in.
-          await _restoreCachedUserForOfflineStartup(cached);
           if (online) {
-            _refreshFromBackend(cached.id);
+            try {
+              await _authRestoreCompleter.future
+                  .timeout(const Duration(seconds: 3));
+            } on TimeoutException {
+              // Continue below and require a live session while online.
+            }
+            supaUser = _supabase.auth.currentUser;
           }
+
+          if (supaUser == null && online) {
+            await _localStorage!.clearUser();
+            _currentUser = null;
+            _status = AuthStatus.unauthenticated;
+            _subscriptionValidated = false;
+            _errorMessage = 'Your saved session expired. Please sign in again.';
+            notifyListeners();
+            return;
+          }
+
+          await _restoreCachedUserForOfflineStartup(cached);
           return;
         }
 
@@ -289,8 +302,10 @@ class AuthProvider with ChangeNotifier {
     try {
       final access = await _authService.resolveUserAccess(userId);
       if (!access.isAllowed || access.user == null) {
-        if (_canKeepCachedUserAfterUncertainAccessFailure(userId, access.message)) {
-          await _restoreCachedUserForOfflineStartup(_localStorage!.getCachedUser()!);
+        if (_canKeepCachedUserAfterUncertainAccessFailure(
+            userId, access.message)) {
+          await _restoreCachedUserForOfflineStartup(
+              _localStorage!.getCachedUser()!);
           return;
         }
         await _forceLogoutBecauseAccessChanged(
@@ -353,7 +368,8 @@ class AuthProvider with ChangeNotifier {
         if (!_currentUser!.isOwner) {
           _subscriptionValidated = true;
         } else {
-          _subscriptionValidated = await _validateSubscriptionForUser(_currentUser!);
+          _subscriptionValidated =
+              await _validateSubscriptionForUser(_currentUser!);
         }
       }
 
@@ -442,8 +458,9 @@ class AuthProvider with ChangeNotifier {
           role: role,
         );
         _errorMessage = null;
-        _status =
-            _currentUser != null ? AuthStatus.authenticated : AuthStatus.unauthenticated;
+        _status = _currentUser != null
+            ? AuthStatus.authenticated
+            : AuthStatus.unauthenticated;
         notifyListeners();
         return true;
       }
@@ -494,13 +511,39 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  Future<bool> resetPassword(String email) async {
+  Future<bool> resetPassword(String email, {String accountType = 'owner'}) async {
     try {
       _errorMessage = null;
-      await _supabase.auth.resetPasswordForEmail(email.trim());
+      await _authService.requestPasswordReset(
+        email: email.trim(),
+        accountType: accountType,
+      );
       return true;
     } on Exception catch (e) {
       _errorMessage = _extractMessage(e, fallback: 'Password reset failed.');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> completePasswordRecovery(String newPassword) async {
+    try {
+      if (_supabase.auth.currentSession == null) {
+        throw const AuthException(
+          'This recovery link is invalid or expired. Request a new one.',
+        );
+      }
+      await _supabase.auth.updateUser(UserAttributes(password: newPassword));
+      await _supabase.auth.signOut();
+      _passwordRecoveryPending = false;
+      _errorMessage = null;
+      _status = AuthStatus.unauthenticated;
+      _currentUser = null;
+      notifyListeners();
+      return true;
+    } on Exception catch (e) {
+      _errorMessage =
+          _extractMessage(e, fallback: 'Unable to update password.');
       notifyListeners();
       return false;
     }
@@ -598,7 +641,8 @@ class AuthProvider with ChangeNotifier {
     }
     try {
       await _supabase.auth.updateUser(UserAttributes(email: normalized));
-      final updated = _currentUser!.copyWith(email: normalized, updatedAt: DateTime.now());
+      final updated =
+          _currentUser!.copyWith(email: normalized, updatedAt: DateTime.now());
       await _authRepo.updateUser(updated);
       _currentUser = updated;
       await _localStorage?.saveUser(updated);
@@ -612,7 +656,8 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
-  Future<bool> changePassword(String currentPassword, String newPassword) async {
+  Future<bool> changePassword(
+      String currentPassword, String newPassword) async {
     try {
       // Re-authenticate with current password.
       final user = _supabase.auth.currentUser;
@@ -630,7 +675,8 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
       return true;
     } on Exception catch (e) {
-      _errorMessage = _extractMessage(e, fallback: 'Failed to change password.');
+      _errorMessage =
+          _extractMessage(e, fallback: 'Failed to change password.');
       notifyListeners();
       return false;
     }
@@ -718,7 +764,8 @@ class AuthProvider with ChangeNotifier {
         if (!_currentUser!.isOwner) {
           _subscriptionValidated = true;
         } else {
-          _subscriptionValidated = await _validateSubscriptionForUser(_currentUser!);
+          _subscriptionValidated =
+              await _validateSubscriptionForUser(_currentUser!);
         }
       }
       notifyListeners();
@@ -731,13 +778,10 @@ class AuthProvider with ChangeNotifier {
   Future<bool> switchBusiness(String businessId) async {
     if (_currentUser == null) return false;
     try {
-      final existing = _currentUser!.businessIds;
-      final merged = List<String>.from({...existing, businessId});
       final updated = _currentUser!.copyWith(
-        businessIds: merged,
         currentBusinessId: businessId,
       );
-      await _authRepo.updateUser(updated);
+      await _authRepo.setCurrentBusiness(businessId);
       _currentUser = updated;
       await _localStorage?.saveUser(updated);
       if (_localBusinessStorage != null) {
@@ -756,6 +800,7 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
       return true;
     } catch (e) {
+      debugPrint('[AuthProvider] Business switch failed: $e');
       _errorMessage = 'Failed to switch business: $e';
       notifyListeners();
       return false;
@@ -801,8 +846,10 @@ class AuthProvider with ChangeNotifier {
 
       final access = await _authService.resolveUserAccess(uid);
       if (!access.isAllowed || access.user == null) {
-        if (_canKeepCachedUserAfterUncertainAccessFailure(uid, access.message)) {
-          await _restoreCachedUserForOfflineStartup(_localStorage!.getCachedUser()!);
+        if (_canKeepCachedUserAfterUncertainAccessFailure(
+            uid, access.message)) {
+          await _restoreCachedUserForOfflineStartup(
+              _localStorage!.getCachedUser()!);
           return;
         }
         await _forceLogoutBecauseAccessChanged(
@@ -824,7 +871,8 @@ class AuthProvider with ChangeNotifier {
         if (!_currentUser!.isOwner) {
           _subscriptionValidated = true;
         } else {
-          _subscriptionValidated = await _validateSubscriptionForUser(_currentUser!);
+          _subscriptionValidated =
+              await _validateSubscriptionForUser(_currentUser!);
         }
       }
 
@@ -857,6 +905,10 @@ class AuthProvider with ChangeNotifier {
             updated.currentBusinessId != _currentUser?.currentBusinessId ||
                 updated.fullName != _currentUser?.fullName ||
                 updated.email != _currentUser?.email ||
+                updated.phoneNumber != _currentUser?.phoneNumber ||
+                updated.address != _currentUser?.address ||
+                updated.jobTitle != _currentUser?.jobTitle ||
+                updated.photoUrl != _currentUser?.photoUrl ||
                 updated.role != _currentUser?.role ||
                 updated.businessIds.join(',') !=
                     _currentUser?.businessIds.join(',') ||
@@ -887,7 +939,8 @@ class AuthProvider with ChangeNotifier {
         ? businessId!.trim()
         : _resolveCurrentBusinessId(user);
     if (resolvedBiz == null || resolvedBiz.isEmpty) return true;
-    final valid = await _subscriptionService.validateAndUpdateSubscriptionStatus(
+    final valid =
+        await _subscriptionService.validateAndUpdateSubscriptionStatus(
       user.id,
       businessId: resolvedBiz,
     );
@@ -1057,4 +1110,3 @@ class AuthProvider with ChangeNotifier {
     super.dispose();
   }
 }
-
