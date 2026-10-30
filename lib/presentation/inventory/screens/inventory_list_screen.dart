@@ -16,6 +16,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/retail_provider.dart';
 import '../../../providers/workers_provider.dart';
 import 'inventory_alerts_screen.dart';
+import 'bakery_inventory_workflow_screen.dart';
 import 'low_stock_products_screen.dart';
 import 'distributor_sales_report_screen.dart';
 import '../../dashboard/owner/utils/procurement_filter_utils.dart';
@@ -332,14 +333,20 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       return;
     }
 
-    final discountController = TextEditingController(
-      text: ((item['distributorDiscountPercent'] as num?)?.toString() ?? '0'),
+    final existingDiscount = double.tryParse(
+          (item['distributorDiscountPercent'] ??
+                  item['distributor_discount_percent'] ??
+                  '0')
+              .toString(),
+        ) ??
+        0;
+    final existingPrice = double.tryParse(
+      (item['distributorPrice'] ?? item['distributor_price'] ?? '').toString(),
     );
-    final priceController = TextEditingController(
-      text: (item['distributorPrice'] as num?) == null
-          ? ''
-          : (item['distributorPrice'] as num).toString(),
-    );
+    final discountController =
+        TextEditingController(text: existingDiscount.toString());
+    final priceController =
+        TextEditingController(text: existingPrice?.toString() ?? '');
     final businessProvider = context.read<BusinessProvider>();
     final businessId = businessProvider.currentBusiness?.id ?? '';
     if (businessId.isEmpty) {
@@ -390,8 +397,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     final distributorPrice = priceController.text.trim().isEmpty
         ? null
         : double.tryParse(priceController.text.trim().replaceAll(',', ''));
-    if (discount < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Discount cannot be negative')));
+    if (discount < 0 || discount > 100) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Discount must be between 0% and 100%')));
       return;
     }
     if (priceController.text.trim().isNotEmpty && distributorPrice == null) {
@@ -407,8 +414,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       await _repository.updateInventory(productId, {
         'businessId': businessId,
         'distributorDiscountPercent': discount,
-        'discountPercent': discount,
-        if (distributorPrice != null) 'distributorPrice': distributorPrice,
+        'distributorPrice': distributorPrice,
       });
       await _loadInventory();
       if (!mounted) return;
@@ -416,7 +422,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
           ? '${discount.toStringAsFixed(0)}% distributor discount'
           : 'distributor price ₦${distributorPrice.toStringAsFixed(2)}';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Saved $savedLabel')));
-      context.read<RetailProvider>().loadProducts(forceRefresh: true);
+      await context.read<RetailProvider>().loadProducts(forceRefresh: true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save distributor discount: $e'), backgroundColor: Colors.red));
@@ -823,18 +829,33 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                 if (_isBakeryBusiness() && widget.showIngredientsOnly)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16),
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: ElevatedButton.icon(
-                        onPressed: _navigateToBakeryResupplyScreen,
-                        icon: const Icon(Icons.shopping_cart_checkout, size: 18),
-                        label: const Text('Bakery Resupply'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 10),
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  const BakeryInventoryWorkflowScreen(),
+                            ),
+                          ),
+                          icon: const Icon(Icons.history, size: 18),
+                          label: const Text('Requests & history'),
                         ),
-                      ),
+                        ElevatedButton.icon(
+                          onPressed: _navigateToBakeryResupplyScreen,
+                          icon:
+                              const Icon(Icons.shopping_cart_checkout, size: 18),
+                          label: const Text('Bakery Resupply'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 10),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
 

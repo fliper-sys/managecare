@@ -254,6 +254,9 @@ class InventoryRepositorySupabase implements InventoryRepository {
             _toDouble(row['wholesalePrice'] ?? row['wholesale_price']),
         'distributorPrice':
             _toDouble(row['distributorPrice'] ?? row['distributor_price']),
+        'distributorDiscountPercent': _toDouble(
+            row['distributorDiscountPercent'] ??
+                row['distributor_discount_percent']),
         'saleUnit': row['saleUnit'] ?? row['sale_unit'],
         'saleUnitMultiplier':
             _toDouble(row['saleUnitMultiplier'] ?? row['sale_unit_multiplier']),
@@ -292,6 +295,10 @@ class InventoryRepositorySupabase implements InventoryRepository {
               'wholesale_price': row['wholesalePrice'],
               'distributorPrice': row['distributorPrice'],
               'distributor_price': row['distributorPrice'],
+              'distributorDiscountPercent':
+                  row['distributorDiscountPercent'],
+              'distributor_discount_percent':
+                  row['distributorDiscountPercent'],
               'saleUnit': row['saleUnit'],
               'sale_unit': row['saleUnit'],
               'saleUnitMultiplier': row['saleUnitMultiplier'],
@@ -772,7 +779,10 @@ class InventoryRepositorySupabase implements InventoryRepository {
       if (data['metadata'] is Map)
         ...Map<String, dynamic>.from(data['metadata'] as Map),
       for (final entry in data.entries)
-        if (!_knownPayloadKeys.contains(entry.key) && entry.value != null)
+        if (!_knownPayloadKeys.contains(entry.key) &&
+            (entry.value != null ||
+                entry.key == 'distributorPrice' ||
+                entry.key == 'distributor_price'))
           entry.key: entry.value,
     };
     return {

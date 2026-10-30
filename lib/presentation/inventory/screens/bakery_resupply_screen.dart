@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/theme/text_styles.dart';
-import '../../../core/constants/routes.dart';
 import '../../../data/repositories/inventory_repository_supabase.dart';
 import '../../../providers/business_provider.dart';
 import '../../../providers/auth_provider.dart';

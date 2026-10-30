@@ -82,7 +82,7 @@ class _BakeryInventoryWorkflowScreenState
         _pendingSpoilage = values[1] as List<Map<String, dynamic>>;
         _resupplyHistory = values[2] as List<Map<String, dynamic>>;
         _spoilageHistory = values[3] as List<Map<String, dynamic>>;
-        _inventory = (values[4] as List)
+        _inventory = values[4]
             .whereType<Map>()
             .map((item) => Map<String, dynamic>.from(item))
             .toList();
@@ -191,12 +191,13 @@ class _BakeryInventoryWorkflowScreenState
         ],
       ),
     );
-    if (selected != 'save') return;
     final quantity = double.tryParse(quantityController.text.trim());
     final inventoryId = productIdController.value;
+    final notes = notesController.text.trim();
     productIdController.dispose();
     quantityController.dispose();
     notesController.dispose();
+    if (selected != 'save') return;
     if (inventoryId.isEmpty || quantity == null || quantity <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -213,7 +214,7 @@ class _BakeryInventoryWorkflowScreenState
         quantity: quantity,
         bakerId: request['bakerId']?.toString(),
         bakerName: request['bakerName']?.toString(),
-        notes: notesController.text.trim(),
+        notes: notes,
         expectedProductionAmount:
             request['expectedProductionAmount'] as num? ?? 0,
         actualProductionAmount:

@@ -17,5 +17,10 @@ Map<String, dynamic> bakeryResupplyRowToJson(Map<String, dynamic> row) => {
       'actualProductionAmount': row['actual_production_amount'],
       'productionUnit': row['production_unit'],
       'productionItemName': row['production_item_name'],
+      'status': row['status'] ?? 'approved',
+      'approvedById': row['approved_by_id'],
+      'approvedByName': row['approved_by_name'],
+      'approvedAt': row['approved_at'],
+      'decisionNotes': row['decision_notes'],
       'createdAt': row['created_at'],
     };

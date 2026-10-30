@@ -31,7 +31,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -122,6 +122,7 @@ class DatabaseHelper {
         storeId TEXT,
         wholesalePrice REAL,
         distributorPrice REAL,
+        distributorDiscountPercent REAL,
         saleUnit TEXT,
         saleUnitMultiplier REAL,
         emoji TEXT
@@ -279,6 +280,11 @@ class DatabaseHelper {
           updatedAt TEXT NOT NULL
         )
       ''');
+    }
+    if (oldVersion < 11) {
+      await _addColumnsIfMissing(db, 'inventory', {
+        'distributorDiscountPercent': 'REAL',
+      });
     }
   }
 
